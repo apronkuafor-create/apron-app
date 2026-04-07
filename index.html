@@ -35,11 +35,14 @@ const SAAT  = () => new Date().toTimeString().slice(0,5);
 const fmt   = n => Number(n||0).toLocaleString("tr-TR") + " ₺";
 const toN   = v => { const n=parseFloat(String(v||"0").replace(",",".")); return isNaN(n)?0:n; };
 const uid   = () => Date.now()+Math.floor(Math.random()*9999);
+const normText = s => String(s||"").toLowerCase().replace(/ı/g,"i").normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
+const normDigits = s => String(s||"").replace(/\D/g,"");
+const urunAramaMetni = u => normText([u.a,u.m,u.ml,u.alias||"",u.b].join(" "));
 
 // ── Sabitler ─────────────────────────────────────────────────────────────
 const LOGO = "data:image/png;base64,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";
 
-const URUN_DB = [{"b":"4064666302423","a":"Sp Man Anti-Dandruff Shampoo 250ml","ml":"250ml","bp":1236,"sp":2472,"m":"Wella"},{"b":"4064666302430","a":"Sp Man Anti-Dandruff Shampoo 1000ml","ml":"1000ml","bp":3036,"sp":6072,"m":"Wella"},{"b":"4064666004471","a":"Sp Man Energy Refreshing Shampoo 250ml","ml":"250ml","bp":1236,"sp":2472,"m":"Wella"},{"b":"4064666004716","a":"Sp Man Energy Refreshing Shampoo 1000ml","ml":"1000ml","bp":3036,"sp":6072,"m":"Wella"},{"b":"4064666006918","a":"Sp Man Matte Cream","ml":"80ml","bp":1002,"sp":2004,"m":"Wella"},{"b":"4064666006871","a":"Sp Man Maximum Gel","ml":"150ml","bp":1350,"sp":2700,"m":"Wella"},{"b":"4064666000794","a":"Sp Volumize Shampoo 250ml","ml":"250ml","bp":1098,"sp":2196,"m":"Wella"},{"b":"4064666005836","a":"Sp Volumize Shampoo 1000ml","ml":"1000ml","bp":2898,"sp":5796,"m":"Wella"},{"b":"4064666940342","a":"Sp Luxe Oil Keratin Shampoo 250ml","ml":"250ml","bp":1098,"sp":2196,"m":"Wella"},{"b":"4064666003634","a":"Sp Luxe Oil Keratin Shampoo 1000ml","ml":"1000ml","bp":2898,"sp":5796,"m":"Wella"},{"b":"4064666904108","a":"Sp Luxe Oil Elixir","ml":"100ml","bp":1722,"sp":3444,"m":"Wella"},{"b":"4064666000596","a":"Sp Hydrate Shampoo 250ml","ml":"250ml","bp":1098,"sp":2196,"m":"Wella"},{"b":"4064666003474","a":"Sp Hydrate Shampoo 1000ml","ml":"1000ml","bp":2898,"sp":5796,"m":"Wella"},{"b":"4064666003078","a":"Sp Hydrate Mask","ml":"200ml","bp":1722,"sp":3444,"m":"Wella"},{"b":"4064666000633","a":"Sp Balance Shampoo 250ml","ml":"250ml","bp":1098,"sp":2196,"m":"Wella"},{"b":"4064666002156","a":"Sp Balance Shampoo 1000ml","ml":"1000ml","bp":2898,"sp":5796,"m":"Wella"},{"b":"4064666579917","a":"Sp Ultimate Repair Shampoo 250ml","ml":"250ml","bp":1032,"sp":2064,"m":"Wella"},{"b":"4064666579931","a":"Sp Ultimate Repair Shampoo 1000ml","ml":"1000ml","bp":2412,"sp":4824,"m":"Wella"},{"b":"4064666583648","a":"Sp Elements Calming Shampoo 250ml","ml":"250ml","bp":864,"sp":1728,"m":"Wella"},{"b":"4064666036144","a":"Sp Elements Calming Shampoo 1000ml","ml":"1000ml","bp":2004,"sp":4008,"m":"Wella"},{"b":"8005610532509","a":"Sp Eimi Extra Volume 300ml","ml":"300ml","bp":822,"sp":1644,"m":"Wella"},{"b":"8005610532325","a":"Sp Eimi Extra Volume 500ml","ml":"500ml","bp":1050,"sp":2100,"m":"Wella"},{"b":"8005610576206","a":"Sp Eimi Bold Move Matte Paste","ml":"150ml","bp":822,"sp":1644,"m":"Wella"},{"b":"8005610532202","a":"Sp Eimi Super Set Spray","ml":"500ml","bp":1050,"sp":2100,"m":"Wella"},{"b":"4064666044354","a":"Sebastian Potion 9","ml":"150ml","bp":1794,"sp":3588,"m":"Wella"},{"b":"5012521541943","a":"Morgans Spiced Rum Hair Tonic","ml":"250ml","bp":650,"sp":1300,"m":"Morgans"},{"b":"5012521541820","a":"Morgans Menthol Cooling Tonic","ml":"250ml","bp":575,"sp":1150,"m":"Morgans"},{"b":"5012521541813","a":"Morgans Grooming Hair Tonic","ml":"250ml","bp":750,"sp":1500,"m":"Morgans"},{"b":"5012521541868","a":"Morgans Matt Clay","ml":"120ml","bp":650,"sp":1300,"m":"Morgans"},{"b":"5012521542353","a":"Morgans Matt Paste Brazilian Orange","ml":"120ml","bp":750,"sp":1500,"m":"Morgans"},{"b":"5012521541998","a":"Morgans Texture Clay","ml":"120ml","bp":750,"sp":1500,"m":"Morgans"},{"b":"5012521541875","a":"Morgans Matt Pomade Brazilian Orange","ml":"100g","bp":750,"sp":1500,"m":"Morgans"},{"b":"5012521539216","a":"Morgans Matt Pomade Bay Rum","ml":"100g","bp":750,"sp":1500,"m":"Morgans"},{"b":"5012521541349","a":"Morgans Styling Pomade Medium Hold","ml":"100g","bp":750,"sp":1500,"m":"Morgans"},{"b":"5012521541424","a":"Morgans Classic Pomade","ml":"100g","bp":700,"sp":1400,"m":"Morgans"},{"b":"5012521541882","a":"Morgans Sea Salt Spray","ml":"100ml","bp":650,"sp":1300,"m":"Morgans"},{"b":"5012521542858","a":"Morgans Age Defying Serum","ml":"50ml","bp":1250,"sp":2500,"m":"Morgans"},{"b":"8059173159178","a":"Screen Balancing Shampoo 1000ml","ml":"1000ml","bp":1750,"sp":3500,"m":"Screen"},{"b":"8059173159161","a":"Screen Balancing Shampoo 250ml","ml":"250ml","bp":625,"sp":1250,"m":"Screen"},{"b":"8059173159147","a":"Screen Day-To-Day Shampoo 1000ml","ml":"1000ml","bp":1750,"sp":3500,"m":"Screen"},{"b":"8059173159130","a":"Screen Day-To-Day Shampoo 250ml","ml":"250ml","bp":625,"sp":1250,"m":"Screen"},{"b":"8059173159215","a":"Screen Beard Shampoo","ml":"150ml","bp":660,"sp":1320,"m":"Screen"},{"b":"8059173159253","a":"Screen After Shave Lotion","ml":"100ml","bp":700,"sp":1400,"m":"Screen"},{"b":"8059173159062","a":"Screen Beard Hair Conditioner","ml":"150ml","bp":790,"sp":1580,"m":"Screen"},{"b":"8059173159239","a":"Screen Beard Oil","ml":"30ml","bp":695,"sp":1390,"m":"Screen"},{"b":"8059173159024","a":"Screen Defining Wax","ml":"75ml","bp":600,"sp":1200,"m":"Screen"},{"b":"8059173159086","a":"Screen Dry Shaping Cream","ml":"75ml","bp":600,"sp":1200,"m":"Screen"},{"b":"8059173159017","a":"Screen Fixing Wax","ml":"75ml","bp":600,"sp":1200,"m":"Screen"},{"b":"8059173159055","a":"Screen Shaving Cream","ml":"400ml","bp":1150,"sp":2300,"m":"Screen"},{"b":"5060630046354","a":"Tangle Teezer Smooth Shine Mavi","ml":"Firca","bp":475,"sp":950,"m":"TT"},{"b":"5060630043926","a":"Tangle Teezer Scalp Brush Lilac","ml":"Tarak","bp":699,"sp":1398,"m":"TT"},{"b":"5060630047139","a":"Tangle Teezer Smooth Shine Yesil","ml":"Firca","bp":475,"sp":950,"m":"TT"},{"b":"5060630044046","a":"Tangle Teezer Scalp Brush Pink","ml":"Tarak","bp":699,"sp":1398,"m":"TT"},{"b":"5060630043841","a":"Tangle Teezer Scalp Brush Black","ml":"Tarak","bp":699,"sp":1398,"m":"TT"},{"b":"817891024813","a":"Uppercut Strength Restore Conditioner","ml":"240ml","bp":602,"sp":1205,"m":"Uppercut"},{"b":"817891024196","a":"Uppercut Clay","ml":"70g","bp":825,"sp":1650,"m":"Uppercut"},{"b":"817891025254","a":"Uppercut Matte Pomade","ml":"100g","bp":825,"sp":1650,"m":"Uppercut"},{"b":"817891023151","a":"Uppercut Featherweight","ml":"70g","bp":825,"sp":1650,"m":"Uppercut"},{"b":"6972879982470","a":"Cronier CR-123 Kucuk Makine","ml":"Makine","bp":1723,"sp":3446,"m":"Cronier"},{"b":"6972879981558","a":"Cronier CR-12 Buyuk Makine","ml":"Makine","bp":2704,"sp":5408,"m":"Cronier"},{"b":"43917006888","a":"Wahl Seyahat Tiras Makinesi","ml":"Makine","bp":467,"sp":934,"m":"Wahl"}];
+const URUN_DB = [{"b":"4064666302423","a":"Sp Man Anti-Dandruff Shampoo 250ml","ml":"250ml","bp":1236,"sp":2472,"m":"Wella"},{"b":"4064666302430","a":"Sp Man Anti-Dandruff Shampoo 1000ml","ml":"1000ml","bp":3036,"sp":6072,"m":"Wella"},{"b":"4064666004471","a":"Sp Man Energy Refreshing Shampoo 250ml","ml":"250ml","bp":1236,"sp":2472,"m":"Wella"},{"b":"4064666004716","a":"Sp Man Energy Refreshing Shampoo 1000ml","ml":"1000ml","bp":3036,"sp":6072,"m":"Wella"},{"b":"4064666006918","a":"Sp Man Matte Cream","ml":"80ml","bp":1002,"sp":2004,"m":"Wella"},{"b":"4064666006871","a":"Sp Man Maximum Gel","ml":"150ml","bp":1350,"sp":2700,"m":"Wella"},{"b":"4064666000794","a":"Sp Volumize Shampoo 250ml","ml":"250ml","bp":1098,"sp":2196,"m":"Wella"},{"b":"4064666005836","a":"Sp Volumize Shampoo 1000ml","ml":"1000ml","bp":2898,"sp":5796,"m":"Wella"},{"b":"4064666940342","a":"Sp Luxe Oil Keratin Shampoo 250ml","ml":"250ml","bp":1098,"sp":2196,"m":"Wella"},{"b":"4064666003634","a":"Sp Luxe Oil Keratin Shampoo 1000ml","ml":"1000ml","bp":2898,"sp":5796,"m":"Wella"},{"b":"4064666904108","a":"Sp Luxe Oil Elixir","ml":"100ml","bp":1722,"sp":3444,"m":"Wella"},{"b":"4064666000596","a":"Sp Hydrate Shampoo 250ml","ml":"250ml","bp":1098,"sp":2196,"m":"Wella"},{"b":"4064666003474","a":"Sp Hydrate Shampoo 1000ml","ml":"1000ml","bp":2898,"sp":5796,"m":"Wella"},{"b":"4064666003078","a":"Sp Hydrate Mask","ml":"200ml","bp":1722,"sp":3444,"m":"Wella"},{"b":"4064666000633","a":"Sp Balance Shampoo 250ml","ml":"250ml","bp":1098,"sp":2196,"m":"Wella"},{"b":"4064666002156","a":"Sp Balance Shampoo 1000ml","ml":"1000ml","bp":2898,"sp":5796,"m":"Wella"},{"b":"4064666579917","a":"Sp Ultimate Repair Shampoo 250ml","ml":"250ml","bp":1032,"sp":2064,"m":"Wella"},{"b":"4064666579931","a":"Sp Ultimate Repair Shampoo 1000ml","ml":"1000ml","bp":2412,"sp":4824,"m":"Wella"},{"b":"4064666583648","a":"Sp Elements Calming Shampoo 250ml","ml":"250ml","bp":864,"sp":1728,"m":"Wella"},{"b":"4064666036144","a":"Sp Elements Calming Shampoo 1000ml","ml":"1000ml","bp":2004,"sp":4008,"m":"Wella"},{"b":"8005610532509","a":"Sp Eimi Extra Volume 300ml","ml":"300ml","bp":822,"sp":1644,"m":"Wella"},{"b":"8005610532325","a":"Sp Eimi Extra Volume 500ml","ml":"500ml","bp":1050,"sp":2100,"m":"Wella"},{"b":"8005610576206","a":"Sp Eimi Bold Move Matte Paste","ml":"150ml","bp":822,"sp":1644,"m":"Wella"},{"b":"8005610532202","a":"Sp Eimi Super Set Spray","ml":"500ml","bp":1050,"sp":2100,"m":"Wella"},{"b":"4064666044354","a":"Sebastian Potion 9","ml":"150ml","bp":1794,"sp":3588,"m":"Wella"},{"b":"5012521541943","a":"Morgans Spiced Rum Hair Tonic","ml":"250ml","bp":650,"sp":1300,"m":"Morgans"},{"b":"5012521541820","a":"Morgans Menthol Cooling Tonic","ml":"250ml","bp":575,"sp":1150,"m":"Morgans"},{"b":"5012521541813","a":"Morgans Grooming Hair Tonic","ml":"250ml","bp":750,"sp":1500,"m":"Morgans"},{"b":"5012521541868","a":"Morgans Matt Clay","ml":"120ml","bp":650,"sp":1300,"m":"Morgans"},{"b":"5012521542353","a":"Morgans Matt Paste Brazilian Orange","ml":"120ml","bp":750,"sp":1500,"m":"Morgans"},{"b":"5012521541998","a":"Morgans Texture Clay","ml":"120ml","bp":750,"sp":1500,"m":"Morgans"},{"b":"5012521541875","a":"Morgans Matt Pomade Brazilian Orange","ml":"100g","bp":750,"sp":1500,"m":"Morgans"},{"b":"5012521539216","a":"Morgans Matt Pomade Bay Rum","ml":"100g","bp":750,"sp":1500,"m":"Morgans"},{"b":"5012521541349","a":"Morgans Styling Pomade Medium Hold","ml":"100g","bp":750,"sp":1500,"m":"Morgans"},{"b":"5012521541424","a":"Morgans Classic Pomade","ml":"100g","bp":700,"sp":1400,"m":"Morgans"},{"b":"5012521541882","a":"Morgans Sea Salt Spray","ml":"100ml","bp":650,"sp":1300,"m":"Morgans"},{"b":"5012521542858","a":"Morgans Age Defying Serum","ml":"50ml","bp":1250,"sp":2500,"m":"Morgans"},{"b":"8059173159178","a":"Screen Balancing Shampoo 1000ml","ml":"1000ml","bp":1750,"sp":3500,"m":"Screen"},{"b":"8059173159161","a":"Screen Balancing Shampoo 250ml","ml":"250ml","bp":625,"sp":1250,"m":"Screen"},{"b":"8059173159147","a":"Screen Day-To-Day Shampoo 1000ml","ml":"1000ml","bp":1750,"sp":3500,"m":"Screen"},{"b":"8059173159130","a":"Screen Day-To-Day Shampoo 250ml","ml":"250ml","bp":625,"sp":1250,"m":"Screen"},{"b":"8059173159215","a":"Screen Beard Shampoo","ml":"150ml","bp":660,"sp":1320,"m":"Screen"},{"b":"8059173159253","a":"Screen After Shave Lotion","ml":"100ml","bp":700,"sp":1400,"m":"Screen"},{"b":"8059173159062","a":"Screen Beard Hair Conditioner","ml":"150ml","bp":790,"sp":1580,"m":"Screen"},{"b":"8059173159239","a":"Screen Beard Oil","ml":"30ml","bp":695,"sp":1390,"m":"Screen"},{"b":"8059173159024","a":"Screen Defining Wax","ml":"75ml","bp":600,"sp":1200,"m":"Screen"},{"b":"8059173159086","a":"Screen Dry Shaping Cream","ml":"75ml","bp":600,"sp":1200,"m":"Screen"},{"b":"8059173159017","a":"Screen Fixing Wax","ml":"75ml","bp":600,"sp":1200,"m":"Screen"},{"b":"8059173159055","a":"Screen Shaving Cream","ml":"400ml","bp":1150,"sp":2300,"m":"Screen"},{"b":"5060630046354","a":"Tangle Teezer Smooth Shine Mavi","ml":"Firca","bp":475,"sp":950,"m":"TT"},{"b":"5060630043926","a":"Tangle Teezer Scalp Brush Lilac","ml":"Tarak","bp":699,"sp":1398,"m":"TT"},{"b":"5060630047139","a":"Tangle Teezer Smooth Shine Yesil","ml":"Firca","bp":475,"sp":950,"m":"TT"},{"b":"5060630044046","a":"Tangle Teezer Scalp Brush Pink","ml":"Tarak","bp":699,"sp":1398,"m":"TT"},{"b":"5060630043841","a":"Tangle Teezer Scalp Brush Black","ml":"Tarak","bp":699,"sp":1398,"m":"TT"},{"b":"817891024813","a":"Uppercut Strength Restore Conditioner","ml":"240ml","bp":602,"sp":1205,"m":"Uppercut"},{"b":"817891024196","a":"Uppercut Clay","ml":"70g","bp":825,"sp":1650,"m":"Uppercut"},{"b":"817891025254","a":"Uppercut Matte Pomade","ml":"100g","bp":825,"sp":1650,"m":"Uppercut"},{"b":"817891023151","a":"Uppercut Featherweight","ml":"70g","bp":825,"sp":1650,"m":"Uppercut"},{"b":"6972879982470","a":"Cronier CR-123 Kucuk Makine","ml":"Makine","bp":1723,"sp":3446,"m":"Cronier"},{"b":"6972879981558","a":"Cronier CR-12 Buyuk Makine","ml":"Makine","bp":2704,"sp":5408,"m":"Cronier"},{"b":"43917006888","a":"Wahl Seyahat Tiras Makinesi","ml":"Makine","bp":467,"sp":934,"m":"Wahl"},{"b":"4064666008455","a":"SP Alpha Energy Serum","alias":"Alpha Energy Serum","ml":"100ml","bp":1850,"sp":3700,"m":"Wella"},{"b":"4064666008462","a":"SP Alpha Energy Shampoo","alias":"Alpha Energy Shampoo","ml":"250ml","bp":1290,"sp":2580,"m":"Wella"},{"b":"4064666008479","a":"SP Alpha Energy Shampoo","alias":"Alpha Energy Shampoo","ml":"1000ml","bp":3190,"sp":6380,"m":"Wella"},{"b":"4064666008486","a":"SP Balance Scalp Lotion","alias":"Balance Serum Alpha","ml":"125ml","bp":1660,"sp":3320,"m":"Wella"},{"b":"4064666008493","a":"SP Men Gradual Tone Brown","alias":"Alpha Men Tone","ml":"60ml","bp":990,"sp":1980,"m":"Wella"}];
 
 const MARKALAR = [...new Set(URUN_DB.map(u=>u.m))];
 const MRENK = {"Wella":"#8B5CF6","Morgans":"#d4a017","Screen":"#3B82F6","TT":"#EC4899","Uppercut":"#10B981","Cronier":"#F97316","Wahl":"#6B7280"};
@@ -343,7 +346,7 @@ select option{background:#1a1510;color:#e8dcc8;}
 // ══════════════════════════════════════════════════════════════════════════
 // Odeme Gir
 // ══════════════════════════════════════════════════════════════════════════
-const OdemeGir = React.memo(({baslik="Odeme Dagilimi", kk, ib, nk, ibanAlanId, personeller, onChange, toplam}) => {
+const OdemeGir = React.memo(({baslik="Odeme Dagilimi", kk, ib, nk, ibanAlanId, personeller, onChange, toplam, showIbanSelect=true}) => {
   const girilen = toN(kk)+toN(ib)+toN(nk);
   const fark = Math.abs(girilen-toN(toplam));
   return (
@@ -360,7 +363,7 @@ const OdemeGir = React.memo(({baslik="Odeme Dagilimi", kk, ib, nk, ibanAlanId, p
           </div>
         ))}
       </div>
-      {toN(ib)>0 && (
+      {showIbanSelect && toN(ib)>0 && (
         <div style={{marginBottom:12}}>
           <label className="fl">IBAN Kime Gitti? *</label>
           <select className="fi" value={ibanAlanId} onChange={e=>onChange("ibanAlanId",e.target.value)}>
@@ -413,17 +416,25 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
 
   const seciliHizIban = aktifPersoneller.find(p=>p.id===hIbanAlanId);
   const seciliUrunIban = aktifPersoneller.find(p=>p.id===uIbanAlanId);
+  const bosHizmet = () => ({id:uid(),n:"",f:"",pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""});
 
-  const hEkle = () => setHizler(p=>[...p,{id:uid(),n:"",f:"",pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""}]);
-  const hSil = id => setHizler(p=>p.length===1?[{id:uid(),n:"",f:"",pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""}]:p.filter(x=>x.id!==id));
-  const hGuncelle = (id,alan,deger) => setHizler(p=>p.map(x=>{
-    if(x.id!==id) return x;
-    if(alan==="pId"){
-      const pp = aktifPersoneller.find(a=>a.id===deger);
-      return {...x,pId:deger,pAd:pp?.ad||""};
-    }
-    return {...x,[alan]:deger};
-  }));
+  const hSil = id => setHizler(p=>{
+    const kalan = p.filter(x=>x.id!==id);
+    return kalan.length ? (kalan.some(x=>!x.n) ? kalan : [...kalan, bosHizmet()]) : [bosHizmet()];
+  });
+  const hGuncelle = (id,alan,deger) => setHizler(p=>{
+    let next = p.map(x=>{
+      if(x.id!==id) return x;
+      if(alan==="pId"){
+        const pp = aktifPersoneller.find(a=>a.id===deger);
+        return {...x,pId:deger,pAd:pp?.ad||""};
+      }
+      return {...x,[alan]:deger};
+    });
+    const guncel = next.find(x=>x.id===id);
+    if(alan==="n" && deger && guncel && !next.some(x=>!x.n)) next = [...next, bosHizmet()];
+    return next;
+  });
 
   const uGuncelle = (id,alan,deger) => setUrunler(p=>p.map(x=>{
     if(x.id!==id) return x;
@@ -447,10 +458,15 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
     setBarkod("");setBSonuc([]);setBHata("");setArama("");setTimeout(()=>bRef.current?.focus(),80); 
   };
   const aSonuc  = arama.trim().length>=1 ? URUN_DB.filter(u=>{
-    const q=arama.toLowerCase().trim();
+    const q=normText(arama);
     const ok=aMarka==="all"||u.m===aMarka;
-    return ok&&(u.a.toLowerCase().includes(q)||u.b.includes(q)||String(u.ml||"").toLowerCase().includes(q)||String(u.m||"").toLowerCase().includes(q));
-  }).slice(0,10) : [];
+    return ok && urunAramaMetni(u).includes(q);
+  }).slice(0,15) : [];
+  const doluHizler = hizler.filter(h=>h.n);
+  const hizmetPersonelTek = [...new Set(doluHizler.map(h=>h.pId).filter(Boolean))];
+  const otomatikHizIbanId = !hIbanAlanId && hizmetPersonelTek.length===1 ? hizmetPersonelTek[0] : "";
+  const finalHizIbanId = hIbanAlanId || otomatikHizIbanId;
+  const finalHizIbanAd = aktifPersoneller.find(p=>p.id===finalHizIbanId)?.ad || "";
   const hizmetTop = hizler.reduce((s,h)=>s+toN(h.f),0);
   const urunTop = urunler.reduce((s,u)=>s+toN(u.sf||u.sp)*toN(u.qty||1),0);
   const genelTop = hizmetTop + urunTop;
@@ -466,7 +482,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
       hizler:temizH, urunler:temizU,
       hizKK:hKK,hizIB:hIB,hizNK:hNK,
       uKK:uKK,uIB:uIB,uNK:uNK,
-      hizIbanAlanId:hIbanAlanId, hizIbanAlanAd: seciliHizIban?.ad||"",
+      hizIbanAlanId:finalHizIbanId, hizIbanAlanAd: finalHizIbanAd,
       uIbanAlanId:uIbanAlanId, uIbanAlanAd: seciliUrunIban?.ad||""
     });
   };
@@ -517,35 +533,41 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
               <div className="sc-t" style={{color:"#80c040"}}>Hizmetler</div>
             </div>
             {hizler.map((h,i)=>(
-              <div key={h.id} className="si" style={{marginBottom:8}}>
+              <div key={h.id} className="si" style={{marginBottom:8, opacity:h.n?1:.92}}>
                 <div className="r2" style={{marginBottom:8}}>
                   <div>
                     <label className="fl">Hizmet</label>
                     <select className="fi" value={h.n} onChange={e=>hGuncelle(h.id,"n",e.target.value)}>
-                      <option value="">Sec</option>
+                      <option value="">Hizmet sec</option>
                       {secilebilirHizmetler.map(x=><option key={x} value={x}>{x}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="fl">Fiyat</label>
-                    <input className="fi" type="number" inputMode="numeric" value={h.f} onChange={e=>hGuncelle(h.id,"f",e.target.value)} placeholder="0"/>
+                    <input className="fi" type="number" inputMode="numeric" value={h.f} onChange={e=>hGuncelle(h.id,"f",e.target.value)} placeholder="0" disabled={!h.n}/>
                   </div>
                 </div>
                 <div className="r2">
                   <div>
                     <label className="fl">Hizmeti Yapan</label>
-                    <select className="fi" value={h.pId} onChange={e=>hGuncelle(h.id,"pId",e.target.value)}>
+                    <select className="fi" value={h.pId} onChange={e=>hGuncelle(h.id,"pId",e.target.value)} disabled={!h.n}>
                       <option value="">Personel sec</option>
                       {aktifPersoneller.map(p=><option key={p.id} value={p.id}>{p.ad}</option>)}
                     </select>
                   </div>
                   <div style={{display:"flex",alignItems:"end"}}>
-                    <button className="btn-i" style={{width:"100%"}} onClick={()=>hSil(h.id)} disabled={hizler.length===1}>Satiri Sil</button>
+                    {h.n ? <button className="btn-i" style={{width:"100%"}} onClick={()=>hSil(h.id)}>Satiri Sil</button> : <div className="sbos" style={{width:"100%",padding:"14px 10px"}}>Yeni hizmet secince altta otomatik yeni satir acilir</div>}
                   </div>
                 </div>
               </div>
             ))}
-            <button className="ep-btn" onClick={hEkle}>+ Hizmet Ekle</button>
+            <div style={{marginTop:10}}>
+              <label className="fl">Hizmet odemesi IBAN ise kimin IBAN'ina gitti?</label>
+              <select className="fi" value={hIbanAlanId} onChange={e=>setHIbanAlanId(e.target.value)}>
+                <option value="">Secilmezse varsayilan hizmeti yapan kisi</option>
+                {aktifPersoneller.map(p=><option key={p.id} value={p.id}>{p.ad}</option>)}
+              </select>
+            </div>
           </div>
 
           <div className="sc sc-u">
@@ -605,7 +627,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
             </div>)}
           </div>
 
-          <OdemeGir baslik="Hizmet Odeme Dagilimi" kk={hKK} ib={hIB} nk={hNK} ibanAlanId={hIbanAlanId} personeller={aktifPersoneller} toplam={hizmetTop}
+          <OdemeGir baslik="Hizmet Odeme Dagilimi" kk={hKK} ib={hIB} nk={hNK} ibanAlanId={finalHizIbanId} personeller={aktifPersoneller} toplam={hizmetTop} showIbanSelect={false}
             onChange={(alan,val)=>{
               if(alan==="kk") setHKK(val);
               else if(alan==="ib") setHIB(val);
@@ -633,7 +655,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
               <div className="ok2"><div style={{fontSize:9,color:"#7a6a4a"}}>Urun</div><div className="kv" style={{fontSize:24}}>{fmt(urunTop)}</div></div>
               <div className="ok2"><div style={{fontSize:9,color:"#7a6a4a"}}>Toplam</div><div className="kv" style={{fontSize:24}}>{fmt(genelTop)}</div></div>
             </div>
-            {toN(hIB)>0 && !hIbanAlanId && <div className="uyari">⚠ Hizmet IBAN odemesi girildi. Kimin IBAN'ina gittigini sec.</div>}
+            {toN(hIB)>0 && !finalHizIbanId && hizmetPersonelTek.length!==1 && <div className="uyari">⚠ Hizmet IBAN odemesi girildi. Birden fazla hizmet personeli var; kimin IBAN'ina gittigini sec.</div>}
             {toN(uIB)>0 && !uIbanAlanId && <div className="uyari">⚠ Urun IBAN odemesi girildi. Kimin IBAN'ina gittigini sec.</div>}
             {hizmetTop>0 && hizmetOdemeTop>0 && Math.abs(hizmetOdemeTop-hizmetTop)>=1 && <div className="uyari">⚠ Hizmet odeme toplami ile hizmet toplami esit degil.</div>}
             {urunTop>0 && urunOdemeTop>0 && Math.abs(urunOdemeTop-urunTop)>=1 && <div className="uyari">⚠ Urun odeme toplami ile urun toplami esit degil.</div>}
@@ -784,17 +806,23 @@ function App() {
     if((f.hizler||[]).length===0 && (f.urunler||[]).length===0){ showToast("En az bir hizmet veya urun secin!","ha"); return; }
     if(Math.abs((hKK+hIB+hNK) - hizmetTop) >= 1){ showToast("Hizmet odeme toplami hatali!","ha"); return; }
     if(Math.abs((uKK+uIB+uNK) - urunTop) >= 1){ showToast("Urun odeme toplami hatali!","ha"); return; }
-    if(hIB>0 && !f.hizIbanAlanId){ showToast("Hizmet IBAN kime gittiyse secilmek zorunda!","ha"); return; }
+    if(hIB>0 && !f.hizIbanAlanId && [...new Set((f.hizler||[]).map(h=>h.pId).filter(Boolean))].length!==1){ showToast("Hizmet IBAN kime gittiyse secilmek zorunda!","ha"); return; }
     if(uIB>0 && !f.uIbanAlanId){ showToast("Urun IBAN kime gittiyse secilmek zorunda!","ha"); return; }
 
     if(f.id) {
-      const gn={...f,hizler:f.hizler,urunler:f.urunler,hizKK:hKK,hizIB:hIB,hizNK:hNK,uKK:uKK,uIB:uIB,uNK:uNK,toplam:top,gonderildi:bekleyen.some(r=>r.id===f.id)?false:true,ibanAlanId:f.hizIbanAlanId||f.uIbanAlanId||"",ibanAlanAd:f.hizIbanAlanAd||f.uIbanAlanAd||""};
+      const tekHizPid=[...new Set((f.hizler||[]).map(h=>h.pId).filter(Boolean))];
+      const otoHizPid=!f.hizIbanAlanId && tekHizPid.length===1 ? tekHizPid[0] : "";
+      const otoHizPad=personeller.find(p=>p.id===otoHizPid)?.ad||"";
+      const gn={...f,hizler:f.hizler,urunler:f.urunler,hizKK:hKK,hizIB:hIB,hizNK:hNK,uKK:uKK,uIB:uIB,uNK:uNK,hizIbanAlanId:f.hizIbanAlanId||otoHizPid,hizIbanAlanAd:f.hizIbanAlanAd||otoHizPad,toplam:top,gonderildi:bekleyen.some(r=>r.id===f.id)?false:true,ibanAlanId:f.hizIbanAlanId||otoHizPid||f.uIbanAlanId||"",ibanAlanAd:f.hizIbanAlanAd||otoHizPad||f.uIbanAlanAd||""};
       setBekleyen(p=>p.map(r=>r.id===f.id?gn:r));
       setRecords(p=>p.map(r=>r.id===f.id?gn:r));
       dbGuncelle("kayitlar",{musteri:f.musteri,telefon:f.tel,hizmetler:hizmetlerKayit,hiz_kk:hKK,hiz_ib:hIB,hiz_nk:hNK,urunler:urunlerKayit,urun_kk:uKK,urun_ib:uIB,urun_nk:uNK,toplam:top},f.id);
       showToast("Kayit guncellendi");
     } else {
-      const y={id:uid(),staffId:kullanici.id,staffAd:kullanici.ad,musteri:f.musteri.trim(),tel:f.tel.trim(),gelisTipi:f.gelisTipi||"Direkt",hizler:f.hizler,urunler:f.urunler,hizKK:hKK,hizIB:hIB,hizNK:hNK,uKK:uKK,uIB:uIB,uNK:uNK,toplam:top,tarih:TODAY(),saat:SAAT(),gonderildi:false,ibanAlanId:f.hizIbanAlanId||f.uIbanAlanId||"",ibanAlanAd:f.hizIbanAlanAd||f.uIbanAlanAd||"",hizIbanAlanId:f.hizIbanAlanId||"",hizIbanAlanAd:f.hizIbanAlanAd||"",uIbanAlanId:f.uIbanAlanId||"",uIbanAlanAd:f.uIbanAlanAd||""};
+      const tekHizPidYeni=[...new Set((f.hizler||[]).map(h=>h.pId).filter(Boolean))];
+      const otoHizPidYeni=!f.hizIbanAlanId && tekHizPidYeni.length===1 ? tekHizPidYeni[0] : "";
+      const otoHizPadYeni=personeller.find(p=>p.id===otoHizPidYeni)?.ad||"";
+      const y={id:uid(),staffId:kullanici.id,staffAd:kullanici.ad,musteri:f.musteri.trim(),tel:f.tel.trim(),gelisTipi:f.gelisTipi||"Direkt",hizler:f.hizler,urunler:f.urunler,hizKK:hKK,hizIB:hIB,hizNK:hNK,uKK:uKK,uIB:uIB,uNK:uNK,toplam:top,tarih:TODAY(),saat:SAAT(),gonderildi:false,ibanAlanId:f.hizIbanAlanId||otoHizPidYeni||f.uIbanAlanId||"",ibanAlanAd:f.hizIbanAlanAd||otoHizPadYeni||f.uIbanAlanAd||"",hizIbanAlanId:f.hizIbanAlanId||otoHizPidYeni||"",hizIbanAlanAd:f.hizIbanAlanAd||otoHizPadYeni||"",uIbanAlanId:f.uIbanAlanId||"",uIbanAlanAd:f.uIbanAlanAd||""};
       setBekleyen(p=>[y,...p]);
       dbEkle("kayitlar",{id:y.id,staff_id:y.staffId,staff_name:y.staffAd,musteri:y.musteri,telefon:y.tel,hizmetler:hizmetlerKayit,hiz_kk:y.hizKK,hiz_ib:y.hizIB,hiz_nk:y.hizNK,urunler:urunlerKayit,urun_kk:y.uKK,urun_ib:y.uIB,urun_nk:y.uNK,toplam:y.toplam,tarih:y.tarih,saat:y.saat,gonderildi:false});
       const vm=musteriDB.find(m=>m.ad.toLowerCase()===f.musteri.trim().toLowerCase());
