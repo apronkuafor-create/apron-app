@@ -66,14 +66,37 @@ const dbUpsert = (t,rows,c) => DB && DB.from(t).upsert(rows,{onConflict:c}).then
 const rawHizler = r => Array.isArray(r.hizmetler) ? r.hizmetler : [];
 const recordMeta = r => rawHizler(r).find(x=>x&&x.__tip==="meta") || {};
 const actualServices = r => rawHizler(r).filter(x=>!(x&&x.__tip==="meta"));
-const recordPayments = r => {
+const servicePayments = r => {
   const m = recordMeta(r);
   return {
-    kk: toN(m.kk ?? r.hiz_kk ?? 0) + toN(r.urun_kk||0),
-    ib: toN(m.ib ?? r.hiz_ib ?? 0) + toN(r.urun_ib||0),
-    nk: toN(m.nk ?? r.hiz_nk ?? 0) + toN(r.urun_nk||0),
-    ibanAlanId: m.ibanAlanId || "",
-    ibanAlanAd: m.ibanAlanAd || ""
+    kk: toN(m.hizKK ?? m.kk ?? r.hiz_kk ?? 0),
+    ib: toN(m.hizIB ?? m.ib ?? r.hiz_ib ?? 0),
+    nk: toN(m.hizNK ?? m.nk ?? r.hiz_nk ?? 0),
+    ibanAlanId: m.hizIbanAlanId || m.ibanAlanId || "",
+    ibanAlanAd: m.hizIbanAlanAd || m.ibanAlanAd || ""
+  };
+};
+const productPayments = r => {
+  const m = recordMeta(r);
+  return {
+    kk: toN(m.uKK ?? r.urun_kk ?? 0),
+    ib: toN(m.uIB ?? r.urun_ib ?? 0),
+    nk: toN(m.uNK ?? r.urun_nk ?? 0),
+    ibanAlanId: m.uIbanAlanId || "",
+    ibanAlanAd: m.uIbanAlanAd || ""
+  };
+};
+const recordPayments = r => {
+  const hp = servicePayments(r);
+  const up = productPayments(r);
+  return {
+    kk: hp.kk + up.kk,
+    ib: hp.ib + up.ib,
+    nk: hp.nk + up.nk,
+    ibanAlanId: hp.ibanAlanId || up.ibanAlanId || "",
+    ibanAlanAd: hp.ibanAlanAd || up.ibanAlanAd || "",
+    hizmet: hp,
+    urun: up
   };
 };
 const serviceTotal = r => actualServices(r).reduce((s,h)=>s+toN(h.f),0);
@@ -83,6 +106,8 @@ const involvedStaffIds = r => {
   actualServices(r).forEach(h=>h?.pId&&ids.add(h.pId));
   (r.urunler||[]).forEach(u=>u?.saticiId&&ids.add(u.saticiId));
   const pm = recordPayments(r);
+  if(pm.hizmet?.ibanAlanId) ids.add(pm.hizmet.ibanAlanId);
+  if(pm.urun?.ibanAlanId) ids.add(pm.urun.ibanAlanId);
   if(pm.ibanAlanId) ids.add(pm.ibanAlanId);
   if(r.staff_id) ids.add(r.staff_id);
   return [...ids];
@@ -95,10 +120,12 @@ const mapR = r => {
     musteri:r.musteri, tel:r.telefon||"",
     gelisTipi: recordMeta(r).gelisTipi || "Direkt",
     hizler: actualServices(r),
-    hizKK: pay.kk, hizIB: pay.ib, hizNK: pay.nk,
-    urunler:r.urunler||[], uKK:0, uIB:0, uNK:0,
+    hizKK: pay.hizmet.kk, hizIB: pay.hizmet.ib, hizNK: pay.hizmet.nk,
+    urunler:r.urunler||[], uKK:pay.urun.kk, uIB:pay.urun.ib, uNK:pay.urun.nk,
     toplam:top, tarih:r.tarih, saat:r.saat, gonderildi:r.gonderildi,
-    ibanAlanId: pay.ibanAlanId, ibanAlanAd: pay.ibanAlanAd
+    ibanAlanId: pay.ibanAlanId, ibanAlanAd: pay.ibanAlanAd,
+    hizIbanAlanId: pay.hizmet.ibanAlanId, hizIbanAlanAd: pay.hizmet.ibanAlanAd,
+    uIbanAlanId: pay.urun.ibanAlanId, uIbanAlanAd: pay.urun.ibanAlanAd
   };
 };
 const DEFAULT_PERSONELLER = [
@@ -316,14 +343,14 @@ select option{background:#1a1510;color:#e8dcc8;}
 // ══════════════════════════════════════════════════════════════════════════
 // Odeme Gir
 // ══════════════════════════════════════════════════════════════════════════
-const OdemeGir = React.memo(({kk, ib, nk, ibanAlanId, personeller, onChange, toplam}) => {
+const OdemeGir = React.memo(({baslik="Odeme Dagilimi", kk, ib, nk, ibanAlanId, personeller, onChange, toplam}) => {
   const girilen = toN(kk)+toN(ib)+toN(nk);
   const fark = Math.abs(girilen-toN(toplam));
   return (
     <div className="sc sc-g" style={{marginTop:14}}>
       <div className="sc-hd">
         <div className="sc-n" style={{background:"linear-gradient(135deg,#d4a017,#b8860b)",color:"#0a0805"}}>₺</div>
-        <div className="sc-t" style={{color:"#d4a017"}}>Odeme Dagilimi</div>
+        <div className="sc-t" style={{color:"#d4a017"}}>{baslik}</div>
       </div>
       <div className="o3" style={{marginBottom:12}}>
         {[["Kredi Karti","kk",kk],["IBAN","ib",ib],["Nakit","nk",nk]].map(([lb,key,val])=>(
@@ -352,7 +379,7 @@ const OdemeGir = React.memo(({kk, ib, nk, ibanAlanId, personeller, onChange, top
           <div style={{fontFamily:"Cormorant Garamond,serif",fontSize:23,color:fark<1?"#80c040":"#c06060",fontWeight:700}}>{fmt(girilen)}</div>
         </div>
       </div>
-      {fark>=1 && <div className="uyari">⚠ Toplam odeme ile genel toplam eslesmiyor.</div>}
+      {fark>=1 && <div className="uyari">⚠ Toplam odeme ile beklenen toplam eslesmiyor.</div>}
     </div>
   );
 });
@@ -368,19 +395,24 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
   const [gelisTipi,setGelisTipi]= useState(ilk?.gelisTipi||"Direkt");
   const [hizler,   setHizler]   = useState(ilk?.hizler?.length ? ilk.hizler : [{id:uid(),n:"",f:"",pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""}]);
   const [urunler,  setUrunler]  = useState(ilk?.urunler||[]);
-  const [kk, setKK] = useState(String(ilk?.hizKK||""));
-  const [ib, setIB] = useState(String(ilk?.hizIB||""));
-  const [nk, setNK] = useState(String(ilk?.hizNK||""));
-  const [ibanAlanId, setIbanAlanId] = useState(ilk?.ibanAlanId||"");
+  const [hKK, setHKK] = useState(String(ilk?.hizKK||""));
+  const [hIB, setHIB] = useState(String(ilk?.hizIB||""));
+  const [hNK, setHNK] = useState(String(ilk?.hizNK||""));
+  const [hIbanAlanId, setHIbanAlanId] = useState(ilk?.hizIbanAlanId || ilk?.ibanAlanId || "");
+  const [uKK, setUKK] = useState(String(ilk?.uKK||""));
+  const [uIB, setUIB] = useState(String(ilk?.uIB||""));
+  const [uNK, setUNK] = useState(String(ilk?.uNK||""));
+  const [uIbanAlanId, setUIbanAlanId] = useState(ilk?.uIbanAlanId||"");
   const [barkod,   setBarkod]   = useState("");
-  const [bSonuc,   setBSonuc]   = useState(null);
+  const [bSonuc,   setBSonuc]   = useState([]);
   const [bHata,    setBHata]    = useState("");
   const [arama,    setArama]    = useState("");
   const [aMarka,   setAMarka]   = useState("all");
   const [moneri,   setMoneri]   = useState([]);
   const bRef = useRef(null);
 
-  const seciliIban = aktifPersoneller.find(p=>p.id===ibanAlanId);
+  const seciliHizIban = aktifPersoneller.find(p=>p.id===hIbanAlanId);
+  const seciliUrunIban = aktifPersoneller.find(p=>p.id===uIbanAlanId);
 
   const hEkle = () => setHizler(p=>[...p,{id:uid(),n:"",f:"",pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""}]);
   const hSil = id => setHizler(p=>p.length===1?[{id:uid(),n:"",f:"",pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""}]:p.filter(x=>x.id!==id));
@@ -403,16 +435,28 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
   }));
   const uSil = id => setUrunler(p=>p.filter(x=>x.id!==id));
 
-  const bAra    = v => { const u=URUN_DB.find(x=>x.b===v.trim()); if(u){setBSonuc(u);setBHata("");}else{setBSonuc(null);setBHata('"'+v.trim()+'" bulunamadi.'); }};
+  const barkodSonuc = barkod.trim().length>=2
+    ? URUN_DB.filter(u=>u.b.includes(barkod.trim())).slice(0,8)
+    : [];
+  useEffect(()=>{
+    setBSonuc(barkodSonuc);
+    setBHata(barkod.trim().length>=2 && barkodSonuc.length===0 ? '"'+barkod.trim()+'" bulunamadi.' : "");
+  },[barkod]);
   const sEkle   = u => { 
     setUrunler(p=>[...p,{...u,id:uid(),qty:1,sf:String(u.sp),saticiId:aktifKullanici?.id||"",saticiAd:aktifKullanici?.ad||""}]); 
-    setBarkod("");setBSonuc(null);setBHata("");setArama("");setTimeout(()=>bRef.current?.focus(),80); 
+    setBarkod("");setBSonuc([]);setBHata("");setArama("");setTimeout(()=>bRef.current?.focus(),80); 
   };
-  const aSonuc  = arama.length>=2 ? URUN_DB.filter(u=>{const q=arama.toLowerCase();const ok=aMarka==="all"||u.m===aMarka;return ok&&(u.a.toLowerCase().includes(q)||u.b.includes(q));}).slice(0,10) : [];
+  const aSonuc  = arama.trim().length>=1 ? URUN_DB.filter(u=>{
+    const q=arama.toLowerCase().trim();
+    const ok=aMarka==="all"||u.m===aMarka;
+    return ok&&(u.a.toLowerCase().includes(q)||u.b.includes(q)||String(u.ml||"").toLowerCase().includes(q)||String(u.m||"").toLowerCase().includes(q));
+  }).slice(0,10) : [];
   const hizmetTop = hizler.reduce((s,h)=>s+toN(h.f),0);
   const urunTop = urunler.reduce((s,u)=>s+toN(u.sf||u.sp)*toN(u.qty||1),0);
   const genelTop = hizmetTop + urunTop;
-  const odemeTop = toN(kk)+toN(ib)+toN(nk);
+  const hizmetOdemeTop = toN(hKK)+toN(hIB)+toN(hNK);
+  const urunOdemeTop = toN(uKK)+toN(uIB)+toN(uNK);
+  const odemeTop = hizmetOdemeTop + urunOdemeTop;
 
   const kaydetTikla = () => {
     const temizH = hizler.filter(h=>h.n && toN(h.f)>0 && h.pId);
@@ -420,9 +464,10 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
     onKaydet({
       id:ilk?.id,musteri,tel,gelisTipi,
       hizler:temizH, urunler:temizU,
-      hizKK:kk,hizIB:ib,hizNK:nk,
-      uKK:0,uIB:0,uNK:0,
-      ibanAlanId, ibanAlanAd: seciliIban?.ad||""
+      hizKK:hKK,hizIB:hIB,hizNK:hNK,
+      uKK:uKK,uIB:uIB,uNK:uNK,
+      hizIbanAlanId:hIbanAlanId, hizIbanAlanAd: seciliHizIban?.ad||"",
+      uIbanAlanId:uIbanAlanId, uIbanAlanAd: seciliUrunIban?.ad||""
     });
   };
 
@@ -511,18 +556,13 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
             <label className="fl" style={{color:"#5a7aaa"}}>Barkod ile Ara</label>
             <div className="br-row">
               <input ref={bRef} className="br-in" placeholder="Barkod numarasi..." value={barkod}
-                onChange={e=>{setBarkod(e.target.value);setBSonuc(null);setBHata("");}}
-                onKeyDown={e=>{if(e.key==="Enter")bAra(barkod);}}/>
-              <button className="br-btn" onClick={()=>bAra(barkod)}>ARA</button>
+                onChange={e=>setBarkod(e.target.value)}/>
             </div>
-            {bSonuc&&<div className="ub">
-              <div style={{fontSize:13,color:"#e8dcc8",fontWeight:500,marginBottom:2}}>{bSonuc.a}</div>
-              <div style={{fontSize:10,color:"#5a7aaa",marginBottom:8}}><span style={{color:MRENK[bSonuc.m]||"#4a80c0"}}>●</span> {bSonuc.m} · {bSonuc.ml}</div>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
-                <div><div style={{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"#60a0e0",fontWeight:700}}>{fmt(bSonuc.sp)}</div><div style={{fontSize:9,color:"#3a5a8a"}}>Birim: {fmt(bSonuc.bp)}</div></div>
-                <button style={{background:"rgba(20,80,160,.4)",border:"1px solid #3a6aaa",borderRadius:8,color:"#70b0f0",fontFamily:"Jost,sans-serif",fontSize:11,fontWeight:600,padding:"8px 13px",cursor:"pointer"}} onClick={()=>sEkle(bSonuc)}>+ Urun Ekle</button>
-              </div>
-            </div>}
+            {bSonuc.length>0&&<div className="ares">{bSonuc.map(u=><div key={u.b} className="aitem" onClick={()=>sEkle(u)}>
+              <div style={{width:7,height:7,borderRadius:"50%",background:MRENK[u.m]||"#4a80c0",flexShrink:0}}/>
+              <div style={{flex:1,minWidth:0}}><div style={{fontSize:12,color:"#e8dcc8"}}>{u.a}</div><div style={{fontSize:9,color:"#3a4a6a"}}>{u.b} · {u.m} · {u.ml}</div></div>
+              <div style={{fontFamily:"Cormorant Garamond,serif",fontSize:13,color:"#60a0e0"}}>{fmt(u.sp)}</div>
+            </div>)}</div>}
             {bHata&&<div className="hata">⚠ {bHata}</div>}
             <label className="fl" style={{color:"#5a7aaa",marginTop:4}}>Isimle Ara</label>
             <div className="ar-row">
@@ -565,12 +605,21 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
             </div>)}
           </div>
 
-          <OdemeGir kk={kk} ib={ib} nk={nk} ibanAlanId={ibanAlanId} personeller={aktifPersoneller} toplam={genelTop}
+          <OdemeGir baslik="Hizmet Odeme Dagilimi" kk={hKK} ib={hIB} nk={hNK} ibanAlanId={hIbanAlanId} personeller={aktifPersoneller} toplam={hizmetTop}
             onChange={(alan,val)=>{
-              if(alan==="kk") setKK(val);
-              else if(alan==="ib") setIB(val);
-              else if(alan==="nk") setNK(val);
-              else if(alan==="ibanAlanId") setIbanAlanId(val);
+              if(alan==="kk") setHKK(val);
+              else if(alan==="ib") setHIB(val);
+              else if(alan==="nk") setHNK(val);
+              else if(alan==="ibanAlanId") setHIbanAlanId(val);
+            }}
+          />
+
+          <OdemeGir baslik="Urun Odeme Dagilimi" kk={uKK} ib={uIB} nk={uNK} ibanAlanId={uIbanAlanId} personeller={aktifPersoneller} toplam={urunTop}
+            onChange={(alan,val)=>{
+              if(alan==="kk") setUKK(val);
+              else if(alan==="ib") setUIB(val);
+              else if(alan==="nk") setUNK(val);
+              else if(alan==="ibanAlanId") setUIbanAlanId(val);
             }}
           />
 
@@ -584,8 +633,10 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
               <div className="ok2"><div style={{fontSize:9,color:"#7a6a4a"}}>Urun</div><div className="kv" style={{fontSize:24}}>{fmt(urunTop)}</div></div>
               <div className="ok2"><div style={{fontSize:9,color:"#7a6a4a"}}>Toplam</div><div className="kv" style={{fontSize:24}}>{fmt(genelTop)}</div></div>
             </div>
-            {toN(ib)>0 && !ibanAlanId && <div className="uyari">⚠ IBAN odemesi girildi. Kimin IBAN'ina gittigini sec.</div>}
-            {genelTop>0 && odemeTop>0 && Math.abs(odemeTop-genelTop)>=1 && <div className="uyari">⚠ Odeme toplami ile genel toplam esit degil.</div>}
+            {toN(hIB)>0 && !hIbanAlanId && <div className="uyari">⚠ Hizmet IBAN odemesi girildi. Kimin IBAN'ina gittigini sec.</div>}
+            {toN(uIB)>0 && !uIbanAlanId && <div className="uyari">⚠ Urun IBAN odemesi girildi. Kimin IBAN'ina gittigini sec.</div>}
+            {hizmetTop>0 && hizmetOdemeTop>0 && Math.abs(hizmetOdemeTop-hizmetTop)>=1 && <div className="uyari">⚠ Hizmet odeme toplami ile hizmet toplami esit degil.</div>}
+            {urunTop>0 && urunOdemeTop>0 && Math.abs(urunOdemeTop-urunTop)>=1 && <div className="uyari">⚠ Urun odeme toplami ile urun toplami esit degil.</div>}
           </div>
 
           <div className="btn-r">
@@ -674,7 +725,7 @@ function App() {
 
   // Hesaplar
   const tumKayitlarVeBekleyen = [...bekleyen,...records];
-  const myKayitlar = kullanici ? tumKayitlarVeBekleyen.filter(r=>involvedStaffIds({staff_id:r.staffId,hizmetler:[{__tip:"meta",gelisTipi:r.gelisTipi,kk:r.hizKK,ib:r.hizIB,nk:r.hizNK,ibanAlanId:r.ibanAlanId,ibanAlanAd:r.ibanAlanAd},...(r.hizler||[])],urunler:r.urunler}).includes(kullanici.id)) : [];
+  const myKayitlar = kullanici ? tumKayitlarVeBekleyen.filter(r=>involvedStaffIds({staff_id:r.staffId,hizmetler:[{__tip:"meta",gelisTipi:r.gelisTipi,hizKK:r.hizKK,hizIB:r.hizIB,hizNK:r.hizNK,hizIbanAlanId:r.hizIbanAlanId||r.ibanAlanId,hizIbanAlanAd:r.hizIbanAlanAd||r.ibanAlanAd,uKK:r.uKK,uIB:r.uIB,uNK:r.uNK,uIbanAlanId:r.uIbanAlanId||"",uIbanAlanAd:r.uIbanAlanAd||""},...(r.hizler||[])],urunler:r.urunler}).includes(kullanici.id)) : [];
   const myBekleyen = kullanici ? bekleyen.filter(r=>r.staffId===kullanici.id) : [];
   const tumKayitlar = records;
   const bugunku = tumKayitlar.filter(r=>r.tarih===TODAY());
@@ -716,29 +767,36 @@ function App() {
 
   // Kayit kaydet
   const kayitKaydet = f => {
-    const kk=toN(f.hizKK), ib=toN(f.hizIB), nk=toN(f.hizNK);
-    const meta = {__tip:"meta", gelisTipi:f.gelisTipi||"Direkt", kk, ib, nk, ibanAlanId:f.ibanAlanId||"", ibanAlanAd:f.ibanAlanAd||""};
+    const hKK=toN(f.hizKK), hIB=toN(f.hizIB), hNK=toN(f.hizNK);
+    const uKK=toN(f.uKK), uIB=toN(f.uIB), uNK=toN(f.uNK);
+    const meta = {
+      __tip:"meta", gelisTipi:f.gelisTipi||"Direkt",
+      hizKK:hKK, hizIB:hIB, hizNK:hNK, hizIbanAlanId:f.hizIbanAlanId||"", hizIbanAlanAd:f.hizIbanAlanAd||"",
+      uKK:uKK, uIB:uIB, uNK:uNK, uIbanAlanId:f.uIbanAlanId||"", uIbanAlanAd:f.uIbanAlanAd||""
+    };
     const hizmetlerKayit = [meta, ...(f.hizler||[])];
     const urunlerKayit = (f.urunler||[]);
-    const top = kk+ib+nk;
     const hizmetTop = (f.hizler||[]).reduce((s,h)=>s+toN(h.f),0);
     const urunTop = (f.urunler||[]).reduce((s,u)=>s+toN(u.sf||u.sp)*toN(u.qty||1),0);
+    const top = hKK+hIB+hNK+uKK+uIB+uNK;
 
     if(!f.musteri.trim()){ showToast("Musteri adi zorunlu!","ha"); return; }
     if((f.hizler||[]).length===0 && (f.urunler||[]).length===0){ showToast("En az bir hizmet veya urun secin!","ha"); return; }
-    if(Math.abs(top - (hizmetTop+urunTop)) >= 1){ showToast("Odeme toplami ile genel toplam esit degil!","ha"); return; }
-    if(ib>0 && !f.ibanAlanId){ showToast("IBAN kime gittiyse secilmek zorunda!","ha"); return; }
+    if(Math.abs((hKK+hIB+hNK) - hizmetTop) >= 1){ showToast("Hizmet odeme toplami hatali!","ha"); return; }
+    if(Math.abs((uKK+uIB+uNK) - urunTop) >= 1){ showToast("Urun odeme toplami hatali!","ha"); return; }
+    if(hIB>0 && !f.hizIbanAlanId){ showToast("Hizmet IBAN kime gittiyse secilmek zorunda!","ha"); return; }
+    if(uIB>0 && !f.uIbanAlanId){ showToast("Urun IBAN kime gittiyse secilmek zorunda!","ha"); return; }
 
     if(f.id) {
-      const gn={...f,hizler:f.hizler,urunler:f.urunler,hizKK:kk,hizIB:ib,hizNK:nk,uKK:0,uIB:0,uNK:0,toplam:top,gonderildi:bekleyen.some(r=>r.id===f.id)?false:true};
+      const gn={...f,hizler:f.hizler,urunler:f.urunler,hizKK:hKK,hizIB:hIB,hizNK:hNK,uKK:uKK,uIB:uIB,uNK:uNK,toplam:top,gonderildi:bekleyen.some(r=>r.id===f.id)?false:true,ibanAlanId:f.hizIbanAlanId||f.uIbanAlanId||"",ibanAlanAd:f.hizIbanAlanAd||f.uIbanAlanAd||""};
       setBekleyen(p=>p.map(r=>r.id===f.id?gn:r));
       setRecords(p=>p.map(r=>r.id===f.id?gn:r));
-      dbGuncelle("kayitlar",{musteri:f.musteri,telefon:f.tel,hizmetler:hizmetlerKayit,hiz_kk:kk,hiz_ib:ib,hiz_nk:nk,urunler:urunlerKayit,urun_kk:0,urun_ib:0,urun_nk:0,toplam:top},f.id);
+      dbGuncelle("kayitlar",{musteri:f.musteri,telefon:f.tel,hizmetler:hizmetlerKayit,hiz_kk:hKK,hiz_ib:hIB,hiz_nk:hNK,urunler:urunlerKayit,urun_kk:uKK,urun_ib:uIB,urun_nk:uNK,toplam:top},f.id);
       showToast("Kayit guncellendi");
     } else {
-      const y={id:uid(),staffId:kullanici.id,staffAd:kullanici.ad,musteri:f.musteri.trim(),tel:f.tel.trim(),gelisTipi:f.gelisTipi||"Direkt",hizler:f.hizler,urunler:f.urunler,hizKK:kk,hizIB:ib,hizNK:nk,uKK:0,uIB:0,uNK:0,toplam:top,tarih:TODAY(),saat:SAAT(),gonderildi:false,ibanAlanId:f.ibanAlanId||"",ibanAlanAd:f.ibanAlanAd||""};
+      const y={id:uid(),staffId:kullanici.id,staffAd:kullanici.ad,musteri:f.musteri.trim(),tel:f.tel.trim(),gelisTipi:f.gelisTipi||"Direkt",hizler:f.hizler,urunler:f.urunler,hizKK:hKK,hizIB:hIB,hizNK:hNK,uKK:uKK,uIB:uIB,uNK:uNK,toplam:top,tarih:TODAY(),saat:SAAT(),gonderildi:false,ibanAlanId:f.hizIbanAlanId||f.uIbanAlanId||"",ibanAlanAd:f.hizIbanAlanAd||f.uIbanAlanAd||"",hizIbanAlanId:f.hizIbanAlanId||"",hizIbanAlanAd:f.hizIbanAlanAd||"",uIbanAlanId:f.uIbanAlanId||"",uIbanAlanAd:f.uIbanAlanAd||""};
       setBekleyen(p=>[y,...p]);
-      dbEkle("kayitlar",{id:y.id,staff_id:y.staffId,staff_name:y.staffAd,musteri:y.musteri,telefon:y.tel,hizmetler:hizmetlerKayit,hiz_kk:y.hizKK,hiz_ib:y.hizIB,hiz_nk:y.hizNK,urunler:urunlerKayit,urun_kk:0,urun_ib:0,urun_nk:0,toplam:y.toplam,tarih:y.tarih,saat:y.saat,gonderildi:false});
+      dbEkle("kayitlar",{id:y.id,staff_id:y.staffId,staff_name:y.staffAd,musteri:y.musteri,telefon:y.tel,hizmetler:hizmetlerKayit,hiz_kk:y.hizKK,hiz_ib:y.hizIB,hiz_nk:y.hizNK,urunler:urunlerKayit,urun_kk:y.uKK,urun_ib:y.uIB,urun_nk:y.uNK,toplam:y.toplam,tarih:y.tarih,saat:y.saat,gonderildi:false});
       const vm=musteriDB.find(m=>m.ad.toLowerCase()===f.musteri.trim().toLowerCase());
       if(!vm){const ym={id:uid(),ad:f.musteri.trim(),tel:f.tel.trim()};setMusteriDB(p=>[...p,ym]);dbEkle("musteriler",{id:ym.id,ad:ym.ad,tel:ym.tel});}
       showToast("Kayit eklendi!");
