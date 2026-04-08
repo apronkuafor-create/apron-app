@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-  <base href="/apron-app/">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -269,6 +268,15 @@ select option{background:#1a1510;color:#e8dcc8;}
 .oin{width:100%;background:transparent;border:none;color:inherit;font-family:'Cormorant Garamond',serif;font-size:19px;padding:3px 2px 4px;outline:none;text-align:center;}
 .otop{display:flex;justify-content:space-between;padding:7px 11px;border-top:1px solid rgba(255,255,255,.04);background:rgba(0,0,0,.15);}
 
+.admin-ozet-card{background:linear-gradient(135deg,var(--bg2),var(--bg3));border:1px solid var(--br);border-radius:16px;padding:14px;margin-bottom:16px;overflow:hidden;}
+.admin-ozet-title{font-size:10px;color:var(--di);letter-spacing:3px;text-transform:uppercase;margin-bottom:12px;}
+.admin-ozet-table{display:grid;grid-template-columns:1.35fr .95fr .95fr;gap:0;border:1px solid rgba(212,160,23,.12);border-radius:12px;overflow:hidden;}
+.admin-ozet-cell{padding:11px 10px;background:rgba(0,0,0,.18);border-right:1px solid rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;}
+.admin-ozet-head{background:rgba(212,160,23,.08);font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--g);font-weight:700;text-align:center;}
+.admin-ozet-metric{color:#a88e62;font-size:11px;font-weight:600;}
+.admin-ozet-val{color:var(--tx);text-align:right;font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:700;}
+.admin-ozet-val.para{color:var(--g);}
+.admin-ozet-note{margin-top:10px;font-size:10px;color:#6f5c36;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;}
 .atabs{display:flex;background:var(--bg2);border-bottom:1px solid var(--br);overflow-x:auto;-webkit-overflow-scrolling:touch;}
 .atab{padding:11px 14px;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--di);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all .2s;}
 .atab.a{color:var(--g);border-bottom-color:var(--g);}
@@ -768,6 +776,7 @@ function App() {
   const myBekleyen = kullanici ? bekleyen.filter(r=>r.staffId===kullanici.id) : [];
   const tumKayitlar = records;
   const bugunku = tumKayitlar.filter(r=>r.tarih===TODAY());
+  const buAy = tumKayitlar.filter(r=>String(r.tarih||"").slice(0,7)===TODAY().slice(0,7));
   const filtreli = tumKayitlar.filter(r=>{if(pFiltre!=="all"&&r.staffId!==pFiltre)return false;if(tFiltre&&r.tarih!==tFiltre)return false;return true;});
 
   // PIN
@@ -1119,17 +1128,48 @@ function App() {
         <div className="pg">
 
           {adminSekme==="ozet"&&<>
-            <div className="kpi2">
-              <div className="kpi"><div className="kl">Bugun Ciro</div><div className="kv">{fmt(bugunku.reduce((s,r)=>s+r.toplam,0))}</div><div className="ks">{bugunku.length} kayit</div></div>
-              <div className="kpi"><div className="kl">Toplam Ciro</div><div className="kv">{fmt(tumKayitlar.reduce((s,r)=>s+r.toplam,0))}</div><div className="ks">{tumKayitlar.length} kayit</div></div>
+            <div className="admin-ozet-card">
+              <div className="admin-ozet-title">Genel Ozet</div>
+              <div className="admin-ozet-table">
+                <div className="admin-ozet-cell admin-ozet-head"></div>
+                <div className="admin-ozet-cell admin-ozet-head">Bugun</div>
+                <div className="admin-ozet-cell admin-ozet-head">Bu Ay</div>
+
+                <div className="admin-ozet-cell admin-ozet-metric">Toplam Ciro</div>
+                <div className="admin-ozet-cell admin-ozet-val para">{fmt(bugunku.reduce((s,r)=>s+r.toplam,0))}</div>
+                <div className="admin-ozet-cell admin-ozet-val para">{fmt(buAy.reduce((s,r)=>s+r.toplam,0))}</div>
+
+                <div className="admin-ozet-cell admin-ozet-metric">Musteri Sayisi</div>
+                <div className="admin-ozet-cell admin-ozet-val">{bugunku.length}</div>
+                <div className="admin-ozet-cell admin-ozet-val">{buAy.length}</div>
+
+                <div className="admin-ozet-cell admin-ozet-metric">Hizmet Tutari</div>
+                <div className="admin-ozet-cell admin-ozet-val para">{fmt(bugunku.reduce((s,r)=>s+((r.hizler||[]).reduce((a,h)=>a+toN(h.f),0)),0))}</div>
+                <div className="admin-ozet-cell admin-ozet-val para">{fmt(buAy.reduce((s,r)=>s+((r.hizler||[]).reduce((a,h)=>a+toN(h.f),0)),0))}</div>
+
+                <div className="admin-ozet-cell admin-ozet-metric">Urun Tutari</div>
+                <div className="admin-ozet-cell admin-ozet-val para">{fmt(bugunku.reduce((s,r)=>s+((r.urunler||[]).reduce((a,u)=>a+(toN(u.sf||u.sp)*toN(u.qty||1)),0)),0))}</div>
+                <div className="admin-ozet-cell admin-ozet-val para">{fmt(buAy.reduce((s,r)=>s+((r.urunler||[]).reduce((a,u)=>a+(toN(u.sf||u.sp)*toN(u.qty||1)),0)),0))}</div>
+
+                <div className="admin-ozet-cell admin-ozet-metric">Nakit</div>
+                <div className="admin-ozet-cell admin-ozet-val">{fmt(bugunku.reduce((s,r)=>s+r.hizNK+r.uNK,0))}</div>
+                <div className="admin-ozet-cell admin-ozet-val">{fmt(buAy.reduce((s,r)=>s+r.hizNK+r.uNK,0))}</div>
+
+                <div className="admin-ozet-cell admin-ozet-metric">Kredi Karti</div>
+                <div className="admin-ozet-cell admin-ozet-val">{fmt(bugunku.reduce((s,r)=>s+r.hizKK+r.uKK,0))}</div>
+                <div className="admin-ozet-cell admin-ozet-val">{fmt(buAy.reduce((s,r)=>s+r.hizKK+r.uKK,0))}</div>
+
+                <div className="admin-ozet-cell admin-ozet-metric">IBAN</div>
+                <div className="admin-ozet-cell admin-ozet-val">{fmt(bugunku.reduce((s,r)=>s+r.hizIB+r.uIB,0))}</div>
+                <div className="admin-ozet-cell admin-ozet-val">{fmt(buAy.reduce((s,r)=>s+r.hizIB+r.uIB,0))}</div>
+              </div>
+              <div className="admin-ozet-note">
+                <div>Bekleyen Onay: <span style={{color:"#d4a017"}}>{bekleyen.length}</span></div>
+                <div>Bu Ay Kayit: <span style={{color:"#d4a017"}}>{buAy.length}</span></div>
+              </div>
             </div>
-            <div className="sek" style={{marginBottom:9}}>Odeme Dagilimi — Bugun</div>
-            <div className="og">
-              {[["💳","K.Karti",bugunku.reduce((s,r)=>s+r.hizKK+r.uKK,0),tumKayitlar.reduce((s,r)=>s+r.hizKK+r.uKK,0)],["🏦","IBAN",bugunku.reduce((s,r)=>s+r.hizIB+r.uIB,0),tumKayitlar.reduce((s,r)=>s+r.hizIB+r.uIB,0)],["💵","Nakit",bugunku.reduce((s,r)=>s+r.hizNK+r.uNK,0),tumKayitlar.reduce((s,r)=>s+r.hizNK+r.uNK,0)]].map(([ic,lb,b,t])=>(
-                <div key={lb} className="ok"><div style={{fontSize:20,marginBottom:5}}>{ic}</div><div style={{fontSize:9,color:"#5a4a2a",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>{lb}</div><div style={{fontFamily:"Cormorant Garamond,serif",fontSize:15,color:"#d4a017",fontWeight:700}}>{fmt(b)}</div><div style={{fontSize:9,color:"#2a2010",marginTop:2}}>{fmt(t)} toplam</div></div>
-              ))}
-            </div>
-            <div className="sek" style={{marginBottom:9}}>Personel</div>
+
+            <div className="sek" style={{marginBottom:9}}>Personel Ozeti</div>
             {personeller.filter(p=>p.rol==="personel"&&p.aktif).map(p=>{
               const pk=tumKayitlar.filter(r=>r.staffId===p.id);
               return <div key={p.id} className="pk">
@@ -1137,7 +1177,7 @@ function App() {
                 <div className="pi"><div className="pad">{p.ad}</div>
                   <div style={{display:"flex",gap:13,marginTop:3,flexWrap:"wrap"}}>
                     <div style={{fontSize:10,color:"#5a4a2a"}}>Bugun: <span style={{color:"#d4a017",fontFamily:"Cormorant Garamond,serif",fontSize:13}}>{fmt(pk.filter(r=>r.tarih===TODAY()).reduce((s,r)=>s+r.toplam,0))}</span></div>
-                    <div style={{fontSize:10,color:"#5a4a2a"}}>Toplam: <span style={{color:"#d4a017",fontFamily:"Cormorant Garamond,serif",fontSize:13}}>{fmt(pk.reduce((s,r)=>s+r.toplam,0))}</span></div>
+                    <div style={{fontSize:10,color:"#5a4a2a"}}>Bu Ay: <span style={{color:"#d4a017",fontFamily:"Cormorant Garamond,serif",fontSize:13}}>{fmt(pk.filter(r=>String(r.tarih||"").slice(0,7)===TODAY().slice(0,7)).reduce((s,r)=>s+r.toplam,0))}</span></div>
                   </div>
                 </div>
               </div>;
