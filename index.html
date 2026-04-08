@@ -346,9 +346,10 @@ select option{background:#1a1510;color:#e8dcc8;}
 // ══════════════════════════════════════════════════════════════════════════
 // Odeme Gir
 // ══════════════════════════════════════════════════════════════════════════
-const OdemeGir = React.memo(({baslik="Odeme Dagilimi", kk, ib, nk, ibanAlanId, personeller, onChange, toplam, showIbanSelect=true}) => {
+const OdemeGir = React.memo(({baslik="Odeme Dagilimi", kk, ib, nk, ibanAlanId, personeller, onChange, toplam, aktifKullanici, varsayilanIbanId=""}) => {
   const girilen = toN(kk)+toN(ib)+toN(nk);
   const fark = Math.abs(girilen-toN(toplam));
+  const digerSecili = !!ibanAlanId && ibanAlanId !== (varsayilanIbanId||aktifKullanici?.id||"");
   return (
     <div className="sc sc-g" style={{marginTop:14}}>
       <div className="sc-hd">
@@ -363,15 +364,25 @@ const OdemeGir = React.memo(({baslik="Odeme Dagilimi", kk, ib, nk, ibanAlanId, p
           </div>
         ))}
       </div>
-      {showIbanSelect && toN(ib)>0 && (
-        <div style={{marginBottom:12}}>
-          <label className="fl">IBAN Kime Gitti? *</label>
-          <select className="fi" value={ibanAlanId} onChange={e=>onChange("ibanAlanId",e.target.value)}>
-            <option value="">Personel sec</option>
-            {personeller.filter(p=>p.rol==="personel"&&p.aktif).map(p=><option key={p.id} value={p.id}>{p.ad}</option>)}
-          </select>
+
+      {toN(ib)>0 && (
+        <div style={{marginBottom:12,background:"rgba(180,90,20,.12)",border:"1px solid rgba(212,160,23,.22)",borderRadius:12,padding:12}}>
+          <div style={{fontSize:12,color:"#e7c28a",marginBottom:10,fontWeight:600}}>IBAN odemesi algilandi</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center"}}>
+            <div style={{fontSize:12,color:"#d7c9b3"}}>Bu IBAN sana mi?</div>
+            <button className="btn-i" style={{margin:0,padding:"10px 12px",minWidth:94,borderColor:!ibanAlanId?"#5a7a20":"var(--br)",color:!ibanAlanId?"#a7d060":"var(--mu)"}} onClick={()=>onChange("ibanAlanId","")}>Evet</button>
+          </div>
+          <div style={{marginTop:10}}>
+            <label className="fl">IBAN kime gitti?</label>
+            <select className="fi" value={ibanAlanId} onChange={e=>onChange("ibanAlanId",e.target.value)}>
+              <option value="">Secilmezse varsayilan: giris yapan kisi</option>
+              {personeller.filter(p=>p.rol==="personel"&&p.aktif).map(p=><option key={p.id} value={p.id}>{p.ad}</option>)}
+            </select>
+          </div>
+          {digerSecili && <div className="uyari" style={{marginBottom:0}}>Bu odeme baska bir personele yaziliyor. Kaydetmeden once dikkatle kontrol et.</div>}
         </div>
       )}
+
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:10,borderTop:"1px solid var(--br)"}}>
         <div>
           <div style={{fontSize:9,color:"#7a6a4a",letterSpacing:2,textTransform:"uppercase"}}>Beklenen</div>
@@ -396,8 +407,20 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
   const [musteri,  setMusteri]  = useState(ilk?.musteri||"");
   const [tel,      setTel]      = useState(ilk?.tel||"");
   const [gelisTipi,setGelisTipi]= useState(ilk?.gelisTipi||"Direkt");
-  const [hizler,   setHizler]   = useState(ilk?.hizler?.length ? ilk.hizler : [{id:uid(),n:"",f:"",pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""}]);
-  const [urunler,  setUrunler]  = useState(ilk?.urunler||[]);
+  const [hizler,   setHizler]   = useState(()=>{
+    const base = (ilk?.hizler?.length ? ilk.hizler : [bosHizmet()]).map(h=>({
+      ...h,
+      pId: h?.pId || aktifKullanici?.id || "",
+      pAd: h?.pAd || aktifKullanici?.ad || ""
+    }));
+    return base.some(x=>!x.n) ? base : [...base, bosHizmet()];
+  });
+  const [urunler,  setUrunler]  = useState((ilk?.urunler||[]).map(u=>({
+    ...u,
+    qty: toN(u.qty||1) || 1,
+    saticiId: u?.saticiId || aktifKullanici?.id || "",
+    saticiAd: u?.saticiAd || aktifKullanici?.ad || ""
+  })));
   const [hKK, setHKK] = useState(String(ilk?.hizKK||""));
   const [hIB, setHIB] = useState(String(ilk?.hizIB||""));
   const [hNK, setHNK] = useState(String(ilk?.hizNK||""));
@@ -423,10 +446,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
     return kalan.length ? (kalan.some(x=>!x.n) ? kalan : [...kalan, bosHizmet()]) : [bosHizmet()];
   });
   const hGuncelle = (id,alan,deger) => setHizler(p=>{
-    let next = p.map(x=>{
-      if(x.id!==id) return x;
-      return {...x,[alan]:deger,pId:x.pId||aktifKullanici?.id||"",pAd:x.pAd||aktifKullanici?.ad||""};
-    });
+    let next = p.map(x=> x.id!==id ? x : {...x,[alan]:deger});
     const guncel = next.find(x=>x.id===id);
     if(alan==="n" && deger && guncel && !next.some(x=>!x.n)) next = [...next, bosHizmet()];
     return next;
@@ -442,13 +462,14 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
   }));
   const uSil = id => setUrunler(p=>p.filter(x=>x.id!==id));
 
-  const barkodSonuc = barkod.trim().length>=2
-    ? URUN_DB.filter(u=>u.b.includes(barkod.trim())).slice(0,8)
+  const barkodTemiz = normDigits(barkod);
+  const barkodSonuc = barkodTemiz.length>=2
+    ? URUN_DB.filter(u=>normDigits(u.b).includes(barkodTemiz)).slice(0,8)
     : [];
   useEffect(()=>{
     setBSonuc(barkodSonuc);
-    setBHata(barkod.trim().length>=2 && barkodSonuc.length===0 ? '"'+barkod.trim()+'" bulunamadi.' : "");
-  },[barkod]);
+    setBHata(barkodTemiz.length>=10 && barkodSonuc.length===0 ? '"'+barkodTemiz+'" bulunamadi.' : "");
+  },[barkodTemiz]);
   const sEkle   = u => { 
     setUrunler(p=>[...p,{...u,id:uid(),qty:1,sf:String(u.sp),saticiId:aktifKullanici?.id||"",saticiAd:aktifKullanici?.ad||""}]); 
     setBarkod("");setBSonuc([]);setBHata("");setArama("");setTimeout(()=>bRef.current?.focus(),80); 
@@ -471,8 +492,8 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
   const odemeTop = hizmetOdemeTop + urunOdemeTop;
 
   const kaydetTikla = () => {
-    const temizH = hizler.filter(h=>h.n && toN(h.f)>0 && h.pId);
-    const temizU = urunler.filter(u=>u.a && toN(u.sf||u.sp)>0 && toN(u.qty)>0 && u.saticiId);
+    const temizH = hizler.filter(h=>h.n && toN(h.f)>0).map(h=>({...h,pId:aktifKullanici?.id||h.pId||"",pAd:aktifKullanici?.ad||h.pAd||""}));
+    const temizU = urunler.filter(u=>u.a && toN(u.sf||u.sp)>0 && toN(u.qty)>0).map(u=>({...u,saticiId:u.saticiId||aktifKullanici?.id||"",saticiAd:u.saticiAd||aktifKullanici?.ad||""}));
     onKaydet({
       id:ilk?.id,musteri,tel,gelisTipi,
       hizler:temizH, urunler:temizU,
@@ -508,19 +529,13 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
             </div>
           </div>
 
-          <div className="r2" style={{marginBottom:12}}>
-            <div>
-              <label className="fl">Gelis Turu</label>
-              <select className="fi" value={gelisTipi} onChange={e=>setGelisTipi(e.target.value)}>
-                <option>Direkt</option>
-                <option>Telefon Randevu</option>
-                <option>WhatsApp Randevu</option>
-              </select>
-            </div>
-            <div>
-              <label className="fl">Kaydi Acan</label>
-              <input className="fi" value={aktifKullanici?.ad||""} readOnly />
-            </div>
+          <div style={{marginBottom:12}}>
+            <label className="fl">Gelis Turu</label>
+            <select className="fi" value={gelisTipi} onChange={e=>setGelisTipi(e.target.value)}>
+              <option>Direkt</option>
+              <option>Telefon Randevu</option>
+              <option>WhatsApp Randevu</option>
+            </select>
           </div>
 
           <div className="sc sc-h">
@@ -530,14 +545,14 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
             </div>
 
             <div style={{border:"1px solid rgba(128,192,64,.22)",borderRadius:16,overflow:"hidden",background:"rgba(20,24,12,.55)"}}>
-              <div style={{display:"grid",gridTemplateColumns:"1.9fr 1.1fr auto",gap:0,background:"rgba(128,192,64,.08)",borderBottom:"1px solid rgba(128,192,64,.15)"}}>
+              <div style={{display:"grid",gridTemplateColumns:"1.9fr 1fr auto",gap:0,background:"rgba(128,192,64,.08)",borderBottom:"1px solid rgba(128,192,64,.15)"}}>
                 <div style={{padding:"10px 12px",fontSize:11,letterSpacing:1.2,textTransform:"uppercase",color:"#9bc85a",fontWeight:700}}>Hizmet</div>
                 <div style={{padding:"10px 12px",fontSize:11,letterSpacing:1.2,textTransform:"uppercase",color:"#9bc85a",fontWeight:700}}>Fiyat</div>
                 <div style={{padding:"10px 12px",fontSize:11,letterSpacing:1.2,textTransform:"uppercase",color:"#9bc85a",fontWeight:700,textAlign:"center"}}>Sil</div>
               </div>
 
               {hizler.map((h,i)=>(
-                <div key={h.id} style={{display:"grid",gridTemplateColumns:"1.9fr 1.1fr auto",gap:0,borderBottom:i===hizler.length-1?"none":"1px solid rgba(128,192,64,.10)",alignItems:"stretch"}}>
+                <div key={h.id} style={{display:"grid",gridTemplateColumns:"1.9fr 1fr auto",gap:0,borderBottom:i===hizler.length-1?"none":"1px solid rgba(128,192,64,.10)",alignItems:"stretch"}}>
                   <div style={{padding:"8px"}}>
                     <select className="fi" value={h.n} onChange={e=>hGuncelle(h.id,"n",e.target.value)} style={{margin:0}}>
                       <option value="">Hizmet sec</option>
@@ -545,7 +560,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
                     </select>
                   </div>
                   <div style={{padding:"8px"}}>
-                    <input className="fi" type="number" inputMode="numeric" value={h.f} onChange={e=>hGuncelle(h.id,"f",e.target.value)} placeholder="0" disabled={!h.n} style={{margin:0,minWidth:0}}/>
+                    <input className="fi" type="number" inputMode="numeric" value={h.f} onChange={e=>hGuncelle(h.id,"f",e.target.value)} placeholder="0" disabled={!h.n} style={{margin:0}}/>
                   </div>
                   <div style={{padding:"8px",display:"flex",alignItems:"center",justifyContent:"center"}}>
                     {h.n ? <button className="btn-i" style={{margin:0,padding:"12px 10px",minWidth:56}} onClick={()=>hSil(h.id)}>Sil</button> : <div style={{width:56}} />}
@@ -556,13 +571,16 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
 
             <div style={{marginTop:8,fontSize:11,color:"#7ea34d"}}>Bir hizmet sectiginde altta otomatik yeni satir acilir.</div>
 
-            <div style={{marginTop:10}}>
-              <label className="fl">Hizmet odemesi IBAN ise kimin IBAN'ina gitti?</label>
-              <select className="fi" value={hIbanAlanId} onChange={e=>setHIbanAlanId(e.target.value)}>
-                <option value="">Secilmezse varsayilan hizmeti yapan kisi</option>
-                {aktifPersoneller.map(p=><option key={p.id} value={p.id}>{p.ad}</option>)}
-              </select>
-            </div>
+            <OdemeGir baslik="Hizmet Odeme Dagilimi" kk={hKK} ib={hIB} nk={hNK} ibanAlanId={finalHizIbanId} personeller={aktifPersoneller} toplam={hizmetTop}
+              aktifKullanici={aktifKullanici}
+              varsayilanIbanId={aktifKullanici?.id||""}
+              onChange={(alan,val)=>{
+                if(alan==="kk") setHKK(val);
+                else if(alan==="ib") setHIB(val);
+                else if(alan==="nk") setHNK(val);
+                else if(alan==="ibanAlanId") setHIbanAlanId(val);
+              }}
+            />
           </div>
 
           <div className="sc sc-u">
@@ -573,7 +591,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
             <label className="fl" style={{color:"#5a7aaa"}}>Barkod ile Ara</label>
             <div className="br-row">
               <input ref={bRef} className="br-in" placeholder="Barkod numarasi..." value={barkod}
-                onChange={e=>setBarkod(e.target.value)}/>
+                onChange={e=>setBarkod(normDigits(e.target.value))}/>
             </div>
             {bSonuc.length>0&&<div className="ares">{bSonuc.map(u=><div key={u.b} className="aitem" onClick={()=>sEkle(u)}>
               <div style={{width:7,height:7,borderRadius:"50%",background:MRENK[u.m]||"#4a80c0",flexShrink:0}}/>
@@ -595,50 +613,43 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
               <div style={{fontFamily:"Cormorant Garamond,serif",fontSize:13,color:"#60a0e0"}}>{fmt(u.sp)}</div>
             </div>)}</div>}
 
-            {urunler.length===0?<div className="sbos">Urun eklenmedi (istege bagli)</div>:urunler.map((u,i)=><div key={u.id} className="si">
-              <div className="siu"><div className="sib" style={{background:MRENK[u.m]||"#4a80c0"}}/><div className="sia">{u.a}</div><button className="six" onClick={()=>uSil(u.id)}>✕</button></div>
-              <div className="r2" style={{marginBottom:8}}>
-                <div>
-                  <label className="fl">Satis Fiyati</label>
-                  <input className="fi" type="number" inputMode="numeric" value={u.sf} onChange={e=>uGuncelle(u.id,"sf",e.target.value)}/>
-                </div>
-                <div>
-                  <label className="fl">Adet</label>
-                  <input className="fi" type="number" inputMode="numeric" value={u.qty} onChange={e=>uGuncelle(u.id,"qty",e.target.value)}/>
-                </div>
+            <div style={{border:"1px solid rgba(96,160,224,.22)",borderRadius:16,overflow:"hidden",background:"rgba(14,18,28,.55)",marginTop:10}}>
+              <div style={{display:"grid",gridTemplateColumns:"1.9fr 1fr auto",gap:0,background:"rgba(96,160,224,.08)",borderBottom:"1px solid rgba(96,160,224,.15)"}}>
+                <div style={{padding:"10px 12px",fontSize:11,letterSpacing:1.2,textTransform:"uppercase",color:"#7eb8ff",fontWeight:700}}>Urun</div>
+                <div style={{padding:"10px 12px",fontSize:11,letterSpacing:1.2,textTransform:"uppercase",color:"#7eb8ff",fontWeight:700}}>Fiyat</div>
+                <div style={{padding:"10px 12px",fontSize:11,letterSpacing:1.2,textTransform:"uppercase",color:"#7eb8ff",fontWeight:700,textAlign:"center"}}>Sil</div>
               </div>
-              <div className="r2">
-                <div>
-                  <label className="fl">Urunu Satan</label>
-                  <select className="fi" value={u.saticiId||""} onChange={e=>uGuncelle(u.id,"saticiId",e.target.value)}>
-                    <option value="">Personel sec</option>
-                    {aktifPersoneller.map(p=><option key={p.id} value={p.id}>{p.ad}</option>)}
-                  </select>
+
+              {urunler.length===0 ? <div className="sbos" style={{margin:"10px",borderColor:"#1e2a3a"}}>Urun eklenmedi (istege bagli)</div> : urunler.map((u,i)=><div key={u.id} style={{display:"grid",gridTemplateColumns:"1.9fr 1fr auto",gap:0,borderBottom:i===urunler.length-1?"none":"1px solid rgba(96,160,224,.10)",alignItems:"stretch"}}>
+                <div style={{padding:"8px"}}>
+                  <div className="fi" style={{display:"flex",alignItems:"center",gap:8,margin:0}}>
+                    <div style={{width:8,height:8,borderRadius:"50%",background:MRENK[u.m]||"#4a80c0",flexShrink:0}}/>
+                    <div style={{minWidth:0,flex:1}}>
+                      <div style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{u.a}</div>
+                      <div style={{fontSize:10,color:"#5f7fa8",marginTop:3}}>{u.b} · {u.ml}</div>
+                    </div>
+                  </div>
                 </div>
-                <div style={{display:"flex",alignItems:"end",justifyContent:"flex-end"}}>
-                  <div style={{fontFamily:"Cormorant Garamond,serif",fontSize:22,color:"#60a0e0",fontWeight:700}}>{fmt(toN(u.sf)*toN(u.qty||1))}</div>
+                <div style={{padding:"8px"}}>
+                  <input className="fi" type="number" inputMode="numeric" value={u.sf} onChange={e=>uGuncelle(u.id,"sf",e.target.value)} style={{margin:0}}/>
                 </div>
-              </div>
-            </div>)}
+                <div style={{padding:"8px",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <button className="btn-i" style={{margin:0,padding:"12px 10px",minWidth:56}} onClick={()=>uSil(u.id)}>Sil</button>
+                </div>
+              </div>)}
+            </div>
+
+            <OdemeGir baslik="Urun Odeme Dagilimi" kk={uKK} ib={uIB} nk={uNK} ibanAlanId={uIbanAlanId} personeller={aktifPersoneller} toplam={urunTop}
+              aktifKullanici={aktifKullanici}
+              varsayilanIbanId={aktifKullanici?.id||""}
+              onChange={(alan,val)=>{
+                if(alan==="kk") setUKK(val);
+                else if(alan==="ib") setUIB(val);
+                else if(alan==="nk") setUNK(val);
+                else if(alan==="ibanAlanId") setUIbanAlanId(val);
+              }}
+            />
           </div>
-
-          <OdemeGir baslik="Hizmet Odeme Dagilimi" kk={hKK} ib={hIB} nk={hNK} ibanAlanId={finalHizIbanId} personeller={aktifPersoneller} toplam={hizmetTop} showIbanSelect={false}
-            onChange={(alan,val)=>{
-              if(alan==="kk") setHKK(val);
-              else if(alan==="ib") setHIB(val);
-              else if(alan==="nk") setHNK(val);
-              else if(alan==="ibanAlanId") setHIbanAlanId(val);
-            }}
-          />
-
-          <OdemeGir baslik="Urun Odeme Dagilimi" kk={uKK} ib={uIB} nk={uNK} ibanAlanId={uIbanAlanId} personeller={aktifPersoneller} toplam={urunTop}
-            onChange={(alan,val)=>{
-              if(alan==="kk") setUKK(val);
-              else if(alan==="ib") setUIB(val);
-              else if(alan==="nk") setUNK(val);
-              else if(alan==="ibanAlanId") setUIbanAlanId(val);
-            }}
-          />
 
           <div className="sc sc-g">
             <div className="sc-hd">
@@ -650,16 +661,12 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
               <div className="ok2"><div style={{fontSize:9,color:"#7a6a4a"}}>Urun</div><div className="kv" style={{fontSize:24}}>{fmt(urunTop)}</div></div>
               <div className="ok2"><div style={{fontSize:9,color:"#7a6a4a"}}>Toplam</div><div className="kv" style={{fontSize:24}}>{fmt(genelTop)}</div></div>
             </div>
-            {toN(hIB)>0 && !finalHizIbanId && hizmetPersonelTek.length!==1 && <div className="uyari">⚠ Hizmet IBAN odemesi girildi. Birden fazla hizmet personeli var; kimin IBAN'ina gittigini sec.</div>}
-            {toN(uIB)>0 && !uIbanAlanId && <div className="uyari">⚠ Urun IBAN odemesi girildi. Kimin IBAN'ina gittigini sec.</div>}
-            {hizmetTop>0 && hizmetOdemeTop>0 && Math.abs(hizmetOdemeTop-hizmetTop)>=1 && <div className="uyari">⚠ Hizmet odeme toplami ile hizmet toplami esit degil.</div>}
-            {urunTop>0 && urunOdemeTop>0 && Math.abs(urunOdemeTop-urunTop)>=1 && <div className="uyari">⚠ Urun odeme toplami ile urun toplami esit degil.</div>}
           </div>
 
           <div className="btn-r">
             <button className="btn-i" onClick={onIptal}>Iptal</button>
             <button className="btn-k"
-              disabled={!musteri.trim()||(!hizler.some(h=>h.n&&toN(h.f)>0&&h.pId)&&!urunler.some(u=>u.a&&toN(u.sf||u.sp)>0&&toN(u.qty)>0&&u.saticiId))}
+              disabled={!musteri.trim()||(!hizler.some(h=>h.n&&toN(h.f)>0)&&!urunler.some(u=>u.a&&toN(u.sf||u.sp)>0&&toN(u.qty)>0))}
               onClick={kaydetTikla}>
               {ilk?.id?"Guncelle":"Kaydet"}
             </button>
