@@ -37,6 +37,7 @@ const toN   = v => { const n=parseFloat(String(v||"0").replace(",",".")); return
 const uid   = () => Date.now()+Math.floor(Math.random()*9999);
 const normText = s => String(s||"").toLowerCase().replace(/ı/g,"i").normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
 const normDigits = s => String(s||"").replace(/\D/g,"");
+const maskPhone = s => { const d=String(s||"").replace(/\D/g,""); if(!d) return ""; if(d.length<=4) return d; return d.slice(0,4)+"•••"+d.slice(-3); };
 const urunAramaMetni = u => normText([u.a,u.m,u.ml,u.alias||"",u.b].join(" "));
 
 // ── Sabitler ─────────────────────────────────────────────────────────────
@@ -360,6 +361,7 @@ const OdemeGir = React.memo(({baslik="Odeme Dagilimi", kk, ib, nk, ibanAlanId, p
           <div key={key} className="ok2" style={{background:"rgba(0,0,0,.25)",border:"1px solid var(--br)"}}>
             <div style={{fontSize:9,color:"#7a6a4a",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>{lb}</div>
             <input className="oin" type="number" inputMode="numeric" placeholder="0" value={val} onChange={e=>onChange(key,e.target.value)} style={{borderBottom:"1px solid var(--br)",color:"#d4a017"}}/>
+            <button className="btn-i" style={{width:"100%",marginTop:10,padding:"10px 0"}} onClick={()=>onChange(key,"")}>Sil</button>
           </div>
         ))}
       </div>
@@ -503,7 +505,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
                 onBlur={()=>setTimeout(()=>setMoneri([]),180)}/>
               {moneri.length>0&&<div className="mus-on">{moneri.map(m=><div key={m.id} className="mus-oi" onMouseDown={()=>{setMusteri(m.ad);setTel(m.tel);setMoneri([]);}}>
                 <div style={{fontSize:13,color:"#e8dcc8"}}>{m.ad}</div>
-                {m.tel&&<div style={{fontSize:10,color:"#7a6a4a"}}>📞 {m.tel}</div>}
+                {m.tel&&<div style={{fontSize:10,color:"#7a6a4a"}}>📞 {maskPhone(m.tel)}</div>}
               </div>)}</div>}
             </div>
             <div>
@@ -512,16 +514,13 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
             </div>
           </div>
 
-          <div className="r2" style={{marginBottom:12}}>
-            <div>
-              <label className="fl">Gelis Turu</label>
-              <select className="fi" value={gelisTipi} onChange={e=>setGelisTipi(e.target.value)}>
-                <option>Direkt</option>
-                <option>Telefon Randevu</option>
-                <option>WhatsApp Randevu</option>
-              </select>
-            </div>
-
+          <div style={{marginBottom:12}}>
+            <label className="fl">Gelis Turu</label>
+            <select className="fi" value={gelisTipi} onChange={e=>setGelisTipi(e.target.value)}>
+              <option>Direkt</option>
+              <option>Telefon Randevu</option>
+              <option>WhatsApp Randevu</option>
+            </select>
           </div>
 
           <div className="sc sc-h">
@@ -531,14 +530,14 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
             </div>
 
             <div style={{border:"1px solid rgba(128,192,64,.22)",borderRadius:16,overflow:"hidden",background:"rgba(20,24,12,.55)"}}>
-              <div style={{display:"grid",gridTemplateColumns:"1.7fr .9fr auto",gap:0,background:"rgba(128,192,64,.08)",borderBottom:"1px solid rgba(128,192,64,.15)"}}>
+              <div style={{display:"grid",gridTemplateColumns:"1.9fr 1fr auto",gap:0,background:"rgba(128,192,64,.08)",borderBottom:"1px solid rgba(128,192,64,.15)"}}>
                 <div style={{padding:"10px 12px",fontSize:11,letterSpacing:1.2,textTransform:"uppercase",color:"#9bc85a",fontWeight:700}}>Hizmet</div>
                 <div style={{padding:"10px 12px",fontSize:11,letterSpacing:1.2,textTransform:"uppercase",color:"#9bc85a",fontWeight:700}}>Fiyat</div>
                 <div style={{padding:"10px 12px",fontSize:11,letterSpacing:1.2,textTransform:"uppercase",color:"#9bc85a",fontWeight:700,textAlign:"center"}}>Sil</div>
               </div>
 
               {hizler.map((h,i)=>(
-                <div key={h.id} style={{display:"grid",gridTemplateColumns:"1.7fr .9fr auto",gap:0,borderBottom:i===hizler.length-1?"none":"1px solid rgba(128,192,64,.10)",alignItems:"stretch"}}>
+                <div key={h.id} style={{display:"grid",gridTemplateColumns:"1.9fr 1fr auto",gap:0,borderBottom:i===hizler.length-1?"none":"1px solid rgba(128,192,64,.10)",alignItems:"stretch"}}>
                   <div style={{padding:"8px"}}>
                     <select className="fi" value={h.n} onChange={e=>hGuncelle(h.id,"n",e.target.value)} style={{margin:0}}>
                       <option value="">Hizmet sec</option>
@@ -557,15 +556,14 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
 
             <div style={{marginTop:8,fontSize:11,color:"#7ea34d"}}>Bir hizmet sectiginde altta otomatik yeni satir acilir.</div>
 
-          <OdemeGir baslik="Hizmet Odeme Dagilimi" kk={hKK} ib={hIB} nk={hNK} ibanAlanId={finalHizIbanId} personeller={aktifPersoneller} toplam={hizmetTop} showIbanSelect={false}
-            onChange={(alan,val)=>{
-              if(alan==="kk") setHKK(val);
-              else if(alan==="ib") setHIB(val);
-              else if(alan==="nk") setHNK(val);
-              else if(alan==="ibanAlanId") setHIbanAlanId(val);
-            }}
-          />
-
+            <OdemeGir baslik="Hizmet Odeme Dagilimi" kk={hKK} ib={hIB} nk={hNK} ibanAlanId={finalHizIbanId} personeller={aktifPersoneller} toplam={hizmetTop} showIbanSelect={false}
+              onChange={(alan,val)=>{
+                if(alan==="kk") setHKK(val);
+                else if(alan==="ib") setHIB(val);
+                else if(alan==="nk") setHNK(val);
+                else if(alan==="ibanAlanId") setHIbanAlanId(val);
+              }}
+            />
           </div>
 
           <div className="sc sc-u">
@@ -623,15 +621,15 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
                 </div>
               </div>
             </div>)}
-          <OdemeGir baslik="Urun Odeme Dagilimi" kk={uKK} ib={uIB} nk={uNK} ibanAlanId={uIbanAlanId} personeller={aktifPersoneller} toplam={urunTop}
-            onChange={(alan,val)=>{
-              if(alan==="kk") setUKK(val);
-              else if(alan==="ib") setUIB(val);
-              else if(alan==="nk") setUNK(val);
-              else if(alan==="ibanAlanId") setUIbanAlanId(val);
-            }}
-          />
 
+            <OdemeGir baslik="Urun Odeme Dagilimi" kk={uKK} ib={uIB} nk={uNK} ibanAlanId={uIbanAlanId} personeller={aktifPersoneller} toplam={urunTop}
+              onChange={(alan,val)=>{
+                if(alan==="kk") setUKK(val);
+                else if(alan==="ib") setUIB(val);
+                else if(alan==="nk") setUNK(val);
+                else if(alan==="ibanAlanId") setUIbanAlanId(val);
+              }}
+            />
           </div>
 
           <div className="sc sc-g">
@@ -653,7 +651,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, onKaydet, onIpt
           <div className="btn-r">
             <button className="btn-i" onClick={onIptal}>Iptal</button>
             <button className="btn-k"
-              disabled={!musteri.trim()||(!hizler.some(h=>h.n&&toN(h.f)>0)&&!urunler.some(u=>u.a&&toN(u.sf||u.sp)>0&&toN(u.qty)>0&&u.saticiId))}
+              disabled={!musteri.trim()||(!hizler.some(h=>h.n&&toN(h.f)>0&&h.pId)&&!urunler.some(u=>u.a&&toN(u.sf||u.sp)>0&&toN(u.qty)>0&&u.saticiId))}
               onClick={kaydetTikla}>
               {ilk?.id?"Guncelle":"Kaydet"}
             </button>
