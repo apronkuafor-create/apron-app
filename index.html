@@ -683,6 +683,8 @@ function App() {
   const [detayModal,setDetayModal]= useState(null);
   const [silOnay,  setSilOnay]  = useState(null);
   const [gsOnay,   setGsOnay]   = useState(false);
+  const [gecmisKayitlar, setGecmisKayitlar] = useState([]); // Salt okunur, ay sonu silinir
+  const [personelSekme, setPersonelSekme] = useState("bugun"); // bugun | gecmis
   const [toast,    setToast]    = useState({g:false,m:"",t:"ba"});
   const [adminSekme,setAdminSekme]= useState("ozet");
   const [pFiltre,  setPFiltre]  = useState("all");
@@ -704,6 +706,7 @@ function App() {
           setMusteriDB(local.musteriDB||[]);
           setPersoneller(local.personeller?.length ? local.personeller : DEFAULT_PERSONELLER);
           setDevDB(local.devDB||{});
+          setGecmisKayitlar(local.gecmisKayitlar||[]);
         }
         const [k,m,d] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
@@ -725,10 +728,10 @@ function App() {
   useEffect(()=>{
     if(yukleniyor) return;
     const packed = {
-      records,bekleyen,musteriDB,personeller,devDB
+      records,bekleyen,musteriDB,personeller,devDB,gecmisKayitlar
     };
     localStorage.setItem("apron_v2_data", JSON.stringify(packed));
-  },[records,bekleyen,musteriDB,personeller,devDB,yukleniyor]);
+  },[records,bekleyen,musteriDB,personeller,devDB,gecmisKayitlar,yukleniyor]);
 
   const showToast = (m,t="ba") => { setToast({g:true,m,t}); setTimeout(()=>setToast(x=>({...x,g:false})),3200); };
 
@@ -831,13 +834,31 @@ function App() {
 
   // Gun sonu
   const gunSonu = () => {
-    const ids=myBekleyen.map(r=>r.id);
+    const ids = myBekleyen.map(r=>r.id);
+    const ayBasi = new Date(); ayBasi.setDate(1); ayBasi.setHours(0,0,0,0);
+    const ayBasiStr = ayBasi.toISOString().split("T")[0];
+    // Gecmis kayitlara ekle (bu ay icinde kalanlar)
+    setGecmisKayitlar(prev => {
+      const yeniGecmis = [...myBekleyen.map(r=>({...r,gonderildi:true})), ...prev];
+      // Ay sonu temizle: gecen aya ait kayitlari sil
+      return yeniGecmis.filter(r => r.tarih >= ayBasiStr);
+    });
+    // Records'a ekle (yonetici gorsun)
     setRecords(p=>[...myBekleyen.map(r=>({...r,gonderildi:true})),...p]);
+    // Bekleyenden sil
     setBekleyen(p=>p.filter(r=>r.staffId!==kullanici.id));
     setGsOnay(false);
     if(ids.length>0&&DB) DB.from("kayitlar").update({gonderildi:true}).in("id",ids).then(()=>{}).catch(()=>{});
     showToast("Veriler yoneticiye gonderildi!");
   };
+
+  // Ay basi kontrol: uygulama acildiginda gecmis kayitlari temizle
+  useEffect(()=>{
+    if(yukleniyor) return;
+    const ayBasi = new Date(); ayBasi.setDate(1); ayBasi.setHours(0,0,0,0);
+    const ayBasiStr = ayBasi.toISOString().split("T")[0];
+    setGecmisKayitlar(prev => prev.filter(r => r.tarih >= ayBasiStr));
+  },[yukleniyor]);
 
   // Personel
   const pEkleKaydet = () => {
@@ -1055,7 +1076,17 @@ function App() {
           {myBekleyen.length>0&&<button className="gsbtn" onClick={()=>setGsOnay(true)}>📤 Gun Sonu ({myBekleyen.length})</button>}
           <button className="tbtn" onClick={cikis}>Cikis</button>
         </div>
-        <div className="pg">
+
+        {/* Personel sekmeleri */}
+        <div className="atabs">
+          <div className={`atab${personelSekme==="bugun"?" a":""}`} onClick={()=>setPersonelSekme("bugun")}>Bugun</div>
+          <div className={`atab${personelSekme==="gecmis"?" a":""}`} onClick={()=>setPersonelSekme("gecmis")}>
+            Gecmisim {gecmisKayitlar.filter(r=>r.staffId===kullanici.id).length>0&&<span style={{background:"rgba(212,160,23,.2)",color:"#d4a017",borderRadius:10,padding:"1px 6px",fontSize:9,marginLeft:4}}>{gecmisKayitlar.filter(r=>r.staffId===kullanici.id).length}</span>}
+          </div>
+        </div>
+
+        {/* BUGUN sekmesi */}
+        {personelSekme==="bugun"&&<div className="pg">
           <div className="stat-kart">
             <div className="stat"><div className="sv">{myKayitlar.filter(r=>r.tarih===TODAY()).length}</div><div className="sl">Bugun</div></div>
             <div className="sep"/>
@@ -1071,7 +1102,84 @@ function App() {
           <div className="sek">Kayitlarim</div>
           {myKayitlar.length===0?<div className="bos"><div style={{fontSize:42,marginBottom:9}}>📋</div><div style={{fontSize:11,letterSpacing:2}}>Henuz kayit yok</div></div>
             :myKayitlar.map(r=><KayitKarti key={r.id} r={r}/>)}
-        </div>
+        </div>}
+
+        {/* GECMİS sekmesi - salt okunur */}
+        {personelSekme==="gecmis"&&(()=>{
+          const ay = new Date();
+          const ayAdi = ay.toLocaleDateString("tr-TR",{month:"long",year:"numeric"});
+          const benim = gecmisKayitlar.filter(r=>r.staffId===kullanici.id);
+          const ayToplamKK = benim.reduce((s,r)=>s+(r.hizKK||0)+(r.uKK||0),0);
+          const ayToplamIB = benim.reduce((s,r)=>s+(r.hizIB||0)+(r.uIB||0),0);
+          const ayToplamNK = benim.reduce((s,r)=>s+(r.hizNK||0)+(r.uNK||0),0);
+          const ayToplam = ayToplamKK+ayToplamIB+ayToplamNK;
+          // Gunlere gore grupla
+          const gunler = {};
+          benim.forEach(r=>{ if(!gunler[r.tarih]) gunler[r.tarih]=[]; gunler[r.tarih].push(r); });
+          const siraliGunler = Object.keys(gunler).sort((a,b)=>b.localeCompare(a));
+          return (
+            <div className="pg">
+              <div style={{background:"linear-gradient(135deg,#1a1408,#120e04)",border:"1.5px solid #3a2e10",borderRadius:14,padding:15,marginBottom:16}}>
+                <div style={{fontSize:10,color:"#7a6a4a",letterSpacing:3,textTransform:"uppercase",marginBottom:12}}>{ayAdi} — Aylik Ozet</div>
+                <div style={{display:"flex",gap:10,marginBottom:10}}>
+                  <div style={{flex:1,textAlign:"center"}}>
+                    <div style={{fontFamily:"Cormorant Garamond,serif",fontSize:22,color:"#d4a017",fontWeight:700}}>{fmt(ayToplam)}</div>
+                    <div style={{fontSize:9,color:"#5a4a2a",letterSpacing:2,textTransform:"uppercase",marginTop:2}}>Toplam Ciro</div>
+                  </div>
+                  <div style={{width:1,background:"#2a2010"}}/>
+                  <div style={{flex:1,textAlign:"center"}}>
+                    <div style={{fontFamily:"Cormorant Garamond,serif",fontSize:22,color:"#d4a017",fontWeight:700}}>{benim.length}</div>
+                    <div style={{fontSize:9,color:"#5a4a2a",letterSpacing:2,textTransform:"uppercase",marginTop:2}}>Kayit</div>
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+                  {[["💳","K.Karti",ayToplamKK],["🏦","IBAN",ayToplamIB],["💵","Nakit",ayToplamNK]].map(([ic,lb,v])=>(
+                    <div key={lb} style={{background:"rgba(0,0,0,.25)",borderRadius:9,padding:"9px 5px",textAlign:"center"}}>
+                      <div style={{fontSize:14,marginBottom:3}}>{ic}</div>
+                      <div style={{fontSize:9,color:"#5a4a2a",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{lb}</div>
+                      <div style={{fontFamily:"Cormorant Garamond,serif",fontSize:14,color:v>0?"#d4a017":"#2a2010",fontWeight:700}}>{fmt(v)}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{fontSize:10,color:"#3a2e1e",marginTop:10,textAlign:"center"}}>Bu kayitlar ay sonunda otomatik silinir</div>
+              </div>
+
+              {benim.length===0
+                ?<div className="bos"><div style={{fontSize:42,marginBottom:9}}>📅</div><div style={{fontSize:11,letterSpacing:2}}>Bu ay henuz gonderilmis kayit yok</div></div>
+                :siraliGunler.map(tarih=>{
+                  const gunKayitlar = gunler[tarih];
+                  const gunTop = gunKayitlar.reduce((s,r)=>s+r.toplam,0);
+                  const tarihObj = new Date(tarih+"T12:00:00");
+                  const tarihStr = tarihObj.toLocaleDateString("tr-TR",{weekday:"long",day:"2-digit",month:"long"});
+                  return (
+                    <div key={tarih} style={{marginBottom:16}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <div style={{fontSize:11,color:"#9a8a6a",letterSpacing:1}}>{tarihStr}</div>
+                        <div style={{fontFamily:"Cormorant Garamond,serif",fontSize:15,color:"#d4a017",fontWeight:700}}>{fmt(gunTop)}</div>
+                      </div>
+                      {gunKayitlar.map(r=>{
+                        const kk=(r.hizKK||0)+(r.uKK||0), ib=(r.hizIB||0)+(r.uIB||0), nk=(r.hizNK||0)+(r.uNK||0);
+                        return (
+                          <div key={r.id} style={{background:"#111008",border:"1px solid #1e1a10",borderRadius:11,padding:"11px 12px",marginBottom:7}}>
+                            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:5}}>
+                              <div style={{fontSize:14,color:"#e8dcc8",fontWeight:500}}>{r.musteri}</div>
+                              <div style={{fontFamily:"Cormorant Garamond,serif",fontSize:17,color:"#d4a017",fontWeight:700}}>{fmt(r.toplam)}</div>
+                            </div>
+                            <div style={{fontSize:10,color:"#5a4a2a",marginBottom:5}}>{[...(r.hizler||[]).map(h=>h.n||h),...(r.urunler?.length>0?[r.urunler.length+" urun"]:[])].join(" · ")} · {r.saat}</div>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+                              {kk>0&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:20,border:"1px solid #2a2010",color:"#7a6a4a",background:"#1a1510"}}>💳 {fmt(kk)}</span>}
+                              {ib>0&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:20,border:"1px solid #2a2010",color:"#7a6a4a",background:"#1a1510"}}>🏦 {fmt(ib)}</span>}
+                              {nk>0&&<span style={{fontSize:9,padding:"2px 6px",borderRadius:20,border:"1px solid #2a2010",color:"#7a6a4a",background:"#1a1510"}}>💵 {fmt(nk)}</span>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+            </div>
+          );
+        })()}
       </div>}
 
       {/* ──── YONETİCİ ──── */}
