@@ -212,6 +212,10 @@ input,select,textarea{font-family:'Jost',system-ui,sans-serif}
 .toast.uy{background:#2a2010;border:1px solid #5a4a20;color:#c0a050}
 @keyframes tin{from{transform:translateX(-50%) translateY(-18px);opacity:0}}
 .bos{text-align:center;padding:44px 18px;color:var(--br)}
+.ot input[type=number]{-webkit-appearance:none;-moz-appearance:textfield}
+.ot input[type=number]:focus{outline:none}
+input[type=number]{-webkit-appearance:none;-moz-appearance:textfield}
+
 .ares{background:#0a0c14;border:1px solid #1e2a3a;border-radius:9px;overflow:hidden;max-height:195px;overflow-y:auto;margin-bottom:10px}
 .aitem{padding:9px 11px;border-bottom:1px solid #141820;cursor:pointer;display:flex;align-items:center;gap:7px}
 .aitem:hover{background:#141820}
@@ -239,10 +243,12 @@ function Toast({toast}) {
 }
 
 // ── OdemeGir ──────────────────────────────────────────────────────────
-const OdemeGir = React.memo(function h(OdemeGir,{renk, kk, ib, nk, onChange, label}) {
+const OdemeGir = React.memo(function OdemeGir({renk, kk, ib, nk, onChange, label, beklenen, onSil}) {
   const top = toN(kk)+toN(ib)+toN(nk);
-  const brd = v => v ? `1.5px solid ${renk}` : "1.5px solid #2a2010";
+  const fark = beklenen>0 ? top - beklenen : 0;
+  const yuzde = beklenen>0 && top>0 ? Math.round((fark/beklenen)*100) : 0;
   return div({style:{background:"rgba(0,0,0,.22)",borderRadius:9,overflow:"hidden",border:"1px solid rgba(255,255,255,.04)",marginTop:9}},
+    // Başlık satırı
     div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",background:"rgba(0,0,0,.28)"}},
       [["💳","K.Karti"],["🏦","IBAN"],["💵","Nakit"]].map(([ic,lb],i) =>
         div({key:lb,style:{padding:"7px 5px",textAlign:"center",borderRight:i<2?"1px solid rgba(255,255,255,.05)":"none"}},
@@ -251,22 +257,47 @@ const OdemeGir = React.memo(function h(OdemeGir,{renk, kk, ib, nk, onChange, lab
         )
       )
     ),
+    // Input + Sil satırı
     div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr"}},
       [["kk",kk],["ib",ib],["nk",nk]].map(([k,v],i) =>
         div({key:k,style:{borderRight:i<2?"1px solid rgba(255,255,255,.05)":"none",padding:"5px 5px 7px"}},
           inp({type:"number",inputMode:"numeric",placeholder:"0",value:v,
             onChange:e=>onChange(k,e.target.value),
             style:{width:"100%",background:"transparent",border:"none",
-              borderBottom:brd(v),color:renk,
-              fontFamily:"Cormorant Garamond,serif",fontSize:19,
-              padding:"3px 2px 4px",outline:"none",textAlign:"center"}}),
-          div({style:{fontSize:8,color:"#3a2e1e",textAlign:"center",marginTop:2}},"TL")
+              borderBottom:toN(v)>0?"1.5px solid "+renk:"1.5px solid #2a2010",
+              color:renk,fontFamily:"Cormorant Garamond,serif",fontSize:19,
+              padding:"3px 2px 4px",outline:"none",textAlign:"center",
+              WebkitAppearance:"none"}}),
+          toN(v)>0 && div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:3}},
+            div({style:{fontSize:9,color:"#5a4a2a"}},fmt(toN(v))),
+            onSil && btn({style:{background:"transparent",border:"none",color:"#6a3a2a",fontSize:10,cursor:"pointer",padding:"0 2px"},
+              onClick:()=>onChange(k,"")}, "✕")
+          )
         )
       )
     ),
-    top>0 && div({style:{display:"flex",justifyContent:"space-between",padding:"7px 11px",borderTop:"1px solid rgba(255,255,255,.04)",background:"rgba(0,0,0,.15)"}},
-      span({style:{fontSize:10,color:"#7a6a4a",letterSpacing:2,textTransform:"uppercase"}},label||"Toplam"),
-      span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:17,color:renk,fontWeight:700}},fmt(top))
+    // Toplam + İskonto/Zam
+    top>0 && div({style:{borderTop:"1px solid rgba(255,255,255,.04)",background:"rgba(0,0,0,.15)"}},
+      div({style:{display:"flex",justifyContent:"space-between",padding:"7px 11px"}},
+        span({style:{fontSize:10,color:"#7a6a4a",letterSpacing:2,textTransform:"uppercase"}},label||"Toplam"),
+        span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:17,color:renk,fontWeight:700}},fmt(top))
+      ),
+      beklenen>0 && top>0 && Math.abs(yuzde)>=1 && div({style:{padding:"0 11px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+        span({style:{fontSize:10,color:"#7a6a4a"}},
+          fark<0 ? "Liste fiyatından az alındı" : "Liste fiyatından fazla alındı"
+        ),
+        div({style:{display:"flex",gap:8,alignItems:"center"}},
+          span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:14,color:fark<0?"#80c040":"#f0a060",fontWeight:700}},
+            (fark<0?"-":"+") + fmt(Math.abs(fark))
+          ),
+          span({style:{fontSize:10,padding:"2px 7px",borderRadius:20,
+            background:fark<0?"rgba(80,160,0,.15)":"rgba(240,160,60,.15)",
+            color:fark<0?"#80c040":"#f0a060",
+            border:"1px solid "+(fark<0?"#3a6010":"#8a5010")}},
+            (fark<0?"-":"+") + Math.abs(yuzde) + "%"
+          )
+        )
+      )
     )
   );
 });
@@ -351,7 +382,10 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
   return div({className:"ov"},
     div({className:"mod"},
       div({className:"mhd"},
-        span({className:"mtl"},baslik||(ilk?.id?"Kaydi Duzenle":"Yeni Kayit")),
+        div({style:{flex:1,minWidth:0}},
+          span({className:"mtl"},baslik||(ilk?.id?"Kaydi Duzenle":"Yeni Kayit")),
+          aktifKullanici&&div({style:{fontSize:10,color:"#7a6a4a",marginTop:3,letterSpacing:1}},aktifKullanici.ad)
+        ),
         btn({className:"xbtn",onClick:onIptal},"✕")
       ),
       div({className:"mbdy"},
@@ -421,7 +455,15 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
               )
             )
           ),
-          h(OdemeGir,{renk:"#80c040",label:"Hizmet Toplami",kk:hKK,ib:hIB,nk:hNK,onChange:(k,v)=>{if(k==="kk")setHKK(v);else if(k==="ib")setHIB(v);else setHNK(v);}})
+          hizTop>0 && div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+            padding:"8px 11px",background:"rgba(80,160,0,.06)",borderRadius:8,marginTop:6,marginBottom:2}},
+            span({style:{fontSize:10,color:"#6a9a30",letterSpacing:2,textTransform:"uppercase"}},"Hizmet Toplami"),
+            span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"#a0d060",fontWeight:700}},fmt(hizTop))
+          ),
+          h(OdemeGir,{renk:"#80c040",label:"Odeme Toplami",kk:hKK,ib:hIB,nk:hNK,
+            beklenen:hizTop,
+            onSil:true,
+            onChange:(k,v)=>{if(k==="kk")setHKK(v);else if(k==="ib")setHIB(v);else setHNK(v);}})
         ),
         // Urunler
         div({className:"sc sc-u"},
@@ -502,7 +544,15 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
                 )
               )
             )),
-          h(OdemeGir,{renk:"#60a0e0",label:"Urun Toplami",kk:uKK,ib:uIB,nk:uNK,onChange:(k,v)=>{if(k==="kk")setUKK(v);else if(k==="ib")setUIB(v);else setUNK(v);}})
+          urunTop>0 && div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+            padding:"8px 11px",background:"rgba(60,100,160,.06)",borderRadius:8,marginTop:6,marginBottom:2}},
+            span({style:{fontSize:10,color:"#5a8aaa",letterSpacing:2,textTransform:"uppercase"}},"Urun Toplami"),
+            span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"#80b0e0",fontWeight:700}},fmt(urunTop))
+          ),
+          h(OdemeGir,{renk:"#60a0e0",label:"Odeme Toplami",kk:uKK,ib:uIB,nk:uNK,
+            beklenen:urunTop,
+            onSil:true,
+            onChange:(k,v)=>{if(k==="kk")setUKK(v);else if(k==="ib")setUIB(v);else setUNK(v);}})
         ),
         // Genel toplam
         div({className:"sc sc-g"},
