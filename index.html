@@ -725,6 +725,76 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
   );
 }
 
+
+function KayitKarti({r, onDetay, onDuzenle, onSil}) {
+  const kk=(r.hizKK||0)+(r.uKK||0), ib=(r.hizIB||0)+(r.uIB||0), nk=(r.hizNK||0)+(r.uNK||0);
+  const riIcon = r => (r.hizler?.length>0&&r.urunler?.length>0)?"✂️":r.hizler?.length>0?"✂️":"🛍️";
+  return div({className:`kk${!r.gonderildi?" bk2":""}`},
+    div({className:"kku",onClick:()=>onDetay(r)},
+      div({className:"kikon"},riIcon(r)),
+      div({className:"ki"},
+        div({className:"kad"},r.musteri,
+          !r.gonderildi&&span({style:{fontSize:9,color:"#80c040",marginLeft:5,padding:"1px 5px",background:"rgba(80,160,0,.1)",borderRadius:4}},"Bekliyor")
+        ),
+        div({className:"kalt"},[...(r.hizler||[]).map(h=>h.n||h),...(r.urunler?.length>0?[r.urunler.length+" urun"]:[])].join(" · ")+" · "+r.saat),
+        div({className:"kpl"},
+          kk>0&&span({className:"kp"},"💳 "+fmt(kk)),
+          ib>0&&span({className:"kp"},"🏦 "+fmt(ib)),
+          nk>0&&span({className:"kp"},"💵 "+fmt(nk))
+        )
+      ),
+      div({style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}},
+        div({className:"ktu"},fmt(r.toplam)),
+        div({style:{fontSize:15,color:"#3a2e1e"}},"›")
+      )
+    ),
+    div({className:"kka"},
+      btn({className:"kab",style:{color:"#9a8a6a"},onClick:()=>onDetay(r)},"📋 Detay"),
+      btn({className:"kab",style:{color:"#7a9a6a",borderLeft:"1px solid rgba(255,255,255,.04)",borderRight:"1px solid rgba(255,255,255,.04)"},onClick:()=>onDuzenle(r)},"✏️ Duzenle"),
+      btn({className:"kab",style:{color:"#c06060"},onClick:()=>onSil(r.id)},"🗑️ Sil")
+    )
+  );
+}
+
+  function PersonelFormModal({title, data, setData, onKaydet, onIptal, showDurum, hata}) {
+    return div({className:"conf-ov"},
+      div({className:"conf-k",style:{maxWidth:310,border:"1px solid var(--br)"}},
+        div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"#e8dcc8",marginBottom:16}},title),
+        div({style:{textAlign:"left",marginBottom:10}},
+          lbl({className:"fl"},"Ad Soyad"),
+          inp({className:"fi",value:data.ad,onChange:e=>setData(p=>({...p,ad:e.target.value}))})
+        ),
+        div({style:{textAlign:"left",marginBottom:10}},
+          lbl({className:"fl"},"4 Haneli PIN"),
+          inp({className:"fi",maxLength:4,inputMode:"numeric",value:data.pin,
+            onChange:e=>setData(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}))})
+        ),
+        data.id!=="ad"&&div({style:{textAlign:"left",marginBottom:10}},
+          lbl({className:"fl"},"Rol"),
+          sel({className:"fi",value:data.rol,onChange:e=>setData(p=>({...p,rol:e.target.value}))},
+            opt("personel","Personel"),opt("yonetici","Yonetici")
+          )
+        ),
+        showDurum&&div({style:{textAlign:"left",marginBottom:14}},
+          lbl({className:"fl"},"Durum"),
+          div({style:{display:"flex",gap:8}},
+            [true,false].map(v=>btn({key:String(v),
+              style:{flex:1,padding:9,borderRadius:8,cursor:"pointer",fontSize:11,
+                border:`1.5px solid ${data.aktif===v?(v?"#80c040":"#c06060"):"#2a2010"}`,
+                background:data.aktif===v?`rgba(${v?"80,160,0":"160,40,40"},.1)`:"transparent",
+                color:data.aktif===v?(v?"#80c040":"#c06060"):"#5a4a2a"},
+              onClick:()=>setData(p=>({...p,aktif:v}))
+          },v?"Aktif":"Pasif"))
+          )
+        ),
+        hata&&div({style:{background:"#1e0808",border:"1px solid #4a1010",borderRadius:8,padding:"9px 11px",color:"#c06060",fontSize:11,marginBottom:9}},pHata),
+        div({className:"btn-r"},
+          btn({className:"btn-i",onClick:onIptal},"Iptal"),
+          btn({className:"btn-k",onClick:onKaydet},"Kaydet")
+        )
+      )
+    );
+}
 // ══════════════════════════════════════════════════════════════════════
 // Ana Uygulama
 // ══════════════════════════════════════════════════════════════════════
@@ -952,75 +1022,8 @@ function App() {
   const riIcon = r => (r.hizler?.length>0&&r.urunler?.length>0)?"✂️":r.hizler?.length>0?"✂️":"🛍️";
 
   // Kayıt kartı
-  function KayitKarti({r}) {
-    const kk=(r.hizKK||0)+(r.uKK||0), ib=(r.hizIB||0)+(r.uIB||0), nk=(r.hizNK||0)+(r.uNK||0);
-    return div({className:`kk${!r.gonderildi?" bk2":""}`},
-      div({className:"kku",onClick:()=>setDetay(r)},
-        div({className:"kikon"},riIcon(r)),
-        div({className:"ki"},
-          div({className:"kad"},r.musteri,
-            !r.gonderildi&&span({style:{fontSize:9,color:"#80c040",marginLeft:5,padding:"1px 5px",background:"rgba(80,160,0,.1)",borderRadius:4}},"Bekliyor")
-          ),
-          div({className:"kalt"},[...(r.hizler||[]).map(h=>h.n||h),...(r.urunler?.length>0?[r.urunler.length+" urun"]:[])].join(" · ")+" · "+r.saat),
-          div({className:"kpl"},
-            kk>0&&span({className:"kp"},"💳 "+fmt(kk)),
-            ib>0&&span({className:"kp"},"🏦 "+fmt(ib)),
-            nk>0&&span({className:"kp"},"💵 "+fmt(nk))
-          )
-        ),
-        div({style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}},
-          div({className:"ktu"},fmt(r.toplam)),
-          div({style:{fontSize:15,color:"#3a2e1e"}},"›")
-        )
-      ),
-      div({className:"kka"},
-        btn({className:"kab",style:{color:"#9a8a6a"},onClick:()=>setDetay(r)},"📋 Detay"),
-        btn({className:"kab",style:{color:"#7a9a6a",borderLeft:"1px solid rgba(255,255,255,.04)",borderRight:"1px solid rgba(255,255,255,.04)"},onClick:()=>setKayitForm(r)},"✏️ Duzenle"),
-        btn({className:"kab",style:{color:"#c06060"},onClick:()=>setSilOnay(r.id)},"🗑️ Sil")
-      )
-    );
-  }
 
   // Modal - Personel form
-  function PersonelFormModal({title, data, setData, onKaydet, onIptal, showDurum}) {
-    return div({className:"conf-ov"},
-      div({className:"conf-k",style:{maxWidth:310,border:"1px solid var(--br)"}},
-        div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"#e8dcc8",marginBottom:16}},title),
-        div({style:{textAlign:"left",marginBottom:10}},
-          lbl({className:"fl"},"Ad Soyad"),
-          inp({className:"fi",value:data.ad,onChange:e=>setData(p=>({...p,ad:e.target.value}))})
-        ),
-        div({style:{textAlign:"left",marginBottom:10}},
-          lbl({className:"fl"},"4 Haneli PIN"),
-          inp({className:"fi",maxLength:4,inputMode:"numeric",value:data.pin,
-            onChange:e=>setData(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}))})
-        ),
-        data.id!=="ad"&&div({style:{textAlign:"left",marginBottom:10}},
-          lbl({className:"fl"},"Rol"),
-          sel({className:"fi",value:data.rol,onChange:e=>setData(p=>({...p,rol:e.target.value}))},
-            opt("personel","Personel"),opt("yonetici","Yonetici")
-          )
-        ),
-        showDurum&&div({style:{textAlign:"left",marginBottom:14}},
-          lbl({className:"fl"},"Durum"),
-          div({style:{display:"flex",gap:8}},
-            [true,false].map(v=>btn({key:String(v),
-              style:{flex:1,padding:9,borderRadius:8,cursor:"pointer",fontSize:11,
-                border:`1.5px solid ${data.aktif===v?(v?"#80c040":"#c06060"):"#2a2010"}`,
-                background:data.aktif===v?`rgba(${v?"80,160,0":"160,40,40"},.1)`:"transparent",
-                color:data.aktif===v?(v?"#80c040":"#c06060"):"#5a4a2a"},
-              onClick:()=>setData(p=>({...p,aktif:v}))
-            },v?"Aktif":"Pasif"))
-          )
-        ),
-        pHata&&div({style:{background:"#1e0808",border:"1px solid #4a1010",borderRadius:8,padding:"9px 11px",color:"#c06060",fontSize:11,marginBottom:9}},pHata),
-        div({className:"btn-r"},
-          btn({className:"btn-i",onClick:onIptal},"Iptal"),
-          btn({className:"btn-k",onClick:onKaydet},"Kaydet")
-        )
-      )
-    );
-  }
 
   return div({style:{minHeight:"100vh",background:"#0a0805"}},
     h('style',null,CSS),
@@ -1157,10 +1160,10 @@ function App() {
     kayitForm&&h(KayitForm,{ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null)}),
 
     // Personel ekle modal
-    pEkle&&h(PersonelFormModal,{title:"Yeni Personel",data:yeniP,setData:setYeniP,onKaydet:pEkleKaydet,onIptal:()=>{setPEkle(false);setPHata("");},showDurum:false}),
+    pEkle&&h(PersonelFormModal,{title:"Yeni Personel",data:yeniP,setData:setYeniP,hata:pHata,onKaydet:pEkleKaydet,onIptal:()=>{setPEkle(false);setPHata("");},showDurum:false}),
 
     // Personel duzenle modal
-    pDuz&&h(PersonelFormModal,{title:"Personel Duzenle",data:pDuz,setData:setPDuz,onKaydet:pDuzKaydet,onIptal:()=>{setPDuz(null);setPHata("");},showDurum:true}),
+    pDuz&&h(PersonelFormModal,{hata:pHata,title:"Personel Duzenle",data:pDuz,setData:setPDuz,onKaydet:pDuzKaydet,onIptal:()=>{setPDuz(null);setPHata("");},showDurum:true}),
 
     // ── LOGIN ──
     !yukleniyor&&ekran==="login"&&div({className:"login-bg"},
@@ -1219,7 +1222,7 @@ function App() {
         div({className:"sek"},"Kayitlarim"),
         myBekleyen.length===0
           ?div({className:"bos"},div({style:{fontSize:42,marginBottom:9}},"📋"),div({style:{fontSize:11,letterSpacing:2}},"Henuz kayit yok"))
-          :myBekleyen.map(r=>h(KayitKarti,{r,key:r.id}))
+          :myBekleyen.map(r=>h(KayitKarti,{r,key:r.id,onDetay:setDetay,onDuzenle:r=>setKayitForm(r),onSil:setSilOnay}))
       ),
       // Gecmis
       psek==="gecmis"&&(()=>{
