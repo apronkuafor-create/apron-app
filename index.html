@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
@@ -17,7 +18,9 @@ html,body{margin:0;padding:0;background:#0a0805;min-height:100%}
 <div id="root"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js" crossorigin></script>
+
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 
 <script>
@@ -948,14 +951,17 @@ function App() {
     const uKK=toN(f.uKK),uIB=toN(f.uIB),uNK=toN(f.uNK);
     const top=(hKK+hIB+hNK)+(uKK+uIB+uNK);
     if(f.id){
-      const gn={...f,
-        hizKK:hKK,hizIB:hIB,hizNK:hNK,
-        uKK:uKK,uIB:uIB,uNK:uNK,
-        toplam:top,gonderildi:f.gonderildi};
-      setBekleyen(p=>p.map(r=>r.id===f.id?gn:r));
-      setRecords(p=>p.map(r=>r.id===f.id?gn:r));
-      dbGnc("kayitlar",{musteri:f.musteri,telefon:f.tel,hizmetler:f.hizler,hiz_kk:hKK,hiz_ib:hIB,hiz_nk:hNK,
-        urunler:f.urunler,urun_kk:uKK,urun_ib:uIB,urun_nk:uNK,toplam:top},f.id);
+      const gn={
+        id:f.id, staffId:f.staffId, staffAd:f.staffAd,
+        musteri:(f.musteri||"").trim(), tel:(f.tel||"").trim(),
+        hizler:f.hizler||[], hizKK:hKK, hizIB:hIB, hizNK:hNK,
+        urunler:f.urunler||[], uKK:uKK, uIB:uIB, uNK:uNK,
+        toplam:top, tarih:f.tarih, saat:f.saat, gonderildi:f.gonderildi||false
+      };
+      setBekleyen(p=>p.map(r=>r.id===gn.id?gn:r));
+      setRecords(p=>p.map(r=>r.id===gn.id?gn:r));
+      dbGnc("kayitlar",{musteri:gn.musteri,telefon:gn.tel,hizmetler:gn.hizler,hiz_kk:hKK,hiz_ib:hIB,hiz_nk:hNK,
+        urunler:gn.urunler,urun_kk:uKK,urun_ib:uIB,urun_nk:uNK,toplam:top},gn.id);
       showToast("Kayit guncellendi");
     } else {
       const y={id:uid(),staffId:kul.id,staffAd:kul.ad,musteri:f.musteri.trim(),tel:(f.tel||"").trim(),
@@ -1101,40 +1107,83 @@ function App() {
     // Detay modal
     detay&&div({className:"ov",style:{zIndex:600}},
       div({className:"mod"},
-        div({className:"mhd"},span({className:"mtl"},"Kayit Detayi"),btn({className:"xbtn",onClick:()=>setDetay(null)},"✕")),
+        div({className:"mhd"},
+          div({style:{flex:1}},
+            span({className:"mtl"},"Kayit Detayi"),
+            detay._saltOkunur&&div({style:{fontSize:9,color:"#80c040",letterSpacing:2,marginTop:2}},"SALT OKUNUR")
+          ),
+          btn({className:"xbtn",onClick:()=>setDetay(null)},"✕")
+        ),
         div({className:"mbdy"},
+
+          // Müşteri ve tarih bilgisi
           div({style:{background:"#111008",border:"1px solid #2a2010",borderRadius:13,padding:14,marginBottom:12}},
             div({style:{fontSize:17,color:"#e8dcc8",fontWeight:500}},detay.musteri),
             detay.tel&&div({style:{fontSize:11,color:"#7a6a4a",marginTop:3}},"📞 "+detay.tel),
-            div({style:{fontSize:10,color:"#5a4a2a",marginTop:5}},detay.tarih+" · "+detay.saat+" · "+detay.staffAd),
-            !detay.gonderildi&&span({style:{fontSize:10,color:"#80c040",marginTop:5,display:"inline-block",padding:"1px 7px",background:"rgba(80,160,0,.1)",borderRadius:4}},"Gonderilmedi")
+            div({style:{fontSize:10,color:"#5a4a2a",marginTop:5}},detay.tarih+" · "+(detay.saat||"")+" · "+detay.staffAd),
+            !detay.gonderildi&&!detay._saltOkunur&&h("span",{style:{fontSize:10,color:"#80c040",marginTop:5,display:"inline-block",padding:"1px 7px",background:"rgba(80,160,0,.1)",borderRadius:4}},"Gonderilmedi")
           ),
-          detay.hizler?.length>0&&div({style:{background:"linear-gradient(135deg,#131a08,#0e1205)",border:"1px solid #2a3a10",borderRadius:13,padding:14,marginBottom:12}},
+
+          // Hizmetler
+          (detay.hizler||[]).length>0&&div({style:{background:"linear-gradient(135deg,#131a08,#0e1205)",border:"1px solid #2a3a10",borderRadius:13,padding:14,marginBottom:12}},
             div({style:{fontSize:10,color:"#6a9a30",letterSpacing:2,textTransform:"uppercase",marginBottom:9}},"✂ Hizmetler"),
-            detay.hizler.map((h,i)=>div({key:i,style:{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}},
-              span({style:{fontSize:13,color:"#e8dcc8"}},h.n||h),
-              toN(h.f||0)>0&&span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"#a0d060",fontWeight:700}},fmt(toN(h.f||0)))
-            )),
+            (detay.hizler||[]).map((hz,i)=>
+              div({key:i,style:{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}},
+                span({style:{fontSize:13,color:"#e8dcc8"}},hz.n||hz),
+                toN(hz.f||0)>0&&span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"#a0d060",fontWeight:700}},fmt(toN(hz.f||0)))
+              )
+            ),
             div({style:{display:"flex",justifyContent:"space-between",paddingTop:9,marginTop:5,borderTop:"1px solid rgba(255,255,255,.07)"}},
               span({style:{fontSize:10,color:"#5a7a20",letterSpacing:2,textTransform:"uppercase"}},"Hizmet Top."),
               span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"#a0d060",fontWeight:700}},fmt((detay.hizKK||0)+(detay.hizIB||0)+(detay.hizNK||0)))
+            ),
+            // Hizmet ödeme dağılımı
+            div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:8}},
+              [["💳","K.Karti",(detay.hizKK||0)],["🏦","IBAN",(detay.hizIB||0)],["💵","Nakit",(detay.hizNK||0)]].map(([ic,lb,v])=>
+                v>0&&div({key:lb,style:{background:"rgba(0,0,0,.25)",borderRadius:8,padding:"7px 5px",textAlign:"center"}},
+                  div({style:{fontSize:13,marginBottom:2}},ic),
+                  div({style:{fontSize:8,color:"#5a7a20",textTransform:"uppercase",letterSpacing:1,marginBottom:3}},lb),
+                  div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:13,color:"#a0d060",fontWeight:700}},fmt(v))
+                )
+              )
             )
           ),
-          detay.urunler?.length>0&&div({style:{background:"linear-gradient(135deg,#0e1018,#0a0c14)",border:"1px solid #1e2a3a",borderRadius:13,padding:14,marginBottom:12}},
+
+          // Ürünler
+          (detay.urunler||[]).length>0&&div({style:{background:"linear-gradient(135deg,#0e1018,#0a0c14)",border:"1px solid #1e2a3a",borderRadius:13,padding:14,marginBottom:12}},
             div({style:{fontSize:10,color:"#4a7aaa",letterSpacing:2,textTransform:"uppercase",marginBottom:9}},"🛍 Urunler"),
-            detay.urunler.map((u,i)=>div({key:i,style:{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}},
-              div(null,div({style:{fontSize:12,color:"#e8dcc8"}},u.a),div({style:{fontSize:9,color:"#3a4a6a",marginTop:1}},u.m+" · x"+u.qty)),
-              span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"#60a0e0",fontWeight:700}},fmt(toN(u.sf)*toN(u.qty||1)))
-            )),
+            (detay.urunler||[]).map((u,i)=>
+              div({key:i,style:{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}},
+                div(null,
+                  div({style:{fontSize:12,color:"#e8dcc8"}},u.a),
+                  div({style:{fontSize:9,color:"#3a4a6a",marginTop:1}},(u.m||"")+" · "+(u.ml||"")+" · x"+(u.qty||1))
+                ),
+                span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"#60a0e0",fontWeight:700}},fmt(toN(u.sf||u.sp||0)*toN(u.qty||1)))
+              )
+            ),
             div({style:{display:"flex",justifyContent:"space-between",paddingTop:9,marginTop:5,borderTop:"1px solid rgba(255,255,255,.07)"}},
               span({style:{fontSize:10,color:"#3a5a8a",letterSpacing:2,textTransform:"uppercase"}},"Urun Top."),
               span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"#60a0e0",fontWeight:700}},fmt((detay.uKK||0)+(detay.uIB||0)+(detay.uNK||0)))
+            ),
+            div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:8}},
+              [["💳","K.Karti",(detay.uKK||0)],["🏦","IBAN",(detay.uIB||0)],["💵","Nakit",(detay.uNK||0)]].map(([ic,lb,v])=>
+                v>0&&div({key:lb,style:{background:"rgba(0,0,0,.25)",borderRadius:8,padding:"7px 5px",textAlign:"center"}},
+                  div({style:{fontSize:13,marginBottom:2}},ic),
+                  div({style:{fontSize:8,color:"#3a5a8a",textTransform:"uppercase",letterSpacing:1,marginBottom:3}},lb),
+                  div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:13,color:"#60a0e0",fontWeight:700}},fmt(v))
+                )
+              )
             )
           ),
+
+          // Genel toplam
           div({style:{background:"linear-gradient(135deg,#1e1a08,#140e04)",border:"1.5px solid #3a2e10",borderRadius:13,padding:14,marginBottom:14}},
-            div({style:{fontSize:10,color:"#9a8a6a",letterSpacing:2,textTransform:"uppercase",marginBottom:9}},"Odeme"),
+            div({style:{fontSize:10,color:"#9a8a6a",letterSpacing:2,textTransform:"uppercase",marginBottom:9}},"Odeme Ozeti"),
             div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:10}},
-              [["💳","K.Karti",(detay.hizKK||0)+(detay.uKK||0)],["🏦","IBAN",(detay.hizIB||0)+(detay.uIB||0)],["💵","Nakit",(detay.hizNK||0)+(detay.uNK||0)]].map(([ic,lb,v])=>
+              [["💳","K.Karti",(detay.hizKK||0)+(detay.uKK||0)],
+               ["🏦","IBAN",(detay.hizIB||0)+(detay.uIB||0)],
+               ["💵","Nakit",(detay.hizNK||0)+(detay.uNK||0)]
+              ].map(([ic,lb,v])=>
                 div({key:lb,style:{background:"rgba(0,0,0,.28)",borderRadius:9,padding:"9px 5px",textAlign:"center"}},
                   div({style:{fontSize:16,marginBottom:3}},ic),
                   div({style:{fontSize:9,color:"#7a6a4a",textTransform:"uppercase",letterSpacing:1,marginBottom:4}},lb),
@@ -1143,13 +1192,15 @@ function App() {
               )
             ),
             div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:9,borderTop:"1px solid #2a2010"}},
-              span({style:{fontSize:11,color:"#9a8a6a",letterSpacing:2,textTransform:"uppercase"}},"Genel Toplam"),
-              span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:28,color:"#d4a017",fontWeight:700}},fmt(detay.toplam))
+              span({style:{fontSize:11,color:"#9a8a6a",letterSpacing:2,textTransform:"uppercase"}},"TOPLAM"),
+              span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:28,color:"#d4a017",fontWeight:700}},fmt(detay.toplam||0))
             )
           ),
+
+          // Butonlar - salt okunursa sadece kapat
           div({className:"btn-r"},
             btn({className:"btn-i",onClick:()=>setDetay(null)},"Kapat"),
-            !detay._saltOkunur&&btn({className:"btn-i",style:{color:"#c06060",borderColor:"#4a1010"},onClick:()=>setSilOnay(detay.id)},"Sil"),
+            !detay._saltOkunur&&btn({className:"btn-i",style:{color:"#c06060",borderColor:"#4a1010"},onClick:()=>{setSilOnay(detay.id);setDetay(null);}},"Sil"),
             !detay._saltOkunur&&btn({className:"btn-k",onClick:()=>{setKayitForm(detay);setDetay(null);}},"Duzenle")
           )
         )
@@ -1592,5 +1643,6 @@ const TOP = TODAY();
 ReactDOM.createRoot(document.getElementById('root')).render(h(App, null));
 
 </script>
+
 </body>
 </html>
