@@ -569,9 +569,42 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
               )
             )
           ),
+          // İskonto / Zam bilgileri
+          (()=>{
+            const hOdeme = toN(hKK)+toN(hIB)+toN(hNK);
+            const uOdeme = toN(uKK)+toN(uIB)+toN(uNK);
+            const hFark = hOdeme>0 && hizTop>0 ? hOdeme-hizTop : 0;
+            const uFark = uOdeme>0 && urunTop>0 ? uOdeme-urunTop : 0;
+            const hYuzde = hizTop>0 && hFark!==0 ? Math.round((hFark/hizTop)*100) : 0;
+            const uYuzde = urunTop>0 && uFark!==0 ? Math.round((uFark/urunTop)*100) : 0;
+            const satirlar = [];
+            if(Math.abs(hYuzde)>=1) satirlar.push({
+              metin: hFark<0
+                ? "Hizmetten "+fmt(Math.abs(hFark))+" %"+Math.abs(hYuzde)+" iskonto yapildi"
+                : "Hizmetten "+fmt(hFark)+" %"+hYuzde+" fazla alindi",
+              renk: hFark<0?"#80c040":"#f0a060"
+            });
+            if(Math.abs(uYuzde)>=1) satirlar.push({
+              metin: uFark<0
+                ? "Urunden "+fmt(Math.abs(uFark))+" %"+Math.abs(uYuzde)+" iskonto yapildi"
+                : "Urunden "+fmt(uFark)+" %"+uYuzde+" fazla alindi",
+              renk: uFark<0?"#80c040":"#f0a060"
+            });
+            if(satirlar.length===0) return null;
+            return div({style:{marginBottom:10,padding:"8px 10px",background:"rgba(0,0,0,.2)",borderRadius:8,border:"1px solid #2a2010"}},
+              satirlar.map((s,i)=>div({key:i,style:{display:"flex",alignItems:"center",gap:6,marginBottom:i<satirlar.length-1?5:0}},
+                div({style:{width:6,height:6,borderRadius:"50%",background:s.renk,flexShrink:0}}),
+                span({style:{fontSize:11,color:s.renk}},s.metin)
+              ))
+            );
+          })(),
           div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:11,borderTop:"1px solid var(--br)"}},
-            span({style:{fontSize:11,color:"#9a8a6a",letterSpacing:3,textTransform:"uppercase"}},"TOPLAM"),
-            span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:36,color:"#d4a017",fontWeight:700}},fmt(hizTop+urunTop))
+            span({style:{fontSize:11,color:"#9a8a6a",letterSpacing:3,textTransform:"uppercase"}},
+              (toN(hKK)+toN(hIB)+toN(hNK)+toN(uKK)+toN(uIB)+toN(uNK))>0 ? "ALINAN UCRET" : "TOPLAM"
+            ),
+            span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:36,color:"#d4a017",fontWeight:700}},
+              fmt(toN(hKK)+toN(hIB)+toN(hNK)+toN(uKK)+toN(uIB)+toN(uNK)||hizTop+urunTop)
+            )
           )
         ),
         div({className:"btn-r"},
@@ -618,6 +651,7 @@ function App() {
   const [pDuz, setPDuz]               = useState(null);
   const [yeniP, setYeniP]             = useState({ad:"",pin:"",rol:"personel"});
   const [pHata, setPHata]             = useState("");
+  const [musteriKart, setMusteriKart] = useState(null);
 
   // Veri yükle
   useEffect(()=>{
@@ -642,7 +676,7 @@ function App() {
           setRecords(k.filter(r=>r.gonderildi).map(mapR));
           setBekleyen(k.filter(r=>!r.gonderildi).map(mapR));
         }
-        if(m.length) setMusteriDB(m.map(x=>({id:x.id,ad:x.ad,tel:x.tel||""})));
+        if(m.length) setMusteriDB(m.map(x=>({id:x.id,ad:x.ad,tel:x.tel||"",sahipId:x.sahip_id||"",sahipAd:x.sahip_ad||"",ilkGiris:x.ilk_giris||""})));
         if(d.length){ const dm={};d.forEach(x=>{dm[x.tarih+"_"+x.staff_id]=x.aciklama;});setDevDB(dm); }
       } catch(e){ console.warn("DB:",e); }
       setYukleniyor(false);
@@ -747,8 +781,18 @@ function App() {
       dbEkle("kayitlar",{id:y.id,staff_id:y.staffId,staff_name:y.staffAd,musteri:y.musteri,telefon:y.tel,
         hizmetler:y.hizler,hiz_kk:y.hizKK,hiz_ib:y.hizIB,hiz_nk:y.hizNK,urunler:y.urunler,
         urun_kk:y.uKK,urun_ib:y.uIB,urun_nk:y.uNK,toplam:y.toplam,tarih:y.tarih,saat:y.saat,gonderildi:false});
-      const vm=musteriDB.find(m=>m.ad.toLowerCase()===f.musteri.trim().toLowerCase());
-      if(!vm){ const ym={id:uid(),ad:f.musteri.trim(),tel:(f.tel||"").trim()};setMusteriDB(p=>[...p,ym]);dbEkle("musteriler",{id:ym.id,ad:ym.ad,tel:ym.tel}); }
+      const vm=musteriDB.find(m=>m.ad.toLowerCase()===f.musteri.trim().toLowerCase()||
+        (f.tel&&f.tel.trim()&&m.tel===f.tel.trim()));
+      if(!vm){
+        const ym={id:uid(),ad:f.musteri.trim(),tel:(f.tel||"").trim(),
+          sahipId:kul.id,sahipAd:kul.ad,ilkGiris:TODAY()};
+        setMusteriDB(p=>[...p,ym]);
+        dbEkle("musteriler",{id:ym.id,ad:ym.ad,tel:ym.tel,
+          sahip_id:ym.sahipId,sahip_ad:ym.sahipAd,ilk_giris:ym.ilkGiris});
+      } else if(vm.tel!==(f.tel||"").trim()&&f.tel&&f.tel.trim()){
+        // Telefon güncellenmiş olabilir
+        setMusteriDB(p=>p.map(m=>m.id===vm.id?{...m,tel:f.tel.trim()}:m));
+      }
       showToast("Kayit eklendi!");
     }
     setKayitForm(null);
@@ -1266,19 +1310,148 @@ function App() {
 
         // Musteriler
         asek==="musteriler"&&div(null,
-          div({className:"sek"},musteriDB.length+" Musteri"),
+          div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+            div({className:"sek",style:{marginBottom:0}},musteriDB.length+" Musteri"),
+            div({style:{fontSize:10,color:"var(--mu)"}},tumK.length+" ziyaret toplam")
+          ),
+
+          // Müşteri kart overlay
+          musteriKart&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:800,overflow:"auto",overscrollBehavior:"contain"}},
+            div({style:{background:"#0f0c08",borderBottom:"1px solid #2a2010",padding:"13px 16px",
+              display:"flex",alignItems:"center",justifyContent:"space-between",
+              position:"sticky",top:0,zIndex:5}},
+              div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"#d4a017"}},musteriKart.ad),
+              btn({style:{background:"transparent",border:"1px solid #2a2010",borderRadius:8,
+                color:"#7a6a4a",fontSize:17,width:32,height:32,cursor:"pointer"},
+                onClick:()=>setMusteriKart(null)},"✕")
+            ),
+            div({style:{padding:16,maxWidth:580,margin:"0 auto",paddingBottom:60}},
+              // Müşteri bilgi kartı
+              div({style:{background:"linear-gradient(135deg,#1a1408,#120e04)",
+                border:"1.5px solid #3a2e10",borderRadius:14,padding:16,marginBottom:16}},
+                div({style:{display:"flex",alignItems:"center",gap:12,marginBottom:12}},
+                  div({style:{width:52,height:52,borderRadius:13,
+                    background:"linear-gradient(135deg,#2a2010,#1a1508)",
+                    border:"1px solid #3a2e10",display:"flex",alignItems:"center",
+                    justifyContent:"center",fontFamily:"Cormorant Garamond,serif",
+                    fontSize:24,color:"#d4a017",flexShrink:0}},
+                    musteriKart.ad[0].toUpperCase()),
+                  div({style:{flex:1}},
+                    div({style:{fontSize:18,color:"#e8dcc8",fontWeight:500}}),
+                    musteriKart.tel&&div({style:{fontSize:12,color:"#7a6a4a",marginTop:3}},"📞 "+musteriKart.tel),
+                    musteriKart.ilkGiris&&div({style:{fontSize:10,color:"#5a4a2a",marginTop:3}},
+                      "Ilk ziyaret: "+musteriKart.ilkGiris)
+                  )
+                ),
+                musteriKart.sahipAd&&div({style:{display:"flex",alignItems:"center",gap:8,
+                  padding:"9px 12px",background:"rgba(212,160,23,.07)",borderRadius:9,
+                  border:"1px solid rgba(212,160,23,.2)"}},
+                  span({style:{fontSize:10,color:"#7a6a4a",letterSpacing:1,textTransform:"uppercase"}},"Kimin Musterisi:"),
+                  span({style:{fontSize:13,color:"#d4a017",fontWeight:600,marginLeft:4}},musteriKart.sahipAd)
+                )
+              ),
+
+              // Ziyaret geçmişi - tumK'dan çek
+              (()=>{
+                const ziyaretler = tumK
+                  .filter(r=>r.musteri===musteriKart.ad)
+                  .sort((a,b)=>b.tarih.localeCompare(a.tarih)||b.saat.localeCompare(a.saat));
+                const topToplam = ziyaretler.reduce((s,r)=>s+r.toplam,0);
+                return div(null,
+                  div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+                    div({style:{fontSize:10,color:"#7a6a4a",letterSpacing:3,textTransform:"uppercase"}},
+                      ziyaretler.length+" Ziyaret"),
+                    div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"#d4a017",fontWeight:700}},
+                      fmt(topToplam))
+                  ),
+                  ziyaretler.length===0
+                    ?div({style:{textAlign:"center",padding:"30px 20px",color:"#3a2e1e",fontSize:11,letterSpacing:2}},
+                      "Henuz kayitli ziyaret yok")
+                    :ziyaretler.map(r=>{
+                      const kk=(r.hizKK||0)+(r.uKK||0);
+                      const ib=(r.hizIB||0)+(r.uIB||0);
+                      const nk=(r.hizNK||0)+(r.uNK||0);
+                      return div({key:r.id,style:{background:"#111008",border:"1px solid #1e1a10",
+                        borderRadius:12,padding:"12px 13px",marginBottom:9}},
+                        div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:7}},
+                          div(null,
+                            div({style:{fontSize:12,color:"#d4a017",fontWeight:600,marginBottom:2}},
+                              r.tarih+" · "+r.saat),
+                            div({style:{fontSize:10,color:"#5a4a2a"}},r.staffAd)
+                          ),
+                          div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"#d4a017",fontWeight:700}},
+                            fmt(r.toplam))
+                        ),
+                        (r.hizler||[]).length>0&&div({style:{marginBottom:5}},
+                          div({style:{fontSize:9,color:"#5a7a20",letterSpacing:1,textTransform:"uppercase",marginBottom:3}},"✂ Hizmetler"),
+                          div({style:{display:"flex",flexWrap:"wrap",gap:4}},
+                            (r.hizler||[]).map((h,i)=>
+                              span({key:i,style:{fontSize:10,padding:"2px 7px",borderRadius:5,
+                                background:"rgba(80,160,0,.08)",border:"1px solid #2a3a10",color:"#6a8a40"}},
+                                (h.n||h)+(toN(h.f||0)>0?" · "+fmt(toN(h.f||0)):""))
+                            )
+                          )
+                        ),
+                        (r.urunler||[]).length>0&&div({style:{marginBottom:5}},
+                          div({style:{fontSize:9,color:"#3a5a8a",letterSpacing:1,textTransform:"uppercase",marginBottom:3}},"🛍 Urunler"),
+                          div({style:{display:"flex",flexWrap:"wrap",gap:4}},
+                            (r.urunler||[]).map((u,i)=>
+                              span({key:i,style:{fontSize:10,padding:"2px 7px",borderRadius:5,
+                                background:"rgba(60,100,180,.08)",border:"1px solid #1e2a3a",color:"#5a7aaa"}},
+                                u.a+" x"+u.qty)
+                            )
+                          )
+                        ),
+                        div({style:{display:"flex",gap:4,marginTop:4}},
+                          kk>0&&span({style:{fontSize:9,padding:"2px 6px",borderRadius:20,
+                            border:"1px solid #2a2010",color:"#7a6a4a",background:"#1a1510"}},"💳 "+fmt(kk)),
+                          ib>0&&span({style:{fontSize:9,padding:"2px 6px",borderRadius:20,
+                            border:"1px solid #2a2010",color:"#7a6a4a",background:"#1a1510"}},"🏦 "+fmt(ib)),
+                          nk>0&&span({style:{fontSize:9,padding:"2px 6px",borderRadius:20,
+                            border:"1px solid #2a2010",color:"#7a6a4a",background:"#1a1510"}},"💵 "+fmt(nk))
+                        )
+                      );
+                    })
+                );
+              })()
+            )
+          ),
+
+          // Müşteri listesi
           musteriDB.length===0
             ?div({className:"bos"},div({style:{fontSize:42,marginBottom:9}},"👤"),div({style:{fontSize:11,letterSpacing:2}},"Henuz musteri kaydi yok"))
-            :musteriDB.map(m=>
-              div({key:m.id,className:"pk"},
-                div({className:"pav ak",style:{fontSize:14}},m.ad[0].toUpperCase()),
-                div({className:"pi"},
-                  div({className:"pad"},m.ad),
-                  m.tel&&div({style:{fontSize:11,color:"#7a6a4a",marginTop:2}},"📞 "+m.tel),
-                  div({style:{fontSize:10,color:"#3a2e1e",marginTop:2}},tumK.filter(r=>r.musteri===m.ad).length+" ziyaret")
+            :musteriDB
+              .map(m=>({...m,ziyaret:tumK.filter(r=>r.musteri===m.ad)}))
+              .sort((a,b)=>b.ziyaret.length-a.ziyaret.length)
+              .map(m=>
+                div({key:m.id,
+                  style:{background:"#111008",border:"1px solid #1e1a10",borderRadius:13,
+                    padding:13,marginBottom:9,cursor:"pointer",transition:"background .15s"},
+                  onClick:()=>setMusteriKart(m)},
+                  div({style:{display:"flex",alignItems:"center",gap:11}},
+                    div({style:{width:42,height:42,borderRadius:11,
+                      background:"linear-gradient(135deg,#1a2a10,#111808)",
+                      border:"1px solid #2a3a10",display:"flex",alignItems:"center",
+                      justifyContent:"center",fontFamily:"Cormorant Garamond,serif",
+                      fontSize:18,color:"#d4a017",flexShrink:0}},
+                      m.ad[0].toUpperCase()),
+                    div({style:{flex:1,minWidth:0}},
+                      div({style:{fontSize:14,color:"#e8dcc8",fontWeight:500}},m.ad),
+                      m.tel&&div({style:{fontSize:11,color:"#7a6a4a",marginTop:2}},"📞 "+m.tel),
+                      m.sahipAd&&div({style:{fontSize:10,color:"#5a4a2a",marginTop:2}},
+                        "Kimin Musterisi: ",
+                        h("span",{style:{color:"#9a7a3a"}},m.sahipAd)
+                      )
+                    ),
+                    div({style:{textAlign:"right",flexShrink:0}},
+                      div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"#d4a017",fontWeight:700}},
+                        fmt(m.ziyaret.reduce((s,r)=>s+r.toplam,0))),
+                      div({style:{fontSize:10,color:"#5a4a2a",marginTop:2}},m.ziyaret.length+" ziyaret"),
+                      div({style:{fontSize:13,color:"#3a2e1e",marginTop:2}},"›")
+                    )
+                  )
                 )
               )
-            )
         )
       )
     )
