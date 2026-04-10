@@ -421,7 +421,11 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
     const temizU = urunler.filter(u=>u.a&&toN(u.sf)>0&&toN(u.qty)>0);
     onKaydet({id:ilk?.id,musteri,tel,hizler:temizH,hizKK:hKK,hizIB:hIB,hizNK:hNK,
       urunler:temizU,uKK,uIB,uNK,
-      hizIbanId:hIbanSec, urunIbanId:uIbanSec});
+      hizIbanId: toN(hIB)>0 ? (hIbanSec||aktifKullanici?.id||"") : "",
+      hizIbanAd: toN(hIB)>0 ? (hIbanSec ? aktifP.find(p=>p.id===hIbanSec)?.ad||"" : aktifKullanici?.ad||"") : "",
+      urunIbanId: toN(uIB)>0 ? (uIbanSec||aktifKullanici?.id||"") : "",
+      urunIbanAd: toN(uIB)>0 ? (uIbanSec ? aktifP.find(p=>p.id===uIbanSec)?.ad||"" : aktifKullanici?.ad||"") : ""
+    });
   };
 
   return div(null,
@@ -712,7 +716,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
           btn({className:"btn-i",onClick:onIptal},"Iptal"),
           btn({className:"btn-k",
             disabled:!musteri.trim()||(hizler.filter(h=>h.n).length===0&&urunler.filter(u=>u.a).length===0),
-            onClick:kaydet
+            onClick:()=>kaydet()
           },ilk?.id?"Guncelle":"Kaydet")
         )
       )
@@ -747,6 +751,13 @@ function App() {
   const [toast, setToast]             = useState({g:false,m:"",t:"ba"});
   const [asek, setAsek]               = useState("ozet");
   const [psek, setPsek]               = useState("bugun");
+  const [sifreAdim, setSifreAdim]     = useState(0); // 0=kapalı,1=mevcut,2=yeni
+  const [sifreMevcut, setSifreMevcut] = useState("");
+  const [sifreYeni, setSifreYeni]     = useState("");
+  const [sifreYeni2, setSifreYeni2]   = useState("");
+  const [sifreHata, setSifreHata]     = useState("");
+  const [sifreUnuttumGonderildi, setSifreUnuttumGonderildi] = useState(false);
+  const [unuttumBildirim, setUnuttumBildirim] = useState([]); // Yöneticiye giden bildirimler
   const [pFil, setPFil]               = useState("all");
   const [tFil, setTFil]               = useState("");
   const [pEkle, setPEkle]             = useState(false);
@@ -870,7 +881,7 @@ function App() {
     const uKK=toN(f.uKK),uIB=toN(f.uIB),uNK=toN(f.uNK);
     const top=(hKK+hIB+hNK)+(uKK+uIB+uNK);
     if(f.id){
-      const gn={...f,hizKK,hizIB:hIB,hizNK,uKK,uIB,uNK,toplam:top};
+      const gn={...f,hizKK:hKK,hizIB:hIB,hizNK:hNK,uKK,uIB,uNK,toplam:top};
       setBekleyen(p=>p.map(r=>r.id===f.id?gn:r));
       setRecords(p=>p.map(r=>r.id===f.id?gn:r));
       dbGnc("kayitlar",{musteri:f.musteri,telefon:f.tel,hizmetler:f.hizler,hiz_kk:hKK,hiz_ib:hIB,hiz_nk:hNK,
@@ -878,7 +889,7 @@ function App() {
       showToast("Kayit guncellendi");
     } else {
       const y={id:uid(),staffId:kul.id,staffAd:kul.ad,musteri:f.musteri.trim(),tel:(f.tel||"").trim(),
-        hizler:f.hizler||[],hizKK,hizIB:hIB,hizNK,urunler:f.urunler||[],uKK,uIB,uNK,
+        hizler:f.hizler||[],hizKK:hKK,hizIB:hIB,hizNK:hNK,urunler:f.urunler||[],uKK,uIB,uNK,
         toplam:top,tarih:TODAY(),saat:SAAT(),gonderildi:false};
       setBekleyen(p=>[y,...p]);
       dbEkle("kayitlar",{id:y.id,staff_id:y.staffId,staff_name:y.staffAd,musteri:y.musteri,telefon:y.tel,
@@ -1185,7 +1196,8 @@ function App() {
         div({className:`atab${psek==="gecmis"?" a":""}`,onClick:()=>setPsek("gecmis")},
           "Gecmisim",
           gecmis.filter(r=>r.staffId===kul.id).length>0&&span({style:{background:"rgba(212,160,23,.2)",color:"#d4a017",borderRadius:10,padding:"1px 6px",fontSize:9,marginLeft:4}},String(gecmis.filter(r=>r.staffId===kul.id).length))
-        )
+        ),
+        div({className:`atab${psek==="ayarlar"?" a":""}`,onClick:()=>{setPsek("ayarlar");setSifreAdim(0);setSifreHata("");}},"⚙ Ayarlar")
       ),
       // Bugun
       psek==="bugun"&&div({className:"pg"},
@@ -1277,7 +1289,112 @@ function App() {
             })
         );
       })()
-    ),
+
+      // Ayarlar sekmesi
+      psek==="ayarlar"&&div({className:"pg"},
+
+        // Şifre Değiştir Kartı
+        div({style:{background:"linear-gradient(135deg,#1a1408,#120e04)",border:"1.5px solid #3a2e10",
+          borderRadius:16,padding:20,marginBottom:16}},
+          div({style:{display:"flex",alignItems:"center",gap:10,marginBottom:18}},
+            div({style:{width:40,height:40,borderRadius:11,background:"linear-gradient(135deg,#2a2010,#1a1508)",
+              border:"1px solid #3a2e10",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}},"🔑"),
+            div(null,
+              div({style:{fontSize:15,color:"#e8dcc8",fontWeight:500}}),"Sifre Degistir"),
+              div({style:{fontSize:11,color:"#7a6a4a",marginTop:2}},"PIN kodunuzu güncelleyin")
+          ),
+
+          // Adım 0: Başlat butonu
+          sifreAdim===0&&div(null,
+            btn({style:{width:"100%",background:"linear-gradient(135deg,var(--g),var(--gd))",
+              border:"none",borderRadius:11,color:"#0a0805",fontSize:13,fontWeight:700,
+              padding:14,cursor:"pointer"},
+              onClick:()=>{setSifreAdim(1);setSifreMevcut("");setSifreHata("");}},
+              "Sifre Degistir"),
+            div({style:{marginTop:12,textAlign:"center"}},
+              btn({style:{background:"transparent",border:"none",color:"#5a6a8a",
+                fontSize:11,cursor:"pointer",textDecoration:"underline"},
+                onClick:()=>{
+                  if(sifreUnuttumGonderildi) return;
+                  setUnuttumBildirim(p=>[...p,{
+                    id:uid(),staffId:kul.id,staffAd:kul.ad,
+                    tarih:TODAY(),saat:SAAT(),okundu:false
+                  }]);
+                  setSifreUnuttumGonderildi(true);
+                }},
+                sifreUnuttumGonderildi
+                  ?"✓ Yonetici bilgilendirildi"
+                  :"Sifremi unuttum")
+            )
+          ),
+
+          // Adım 1: Mevcut şifre
+          sifreAdim===1&&div(null,
+            div({style:{fontSize:11,color:"#9a8a6a",marginBottom:14,lineHeight:1.6}},
+              "Güvenlik için önce mevcut PIN kodunuzu girin:"),
+            div({style:{marginBottom:12}},
+              lbl({className:"fl"},"Mevcut PIN"),
+              inp({className:"fi",type:"password",inputMode:"numeric",maxLength:4,
+                placeholder:"••••",value:sifreMevcut,
+                onChange:e=>setSifreMevcut(e.target.value.replace(/\D/g,"").slice(0,4))})
+            ),
+            sifreHata&&div({style:{color:"#c06060",fontSize:11,marginBottom:10,padding:"8px 10px",
+              background:"#1e0808",borderRadius:8}},sifreHata),
+            div({style:{display:"flex",gap:8}},
+              btn({style:{flex:1,background:"transparent",border:"1px solid #2a2010",borderRadius:9,
+                color:"#7a6a4a",fontSize:12,padding:12,cursor:"pointer"},
+                onClick:()=>{setSifreAdim(0);setSifreHata("");setSifreMevcut("");}},"Iptal"),
+              btn({style:{flex:2,background:"linear-gradient(135deg,var(--g),var(--gd))",border:"none",
+                borderRadius:9,color:"#0a0805",fontSize:12,fontWeight:700,padding:12,cursor:"pointer"},
+                onClick:()=>{
+                  if(kul.pin===sifreMevcut){
+                    setSifreAdim(2);setSifreHata("");setSifreYeni("");setSifreYeni2("");
+                  } else {
+                    setSifreHata("Yanlis PIN. Tekrar deneyin.");
+                    setSifreMevcut("");
+                  }
+                }},"Devam Et →")
+            )
+          ),
+
+          // Adım 2: Yeni şifre
+          sifreAdim===2&&div(null,
+            div({style:{fontSize:11,color:"#9a8a6a",marginBottom:14,lineHeight:1.6}},
+              "Yeni 4 haneli PIN kodunuzu belirleyin:"),
+            div({style:{marginBottom:10}},
+              lbl({className:"fl"},"Yeni PIN"),
+              inp({className:"fi",type:"password",inputMode:"numeric",maxLength:4,
+                placeholder:"••••",value:sifreYeni,
+                onChange:e=>setSifreYeni(e.target.value.replace(/\D/g,"").slice(0,4))})
+            ),
+            div({style:{marginBottom:12}},
+              lbl({className:"fl"},"Yeni PIN Tekrar"),
+              inp({className:"fi",type:"password",inputMode:"numeric",maxLength:4,
+                placeholder:"••••",value:sifreYeni2,
+                onChange:e=>setSifreYeni2(e.target.value.replace(/\D/g,"").slice(0,4))})
+            ),
+            sifreHata&&div({style:{color:"#c06060",fontSize:11,marginBottom:10,padding:"8px 10px",
+              background:"#1e0808",borderRadius:8}},sifreHata),
+            div({style:{display:"flex",gap:8}},
+              btn({style:{flex:1,background:"transparent",border:"1px solid #2a2010",borderRadius:9,
+                color:"#7a6a4a",fontSize:12,padding:12,cursor:"pointer"},
+                onClick:()=>{setSifreAdim(1);setSifreHata("");}},"Geri"),
+              btn({style:{flex:2,background:"linear-gradient(135deg,var(--g),var(--gd))",border:"none",
+                borderRadius:9,color:"#0a0805",fontSize:12,fontWeight:700,padding:12,cursor:"pointer"},
+                onClick:()=>{
+                  if(sifreYeni.length!==4){setSifreHata("PIN 4 haneli olmali.");return;}
+                  if(sifreYeni!==sifreYeni2){setSifreHata("PIN kodlari eslesmiyor.");return;}
+                  if(sifreYeni===sifreMevcut){setSifreHata("Yeni PIN mevcut ile ayni olamaz.");return;}
+                  setPersoneller(p=>p.map(x=>x.id===kul.id?{...x,pin:sifreYeni}:x));
+                  setKul(p=>({...p,pin:sifreYeni}));
+                  setSifreAdim(0);setSifreMevcut("");setSifreYeni("");setSifreYeni2("");setSifreHata("");
+                  setSifreUnuttumGonderildi(false);
+                  showToast("PIN basariyla guncellendi!");
+                }},"Kaydet ✓")
+            )
+          )
+        )
+      ),
 
     // ── YONETİCİ ──
     !yukleniyor&&ekran==="yonetici"&&kul&&div(null,
@@ -1295,6 +1412,32 @@ function App() {
 
         // Ozet
         asek==="ozet"&&div(null,
+          // Şifremi unuttum bildirimleri
+          unuttumBildirim.filter(b=>!b.okundu).length>0&&div({style:{
+            background:"rgba(180,60,0,.12)",border:"1px solid rgba(200,80,0,.3)",
+            borderRadius:12,padding:14,marginBottom:16}},
+            div({style:{fontSize:10,color:"#f0a060",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
+              "🔔 Sifre Sifirlama Talepleri"),
+            unuttumBildirim.filter(b=>!b.okundu).map(b=>
+              div({key:b.id,style:{display:"flex",alignItems:"center",justifyContent:"space-between",
+                padding:"9px 0",borderBottom:"1px solid rgba(200,80,0,.15)"}},
+                div(null,
+                  div({style:{fontSize:13,color:"#e8dcc8",fontWeight:500}},b.staffAd),
+                  div({style:{fontSize:10,color:"#9a6a4a",marginTop:2}},
+                    b.tarih+" "+b.saat+" · Sifremi unuttum talebi")
+                ),
+                btn({style:{background:"rgba(212,160,23,.1)",border:"1px solid rgba(212,160,23,.3)",
+                  borderRadius:8,color:"#d4a017",fontSize:10,padding:"6px 11px",cursor:"pointer"},
+                  onClick:()=>{
+                    // Personel PIN'ini geçici yap ve bildirimi kapat
+                    const geciciPin = "0000";
+                    setPersoneller(p=>p.map(x=>x.id===b.staffId?{...x,pin:geciciPin}:x));
+                    setUnuttumBildirim(p=>p.map(x=>x.id===b.id?{...x,okundu:true}:x));
+                    showToast(b.staffAd+" icin gecici PIN: "+geciciPin,"uy");
+                  }},"Gecici PIN Gonder")
+              )
+            )
+          ),
           div({className:"kpi2"},
             div({className:"kpi"},div({className:"kl"},"Bugun Ciro"),div({className:"kv"},fmt(bugunku.reduce((s,r)=>s+r.toplam,0))),div({className:"ks"},bugunku.length+" kayit")),
             div({className:"kpi"},div({className:"kl"},"Toplam Ciro"),div({className:"kv"},fmt(tumK.reduce((s,r)=>s+r.toplam,0))),div({className:"ks"},tumK.length+" kayit"))
