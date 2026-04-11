@@ -859,7 +859,8 @@ function App() {
   const [musteriKart, setMusteriKart] = useState(null);
   const [gecmisMusteriFil, setGecmisMusteriFil] = useState("");
   const [gecmisAyFil, setGecmisAyFil]           = useState(String(new Date().getMonth()+1));
-  const [gecmisTarihFil, setGecmisTarihFil]     = useState(""); // Geçmişim gün filtresi
+  const [gecmisTarihFil, setGecmisTarihFil]     = useState("");
+  const [gecmisGunFil, setGecmisGunFil]         = useState("");
   const [gecmisYilFil, setGecmisYilFil]         = useState(String(new Date().getFullYear()));
   const [gecmisDuzeltOnay, setGecmisDuzeltOnay] = useState(null); // Yönetici onaylı düzeltme
   const [yonBildirim, setYonBildirim]     = useState([]); // Yönetici→Personel bildirimler
@@ -867,7 +868,9 @@ function App() {
   const [yonDuzForm, setYonDuzForm]       = useState(null); // Yönetici düzenleme formu {kayit, neden, islem}
   const [musteriAramaFil, setMusteriAramaFil] = useState(""); // Yönetici kayıt arama
   const [ayFil, setAyFil]   = useState("");
-  const [tAyFil, setTAyFil] = useState(""); // Yönetici ay/yıl filtresi (type=month)
+  const [tAyFil, setTAyFil]   = useState("");
+  const [tGun, setTGun]       = useState("");
+  const [tYil, setTYil]       = useState("");
   const [gunFil, setGunFil] = useState("");
   const [ibanOnay, setIbanOnay]       = useState(null); // {hedefId, hedefAd, pin, hata, kaynakForm}
 
@@ -923,15 +926,10 @@ function App() {
   const bugunku = tumK.filter(r=>r.tarih===TODAY());
   const filtreli = tumK.filter(r=>{
     if(pFil!=="all"&&r.staffId!==pFil) return false;
-    if(tFil&&r.tarih!==tFil) return false;
-    if(ayFil){
-      const ay=new Date(r.tarih+"T12:00:00").getMonth()+1;
-      if(ay!==parseInt(ayFil)) return false;
-    }
-    if(gunFil){
-      const gun=new Date(r.tarih+"T12:00:00").getDate();
-      if(gun!==parseInt(gunFil)) return false;
-    }
+    const rd=new Date(r.tarih+"T12:00:00");
+    if(tGun&&rd.getDate()!==parseInt(tGun)) return false;
+    if(tAyFil&&(rd.getMonth()+1)!==parseInt(tAyFil)) return false;
+    if(tYil&&rd.getFullYear()!==parseInt(tYil)) return false;
     return true;
   });
 
@@ -1627,8 +1625,10 @@ function App() {
               && !(r.tel||"").includes(gecmisMusteriFil.trim())
               && !normText(r.staffAd||"").includes(q)) return false;
           }
-          if(gecmisTarihFil && r.tarih !== gecmisTarihFil) return false;
-          if(gecmisAyFil){const ay=new Date(r.tarih+"T12:00:00").getMonth()+1;if(ay!==parseInt(gecmisAyFil))return false;}
+          const grd=new Date(r.tarih+"T12:00:00");
+          if(gecmisGunFil&&grd.getDate()!==parseInt(gecmisGunFil)) return false;
+          if(gecmisAyFil&&(grd.getMonth()+1)!==parseInt(gecmisAyFil)) return false;
+          if(gecmisYilFil&&grd.getFullYear()!==parseInt(gecmisYilFil)) return false;
           return true;
         });
 
@@ -1671,49 +1671,25 @@ function App() {
                 value:gecmisMusteriFil,onChange:e=>setGecmisMusteriFil(e.target.value)})
             ),
             div({style:{width:"100%"}},
-              div({style:{display:"flex",gap:6,marginBottom:8,alignItems:"center"}},
-                sel({className:"fi",style:{flex:1},
-                  value:gecmisAyFil||"",
-                  onChange:e=>{setGecmisAyFil(e.target.value);setGecmisTarihFil("");}},
-                  opt("","Ay secerek ara..."),
+              div({style:{display:"flex",gap:6,alignItems:"center"}},
+                sel({className:"fi",style:{flex:"0 0 68px"},value:gecmisGunFil,onChange:e=>setGecmisGunFil(e.target.value)},
+                  opt("","Gun"),
+                  Array.from({length:31},(_,i)=>opt(String(i+1).padStart(2,"0"),String(i+1)))
+                ),
+                sel({className:"fi",style:{flex:1},value:gecmisAyFil,onChange:e=>setGecmisAyFil(e.target.value)},
+                  opt("","Ay"),
                   [["1","Ocak"],["2","Subat"],["3","Mart"],["4","Nisan"],["5","Mayis"],
                    ["6","Haziran"],["7","Temmuz"],["8","Agustos"],["9","Eylul"],
                    ["10","Ekim"],["11","Kasim"],["12","Aralik"]].map(([v,lb])=>opt(v,lb))
                 ),
-                gecmisAyFil&&btn({className:"btn-i",style:{flex:"0 0 36px",padding:"0",fontSize:16,fontWeight:700},
-                  onClick:()=>setGecmisAyFil("")},"✕")
-              ),
-              (()=>{
-                const gf = gecmisTarihFil?gecmisTarihFil.split("-"):["","",""];
-                const setGTarih=(y,m,d)=>{
-                  if(y&&m&&d){setGecmisTarihFil(y+"-"+m+"-"+d);setGecmisAyFil("");}
-                  else setGecmisTarihFil("");
-                };
-                return div({style:{display:"flex",gap:6,alignItems:"center"}},
-                  sel({className:"fi",style:{flex:"0 0 70px"},
-                    value:gf[2]||"",
-                    onChange:e=>setGTarih(gf[0]||String(new Date().getFullYear()),gf[1]||String(new Date().getMonth()+1).padStart(2,"0"),e.target.value)},
-                    opt("","Gun"),
-                    Array.from({length:31},(_,i)=>opt(String(i+1).padStart(2,"0"),String(i+1)))
-                  ),
-                  sel({className:"fi",style:{flex:1},
-                    value:gf[1]||"",
-                    onChange:e=>setGTarih(gf[0]||String(new Date().getFullYear()),e.target.value,gf[2]||"01")},
-                    opt("","Ay"),
-                    [["01","Ocak"],["02","Subat"],["03","Mart"],["04","Nisan"],["05","Mayis"],
-                     ["06","Haziran"],["07","Temmuz"],["08","Agustos"],["09","Eylul"],
-                     ["10","Ekim"],["11","Kasim"],["12","Aralik"]].map(([v,lb])=>opt(v,lb))
-                  ),
-                  sel({className:"fi",style:{flex:"0 0 82px"},
-                    value:gf[0]||"",
-                    onChange:e=>setGTarih(e.target.value,gf[1]||String(new Date().getMonth()+1).padStart(2,"0"),gf[2]||"01")},
-                    opt("","Yil"),
-                    [2024,2025,2026,2027].map(y=>opt(String(y),String(y)))
-                  ),
-                  gecmisTarihFil&&btn({className:"btn-i",style:{flex:"0 0 36px",padding:0,fontSize:16,fontWeight:700},
-                    onClick:()=>setGecmisTarihFil("")},"✕")
-                );
-              })()
+                sel({className:"fi",style:{flex:"0 0 80px"},value:gecmisYilFil,onChange:e=>setGecmisYilFil(e.target.value)},
+                  opt("","Yil"),
+                  [2024,2025,2026,2027].map(y=>opt(String(y),String(y)))
+                ),
+                (gecmisGunFil||gecmisAyFil||gecmisYilFil)&&btn({className:"btn-i",style:{flex:"0 0 36px",padding:0,fontSize:16,fontWeight:700},
+                  onClick:()=>{setGecmisGunFil("");setGecmisAyFil("");setGecmisYilFil("");setGecmisTarihFil("");}
+                },"✕")
+              )
             )
           ),
 
@@ -1962,49 +1938,25 @@ function App() {
                 value:musteriAramaFil,onChange:e=>setMusteriAramaFil(e.target.value)})
             ),
             div({style:{width:"100%"}},
-              div({style:{display:"flex",gap:6,marginBottom:8,alignItems:"center"}},
-                sel({className:"fi",style:{flex:1},
-                  value:tAyFil,
-                  onChange:e=>{setTAyFil(e.target.value);setTFil("");}},
-                  opt("","Ay secerek ara..."),
+              div({style:{display:"flex",gap:6,alignItems:"center"}},
+                sel({className:"fi",style:{flex:"0 0 68px"},value:tGun,onChange:e=>setTGun(e.target.value)},
+                  opt("","Gun"),
+                  Array.from({length:31},(_,i)=>opt(String(i+1).padStart(2,"0"),String(i+1)))
+                ),
+                sel({className:"fi",style:{flex:1},value:tAyFil,onChange:e=>setTAyFil(e.target.value)},
+                  opt("","Ay"),
                   [["1","Ocak"],["2","Subat"],["3","Mart"],["4","Nisan"],["5","Mayis"],
                    ["6","Haziran"],["7","Temmuz"],["8","Agustos"],["9","Eylul"],
                    ["10","Ekim"],["11","Kasim"],["12","Aralik"]].map(([v,lb])=>opt(v,lb))
                 ),
-                tAyFil&&btn({className:"btn-i",style:{flex:"0 0 36px",padding:"0",fontSize:16,fontWeight:700},
-                  onClick:()=>setTAyFil("")},"✕")
-              ),
-              (()=>{
-                const tf = tFil?tFil.split("-"):["","",""];
-                const setTarih=(y,m,d)=>{
-                  if(y&&m&&d){setTFil(y+"-"+m+"-"+d);setTAyFil("");}
-                  else setTFil("");
-                };
-                return div({style:{display:"flex",gap:6,alignItems:"center"}},
-                  sel({className:"fi",style:{flex:"0 0 70px"},
-                    value:tf[2]||"",
-                    onChange:e=>setTarih(tf[0]||String(new Date().getFullYear()),tf[1]||String(new Date().getMonth()+1).padStart(2,"0"),e.target.value)},
-                    opt("","Gun"),
-                    Array.from({length:31},(_,i)=>opt(String(i+1).padStart(2,"0"),String(i+1)))
-                  ),
-                  sel({className:"fi",style:{flex:1},
-                    value:tf[1]||"",
-                    onChange:e=>setTarih(tf[0]||String(new Date().getFullYear()),e.target.value,tf[2]||"01")},
-                    opt("","Ay"),
-                    [["01","Ocak"],["02","Subat"],["03","Mart"],["04","Nisan"],["05","Mayis"],
-                     ["06","Haziran"],["07","Temmuz"],["08","Agustos"],["09","Eylul"],
-                     ["10","Ekim"],["11","Kasim"],["12","Aralik"]].map(([v,lb])=>opt(v,lb))
-                  ),
-                  sel({className:"fi",style:{flex:"0 0 82px"},
-                    value:tf[0]||"",
-                    onChange:e=>setTarih(e.target.value,tf[1]||String(new Date().getMonth()+1).padStart(2,"0"),tf[2]||"01")},
-                    opt("","Yil"),
-                    [2024,2025,2026,2027].map(y=>opt(String(y),String(y)))
-                  ),
-                  tFil&&btn({className:"btn-i",style:{flex:"0 0 36px",padding:0,fontSize:16,fontWeight:700},
-                    onClick:()=>setTFil("")},"✕")
-                );
-              })()
+                sel({className:"fi",style:{flex:"0 0 80px"},value:tYil,onChange:e=>setTYil(e.target.value)},
+                  opt("","Yil"),
+                  [2024,2025,2026,2027].map(y=>opt(String(y),String(y)))
+                ),
+                (tGun||tAyFil||tYil)&&btn({className:"btn-i",style:{flex:"0 0 36px",padding:0,fontSize:16,fontWeight:700},
+                  onClick:()=>{setTGun("");setTAyFil("");setTYil("");setTFil("");}
+                },"✕")
+              )
             )
           ),
 
