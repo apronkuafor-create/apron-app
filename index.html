@@ -842,6 +842,10 @@ function App() {
   const [gecmisAyFil, setGecmisAyFil]           = useState(String(new Date().getMonth()+1));
   const [gecmisYilFil, setGecmisYilFil]         = useState(String(new Date().getFullYear()));
   const [gecmisDuzeltOnay, setGecmisDuzeltOnay] = useState(null); // Yönetici onaylı düzeltme
+  const [yonBildirim, setYonBildirim]     = useState([]); // Yönetici→Personel bildirimler
+  const [yonDetay, setYonDetay]           = useState(null); // Açık bildirim detayı
+  const [yonDuzForm, setYonDuzForm]       = useState(null); // Yönetici düzenleme formu {kayit, neden, islem}
+  const [musteriAramaFil, setMusteriAramaFil] = useState(""); // Yönetici kayıt arama
   const [ibanOnay, setIbanOnay]       = useState(null); // {hedefId, hedefAd, pin, hata, kaynakForm}
 
   // Veri yükle
@@ -1057,7 +1061,152 @@ function App() {
     })(),
 
     // Devamsizlik
-    // Yönetici onaylı düzeltme modalı
+    // Yönetici düzenleme/silme formu
+    yonDuzForm&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",
+      zIndex:920,overflow:"auto"}},
+      div({style:{background:"#0a0805",minHeight:"100vh",paddingBottom:60}},
+        div({style:{background:"#111008",borderBottom:"1px solid #2a2010",padding:"13px 16px",
+          display:"flex",alignItems:"center",justifyContent:"space-between",
+          position:"sticky",top:0,zIndex:5}},
+          div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"#d4a017"}},
+            yonDuzForm.islem==="sil"?"Kaydi Sil":"Kaydi Duzenle"),
+          btn({className:"xbtn",onClick:()=>setYonDuzForm(null)},"✕")
+        ),
+        div({style:{padding:16,maxWidth:580,margin:"0 auto"}},
+
+          // Kayıt özeti
+          div({style:{background:"#111008",border:"1px solid #2a2010",borderRadius:12,padding:13,marginBottom:16}},
+            div({style:{fontSize:14,color:"#e8dcc8",fontWeight:500}},yonDuzForm.kayit?.musteri),
+            div({style:{fontSize:11,color:"#7a6a4a",marginTop:3}},
+              (yonDuzForm.kayit?.staffAd||"")+" · "+(yonDuzForm.kayit?.tarih||"")+" · "+fmt(yonDuzForm.kayit?.toplam||0))
+          ),
+
+          // Adım: form - neden açıklaması
+          yonDuzForm.adim==="form"&&div(null,
+            div({style:{marginBottom:14}},
+              lbl({className:"fl"},"Degisiklik Nedeni *"),
+              h("textarea",{style:{width:"100%",background:"#1a1510",border:"1px solid #2a2010",
+                borderRadius:9,color:"#e8dcc8",fontSize:13,padding:"10px 12px",outline:"none",
+                resize:"none",height:90,fontFamily:"Jost,system-ui,sans-serif"},
+                placeholder:yonDuzForm.islem==="sil"
+                  ?"Bu kaydi neden silmek istiyorsunuz?..."
+                  :"Bu kaydi neden degistirmek istiyorsunuz?...",
+                value:yonDuzForm.neden,
+                onChange:ev=>setYonDuzForm(p=>({...p,neden:ev.target.value}))})
+            ),
+            yonDuzForm.islem==="sil"
+              ?div({className:"btn-r"},
+                btn({className:"btn-i",onClick:()=>setYonDuzForm(null)},"Iptal"),
+                btn({className:"btn-t",disabled:!yonDuzForm.neden.trim(),
+                  onClick:()=>{
+                    // Personele bildirim gönder
+                    const bid = uid();
+                    setYonBildirim(p=>[...p,{
+                      id:bid, staffId:yonDuzForm.kayit.staffId,
+                      kayitId:yonDuzForm.kayit.id,
+                      musteri:yonDuzForm.kayit.musteri,
+                      tarih:yonDuzForm.kayit.tarih,
+                      islem:"sil", neden:yonDuzForm.neden.trim(),
+                      durum:"bekliyor", tarihGonder:TODAY()
+                    }]);
+                    setYonDuzForm(null);
+                    showToast("Bildirim personele gonderildi","uy");
+                  }},"Gonder ve Personel Onayina Gonder")
+              )
+              :div({className:"btn-r"},
+                btn({className:"btn-i",onClick:()=>setYonDuzForm(null)},"Iptal"),
+                btn({className:"btn-k",disabled:!yonDuzForm.neden.trim(),
+                  onClick:()=>setYonDuzForm(p=>({...p,adim:"duzenle"}))},"Devam — Duzenle")
+              )
+          ),
+
+          // Adım: düzenleme formu
+          yonDuzForm.adim==="duzenle"&&h(KayitForm,{
+            ilk:yonDuzForm.kayit,
+            musteriDB, personeller, aktifKullanici:kul,
+            baslik:"Kayit Duzenle (Yonetici)",
+            onKaydet:f=>{
+              const hKK=toN(f.hizKK),hIB=toN(f.hizIB),hNK=toN(f.hizNK);
+              const uKK=toN(f.uKK),uIB=toN(f.uIB),uNK=toN(f.uNK);
+              const top=(hKK+hIB+hNK)+(uKK+uIB+uNK);
+              const yeniKayit={
+                ...yonDuzForm.kayit,
+                musteri:(f.musteri||"").trim(),tel:(f.tel||"").trim(),
+                hizler:f.hizler||[],hizKK,hizIB:hIB,hizNK,
+                urunler:f.urunler||[],uKK,uIB,uNK,toplam:top,
+                _log:[...(yonDuzForm.kayit._log||[]),{
+                  tarih:TODAY(),yapan:"Yonetici",
+                  neden:yonDuzForm.neden,
+                  onceki:{musteri:yonDuzForm.kayit.musteri,toplam:yonDuzForm.kayit.toplam}
+                }]
+              };
+              const bid=uid();
+              setYonBildirim(p=>[...p,{
+                id:bid, staffId:yonDuzForm.kayit.staffId,
+                kayitId:yonDuzForm.kayit.id,
+                musteri:yonDuzForm.kayit.musteri,
+                tarih:yonDuzForm.kayit.tarih,
+                islem:"duzenle", neden:yonDuzForm.neden.trim(),
+                yeniKayit, durum:"bekliyor", tarihGonder:TODAY()
+              }]);
+              // Hemen kayıta notu ekle (onay bekleniyor)
+              const logluKayit={...yonDuzForm.kayit,_bekleyenDegisiklik:yeniKayit,_bildirimId:bid};
+              setRecords(p=>p.map(r=>r.id===logluKayit.id?logluKayit:r));
+              setGecmis(p=>p.map(r=>r.id===logluKayit.id?logluKayit:r));
+              setYonDuzForm(null);
+              showToast("Degisiklik personele gonderildi");
+            },
+            onIptal:()=>setYonDuzForm(p=>({...p,adim:"form"}))
+          }),
+
+          // Adım: karşı açıklama (personel reddedince yönetici yine de uygulamak isterse)
+          yonDuzForm.adim==="karsiaciklama"&&div(null,
+            div({style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(200,60,60,.2)",
+              borderRadius:9,padding:"10px 12px",marginBottom:14}},
+              div({style:{fontSize:11,color:"#c06060",marginBottom:4}},"Personel Yaniti:"),
+              div({style:{fontSize:12,color:"#e8dcc8"}},yonDuzForm.personelYanit)
+            ),
+            div({style:{marginBottom:14}},
+              lbl({className:"fl"},"Karsi Aciklamaniz *"),
+              h("textarea",{style:{width:"100%",background:"#1a1510",border:"1px solid #2a2010",
+                borderRadius:9,color:"#e8dcc8",fontSize:13,padding:"10px 12px",outline:"none",
+                resize:"none",height:80,fontFamily:"Jost,system-ui,sans-serif"},
+                placeholder:"Neden yine de uyguluyorsunuz?...",
+                value:yonDuzForm.karsiAciklama||"",
+                onChange:ev=>setYonDuzForm(p=>({...p,karsiAciklama:ev.target.value}))})
+            ),
+            div({className:"btn-r"},
+              btn({className:"btn-i",onClick:()=>setYonDuzForm(null)},"Iptal"),
+              btn({className:"btn-t",disabled:!(yonDuzForm.karsiAciklama||"").trim(),
+                onClick:()=>{
+                  const log={tarih:TODAY(),yapan:"Yonetici(zorla)",
+                    neden:yonDuzForm.neden,karsiAciklama:yonDuzForm.karsiAciklama,
+                    personelRet:yonDuzForm.personelYanit};
+                  if(yonDuzForm.islem==="sil"){
+                    setRecords(p=>p.filter(r=>r.id!==yonDuzForm.kayit.id));
+                    setGecmis(p=>p.filter(r=>r.id!==yonDuzForm.kayit.id));
+                    setBekleyen(p=>p.filter(r=>r.id!==yonDuzForm.kayit.id));
+                    dbSil("kayitlar",yonDuzForm.kayit.id);
+                    showToast("Kayit silindi","uy");
+                  } else if(yonDuzForm.yeniKayit){
+                    const guncellendi={...yonDuzForm.yeniKayit,
+                      _log:[...(yonDuzForm.yeniKayit._log||[]),log]};
+                    setRecords(p=>p.map(r=>r.id===guncellendi.id?guncellendi:r));
+                    setGecmis(p=>p.map(r=>r.id===guncellendi.id?guncellendi:r));
+                    setBekleyen(p=>p.map(r=>r.id===guncellendi.id?guncellendi:r));
+                    showToast("Kayit guncellendi");
+                  }
+                  setYonBildirim(p=>p.map(b=>b.id===yonDuzForm.bildirimId
+                    ?{...b,durum:"zorlaUygulandı",yonGordu:true}:b));
+                  setYonDuzForm(null);
+                }},"Yine de Uygula")
+            )
+          )
+        )
+      )
+    ),
+
+        // Yönetici onaylı düzeltme modalı
     gecmisDuzeltOnay&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",
       zIndex:900,display:"flex",alignItems:"center",justifyContent:"center",padding:18}},
       div({style:{background:"#111008",border:"1.5px solid #3a2e10",borderRadius:18,padding:24,maxWidth:320,width:"100%"}},
@@ -1123,6 +1272,66 @@ function App() {
                 onClick:()=>setGecmisDuzeltOnay(p=>({...p,adim:"secim",pin:"",pinHata:""}))},"Geri")
             );
           })()
+        )
+      )
+    ),
+
+        // Personel onay/ret modalı
+    yonDetay&&kul&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",
+      zIndex:950,display:"flex",alignItems:"center",justifyContent:"center",padding:18}},
+      div({style:{background:"#111008",border:"1.5px solid #2a2010",borderRadius:18,padding:24,maxWidth:340,width:"100%"}},
+
+        yonDetay.adim==="onay"&&div(null,
+          div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"#80c040",marginBottom:12,textAlign:"center"}},"Degisikligi Onayla"),
+          div({style:{fontSize:12,color:"#7a6a4a",marginBottom:8}},
+            "Kayit: ",h("strong",{style:{color:"#e8dcc8"}},yonDetay.musteri)),
+          div({style:{fontSize:11,color:"#9a8a6a",marginBottom:16,padding:"9px 12px",background:"rgba(0,0,0,.2)",borderRadius:8}},
+            "Neden: ",yonDetay.neden),
+          div({className:"btn-r"},
+            btn({className:"btn-i",onClick:()=>setYonDetay(null)},"Iptal"),
+            btn({className:"btn-k",style:{background:"linear-gradient(135deg,#2a6a10,#1a4a08)",color:"#c0e080"},
+              onClick:()=>{
+                setYonBildirim(p=>p.map(b=>b.id===yonDetay.id?{...b,durum:"onaylandi",personelYanit:"Onaylandi"}:b));
+                if(yonDetay.islem==="sil"){
+                  setRecords(p=>p.filter(r=>r.id!==yonDetay.kayitId));
+                  setGecmis(p=>p.filter(r=>r.id!==yonDetay.kayitId));
+                  setBekleyen(p=>p.filter(r=>r.id!==yonDetay.kayitId));
+                  dbSil("kayitlar",yonDetay.kayitId);
+                } else if(yonDetay.yeniKayit){
+                  setRecords(p=>p.map(r=>r.id===yonDetay.kayitId?yonDetay.yeniKayit:r));
+                  setGecmis(p=>p.map(r=>r.id===yonDetay.kayitId?yonDetay.yeniKayit:r));
+                  setBekleyen(p=>p.map(r=>r.id===yonDetay.kayitId?yonDetay.yeniKayit:r));
+                }
+                setYonDetay(null);
+                showToast("Degisiklik onaylandi");
+              }},"Onayla")
+          )
+        ),
+
+        yonDetay.adim==="ret"&&div(null,
+          div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"#c06060",marginBottom:12,textAlign:"center"}},"Degisikligi Reddet"),
+          div({style:{fontSize:12,color:"#7a6a4a",marginBottom:12}},
+            "Kayit: ",h("strong",{style:{color:"#e8dcc8"}},yonDetay.musteri)),
+          div({style:{marginBottom:14}},
+            lbl({className:"fl"},"Reddetme Nedeniniz"),
+            h("textarea",{style:{width:"100%",background:"#1a1510",border:"1px solid #2a2010",borderRadius:8,
+              color:"#e8dcc8",fontSize:12,padding:"9px 11px",outline:"none",resize:"none",height:80,
+              fontFamily:"Jost,system-ui,sans-serif"},
+              placeholder:"Neden reddettiniz?...",
+              value:yonDetay.aciklama||"",
+              onChange:e=>setYonDetay(p=>({...p,aciklama:e.target.value}))})
+          ),
+          div({className:"btn-r"},
+            btn({className:"btn-i",onClick:()=>setYonDetay(null)},"Iptal"),
+            btn({className:"btn-t",
+              disabled:!(yonDetay.aciklama||"").trim(),
+              onClick:()=>{
+                setYonBildirim(p=>p.map(b=>b.id===yonDetay.id
+                  ?{...b,durum:"reddedildi",personelYanit:(yonDetay.aciklama||"").trim()}:b));
+                setYonDetay(null);
+                showToast("Ret bildirildi, yonetici gorecek","uy");
+              }},"Reddet")
+          )
         )
       )
     ),
@@ -1329,6 +1538,29 @@ function App() {
       ),
       // Bugun
       psek==="bugun"&&div({className:"pg"},
+        // Yönetici bildirimleri
+        yonBildirim.filter(b=>b.staffId===kul.id&&b.durum==="bekliyor").length>0&&div({
+          style:{background:"rgba(212,160,23,.08)",border:"1.5px solid rgba(212,160,23,.25)",
+            borderRadius:12,padding:14,marginBottom:14}},
+          div({style:{fontSize:10,color:"#d4a017",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
+            "📋 Yonetici Degisiklik Bildirimi"),
+          yonBildirim.filter(b=>b.staffId===kul.id&&b.durum==="bekliyor").map(b=>
+            div({key:b.id,style:{background:"rgba(0,0,0,.2)",borderRadius:9,padding:"10px 12px",marginBottom:8}},
+              div({style:{fontSize:12,color:"#e8dcc8",fontWeight:500,marginBottom:4}},
+                b.islem==="sil"?"🗑 Kayit silinmek isteniyor":"✏ Kayit degistirilmek isteniyor"),
+              div({style:{fontSize:11,color:"#9a8a6a",marginBottom:4}},
+                h("strong",{style:{color:"#d4a017"}},b.musteri)," · ",b.tarih),
+              div({style:{fontSize:11,color:"#c0a060",marginBottom:10,padding:"7px 9px",background:"rgba(0,0,0,.2)",borderRadius:6}},
+                "Neden: ",b.neden),
+              div({style:{display:"flex",gap:8}},
+                btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #3a6010",background:"rgba(80,160,0,.1)",color:"#80c040",fontSize:11,cursor:"pointer"},
+                  onClick:()=>setYonDetay({...b,adim:"onay"})},"✓ Onayla"),
+                btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #6a2020",background:"rgba(160,40,40,.1)",color:"#c06060",fontSize:11,cursor:"pointer"},
+                  onClick:()=>setYonDetay({...b,adim:"ret",aciklama:""})},"✕ Reddet")
+              )
+            )
+          )
+        ),
         div({className:"stk"},
           div({className:"stat"},div({className:"sv"},String(myBekleyen.filter(r=>r.tarih===TODAY()).length)),div({className:"sl"},"Bugun")),
           div({className:"sep"}),
@@ -1661,41 +1893,121 @@ function App() {
         ),
 
         asek==="kayitlar"&&div(null,
-          div({className:"fil-row"},
-            sel({className:"fsel",value:pFil,onChange:e=>setPFil(e.target.value)},
-              opt("all","Tum Personel"),
-              personeller.filter(p=>p.rol==="personel").map(p=>opt(p.id,p.ad))
+
+          // Arama ve filtreler
+          div({style:{background:"#111008",border:"1px solid #2a2010",borderRadius:12,padding:13,marginBottom:14}},
+            div({style:{marginBottom:9}},
+              lbl({className:"fl"},"Musteri / Telefon / Personel Ara"),
+              inp({className:"fi",placeholder:"Ad, telefon veya personel...",value:musteriAramaFil,
+                onChange:e=>setMusteriAramaFil(e.target.value)})
             ),
-            h("input",{type:"date",className:"fsel",value:tFil,onChange:e=>setTFil(e.target.value)})
+            div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+              sel({className:"fsel",style:{width:"100%"},value:pFil,onChange:e=>setPFil(e.target.value)},
+                opt("all","Tum Personel"),
+                personeller.filter(p=>p.rol==="personel").map(p=>opt(p.id,p.ad))
+              ),
+              h("input",{type:"date",className:"fsel",style:{width:"100%"},value:tFil,onChange:e=>setTFil(e.target.value)})
+            )
           ),
-          div({style:{fontSize:11,color:"#5a4a2a",marginBottom:11}},filtreli.length+" kayit · ",h("span",{style:{color:"#d4a017",fontFamily:"Cormorant Garamond,serif",fontSize:13}},fmt(filtreli.reduce((s,r)=>s+r.toplam,0)))),
-          filtreli.length===0
-            ?div({className:"bos"},div({style:{fontSize:42,marginBottom:9}},"📋"),div({style:{fontSize:11,letterSpacing:2}},"Kayit bulunamadi"))
-            :filtreli.map(r=>{
-              const kk=(r.hizKK||0)+(r.uKK||0),ib=(r.hizIB||0)+(r.uIB||0),nk=(r.hizNK||0)+(r.uNK||0);
-              return div({key:r.id,className:"ak-k",onClick:()=>setDetay(r)},
-                div({style:{display:"flex",alignItems:"flex-start",gap:9}},
-                  div({className:"kikon"},r.hizler?.length>0?"✂️":"🛍️"),
-                  div({style:{flex:1,minWidth:0}},
-                    div({style:{fontSize:13,color:"#e8dcc8",fontWeight:500}},r.musteri),
-                    div({style:{fontSize:10,color:"#5a4a2a",marginTop:2}},r.staffAd+" · "+r.tarih+" "+(r.saat||"")),
-                    div({className:"kpl",style:{marginTop:5}},
-                      kk>0&&span({className:"kp"},"💳 "+fmt(kk)),
-                      ib>0&&span({className:"kp"},"🏦 "+fmt(ib)),
-                      nk>0&&span({className:"kp"},"💵 "+fmt(nk))
-                    )
-                  ),
-                  div({style:{textAlign:"right",flexShrink:0}},
-                    div({className:"ktu"},fmt(r.toplam)),
-                    div({style:{fontSize:14,color:"#3a2e1e"}},"›")
-                  )
-                ),
-                div({style:{borderTop:"1px solid #2a2010",paddingTop:7,marginTop:8,display:"flex",justifyContent:"space-between",alignItems:"center"}},
-                  h("span",{className:"tag"},[(r.hizler?.length||0)>0&&r.hizler.length+" hizmet",(r.urunler?.length||0)>0&&r.urunler.length+" urun"].filter(Boolean).join(" · ")),
-                  btn({className:"silb",onClick:ev=>{ev.stopPropagation();setSilOnay(r.id);}},"Sil")
+
+          // Ret bildirimleri - yöneticiye
+          yonBildirim.filter(b=>b.durum==="reddedildi"&&!b.yonGordu).length>0&&div({
+            style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(200,60,60,.3)",borderRadius:12,padding:14,marginBottom:14}},
+            div({style:{fontSize:10,color:"#c06060",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},"Reddedilen Degisiklikler"),
+            yonBildirim.filter(b=>b.durum==="reddedildi"&&!b.yonGordu).map(b=>
+              div({key:b.id,style:{background:"rgba(0,0,0,.2)",borderRadius:9,padding:"10px 12px",marginBottom:8}},
+                div({style:{fontSize:12,color:"#e8dcc8",fontWeight:500,marginBottom:4}},b.musteri+" · "+b.tarih),
+                div({style:{fontSize:11,color:"#c06060",marginBottom:4}},"Personel Yaniti: "+b.personelYanit),
+                div({style:{display:"flex",gap:8,marginTop:8}},
+                  btn({style:{flex:1,padding:8,borderRadius:7,border:"1px solid #3a1510",background:"rgba(160,40,40,.1)",color:"#c06060",fontSize:10,cursor:"pointer"},
+                    onClick:()=>{
+                      // Yönetici yine de uygular - karşı açıklama ister
+                      setYonDuzForm({
+                        kayit:records.find(r=>r.id===b.kayitId)||gecmis.find(r=>r.id===b.kayitId),
+                        islem:b.islem, yeniKayit:b.yeniKayit,
+                        neden:b.neden, personelYanit:b.personelYanit,
+                        bildirimId:b.id, adim:"karsiaciklama"
+                      });
+                    }},"Yine de Uygula"),
+                  btn({style:{flex:1,padding:8,borderRadius:7,border:"1px solid #2a2010",background:"transparent",color:"#7a6a4a",fontSize:10,cursor:"pointer"},
+                    onClick:()=>setYonBildirim(p=>p.map(x=>x.id===b.id?{...x,yonGordu:true}:x))
+                  },"Kapat")
                 )
-              );
-            })
+              )
+            )
+          ),
+
+          // Filtreli kayıt listesi
+          (()=>{
+            const aramaFil = musteriAramaFil.trim().toLowerCase();
+            const gosterilecek = filtreli.filter(r=>{
+              if(!aramaFil) return true;
+              return normText(r.musteri).includes(normText(aramaFil))
+                || (r.tel||"").includes(aramaFil)
+                || normText(r.staffAd||"").includes(normText(aramaFil));
+            });
+            return div(null,
+              div({style:{fontSize:11,color:"#5a4a2a",marginBottom:11}},
+                gosterilecek.length+" kayit · ",
+                h("span",{style:{color:"#d4a017",fontFamily:"Cormorant Garamond,serif",fontSize:13}},
+                  fmt(gosterilecek.reduce((s,r)=>s+r.toplam,0)))
+              ),
+              gosterilecek.length===0
+                ?div({className:"bos"},div({style:{fontSize:42,marginBottom:9}},"📋"),div({style:{fontSize:11,letterSpacing:2}},"Kayit bulunamadi"))
+                :gosterilecek.map(r=>{
+                  const kk=(r.hizKK||0)+(r.uKK||0),ib=(r.hizIB||0)+(r.uIB||0),nk=(r.hizNK||0)+(r.uNK||0);
+                  const bildirimDurum = yonBildirim.find(b=>b.kayitId===r.id&&b.durum==="bekliyor");
+                  return div({key:r.id,style:{background:"#111008",border:"1px solid "+(bildirimDurum?"#6a5010":"#1e1a10"),
+                    borderRadius:13,padding:13,marginBottom:9,cursor:"pointer"},
+                    onClick:()=>setDetay(r)},
+
+                    // Bekleyen bildirim badge
+                    bildirimDurum&&div({style:{fontSize:9,color:"#d4a017",padding:"3px 8px",
+                      background:"rgba(212,160,23,.1)",borderRadius:5,marginBottom:8,
+                      border:"1px solid rgba(212,160,23,.2)",display:"inline-block"}},
+                      "⏳ Personel Onayı Bekleniyor"),
+
+                    div({style:{display:"flex",alignItems:"flex-start",gap:9}},
+                      div({className:"kikon"},r.hizler?.length>0?"✂️":"🛍️"),
+                      div({style:{flex:1,minWidth:0}},
+                        div({style:{fontSize:13,color:"#e8dcc8",fontWeight:500}},r.musteri),
+                        div({style:{fontSize:10,color:"#5a4a2a",marginTop:2}},r.staffAd+" · "+r.tarih+" "+(r.saat||"")),
+                        r.tel&&div({style:{fontSize:10,color:"#5a4a2a"}},"📞 "+r.tel),
+                        div({className:"kpl",style:{marginTop:5}},
+                          kk>0&&span({className:"kp"},"💳 "+fmt(kk)),
+                          ib>0&&span({className:"kp"},"🏦 "+fmt(ib)),
+                          nk>0&&span({className:"kp"},"💵 "+fmt(nk))
+                        ),
+                        // Değişiklik geçmişi varsa göster
+                        (r._log||[]).length>0&&div({style:{marginTop:6,fontSize:9,color:"#7a5a2a",
+                          padding:"4px 7px",background:"rgba(212,160,23,.05)",borderRadius:5,
+                          border:"1px solid rgba(212,160,23,.1)"}},
+                          "📝 "+r._log.length+" degisiklik gecmisi")
+                      ),
+                      div({style:{textAlign:"right",flexShrink:0}},
+                        div({className:"ktu"},fmt(r.toplam)),
+                        div({style:{fontSize:14,color:"#3a2e1e"}},"›")
+                      )
+                    ),
+                    div({style:{borderTop:"1px solid #1e1a10",paddingTop:8,marginTop:8,
+                      display:"flex",justifyContent:"space-between",alignItems:"center"}},
+                      h("span",{className:"tag"},
+                        [(r.hizler?.length>0)&&r.hizler.length+" hizmet",
+                         (r.urunler?.length>0)&&r.urunler.length+" urun"].filter(Boolean).join(" · ")
+                      ),
+                      div({style:{display:"flex",gap:6}},
+                        btn({className:"pbt",onClick:ev=>{ev.stopPropagation();
+                          setYonDuzForm({kayit:r,islem:"duzenle",neden:"",adim:"form"});}},
+                          "Duzenle"),
+                        btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();
+                          setYonDuzForm({kayit:r,islem:"sil",neden:"",adim:"form"});}},
+                          "Sil")
+                      )
+                    )
+                  );
+                })
+            );
+          })()
         ),
 
         asek==="personel"&&div(null,
