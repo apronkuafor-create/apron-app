@@ -791,15 +791,14 @@ function KayitKarti({r, onDetay, onDuzenle, onSil}) {
         div({style:{marginBottom:10}},lbl({className:"fl"},"4 Haneli PIN *"),inp({className:"fi",maxLength:4,inputMode:"numeric",placeholder:"••••",value:data.pin||"",onChange:e=>setData(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}))})),
         div({style:{marginBottom:10}},lbl({className:"fl"},"Rol"),
           sel({className:"fi",value:data.rol||"personel",onChange:e=>setData(p=>({...p,rol:e.target.value}))},
-            opt("personel","Personel"),opt("yonetici","Yonetici"),opt("sahip","Isyeri Sahibi"))
+            opt("personel","Personel"),opt("yonetici","Yonetici"))
         ),
         div({style:{marginBottom:10}},lbl({className:"fl"},"Pozisyon"),
           sel({className:"fi",value:data.pozisyon||"",onChange:e=>setData(p=>({...p,pozisyon:e.target.value}))},
-            opt("","Seciniz..."),opt("Usta","Usta"),opt("Kalfa","Kalfa"),opt("Cirak","Cirak"),opt("Manikurist","Manikurist"),opt("Pedikürist","Pedikurist"),opt("Diger","Diger"))
+            opt("","Seciniz..."),opt("Isyeri Sahibi ve Usta","Isyeri Sahibi ve Usta"),opt("Usta","Usta"),opt("Kalfa","Kalfa"),opt("Cirak","Cirak"),opt("Manikurist","Manikurist"),opt("Pedikürist","Pedikurist"),opt("Diger","Diger"))
         ),
         div({style:{marginBottom:10}},lbl({className:"fl"},"Calisma Sekli"),
-          sel({className:"fi",value:data.calismaSekli||"",onChange:e=>setData(p=>({...p,calismaSekli:e.target.value}))},
-            opt("","Seciniz..."),opt("Maas","Maas"),opt("Yuzde","Yuzde (%)"),opt("Maas+Yuzde","Maas + Yuzde"),opt("Gundelik","Gundelik"))
+          inp({className:"fi",placeholder:"ornek: Maas, %40 Yuzde, Gundelik...",value:data.calismaSekli||"",onChange:e=>setData(p=>({...p,calismaSekli:e.target.value}))})
         ),
         div({style:{marginBottom:10}},lbl({className:"fl"},"Maas / Oran"),inp({className:"fi",placeholder:"15000 TL veya %40",value:data.maas||"",onChange:e=>setData(p=>({...p,maas:e.target.value}))})),
         div({style:{marginBottom:10}},lbl({className:"fl"},"Telefon"),inp({className:"fi",placeholder:"05xx xxx xx xx",inputMode:"tel",value:data.telefon||"",onChange:e=>setData(p=>({...p,telefon:e.target.value}))})),
@@ -830,6 +829,63 @@ function KayitKarti({r, onDetay, onDuzenle, onSil}) {
     )
   );
 }
+
+function StokGiris({stokDB, setStokDB, stokHar, setStokHar, kul, showToast}) {
+  const [aramaG, setAramaG] = React.useState("");
+  const [markaG, setMarkaG] = React.useState("");
+  const [gB, setGB] = React.useState({});
+  const filtreUrun = URUN_DB.filter(u=>{
+    if(markaG&&u.m!==markaG) return false;
+    if(aramaG.trim()){const q=normText(aramaG);return normText(u.a).includes(q)||(u.b||"").includes(aramaG.trim());}
+    return true;
+  });
+  return div(null,
+    div({style:{marginBottom:12}},
+      sel({className:"fi",style:{marginBottom:8},value:markaG,onChange:e=>setMarkaG(e.target.value)},
+        opt("","Tum Markalar"),MARKALAR.map(m=>opt(m,m))),
+      inp({className:"fi",placeholder:"Urun adi veya barkod ile ara...",value:aramaG,onChange:e=>setAramaG(e.target.value)})
+    ),
+    filtreUrun.length===0
+      ?div({className:"bos"},div({style:{fontSize:36}},"📦"),div({style:{fontSize:11,letterSpacing:2,marginTop:8}},"Urun bulunamadi"))
+      :div(null,
+        filtreUrun.map(u=>{
+          const qty=stokDB[u.b]||0,gQty=gB[u.b]||0;
+          return div({key:u.b,style:{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,.03)"}},
+            div({style:{flex:1,minWidth:0}},
+              div({style:{fontSize:13,color:"#e8dcc8",fontWeight:500}},u.a),
+              div({style:{fontSize:10,color:"#5a4a2a",marginTop:1}},u.m+" · "+u.ml),
+              div({style:{fontSize:11,color:"#7a6a4a",marginTop:2}},"Mevcut: ",h("span",{style:{color:qty<=0?"#c06060":"#80c040",fontWeight:700}},qty+" adet"))
+            ),
+            div({style:{display:"flex",alignItems:"center",gap:6,flexShrink:0}},
+              btn({style:{width:30,height:30,borderRadius:8,border:"1px solid #2a2010",background:"transparent",color:"#e8dcc8",fontSize:18,cursor:"pointer"},onClick:()=>setGB(p=>({...p,[u.b]:Math.max(0,(p[u.b]||0)-1)}))},"-"),
+              div({style:{width:36,textAlign:"center",fontFamily:"Cormorant Garamond,serif",fontSize:18,color:gQty>0?"#d4a017":"#3a2e1e",fontWeight:700}},gQty),
+              btn({style:{width:30,height:30,borderRadius:8,border:"1px solid #2a2010",background:"transparent",color:"#e8dcc8",fontSize:18,cursor:"pointer"},onClick:()=>setGB(p=>({...p,[u.b]:(p[u.b]||0)+1}))},"+")
+            )
+          );
+        }),
+        Object.values(gB).some(q=>q>0)&&div({style:{position:"sticky",bottom:0,background:"#0a0805",borderTop:"1px solid #2a2010",paddingTop:12,marginTop:12}},
+          div({style:{fontSize:11,color:"#7a6a4a",marginBottom:8}},Object.entries(gB).filter(([,q])=>q>0).length+" cesit · "+Object.values(gB).reduce((a,b)=>a+b,0)+" adet"),
+          btn({className:"btn-k",style:{width:"100%"},onClick:()=>{
+            const harlar=[];
+            Object.entries(gB).forEach(([barkod,adet])=>{
+              if(adet<=0) return;
+              const urun=URUN_DB.find(u=>u.b===barkod);
+              const yeniQty=(stokDB[barkod]||0)+adet;
+              setStokDB(p=>({...p,[barkod]:yeniQty}));
+              const harId=uid();
+              harlar.push({id:harId,barkod,urun_ad:urun?.a||"",tip:"giris",adet,tarih:TODAY(),staff_id:kul.id,staff_name:kul.ad});
+              dbEkle("stok_hareketleri",{id:harId,barkod,urun_ad:urun?.a||"",tip:"giris",adet,tarih:TODAY(),staff_id:kul.id,staff_name:kul.ad});
+              dbGnc("stok",{qty:yeniQty,son_guncelleme:TODAY()},barkod).catch(()=>dbEkle("stok",{id:barkod,barkod,urun_ad:urun?.a||"",marka:urun?.m||"",qty:yeniQty,son_guncelleme:TODAY()}));
+            });
+            setStokHar(p=>[...harlar,...p]);
+            setGB({});
+            showToast("Stok girisi yapildi!");
+          }},"Stok Girisi Onayla ✓")
+        )
+      )
+  );
+}
+
 
 function App() {
   const [ekran, setEkran]             = useState("login");
@@ -868,6 +924,9 @@ function App() {
   const [yeniP, setYeniP]             = useState({ad:"",pin:"",rol:"personel"});
   const [pHata, setPHata]             = useState("");
   const [musteriKart, setMusteriKart] = useState(null);
+  const [stokDB, setStokDB]           = useState({}); // {barkod: qty}
+  const [stokHar, setStokHar]         = useState([]); // hareket geçmişi
+  const [stokSek, setStokSek]         = useState("liste"); // liste|giris|hareketler
   const [pDetay, setPDetay]           = useState(null);
   const [gecmisMusteriFil, setGecmisMusteriFil] = useState("");
   const [gecmisAyFil, setGecmisAyFil]           = useState(String(new Date().getMonth()+1));
@@ -910,6 +969,17 @@ function App() {
           setBekleyen(k.filter(r=>!r.gonderildi).map(mapR));
         }
         if(m.length) setMusteriDB(m.map(x=>({id:x.id,ad:x.ad,tel:x.tel||"",sahipId:x.sahip_id||"",sahipAd:x.sahip_ad||"",ilkGiris:x.ilk_giris||""})));
+        // Stok yükle
+        try {
+          const st = await dbAl("stok",{});
+          if(st&&st.length){
+            const stMap={};
+            st.forEach(x=>{stMap[x.barkod]=parseInt(x.qty)||0;});
+            setStokDB(stMap);
+          }
+          const sh = await dbAl("stok_hareketleri",{order:"created_at",asc:false});
+          if(sh&&sh.length) setStokHar(sh);
+        } catch(e){ console.warn("Stok yuklenemedi",e); }
         if(d.length){ const dm={};d.forEach(x=>{dm[x.tarih+"_"+x.staff_id]=x.aciklama;});setDevDB(dm); }
       } catch(e){ console.warn("DB:",e); }
       setYukleniyor(false);
@@ -1022,6 +1092,22 @@ function App() {
       dbEkle("kayitlar",{id:y.id,staff_id:y.staffId,staff_name:y.staffAd,musteri:y.musteri,telefon:y.tel,
         hizmetler:y.hizler,hiz_kk:y.hizKK,hiz_ib:y.hizIB,hiz_nk:y.hizNK,urunler:y.urunler,
         urun_kk:y.uKK,urun_ib:y.uIB,urun_nk:y.uNK,toplam:y.toplam,tarih:y.tarih,saat:y.saat,gonderildi:false});
+      // Stok otomatik çıkış
+      if(y.urunler&&y.urunler.length>0){
+        y.urunler.forEach(u=>{
+          if(!u.b) return;
+          const adet=parseInt(u.qty)||1;
+          setStokDB(p=>({...p,[u.b]:Math.max(0,(p[u.b]||0)-adet)}));
+          const harId=uid();
+          setStokHar(p=>[{id:harId,barkod:u.b,tip:"cikis",adet,tarih:y.tarih,
+            staffId:y.staffId,staffAd:y.staffAd,kayitId:y.id,urunAd:u.a,olusturma:Date.now()},
+            ...p]);
+          // Supabase güncelle
+          dbGnc("stok",{qty:(stokDB[u.b]||0)-adet},u.b).catch(()=>{});
+          dbEkle("stok_hareketleri",{id:harId,barkod:u.b,urun_ad:u.a,tip:"cikis",
+            adet,tarih:y.tarih,staff_id:y.staffId,staff_name:y.staffAd,kayit_id:y.id});
+        });
+      }
       const vm=musteriDB.find(m=>m.ad.toLowerCase()===f.musteri.trim().toLowerCase()||
         (f.tel&&f.tel.trim()&&m.tel===f.tel.trim()));
       if(!vm){
