@@ -212,6 +212,8 @@ input,select,textarea{font-family:'Jost',system-ui,sans-serif}
 .toast.uy{background:#2a2010;border:1px solid #5a4a20;color:#c0a050}
 @keyframes tin{from{transform:translateX(-50%) translateY(-18px);opacity:0}}
 .bos{text-align:center;padding:44px 18px;color:var(--br)}
+.fi[type=month],.fi[type=date]{width:100%;box-sizing:border-box;min-width:0;display:block}
+.fil-wrap{width:100%;box-sizing:border-box;overflow:hidden}
 .ot input[type=number]{-webkit-appearance:none;-moz-appearance:textfield}
 .ot input[type=number]:focus{outline:none}
 input[type=number]{-webkit-appearance:none;-moz-appearance:textfield}
@@ -840,6 +842,7 @@ function App() {
   const [musteriKart, setMusteriKart] = useState(null);
   const [gecmisMusteriFil, setGecmisMusteriFil] = useState("");
   const [gecmisAyFil, setGecmisAyFil]           = useState(String(new Date().getMonth()+1));
+  const [gecmisTarihFil, setGecmisTarihFil]     = useState(""); // Geçmişim gün filtresi
   const [gecmisYilFil, setGecmisYilFil]         = useState(String(new Date().getFullYear()));
   const [gecmisDuzeltOnay, setGecmisDuzeltOnay] = useState(null); // Yönetici onaylı düzeltme
   const [yonBildirim, setYonBildirim]     = useState([]); // Yönetici→Personel bildirimler
@@ -1603,11 +1606,14 @@ function App() {
         const filtreliGecmis = benim.filter(r=>{
           if(gecmisMusteriFil.trim()){
             const q = normText(gecmisMusteriFil);
-            if(!normText(r.musteri).includes(q)) return false;
+            if(!normText(r.musteri).includes(q)
+              && !(r.tel||"").includes(gecmisMusteriFil.trim())
+              && !normText(r.staffAd||"").includes(q)) return false;
           }
+          if(gecmisTarihFil && r.tarih !== gecmisTarihFil) return false;
           const rd = new Date(r.tarih+"T12:00:00");
           if(gecmisYilFil && rd.getFullYear() !== parseInt(gecmisYilFil)) return false;
-          if(gecmisAyFil && (rd.getMonth()+1) !== parseInt(gecmisAyFil) ) return false;
+          if(gecmisAyFil && (rd.getMonth()+1) !== parseInt(gecmisAyFil)) return false;
           return true;
         });
 
@@ -1646,25 +1652,43 @@ function App() {
           div({style:{background:"#111008",border:"1px solid #2a2010",borderRadius:12,padding:13,marginBottom:14}},
             // Müşteri arama
             div({style:{marginBottom:10}},
-              lbl({className:"fl"},"Musteri Ara"),
-              inp({className:"fi",placeholder:"Musteri ismi...",value:gecmisMusteriFil,
-                onChange:e=>setGecmisMusteriFil(e.target.value)})
+              inp({className:"fi",placeholder:"Ad / Telefon No / Personel Ismi ile ara...",
+                value:gecmisMusteriFil,onChange:e=>setGecmisMusteriFil(e.target.value)})
             ),
-            // Ay / Yıl seçici
-            div({style:{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8}},
-              sel({className:"fi",value:gecmisAyFil,onChange:e=>setGecmisAyFil(e.target.value)},
-                opt("","Tum Aylar"),
-                [["1","Ocak"],["2","Subat"],["3","Mart"],["4","Nisan"],["5","Mayis"],
-                 ["6","Haziran"],["7","Temmuz"],["8","Agustos"],["9","Eylul"],
-                 ["10","Ekim"],["11","Kasim"],["12","Aralik"]].map(([v,lb])=>opt(v,lb))
+            div({style:{width:"100%",boxSizing:"border-box",overflow:"hidden"}},
+              div({style:{position:"relative",marginBottom:6}},
+                h("input",{type:"month",className:"fi",
+                  style:{width:"100%",boxSizing:"border-box",display:"block",
+                    paddingRight:gecmisAyFil?32:13,color:gecmisAyFil?"#e8dcc8":"transparent"},
+                  value:gecmisAyFil?gecmisYilFil+"-"+String(gecmisAyFil).padStart(2,"0"):"",
+                  onChange:e=>{
+                    const [y,m]=e.target.value.split("-");
+                    setGecmisYilFil(y||"");
+                    setGecmisAyFil(m?String(parseInt(m)):"");
+                    setGecmisTarihFil("");
+                  }}),
+                !(gecmisAyFil&&gecmisYilFil)&&div({style:{position:"absolute",left:13,top:"50%",
+                  transform:"translateY(-50%)",color:"#5a4a2a",fontSize:13,pointerEvents:"none"}},
+                  "Ay secerek arama yap"),
+                (gecmisAyFil||gecmisYilFil)&&btn({style:{position:"absolute",right:8,top:"50%",
+                  transform:"translateY(-50%)",background:"transparent",border:"none",
+                  color:"#7a6a4a",fontSize:14,cursor:"pointer",padding:0},
+                  onClick:()=>{setGecmisAyFil("");setGecmisYilFil("");}},"✕")
               ),
-              sel({className:"fi",value:gecmisYilFil,onChange:e=>setGecmisYilFil(e.target.value)},
-                opt("","Tum Yillar"),
-                (yillar.length ? yillar : [simdi.getFullYear()]).map(y=>opt(String(y),String(y)))
-              ),
-              btn({style:{background:"rgba(212,160,23,.1)",border:"1px solid rgba(212,160,23,.3)",
-                borderRadius:9,color:"#d4a017",fontSize:11,padding:"0 12px",cursor:"pointer",whiteSpace:"nowrap"},
-                onClick:()=>{setGecmisAyFil(String(simdi.getMonth()+1));setGecmisYilFil(String(simdi.getFullYear()));}},"Bu Ay")
+              div({style:{position:"relative"}},
+                h("input",{type:"date",className:"fi",
+                  style:{width:"100%",boxSizing:"border-box",display:"block",
+                    paddingRight:gecmisTarihFil?32:13,color:gecmisTarihFil?"#e8dcc8":"transparent"},
+                  value:gecmisTarihFil||"",
+                  onChange:e=>{setGecmisTarihFil(e.target.value);setGecmisAyFil("");setGecmisYilFil("");}}),
+                !gecmisTarihFil&&div({style:{position:"absolute",left:13,top:"50%",
+                  transform:"translateY(-50%)",color:"#5a4a2a",fontSize:13,pointerEvents:"none"}},
+                  "Belirli bir gun secerek arama yap"),
+                gecmisTarihFil&&btn({style:{position:"absolute",right:8,top:"50%",
+                  transform:"translateY(-50%)",background:"transparent",border:"none",
+                  color:"#7a6a4a",fontSize:14,cursor:"pointer",padding:0},
+                  onClick:()=>setGecmisTarihFil("")},"✕")
+              )
             )
           ),
 
@@ -1912,24 +1936,31 @@ function App() {
               inp({className:"fi",placeholder:"Ad / Telefon No / Personel Ismi ile ara...",
                 value:musteriAramaFil,onChange:e=>setMusteriAramaFil(e.target.value)})
             ),
-            div({style:{position:"relative",boxSizing:"border-box"}},
-              h("input",{type:"month",className:"fi",
-                style:{width:"100%",boxSizing:"border-box",paddingRight:tFil||tAyFil?32:13,display:"block"},
-                value:tAyFil,
-                onChange:e=>{setTAyFil(e.target.value);setTFil("");}}),
-              div({style:{marginTop:6,position:"relative"}},
+            div({style:{width:"100%",boxSizing:"border-box",overflow:"hidden"}},
+              div({style:{position:"relative",marginBottom:6}},
+                h("input",{type:"month",className:"fi",
+                  style:{width:"100%",boxSizing:"border-box",display:"block",paddingRight:tAyFil?32:13},
+                  title:"Ay secererek arama yap",
+                  value:tAyFil,
+                  onChange:e=>{setTAyFil(e.target.value);setTFil("");}}),
+                !tAyFil&&div({style:{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",
+                  color:"#5a4a2a",fontSize:13,pointerEvents:"none"}},"Ay secerek arama yap"),
+                tAyFil&&btn({style:{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
+                  background:"transparent",border:"none",color:"#7a6a4a",fontSize:14,cursor:"pointer",padding:0},
+                  onClick:()=>setTAyFil("")},"✕")
+              ),
+              div({style:{position:"relative"}},
                 h("input",{type:"date",className:"fi",
-                  style:{width:"100%",boxSizing:"border-box",paddingRight:tFil?32:13,display:"block"},
+                  style:{width:"100%",boxSizing:"border-box",display:"block",paddingRight:tFil?32:13,
+                    color:tFil?"#e8dcc8":"transparent"},
                   value:tFil,
                   onChange:e=>{setTFil(e.target.value);setTAyFil("");}}),
+                !tFil&&div({style:{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",
+                  color:"#5a4a2a",fontSize:13,pointerEvents:"none"}},"Belirli bir gun secerek arama yap"),
                 tFil&&btn({style:{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
-                  background:"transparent",border:"none",color:"#7a6a4a",fontSize:14,
-                  cursor:"pointer",padding:0,lineHeight:1,zIndex:1},
+                  background:"transparent",border:"none",color:"#7a6a4a",fontSize:14,cursor:"pointer",padding:0},
                   onClick:()=>setTFil("")},"✕")
-              ),
-              (tAyFil||tFil)&&btn({style:{marginTop:6,fontSize:10,color:"#7a6a4a",background:"transparent",
-                border:"1px solid #2a2010",borderRadius:6,padding:"4px 10px",cursor:"pointer"},
-                onClick:()=>{setTFil("");setTAyFil("");}},"Filtreyi Temizle ✕")
+              )
             )
           ),
 
