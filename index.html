@@ -561,6 +561,32 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
             inp({className:"fi",placeholder:"05XX...",value:tel,onChange:e=>setTel(e.target.value)})
           )
         ),
+
+        // Müşteri kaydet kutucuğu
+        div({style:{display:"flex",alignItems:"center",gap:10,
+          padding:"10px 12px",marginBottom:4,
+          background:musteriKaydet?"rgba(212,160,23,.07)":"rgba(255,255,255,.02)",
+          borderRadius:10,border:"1px solid",
+          borderColor:musteriKaydet?"rgba(212,160,23,.3)":"#1e1a10",
+          cursor:"pointer",transition:"all .2s"},
+          onClick:()=>setMusteriKaydet(p=>!p)},
+          div({style:{width:20,height:20,borderRadius:6,border:"1.5px solid",flexShrink:0,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            borderColor:musteriKaydet?"#d4a017":"#3a2e1e",
+            background:musteriKaydet?"rgba(212,160,23,.2)":"transparent",
+            transition:"all .2s"}},
+            musteriKaydet&&h("span",{style:{color:"#d4a017",fontSize:13,fontWeight:700,lineHeight:1}},"✓")
+          ),
+          div({style:{flex:1}},
+            div({style:{fontSize:13,color:musteriKaydet?"#d4a017":"#7a6a4a",fontWeight:musteriKaydet?500:400}},
+              "Müşteriyi sisteme kaydet"),
+            div({style:{fontSize:10,color:"#3a2e1e",marginTop:2}},
+              musteriKaydet
+                ?"Ad ve telefon kaydedilecek — bir dahaki ziyarette otomatik bulunacak"
+                :"Sadece bu işlem kaydedilecek — müşteri bilgileri saklanmayacak")
+          )
+        ),
+
         // Hizmetler
         div({className:"sc sc-h"},
           div({className:"sc-hd"},
@@ -820,6 +846,12 @@ function KayitKarti({r, onDetay, onDuzenle, onSil}) {
         div({style:{marginBottom:10}},lbl({className:"fl"},"Pozisyon"),
           sel({className:"fi",value:data.pozisyon||"",onChange:e=>setData(p=>({...p,pozisyon:e.target.value}))},
             opt("","Seciniz..."),opt("Isyeri Sahibi ve Usta","Isyeri Sahibi ve Usta"),opt("Usta","Usta"),opt("Kalfa","Kalfa"),opt("Cirak","Cirak"),opt("Manikurist","Manikurist"),opt("Pedikürist","Pedikurist"),opt("Diger","Diger"))
+        ),
+        div({style:{marginBottom:10}},lbl({className:"fl"},"Personel Grubu"),
+          sel({className:"fi",value:data.grup||"",onChange:e=>setData(p=>({...p,grup:e.target.value}))},
+            opt("","Grup seciniz..."),
+            (gruplar||[]).map(g=>opt(g.id,g.ad))
+          )
         ),
         div({style:{marginBottom:10}},lbl({className:"fl"},"Calisma Sekli"),
           inp({className:"fi",placeholder:"ornek: Maas, %40 Yuzde, Gundelik...",value:data.calismaSekli||"",onChange:e=>setData(p=>({...p,calismaSekli:e.target.value}))})
@@ -1140,18 +1172,20 @@ function App() {
             adet,tarih:y.tarih,staff_id:y.staffId,staff_name:y.staffAd,kayit_id:y.id});
         });
       }
-      const vm=musteriDB.find(m=>m.ad.toLowerCase()===f.musteri.trim().toLowerCase()||
-        (f.tel&&f.tel.trim()&&m.tel===f.tel.trim()));
-      if(!vm){
-        const ym={id:uid(),ad:f.musteri.trim(),tel:(f.tel||"").trim(),
-          sahipId:kul.id,sahipAd:kul.ad,ilkGiris:TODAY()};
-        setMusteriDB(p=>[...p,ym]);
-        dbEkle("musteriler",{id:ym.id,ad:ym.ad,tel:ym.tel,
-          sahip_id:ym.sahipId,sahip_ad:ym.sahipAd,ilk_giris:ym.ilkGiris});
-      } else if(vm.tel!==(f.tel||"").trim()&&f.tel&&f.tel.trim()){
+      if(f.musteriKaydet!==false){
+        const vm=musteriDB.find(m=>m.ad.toLowerCase()===f.musteri.trim().toLowerCase()||
+          (f.tel&&f.tel.trim()&&m.tel===f.tel.trim()));
+        if(!vm){
+          const ym={id:uid(),ad:f.musteri.trim(),tel:(f.tel||"").trim(),
+            sahipId:kul.id,sahipAd:kul.ad,ilkGiris:TODAY()};
+          setMusteriDB(p=>[...p,ym]);
+          dbEkle("musteriler",{id:ym.id,ad:ym.ad,tel:ym.tel,
+            sahip_id:ym.sahipId,sahip_ad:ym.sahipAd,ilk_giris:ym.ilkGiris});
+        } else if(vm.tel!==(f.tel||"").trim()&&f.tel&&f.tel.trim()){
         // Telefon güncellenmiş olabilir
-        setMusteriDB(p=>p.map(m=>m.id===vm.id?{...m,tel:f.tel.trim()}:m));
-      }
+          setMusteriDB(p=>p.map(m=>m.id===vm.id?{...m,tel:f.tel.trim()}:m));
+        }
+      } // musteriKaydet if sonu
       showToast("Kayit eklendi!");
     }
     setKayitForm(null);
@@ -1653,10 +1687,10 @@ function App() {
     kayitForm&&h(KayitForm,{ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null)}),
 
     // Personel ekle modal
-    pEkle&&h(PersonelFormModal,{title:"Yeni Personel",data:yeniP,setData:setYeniP,hata:pHata,onKaydet:pEkleKaydet,onIptal:()=>{setPEkle(false);setPHata("");},showDurum:false}),
+    pEkle&&h(PersonelFormModal,{title:"Yeni Personel",data:yeniP,setData:setYeniP,hata:pHata,gruplar:pGruplar,onKaydet:pEkleKaydet,onIptal:()=>{setPEkle(false);setPHata("");},showDurum:false}),
 
     // Personel duzenle modal
-    pDuz&&h(PersonelFormModal,{hata:pHata,title:"Personel Duzenle",data:pDuz,setData:setPDuz,onKaydet:pDuzKaydet,onIptal:()=>{setPDuz(null);setPHata("");},showDurum:true}),
+    pDuz&&h(PersonelFormModal,{hata:pHata,gruplar:pGruplar,title:"Personel Duzenle",data:pDuz,setData:setPDuz,onKaydet:pDuzKaydet,onIptal:()=>{setPDuz(null);setPHata("");},showDurum:true}),
 
     // ── LOGIN ──
     // Panel seçim ekranı (hem personel hem yönetici olanlar için)
@@ -2321,30 +2355,95 @@ function App() {
             div({style:{height:1,background:"#1a1510",margin:"12px 0"}})
           ),
 
-          div({className:"sek",style:{marginBottom:9}},"Aktif Personel"),
-          personeller.filter(p=>p.aktif).map(p=>{
-            const pk=tumK.filter(r=>r.staffId===p.id);
-            const bugunC=pk.filter(r=>r.tarih===TODAY()).reduce((a,r)=>a+r.toplam,0);
-            const topC=pk.reduce((a,r)=>a+r.toplam,0);
-            return div({key:p.id,className:"pk",style:{cursor:"pointer"},onClick:()=>setPDetay(p)},
-              div({className:"pav ak"},p.ad[0]),
-              div({className:"pi"},
-                div({className:"pad"},p.ad),
-                p.pozisyon&&div({style:{fontSize:10,color:"#d4a017",marginTop:1}},p.pozisyon),
-                div({className:"ppin"},"PIN: "+p.pin),
-                div({style:{display:"flex",gap:12,marginTop:4,flexWrap:"wrap"}},
-                  div({style:{fontSize:10,color:"#5a4a2a"}},"Bugun: ",h("span",{style:{color:"#d4a017",fontFamily:"Cormorant Garamond,serif",fontSize:13}},fmt(bugunC))),
-                  div({style:{fontSize:10,color:"#5a4a2a"}},"Toplam: ",h("span",{style:{color:"#d4a017",fontFamily:"Cormorant Garamond,serif",fontSize:13}},fmt(topC)))
-                ),
-                p.telefon&&div({style:{fontSize:10,color:"#5a4a2a",marginTop:2}},"📞 "+p.telefon),
-                p.isBaslama&&div({style:{fontSize:10,color:"#5a4a2a"}},"📅 "+p.isBaslama)
-              ),
-              div({className:"pak"},
-                btn({className:"pbt",onClick:ev=>{ev.stopPropagation();setPHata("");setPDuz({...p});}},"Duzenle"),
-                p.id!=="ad"&&btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));}},"Pasife Al")
+          // Grup yönetimi butonu
+          div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}},
+            div({className:"sek",style:{marginBottom:0}},"Aktif Personel"),
+            btn({style:{fontSize:10,color:"#7a6a4a",background:"transparent",border:"1px solid #2a2010",
+              borderRadius:7,padding:"4px 10px",cursor:"pointer"},
+              onClick:()=>setPGrupDuz(p=>!p)},
+              pGrupDuz?"Tamam ✓":"⚙ Grupları Düzenle")
+          ),
+
+          // Grup düzenleme paneli
+          pGrupDuz&&div({style:{background:"#111008",border:"1px solid #2a2010",borderRadius:12,
+            padding:13,marginBottom:14}},
+            div({style:{fontSize:10,color:"#d4a017",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},"Grup Yönetimi"),
+            pGruplar.map((g,i)=>
+              div({key:g.id,style:{display:"flex",gap:8,alignItems:"center",marginBottom:8}},
+                inp({className:"fi",style:{flex:1},value:g.ad,
+                  onChange:e=>setPGruplar(p=>p.map(x=>x.id===g.id?{...x,ad:e.target.value}:x))}),
+                pGruplar.length>1&&btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #4a1010",
+                  borderRadius:7,color:"#c06060",fontSize:11,padding:"4px 10px",cursor:"pointer"},
+                  onClick:()=>setPGruplar(p=>p.filter(x=>x.id!==g.id))},"Sil")
+              )
+            ),
+            btn({style:{width:"100%",padding:"8px",borderRadius:8,border:"1px dashed #2a2010",
+              background:"transparent",color:"#5a4a2a",fontSize:11,cursor:"pointer",marginTop:4},
+              onClick:()=>setPGruplar(p=>[...p,{id:"g"+Date.now(),ad:"Yeni Grup"}])},"+ Grup Ekle")
+          ),
+
+          // Gruplarına göre personel listesi
+          pGruplar.map(g=>{
+            const gruptakiler = personeller.filter(p=>p.aktif&&p.grup===g.id);
+            return div({key:g.id,style:{marginBottom:16}},
+              gruptakiler.length>0&&div(null,
+                div({style:{fontSize:10,color:"#9a7a3a",letterSpacing:2,textTransform:"uppercase",
+                  marginBottom:8,paddingBottom:6,borderBottom:"1px solid #1e1a10"}},g.ad),
+                gruptakiler.map(p=>{
+                  const pk=tumK.filter(r=>r.staffId===p.id);
+                  const bugunC=pk.filter(r=>r.tarih===TODAY()).reduce((a,r)=>a+r.toplam,0);
+                  const topC=pk.reduce((a,r)=>a+r.toplam,0);
+                  return div({key:p.id,className:"pk",style:{cursor:"pointer"},onClick:()=>setPDetay(p)},
+                    div({className:"pav ak"},p.ad[0]),
+                    div({className:"pi"},
+                      div({className:"pad"},p.ad),
+                      p.pozisyon&&div({style:{fontSize:10,color:"#d4a017",marginTop:1}},p.pozisyon),
+                      div({className:"ppin"},"PIN: "+p.pin),
+                      div({style:{display:"flex",gap:12,marginTop:4,flexWrap:"wrap"}},
+                        div({style:{fontSize:10,color:"#5a4a2a"}},"Bugun: ",h("span",{style:{color:"#d4a017",fontFamily:"Cormorant Garamond,serif",fontSize:13}},fmt(bugunC))),
+                        div({style:{fontSize:10,color:"#5a4a2a"}},"Toplam: ",h("span",{style:{color:"#d4a017",fontFamily:"Cormorant Garamond,serif",fontSize:13}},fmt(topC)))
+                      ),
+                      p.telefon&&div({style:{fontSize:10,color:"#5a4a2a",marginTop:2}},"📞 "+p.telefon),
+                      p.isBaslama&&div({style:{fontSize:10,color:"#5a4a2a"}},"📅 "+p.isBaslama)
+                    ),
+                    div({className:"pak"},
+                      btn({className:"pbt",onClick:ev=>{ev.stopPropagation();setPHata("");setPDuz({...p});}},"Duzenle"),
+                      btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));}},"Pasife Al")
+                    )
+                  );
+                })
               )
             );
-          })
+          }),
+
+          // Grubu olmayan aktif personel
+          personeller.filter(p=>p.aktif&&(!p.grup||!pGruplar.find(g=>g.id===p.grup))).length>0&&div({style:{marginBottom:16}},
+            div({style:{fontSize:10,color:"#5a4a2a",letterSpacing:2,textTransform:"uppercase",
+              marginBottom:8,paddingBottom:6,borderBottom:"1px solid #1e1a10"}},"Grup Atanmamis"),
+            personeller.filter(p=>p.aktif&&(!p.grup||!pGruplar.find(g=>g.id===p.grup))).map(p=>{
+              const pk=tumK.filter(r=>r.staffId===p.id);
+              const bugunC=pk.filter(r=>r.tarih===TODAY()).reduce((a,r)=>a+r.toplam,0);
+              const topC=pk.reduce((a,r)=>a+r.toplam,0);
+              return div({key:p.id,className:"pk",style:{cursor:"pointer"},onClick:()=>setPDetay(p)},
+                div({className:"pav ak"},p.ad[0]),
+                div({className:"pi"},
+                  div({className:"pad"},p.ad),
+                  p.pozisyon&&div({style:{fontSize:10,color:"#d4a017",marginTop:1}},p.pozisyon),
+                  div({className:"ppin"},"PIN: "+p.pin),
+                  div({style:{display:"flex",gap:12,marginTop:4,flexWrap:"wrap"}},
+                    div({style:{fontSize:10,color:"#5a4a2a"}},"Bugun: ",h("span",{style:{color:"#d4a017",fontFamily:"Cormorant Garamond,serif",fontSize:13}},fmt(bugunC))),
+                    div({style:{fontSize:10,color:"#5a4a2a"}},"Toplam: ",h("span",{style:{color:"#d4a017",fontFamily:"Cormorant Garamond,serif",fontSize:13}},fmt(topC)))
+                  ),
+                  p.telefon&&div({style:{fontSize:10,color:"#5a4a2a",marginTop:2}},"📞 "+p.telefon),
+                  p.isBaslama&&div({style:{fontSize:10,color:"#5a4a2a"}},"📅 "+p.isBaslama)
+                ),
+                div({className:"pak"},
+                  btn({className:"pbt",onClick:ev=>{ev.stopPropagation();setPHata("");setPDuz({...p});}},"Duzenle"),
+                  btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));}},"Pasife Al")
+                )
+              );
+            })
+          )
         ),
 
         asek==="musteriler"&&div(null,
