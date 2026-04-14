@@ -392,12 +392,16 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
   const [uIB,setUIB] = useState(String(ilk?.uIB||""));
   const [uNK,setUNK] = useState(String(ilk?.uNK||""));
   const [barkod,   setBarkod]   = useState("");
+  const [kameraAcik, setKameraAcik] = useState(false);
   const [bHata,    setBHata]    = useState("");
   const [bSon,     setBSon]     = useState([]);
   const [arama,    setArama]    = useState("");
   const [aMarka,   setAMarka]   = useState("all");
   const [moneri,   setMoneri]   = useState([]);
   const bRef = useRef(null);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const scannerRef = useRef(null);
   const [hIbanSec, setHIbanSec] = useState(ilk?.hizIbanId||"");
   const [uIbanSec, setUIbanSec] = useState(ilk?.urunIbanId||"");
   const [ibanPinOnay, setIbanPinOnay] = useState(null); // {hedefId,hedefAd,tip,pin,hata}
@@ -446,6 +450,48 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
     setBSon(r);
     setBHata(r.length===0?`"${q}" bulunamadi.`:"");
   },[barkod]);
+
+  // Kamera kapat
+  const kameraKapat = () => {
+    if(scannerRef.current){ clearInterval(scannerRef.current); scannerRef.current=null; }
+    if(streamRef.current){ streamRef.current.getTracks().forEach(t=>t.stop()); streamRef.current=null; }
+    setKameraAcik(false);
+  };
+
+  // Kamera aç ve barkod tara
+  const kameraAc = async () => {
+    setKameraAcik(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width:{ideal:1280}, height:{ideal:720} }
+      });
+      streamRef.current = stream;
+      setTimeout(()=>{
+        if(videoRef.current){
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+        }
+        // BarcodeDetector API
+        if("BarcodeDetector" in window){
+          const detector = new BarcodeDetector({formats:["ean_13","ean_8","code_128","code_39","upc_a","upc_e"]});
+          scannerRef.current = setInterval(async ()=>{
+            if(!videoRef.current || videoRef.current.readyState < 2) return;
+            try {
+              const barcodes = await detector.detect(videoRef.current);
+              if(barcodes.length > 0){
+                const kod = barcodes[0].rawValue;
+                kameraKapat();
+                setBarkod(kod);
+              }
+            } catch(e){}
+          }, 300);
+        }
+      }, 100);
+    } catch(err){
+      kameraKapat();
+      alert("Kamera izni gerekli!");
+    }
+  };
 
   const sEkle = u => {
     setUrunler(p=>{
@@ -675,7 +721,41 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
             inp({ref:bRef,className:"fi",style:{flex:1,background:"rgba(0,0,0,.3)",border:"1px solid #1e2a3a"},
               placeholder:"Barkod numarası...",value:barkod,
               onChange:e=>setBarkod(e.target.value)
-            })
+            }),
+            btn({style:{background:"rgba(60,100,180,.15)",border:"1px solid #1e2a3a",
+              borderRadius:9,color:"#60a0e0",fontSize:18,padding:"0 13px",
+              cursor:"pointer",flexShrink:0,height:44,display:"flex",alignItems:"center"},
+              onClick:()=>kameraAcik?kameraKapat():kameraAc()},
+              kameraAcik?"✕":"📷"
+            ),
+            // Kamera overlay
+            kameraAcik&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.95)",
+              zIndex:999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
+              div({style:{position:"relative",width:"100%",maxWidth:400}},
+                h("video",{ref:videoRef,style:{width:"100%",borderRadius:12,display:"block"},
+                  autoPlay:true,playsInline:true,muted:true}),
+                // Tarama çerçevesi
+                div({style:{position:"absolute",inset:"20%",border:"2px solid #60a0e0",
+                  borderRadius:8,pointerEvents:"none"}},
+                  div({style:{position:"absolute",top:-1,left:-1,width:20,height:20,
+                    borderTop:"3px solid #60a0e0",borderLeft:"3px solid #60a0e0",borderRadius:"4px 0 0 0"}}),
+                  div({style:{position:"absolute",top:-1,right:-1,width:20,height:20,
+                    borderTop:"3px solid #60a0e0",borderRight:"3px solid #60a0e0",borderRadius:"0 4px 0 0"}}),
+                  div({style:{position:"absolute",bottom:-1,left:-1,width:20,height:20,
+                    borderBottom:"3px solid #60a0e0",borderLeft:"3px solid #60a0e0",borderRadius:"0 0 0 4px"}}),
+                  div({style:{position:"absolute",bottom:-1,right:-1,width:20,height:20,
+                    borderBottom:"3px solid #60a0e0",borderRight:"3px solid #60a0e0",borderRadius:"0 0 4px 0"}})
+                ),
+                div({style:{position:"absolute",top:"50%",left:0,right:0,height:2,
+                  background:"rgba(96,160,224,.5)",transform:"translateY(-50%)",
+                  animation:"scan 2s linear infinite"}})
+              ),
+              div({style:{color:"#7a8aaa",fontSize:12,marginTop:16,letterSpacing:1}},
+                "Barkodu çerçeve içine getirin"),
+              btn({style:{marginTop:16,background:"rgba(160,40,40,.15)",border:"1px solid #4a1010",
+                borderRadius:10,color:"#c06060",fontSize:13,padding:"10px 24px",cursor:"pointer"},
+                onClick:kameraKapat},"İptal")
+            )
           ),
           bSon.length>0&&div({className:"ares"},
             bSon.map(u=>div({key:u.b,className:"aitem",onClick:()=>sEkle(u)},
