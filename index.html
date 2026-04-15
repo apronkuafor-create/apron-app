@@ -408,40 +408,37 @@ function BarkodTarayici({onOku, onKapat}) {
           { deviceId: { exact: cam.id } },
           {
             fps: 30,
-            qrbox: (w, h) => ({ width: Math.min(w-20, 350), height: Math.min(h*0.35, 130) }),
+            qrbox: (w, h) => ({ width: Math.min(w-20, 340), height: Math.min(h*0.3, 120) }),
             aspectRatio: window.innerWidth/window.innerHeight,
             videoConstraints: {
               deviceId: { exact: cam.id },
               focusMode: "continuous",
-              advanced: [
-                { focusMode: "continuous" },
-                { focusDistance: 0 },
-                { zoom: 1.0 }
-              ]
+              advanced: [{ focusMode: "continuous" }]
             }
           },
           (kod) => {
             bip();
             scanner.stop().then(() => {
               scannerRef.current = null;
-              // Kamera track'ine otofokus uygula - tarama bitince de netleşsin
               onOku(kod);
             }).catch(() => { onOku(kod); });
           },
           () => {}
         );
-        // Kamera başladıktan 500ms sonra track'e direkt otofokus uygula
+        // Kamera açıldıktan sonra zoom uygula - barkod uzaktan büyük görünsün
         setTimeout(async () => {
           try {
             const vid = document.querySelector("#"+divId+" video");
             const track = vid?.srcObject?.getVideoTracks?.()?.[0];
-            if(track?.applyConstraints) {
-              await track.applyConstraints({
-                advanced: [{ focusMode: "continuous" }, { focusDistance: 0 }]
-              });
+            if(!track) return;
+            const caps = track.getCapabilities?.();
+            if(caps?.zoom) {
+              // Max zoom'un %40'ı - uzaktan net görmek için ideal
+              const zoomVal = caps.zoom.min + (caps.zoom.max - caps.zoom.min) * 0.4;
+              await track.applyConstraints({ advanced: [{ zoom: zoomVal }] });
             }
           } catch(e){}
-        }, 500);
+        }, 800);
       } catch(err) {
         console.error("Tarayici hata:", err);
         // Fallback: facingMode ile dene
@@ -474,23 +471,45 @@ function BarkodTarayici({onOku, onKapat}) {
     };
   }, []);
 
+  const [zoom, setZoom] = React.useState(1);
+
+  const zoomDegistir = async (val) => {
+    setZoom(val);
+    try {
+      const vid = document.querySelector("#"+divId+" video");
+      const track = vid?.srcObject?.getVideoTracks?.()?.[0];
+      if(track?.applyConstraints) {
+        await track.applyConstraints({ advanced: [{ zoom: val }] });
+      }
+    } catch(e){}
+  };
+
   return h('div', {
     style:{position:"fixed",inset:0,zIndex:9999,background:"#000",
-      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
+      display:"flex",flexDirection:"column"}},
     // Scanner div - tam ekran
     h('div', {
       id: divId,
-      style:{width:"100%",flex:1,background:"#000",overflow:"hidden",
-        maxHeight:"calc(100vh - 100px)"}
+      style:{width:"100%",flex:1,background:"#000",overflow:"hidden"}
     }),
     // Alt kontrol
-    h('div', {style:{padding:"16px 20px",display:"flex",flexDirection:"column",
-      alignItems:"center",gap:10,background:"#000",width:"100%"}},
-      h('div', {style:{color:"#9a9a9a",fontSize:12,letterSpacing:1,textAlign:"center"}},
-        "Barkodu çerçeveye getirin · Yakın tutun"),
+    h('div', {style:{padding:"12px 20px 20px",display:"flex",flexDirection:"column",
+      alignItems:"center",gap:8,background:"#000",width:"100%"}},
+      h('div', {style:{color:"#9a9a9a",fontSize:11,letterSpacing:1,textAlign:"center",marginBottom:2}},
+        "🔍 Barkodu çerçeveye getirin"),
+      // Zoom slider
+      h('div', {style:{display:"flex",alignItems:"center",gap:10,width:"100%",maxWidth:320}},
+        h('span', {style:{color:"#5a5a5a",fontSize:11}},"1x"),
+        h('input', {
+          type:"range", min:1, max:3, step:0.1, value:zoom,
+          style:{flex:1,accentColor:"#d4a017",height:3},
+          onChange: e => zoomDegistir(parseFloat(e.target.value))
+        }),
+        h('span', {style:{color:"#d4a017",fontSize:11,minWidth:28}}, zoom.toFixed(1)+"x")
+      ),
       h('button', {
         style:{background:"#1a0808",border:"1px solid #6a2020",borderRadius:10,
-          color:"#c06060",fontSize:14,padding:"11px 40px",cursor:"pointer"},
+          color:"#c06060",fontSize:14,padding:"10px 40px",cursor:"pointer",marginTop:2},
         onClick: onKapat
       }, "İptal")
     )
