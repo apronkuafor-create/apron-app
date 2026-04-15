@@ -1229,8 +1229,10 @@ function App() {
   const [yeniHizAcik, setYeniHizAcik] = useState(false); // yeni hizmet formu açık mı
   const [yeniHizAd, setYeniHizAd]     = useState("");
   const [yeniHizFiyat, setYeniHizFiyat] = useState("");
-  const [urunDuzId, setUrunDuzId]     = useState(null); // düzenlenen ürün barkodu
-  const [urunDuzData, setUrunDuzData] = useState(null); // yönetici hizmet listesi düzenleme
+  const [urunDuzId, setUrunDuzId]     = useState(null);
+  const [urunDuzData, setUrunDuzData] = useState(null);
+  const [ekMarkalar, setEkMarkalar]   = useState([]);
+  const [yeniMarkaAdi, setYeniMarkaAdi] = useState("");
   const [gecmisMusteriFil, setGecmisMusteriFil] = useState("");
   const [gecmisAyFil, setGecmisAyFil]           = useState(String(new Date().getMonth()+1));
   const [gecmisTarihFil, setGecmisTarihFil]     = useState("");
@@ -2696,48 +2698,160 @@ function App() {
               ),
 
             // Ürün Listesi
-            aySek==="listeler"&&ayListeSek==="ürün"&&div(null,
-              div({style:{fontSize:10,color:"#d4a017",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},"📦 Ürün Listesi"),
-              div({style:{fontSize:11,color:"#5a4a2a",marginBottom:12}},URUN_DB.length+" ürün · "+MARKALAR.length+" marka · Tıklayarak düzenleyin"),
+             aySek==="listeler"&&ayListeSek==="ürün"&&(()=>{
+              // Dinamik marka listesi - URUN_DB'den + eklenmiş markalar
+              const markaListesi = [...new Set([...URUN_DB.map(u=>u.m), ...ekMarkalar])].sort();
+              return div(null,
+                div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+                  div({style:{fontSize:10,color:"#d4a017",letterSpacing:2,textTransform:"uppercase"}},
+                    "📦 Ürün Listesi"),
+                  div({style:{fontSize:11,color:"#5a4a2a"}},URUN_DB.length+" ürün · "+markaListesi.length+" marka")
+                ),
 
-              urunDuzId&&urunDuzData&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",
-                zIndex:900,display:"flex",alignItems:"center",justifyContent:"center",padding:18}},
-                div({style:{background:"#111008",border:"1.5px solid #2a2010",borderRadius:16,padding:20,maxWidth:340,width:"100%"}},
-                  div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"#d4a017",marginBottom:16}},"Ürün Düzenle"),
-                  div({style:{marginBottom:10}},lbl({className:"fl"},"Ürün Adı"),inp({className:"fi",value:urunDuzData.a||"",onChange:e=>setUrunDuzData(p=>({...p,a:e.target.value}))})),
-                  div({style:{marginBottom:10}},lbl({className:"fl"},"Miktar/ML"),inp({className:"fi",value:urunDuzData.ml||"",onChange:e=>setUrunDuzData(p=>({...p,ml:e.target.value}))})),
-                  div({style:{marginBottom:10}},lbl({className:"fl"},"Alış Fiyatı (₺)"),inp({className:"fi",inputMode:"numeric",value:String(urunDuzData.bp||""),onChange:e=>setUrunDuzData(p=>({...p,bp:e.target.value}))})),
-                  div({style:{marginBottom:14}},lbl({className:"fl"},"Satış Fiyatı (₺)"),inp({className:"fi",inputMode:"numeric",value:String(urunDuzData.sp||""),onChange:e=>setUrunDuzData(p=>({...p,sp:e.target.value}))})),
-                  div({className:"btn-r"},
-                    btn({className:"btn-i",onClick:()=>{setUrunDuzId(null);setUrunDuzData(null);}},"İptal"),
-                    btn({className:"btn-k",onClick:()=>{
-                      const idx2=URUN_DB.findIndex(u=>u.b===urunDuzId);
-                      if(idx2>=0) URUN_DB[idx2]={...URUN_DB[idx2],...urunDuzData,sp:parseFloat(urunDuzData.sp)||0,bp:parseFloat(urunDuzData.bp)||0};
-                      setUrunDuzId(null);setUrunDuzData(null);showToast("Ürün güncellendi");
-                    }},"Kaydet")
-                  )
-                )
-              ),
-
-              MARKALAR.map(marka=>
-                div({key:marka,style:{marginBottom:14}},
-                  div({style:{fontSize:10,color:"#9a7a3a",letterSpacing:2,textTransform:"uppercase",
-                    marginBottom:8,paddingBottom:5,borderBottom:"1px solid #1e1a10"}},marka),
-                  URUN_DB.filter(u=>u.m===marka).map(u=>
-                    div({key:u.b,style:{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",
-                      marginBottom:4,background:"#111008",borderRadius:9,
-                      border:"1px solid "+(urunDuzId===u.b?"#6a5010":"#1e1a10"),cursor:"pointer"},
-                      onClick:()=>{setUrunDuzId(u.b);setUrunDuzData({...u});}},
-                      div({style:{flex:1,minWidth:0}},
-                        div({style:{fontSize:12,color:"#e8dcc8"}},u.a),
-                        div({style:{fontSize:10,color:"#5a4a2a",marginTop:1}},u.ml+" · "+fmt(u.sp)+" ₺")
+                // Ürün düzenleme modalı
+                urunDuzId&&urunDuzData&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",
+                  zIndex:900,overflow:"auto"}},
+                  div({style:{background:"#0a0805",minHeight:"100vh",paddingBottom:40}},
+                    div({style:{background:"#111008",borderBottom:"1px solid #2a2010",padding:"13px 16px",
+                      display:"flex",alignItems:"center",justifyContent:"space-between",
+                      position:"sticky",top:0,zIndex:5}},
+                      div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"#d4a017"}},
+                        urunDuzId==="yeni" ? "Yeni Ürün Ekle" : "Ürün Düzenle"),
+                      btn({className:"xbtn",onClick:()=>{setUrunDuzId(null);setUrunDuzData(null);}},"✕")
+                    ),
+                    div({style:{padding:16,maxWidth:500,margin:"0 auto"}},
+                      div({style:{marginBottom:10}},
+                        lbl({className:"fl"},"Barkod No *"),
+                        inp({className:"fi",placeholder:"EAN-13 barkod...",
+                          value:urunDuzData.b||"",readOnly:urunDuzId!=="yeni",
+                          style:{opacity:urunDuzId!=="yeni"?0.5:1},
+                          onChange:e=>setUrunDuzData(p=>({...p,b:e.target.value}))})
                       ),
-                      div({style:{fontSize:12,color:"#5a4a2a"}},"›")
+                      div({style:{marginBottom:10}},
+                        lbl({className:"fl"},"Ürün Adı *"),
+                        inp({className:"fi",placeholder:"Ürün adı...",value:urunDuzData.a||"",
+                          onChange:e=>setUrunDuzData(p=>({...p,a:e.target.value}))})
+                      ),
+                      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                        div(null,
+                          lbl({className:"fl"},"Marka"),
+                          sel({className:"fi",value:urunDuzData.m||"",
+                            onChange:e=>setUrunDuzData(p=>({...p,m:e.target.value}))},
+                            opt("","Seçin..."),
+                            markaListesi.map(m=>opt(m,m))
+                          )
+                        ),
+                        div(null,
+                          lbl({className:"fl"},"Miktar/ML"),
+                          inp({className:"fi",placeholder:"örn: 100ml",value:urunDuzData.ml||"",
+                            onChange:e=>setUrunDuzData(p=>({...p,ml:e.target.value}))})
+                        )
+                      ),
+                      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}},
+                        div(null,
+                          lbl({className:"fl"},"Alış Fiyatı (₺)"),
+                          inp({className:"fi",type:"number",placeholder:"0",value:urunDuzData.ap||"",
+                            onChange:e=>setUrunDuzData(p=>({...p,ap:e.target.value}))})
+                        ),
+                        div(null,
+                          lbl({className:"fl"},"Satış Fiyatı (₺) *"),
+                          inp({className:"fi",type:"number",placeholder:"0",value:urunDuzData.sp||"",
+                            onChange:e=>setUrunDuzData(p=>({...p,sp:e.target.value}))})
+                        )
+                      ),
+                      div({className:"btn-r"},
+                        btn({className:"btn-i",onClick:()=>{setUrunDuzId(null);setUrunDuzData(null);}},"İptal"),
+                        btn({className:"btn-k",
+                          disabled:!(urunDuzData.a||"").trim()||!(urunDuzData.sp),
+                          onClick:()=>{
+                            if(urunDuzId==="yeni"){
+                              if(!urunDuzData.b?.trim()){ showToast("Barkod zorunlu","uy"); return; }
+                              URUN_DB.push({
+                                b:urunDuzData.b.trim(), a:urunDuzData.a.trim(),
+                                m:urunDuzData.m||"Diğer", ml:urunDuzData.ml||"",
+                                ap:parseFloat(urunDuzData.ap)||0,
+                                sp:parseFloat(urunDuzData.sp)||0
+                              });
+                            } else {
+                              const idx2=URUN_DB.findIndex(u=>u.b===urunDuzId);
+                              if(idx2>=0) URUN_DB[idx2]={...URUN_DB[idx2],...urunDuzData,
+                                sp:parseFloat(urunDuzData.sp)||0,ap:parseFloat(urunDuzData.ap)||0};
+                            }
+                            setUrunDuzId(null); setUrunDuzData(null);
+                            showToast("Ürün kaydedildi");
+                          }},"Kaydet")
+                      )
                     )
                   )
-                )
-              )
-            ),
+                ),
+
+                // Yeni marka ekle
+                div({style:{display:"flex",gap:8,marginBottom:16}},
+                  inp({className:"fi",placeholder:"Yeni marka adı...",
+                    value:yeniMarkaAdi||"",
+                    onChange:e=>setYeniMarkaAdi(e.target.value),
+                    style:{flex:1},
+                    onKeyDown:e=>{
+                      if(e.key==="Enter"&&yeniMarkaAdi.trim()){
+                        setEkMarkalar(p=>[...new Set([...p,yeniMarkaAdi.trim()])]);
+                        setYeniMarkaAdi(""); showToast("Marka eklendi");
+                      }
+                    }
+                  }),
+                  btn({style:{background:"rgba(212,160,23,.1)",border:"1px solid rgba(212,160,23,.3)",
+                    borderRadius:9,color:"#d4a017",fontSize:12,padding:"0 14px",cursor:"pointer",whiteSpace:"nowrap"},
+                    onClick:()=>{
+                      if(yeniMarkaAdi.trim()){
+                        setEkMarkalar(p=>[...new Set([...p,yeniMarkaAdi.trim()])]);
+                        setYeniMarkaAdi(""); showToast("Marka eklendi");
+                      }
+                    }},"+ Marka Ekle")
+                ),
+
+                // Yeni ürün butonu
+                btn({style:{width:"100%",marginBottom:16,padding:"11px 0",borderRadius:11,
+                  border:"1.5px dashed rgba(212,160,23,.3)",background:"rgba(212,160,23,.04)",
+                  color:"#d4a017",fontSize:13,cursor:"pointer"},
+                  onClick:()=>{setUrunDuzId("yeni");setUrunDuzData({b:"",a:"",m:"",ml:"",ap:"",sp:""});}}
+                  ,"+ Yeni Ürün Ekle"),
+
+                // Marka listesi
+                markaListesi.map(marka=>{
+                  const mUrunler = URUN_DB.filter(u=>u.m===marka);
+                  if(mUrunler.length===0) return div({key:marka,style:{marginBottom:8}},
+                    div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+                      padding:"8px 12px",background:"#111008",borderRadius:9,border:"1px solid #1e1a10"}},
+                      div({style:{fontSize:11,color:"#9a7a3a",letterSpacing:2,textTransform:"uppercase"}},marka),
+                      div({style:{fontSize:10,color:"#3a2e1e"}},"Ürün yok"),
+                      btn({style:{background:"transparent",border:"none",color:"#c06060",fontSize:11,cursor:"pointer"},
+                        onClick:()=>setEkMarkalar(p=>p.filter(m=>m!==marka))},"✕")
+                    )
+                  );
+                  return div({key:marka,style:{marginBottom:16}},
+                    div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",
+                      marginBottom:8,paddingBottom:5,borderBottom:"1px solid #1e1a10"}},
+                      div({style:{fontSize:10,color:"#9a7a3a",letterSpacing:2,textTransform:"uppercase"}},
+                        marka),
+                      div({style:{fontSize:10,color:"#5a4a2a"}},mUrunler.length+" ürün")
+                    ),
+                    mUrunler.map(u=>
+                      div({key:u.b,style:{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",
+                        marginBottom:4,background:"#111008",borderRadius:9,cursor:"pointer",
+                        border:"1px solid "+(urunDuzId===u.b?"#6a5010":"#1e1a10")},
+                        onClick:()=>{setUrunDuzId(u.b);setUrunDuzData({...u});}},
+                        div({style:{flex:1,minWidth:0}},
+                          div({style:{fontSize:12,color:"#e8dcc8"}},u.a),
+                          div({style:{fontSize:10,color:"#5a4a2a",marginTop:1}},
+                            u.ml+" · Satış: "+fmt(u.sp)+(u.ap?" · Alış: "+fmt(u.ap):""))
+                        ),
+                        h("span",{style:{fontSize:10,color:"#d4a017",padding:"2px 8px",
+                          background:"rgba(212,160,23,.08)",borderRadius:5,flexShrink:0}},"Düzenle")
+                      )
+                    )
+                  );
+                })
+              );
+            })(),
 
             // Personel Grupları
 
