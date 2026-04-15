@@ -1162,6 +1162,24 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
     // Manikürist için personel seçimi zorunlu - disabled ile kontrol edildi
     const temizH = hizler.filter(h=>h.n&&toN(h.f)>0);
     const temizU = urunler.filter(u=>u.a&&toN(u.sf)>0&&toN(u.qty)>0);
+    // Hatırlatma oluştur
+    if(hatirlatmaSec && setHatirlatmalar) {
+      const gonTarih = new Date();
+      gonTarih.setDate(gonTarih.getDate()+20);
+      const hatId = uid();
+      setHatirlatmalar(p=>[...p,{
+        id:hatId,
+        musteriAd:musteri,
+        tel:tel,
+        staffId:aktifKullanici?.id||"",
+        staffAd:aktifKullanici?.ad||"",
+        olusturmaTarihi:TODAY(),
+        gonderiTarih:gonTarih.toISOString().split("T")[0],
+        gonderildi:false,
+        tip:"sacKesimi",
+        mesaj:"Merhaba "+musteri+"! Saç kesiminizin üzerinden 20 gün geçti, yenileme zamanı geldi. Randevu için bizi arayabilirsiniz. 💈"
+      }]);
+    }
     onKaydet({id:ilk?.id,musteri,tel,
       anaPersonelId:anaPersonelId||ilk?.anaPersonelId||"",
       anaPersonelAd:personeller.find(p=>p.id===(anaPersonelId||ilk?.anaPersonelId))?.ad||"",
@@ -1510,6 +1528,32 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
             )
           )
         ),
+        // Hatırlatma seçeneği
+        div({style:{background:"rgba(96,160,224,.06)",border:"1px solid rgba(96,160,224,.15)",
+          borderRadius:12,padding:12,marginBottom:10}},
+          div({style:{display:"flex",alignItems:"center",gap:10,cursor:"pointer"},
+            onClick:()=>setHatirlatmaSec(p=>!p)},
+            div({style:{width:20,height:20,borderRadius:5,flexShrink:0,transition:"all .2s",
+              border:"2px solid "+(hatirlatmaSec?"#60a0e0":"#2a3a50"),
+              background:hatirlatmaSec?"#60a0e0":"transparent",
+              display:"flex",alignItems:"center",justifyContent:"center"}},
+              hatirlatmaSec&&div({style:{color:"#fff",fontSize:12,fontWeight:700}},"✓")
+            ),
+            div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},"💇 Saç Kesimi Hatırlatma")
+          ),
+          hatirlatmaSec&&div({style:{marginTop:10,padding:"9px 12px",
+            background:"rgba(96,160,224,.08)",borderRadius:8,
+            border:"1px solid rgba(96,160,224,.2)"}},
+            div({style:{fontSize:12,color:"#60a0e0",fontWeight:500,marginBottom:3}},
+              "📅 20 gün sonra Saç Kesimi Hatırlatılacak"),
+            div({style:{fontSize:10,color:"var(--mu)"}},
+              (()=>{
+                const d=new Date(); d.setDate(d.getDate()+20);
+                return d.toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric"});
+              })()+" tarihinde WhatsApp mesajı hazırlanacak")
+          )
+        ),
+
         div({className:"btn-r"},
           btn({className:"btn-i",onClick:onIptal},"İptal"),
           btn({className:"btn-k",
@@ -1719,7 +1763,8 @@ function App() {
   const [stokGirisTarih, setStokGirisTarih] = useState(TODAY());
   const [stokGirisFatura, setStokGirisFatura] = useState("");
   const [stokGirisTip, setStokGirisTip] = useState("giris"); // giris/baslangic
-  const [stokDetay, setStokDetay]     = useState(null); // seçili ürün detayı
+  const [stokDetay, setStokDetay]     = useState(null);
+  const [hatirlatmalar, setHatirlatmalar] = useState([]); // [{id,musteriAd,tel,staffId,tarih,gonderiTarih,gonderildi,tip}]
   const [stokSek, setStokSek]         = useState("liste"); // liste|giris|hareketler
   const [pDetay, setPDetay]           = useState(null);
   const [pGruplar, setPGruplar]       = useState([
@@ -1807,6 +1852,7 @@ function App() {
           if(local.devDB) setDevDB(local.devDB);
           if(local.gecmis) setGecmis(local.gecmis);
     if(local.stokPartiler?.length) setStokPartiler(local.stokPartiler);
+    if(local.hatirlatmalar?.length) setHatirlatmalar(local.hatirlatmalar);
         }
         const [k,m,d] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
@@ -1866,7 +1912,7 @@ function App() {
 
   useEffect(()=>{
     if(yukleniyor) return;
-    localStorage.setItem("apron_v3",JSON.stringify({records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler}));
+    localStorage.setItem("apron_v3",JSON.stringify({records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar}));
   },[records,bekleyen,musteriDB,personeller,devDB,gecmis,yukleniyor]);
 
   // Ay başı gecmis temizle
@@ -2526,7 +2572,7 @@ function App() {
     ),
 
     // Kayit formu
-    kayitForm&&h(KayitForm,{ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,hizListeleri,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null)}),
+    kayitForm&&h(KayitForm,{ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,hizListeleri,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null),hatirlatmalar,setHatirlatmalar}),
 
     // Personel ekle modal
     pEkle&&h(PersonelFormModal,{title:"Yeni Personel",data:yeniP,setData:setYeniP,hata:pHata,gruplar:pGruplar,onKaydet:pEkleKaydet,onIptal:()=>{setPEkle(false);setPHata("");},showDurum:false}),
@@ -2599,6 +2645,53 @@ function App() {
             )
           )
         ),
+
+        // Hatırlatma bildirimleri
+        (()=>{
+          const bugun = TODAY();
+          const bekleyenHat = (hatirlatmalar||[]).filter(h=>
+            h.staffId===kul.id && !h.gonderildi && h.gonderiTarih<=bugun
+          );
+          if(!bekleyenHat.length) return null;
+          return div({style:{background:"rgba(96,160,224,.08)",border:"1.5px solid rgba(96,160,224,.25)",
+            borderRadius:12,padding:14,marginBottom:14}},
+            div({style:{fontSize:10,color:"#60a0e0",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
+              "💬 WhatsApp Hatırlatma ("+bekleyenHat.length+")"),
+            bekleyenHat.map(h=>
+              div({key:h.id,style:{background:"rgba(0,0,0,.2)",borderRadius:9,padding:"10px 12px",marginBottom:8}},
+                div({style:{fontSize:13,color:"#e8dcc8",fontWeight:500,marginBottom:4}},"💇 "+h.musteriAd),
+                h.tel&&div({style:{fontSize:11,color:"#5a7a9a",marginBottom:4}},"📞 "+h.tel),
+                div({style:{fontSize:10,color:"#9a8a6a",marginBottom:6}},"Hatırlatma: "+h.gonderiTarih),
+                div({style:{fontSize:11,color:"#7a9aba",background:"rgba(96,160,224,.05)",
+                  borderRadius:7,padding:"7px 9px",marginBottom:8,lineHeight:1.5}},h.mesaj),
+                div({style:{display:"flex",gap:8}},
+                  h.tel
+                    ?btn({style:{flex:1,padding:"9px 0",borderRadius:8,
+                        background:"rgba(37,211,102,.12)",border:"1px solid rgba(37,211,102,.3)",
+                        color:"#25d366",fontSize:12,cursor:"pointer",
+                        display:"flex",alignItems:"center",justifyContent:"center",gap:6},
+                        onClick:()=>{
+                          const raw=h.tel.replace(/[^0-9]/g,"");
+                          const fmt2=raw.startsWith("90")?raw:raw.startsWith("0")?"90"+raw.slice(1):"90"+raw;
+                          window.open("https://wa.me/"+fmt2+"?text="+encodeURIComponent(h.mesaj),"_blank");
+                          setHatirlatmalar(p=>p.map(x=>x.id===h.id?{...x,gonderildi:true,gonderildiTarih:TODAY()}:x));
+                        }},
+                        h("span",{style:{fontSize:16}},""),
+                        "WhatsApp Gönder")
+                    :div({style:{flex:1,padding:"9px 0",borderRadius:8,
+                        background:"rgba(160,40,40,.1)",border:"1px solid #4a1010",
+                        color:"#c06060",fontSize:11,textAlign:"center"}},"Telefon numarası yok"),
+                  btn({style:{padding:"9px 12px",borderRadius:8,
+                    background:"transparent",border:"1px solid #2a2010",
+                    color:"#5a4a2a",fontSize:11,cursor:"pointer"},
+                    onClick:()=>setHatirlatmalar(p=>p.map(x=>x.id===h.id?{...x,gonderildi:true,gonderildiTarih:TODAY()}:x))},
+                    "Atla")
+                )
+              )
+            )
+          );
+        })(),
+
         div({className:"stk"},
           div({className:"stat"},div({className:"sv"},String(myBekleyen.filter(r=>r.tarih===TODAY()).length)),div({className:"sl"},sekmeler.p_bugun||"Bugün")),
           div({className:"sep"}),
