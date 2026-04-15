@@ -113,8 +113,10 @@ const DEFAULT_PERSONELLER = [
   {id:"s2",ad:"Murat SERDAR",  pin:"2222",rol:"personel",aktif:true,grup:"gelir"},
   {id:"s3",ad:"Azize HAKIMOVA",pin:"3333",rol:"personel",aktif:true,pozisyon:"Manikurist",grup:"gelir"},
   {id:"s4",ad:"Omer DENIZ",    pin:"4444",rol:"personel",aktif:true,grup:"gelir"},
-  {id:"ad",ad:"Yonetici",      pin:"0000",rol:"yonetici",aktif:true},
-];
+  ];
+
+// Yönetici ayrı tanımlı - personel listesinde YOK
+const YONETICI = {id:"ad",ad:"Yonetici",pin:"0000",rol:"yonetici",aktif:true};
 
 // ── DB ────────────────────────────────────────────────────────────────
 const dbAl = async (t,opts={}) => {
@@ -1210,15 +1212,18 @@ function App() {
     if(y.length>4) return;
     setPin(y);
     if(y.length===4) setTimeout(()=>{
-      const eslesenler=personeller.filter(x=>x.pin===y&&x.aktif);
+      // Önce yönetici PIN'i kontrol et
+      const yonPin = personeller.find(p=>p.rol==="yonetici")?.pin || YONETICI.pin;
+      if(y===yonPin){
+        const yon = personeller.find(p=>p.rol==="yonetici") || YONETICI;
+        setKul(yon); setPin(""); setPinHata(false);
+        setEkran("yonetici"); return;
+      }
+      // Sonra personel PIN'i kontrol et
+      const eslesenler=personeller.filter(x=>x.pin===y&&x.aktif&&x.rol!=="yonetici");
       const k=eslesenler[0];
       if(!k){ setPinHata(true); setTimeout(()=>{setPin("");setPinHata(false);},700); return; }
       setKul(k); setPin(""); setPinHata(false);
-      // Hem personel hem yönetici: panel seçim ekranı
-      if(k.rol==="yonetici"&&eslesenler.length===1){
-        // Sadece yönetici rolü - panel seç ekranı göster
-        setPanelSec(true); return;
-      }
       if(k.rol==="yonetici"){ setEkran("yonetici"); return; }
       const dun=new Date(); dun.setDate(dun.getDate()-1);
       const ds=dun.toISOString().split("T")[0];
@@ -1827,38 +1832,7 @@ function App() {
 
     // ── LOGIN ──
     // Panel seçim ekranı (hem personel hem yönetici olanlar için)
-    panelSec&&kul&&div({style:{position:"fixed",inset:0,background:"#0a0805",
-      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-      padding:24,zIndex:999}},
-      img({src:LOGO,height:60,style:{marginBottom:24,opacity:.8}}),
-      div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:22,color:"#d4a017",
-        marginBottom:8,textAlign:"center"}},kul.ad),
-      div({style:{fontSize:12,color:"#5a4a2a",marginBottom:32,letterSpacing:2,
-        textTransform:"uppercase"}},"Hangi paneli açmak istersiniz?"),
-      div({style:{display:"flex",flexDirection:"column",gap:12,width:"100%",maxWidth:280}},
-        btn({style:{padding:"16px 20px",borderRadius:13,border:"1.5px solid #3a2e10",
-          background:"linear-gradient(135deg,#1a1408,#120e04)",color:"#d4a017",
-          fontSize:15,fontFamily:"Cormorant Garamond,serif",cursor:"pointer",
-          letterSpacing:1},
-          onClick:()=>{
-            setPanelSec(false);
-            // Devamsızlık kontrolü
-            const dun=new Date(); dun.setDate(dun.getDate()-1);
-            const ds=dun.toISOString().split("T")[0];
-            const dunVar=[...records,...bekleyen].some(r=>r.staffId===kul.id&&r.tarih===ds);
-            if(!dunVar&&!devDB[ds+"_"+kul.id]){ setDevUyari(true); }
-            else { setEkran("personel"); }
-          }},"✂ Personel Paneli"),
-        btn({style:{padding:"16px 20px",borderRadius:13,border:"1.5px solid #3a2e10",
-          background:"linear-gradient(135deg,#1a1408,#120e04)",color:"#e8dcc8",
-          fontSize:15,fontFamily:"Cormorant Garamond,serif",cursor:"pointer",
-          letterSpacing:1},
-          onClick:()=>{setPanelSec(false);setEkran("yonetici");}},"⚙ Yönetici Paneli"),
-        btn({style:{padding:10,borderRadius:9,border:"1px solid #2a2010",
-          background:"transparent",color:"#5a4a2a",fontSize:12,cursor:"pointer"},
-          onClick:()=>{setPanelSec(false);setKul(null);}},"Çıkış")
-      )
-    ),
+
 
     !yukleniyor&&ekran==="login"&&div({className:"login-bg"},
       div({style:{textAlign:"center",marginBottom:42}},
