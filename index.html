@@ -478,9 +478,28 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
           scannerRef.current = qr;
           await qr.start(
             { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 150 } },
+            {
+              fps: 25,
+              qrbox: { width: 280, height: 110 },
+              aspectRatio: 1.7,
+              disableFlip: false,
+              experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+            },
             (decodedText) => {
               qr.stop().then(() => {
+                // Bip sesi
+                try {
+                  const ac = new (window.AudioContext||window.webkitAudioContext)();
+                  ac.resume().then(()=>{
+                    const o=ac.createOscillator(), g=ac.createGain();
+                    o.connect(g); g.connect(ac.destination);
+                    o.type="square"; o.frequency.value=1500;
+                    g.gain.setValueAtTime(0.5,ac.currentTime);
+                    g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+0.15);
+                    o.start(ac.currentTime); o.stop(ac.currentTime+0.15);
+                    setTimeout(()=>ac.close(),300);
+                  });
+                } catch(e){}
                 setKameraAcik(false);
                 setBarkod(decodedText);
                 scannerRef.current = null;
