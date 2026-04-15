@@ -375,55 +375,99 @@ const OdemeGir = React.memo(function OdemeGir({renk, kk, ib, nk, onChange, label
 // ── KayitForm ─────────────────────────────────────────────────────────
 // ── BARKOD TARAYICI COMPONENT ──────────────────────────────────────────────
 function BarkodTarayici({onOku, onKapat}) {
-  const divRef = React.useRef(null);
+  const divId = "qr-" + React.useRef(Math.random().toString(36).slice(2)).current;
   const scannerRef = React.useRef(null);
 
   React.useEffect(() => {
     let scanner = null;
     const startScan = async () => {
-      if(!divRef.current) return;
       try {
-        scanner = new Html5Qrcode(divRef.current.id);
-        scannerRef.current = scanner;
         const devices = await Html5Qrcode.getCameras();
-        const cam = devices.find(d=>/back|rear|env/i.test(d.label)) || devices[devices.length-1];
-        if(!cam) { onKapat(); return; }
+        if(!devices || devices.length===0){ onKapat(); return; }
+        // Arka kamerayı seç
+        const cam = devices.find(d=>/back|rear|env|arka/i.test(d.label)) 
+                 || devices[devices.length-1];
+        
+        scanner = new Html5Qrcode(divId);
+        scannerRef.current = scanner;
+        
         await scanner.start(
-          cam.id,
-          { fps:20, qrbox:{width:260,height:100}, aspectRatio:2.0 },
-          (kod) => { scanner.stop().then(()=>{ scannerRef.current=null; onOku(kod); }); },
-          ()=>{}
+          { deviceId: { exact: cam.id } },
+          {
+            fps: 30,
+            // Tarama kutusunu geniş tut - barkod için yatay
+            qrbox: (w, h) => ({ width: Math.min(w-20, 350), height: Math.min(h*0.35, 130) }),
+            aspectRatio: window.innerWidth/window.innerHeight,
+            // Otofokus için advanced constraints
+            videoConstraints: {
+              deviceId: { exact: cam.id },
+              focusMode: "continuous",
+              advanced: [{ focusMode: "continuous" }]
+            }
+          },
+          (kod) => {
+            scanner.stop().then(() => {
+              scannerRef.current = null;
+              onOku(kod);
+            }).catch(() => { onOku(kod); });
+          },
+          () => {}
         );
       } catch(err) {
         console.error("Tarayici hata:", err);
-        onKapat();
+        // Fallback: facingMode ile dene
+        try {
+          if(scannerRef.current){ await scannerRef.current.stop().catch(()=>{}); }
+          scanner = new Html5Qrcode(divId);
+          scannerRef.current = scanner;
+          await scanner.start(
+            { facingMode: "environment" },
+            { fps: 30, qrbox: (w,h)=>({width:Math.min(w-20,350),height:Math.min(h*0.35,130)}) },
+            (kod) => { scanner.stop().then(()=>{ scannerRef.current=null; onOku(kod); }).catch(()=>onOku(kod)); },
+            ()=>{}
+          );
+        } catch(e2) {
+          console.error("Fallback hata:", e2);
+          onKapat();
+        }
       }
     };
-    startScan();
+    
+    // Kısa gecikme - DOM hazır olsun
+    const t = setTimeout(startScan, 200);
+    
     return () => {
-      if(scannerRef.current) {
+      clearTimeout(t);
+      if(scannerRef.current){
         scannerRef.current.stop().catch(()=>{});
         scannerRef.current = null;
       }
     };
   }, []);
 
-  return h('div', {style:{position:"fixed",inset:0,background:"#000",zIndex:999,
-    display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
+  return h('div', {
+    style:{position:"fixed",inset:0,zIndex:9999,background:"#000",
+      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
+    // Scanner div - tam ekran
     h('div', {
-      id:"qr-reader-"+Math.random().toString(36).slice(2),
-      ref: divRef,
-      style:{width:"100%",maxWidth:420,minHeight:280,background:"#111",borderRadius:12,overflow:"hidden"}
+      id: divId,
+      style:{width:"100%",flex:1,background:"#000",overflow:"hidden",
+        maxHeight:"calc(100vh - 100px)"}
     }),
-    h('div', {style:{color:"#7a8aaa",fontSize:12,marginTop:14,letterSpacing:1,textAlign:"center",padding:"0 20px"}},
-      "Barkodu kamera çerçevesine getirin"),
-    h('button', {
-      style:{marginTop:16,background:"rgba(160,40,40,.2)",border:"1px solid #6a2020",
-        borderRadius:10,color:"#c06060",fontSize:13,padding:"11px 32px",cursor:"pointer"},
-      onClick: onKapat
-    }, "İptal")
+    // Alt kontrol
+    h('div', {style:{padding:"16px 20px",display:"flex",flexDirection:"column",
+      alignItems:"center",gap:10,background:"#000",width:"100%"}},
+      h('div', {style:{color:"#9a9a9a",fontSize:12,letterSpacing:1,textAlign:"center"}},
+        "Barkodu çerçeveye getirin · Yakın tutun"),
+      h('button', {
+        style:{background:"#1a0808",border:"1px solid #6a2020",borderRadius:10,
+          color:"#c06060",fontSize:14,padding:"11px 40px",cursor:"pointer"},
+        onClick: onKapat
+      }, "İptal")
+    )
   );
 }
+
 
 function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKaydet, onIptal, hizListeleri}) {
   const aktifP = personeller.filter(p=>p.rol==="personel"&&p.aktif);
