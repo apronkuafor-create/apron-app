@@ -291,7 +291,7 @@ function Toast({toast}) {
 }
 
 // ── OdemeGir ──────────────────────────────────────────────────────────
-const OdemeGir = React.memo(function OdemeGir({renk, kk, ib, nk, onChange, label, beklenen, onSil, ibanPersoneller, onIbanSec, ibanSecili}) {
+const OdemeGir = React.memo(function OdemeGir({renk, kk, ib, nk, onChange, label, beklenen, onSil, ibanPersoneller, ibanBilgi, onIbanSec, ibanSecili}) {
   const top = toN(kk)+toN(ib)+toN(nk);
   const fark = beklenen>0 ? top - beklenen : 0;
   const yuzde = beklenen>0 && top>0 ? Math.round((fark/beklenen)*100) : 0;
@@ -322,7 +322,11 @@ const OdemeGir = React.memo(function OdemeGir({renk, kk, ib, nk, onChange, label
               onClick:()=>onChange(k,"")}, "✕")
           ),
           // IBAN alanında personel seçimi
-          k==="ib" && toN(v)>0 && ibanPersoneller && ibanPersoneller.length>0 && div({style:{marginTop:6}},
+          k==="ib" && toN(v)>0 && ibanBilgi && div({style:{marginTop:5,padding:"5px 8px",
+              background:"rgba(60,100,180,.1)",borderRadius:6,
+              fontSize:10,color:"#80a0e0",textAlign:"center",fontWeight:600}},
+              "→ "+ibanBilgi),
+            k==="ib" && toN(v)>0 && ibanPersoneller && ibanPersoneller.length>0 && div({style:{marginTop:6}},
             div({style:{fontSize:8,color:"#5a6a8a",letterSpacing:1,textTransform:"uppercase",marginBottom:3}},
               "Kimin IBAN'ina?"),
             div({style:{background:"#0a0c14",border:"1px solid #1e2a3a",borderRadius:7,overflow:"hidden"}},
@@ -667,8 +671,8 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
       tarih:ilk?.tarih, saat:ilk?.saat, gonderildi:ilk?.gonderildi,
       hizler:temizH,hizKK:hKK,hizIB:hIB,hizNK:hNK,
       urunler:temizU,uKK,uIB,uNK,
-      hizIbanId: toN(hIB)>0 ? (hIbanSec||aktifKullanici?.id||"") : "",
-      hizIbanAd: toN(hIB)>0 ? (hIbanSec ? aktifP.find(p=>p.id===hIbanSec)?.ad||"" : aktifKullanici?.ad||"") : "",
+      hizIbanId: toN(hIB)>0 ? (_isManikurist&&anaPersonelId ? anaPersonelId : (hIbanSec||aktifKullanici?.id||"")) : "",
+      hizIbanAd: toN(hIB)>0 ? (_isManikurist&&anaPersonelId ? (aktifP.find(p=>p.id===anaPersonelId)?.ad||"") : (hIbanSec ? aktifP.find(p=>p.id===hIbanSec)?.ad||"" : aktifKullanici?.ad||"")) : "",
       urunIbanId: toN(uIB)>0 ? (uIbanSec||aktifKullanici?.id||"") : "",
       urunIbanAd: toN(uIB)>0 ? (uIbanSec ? aktifP.find(p=>p.id===uIbanSec)?.ad||"" : aktifKullanici?.ad||"") : ""
     });
@@ -848,9 +852,10 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
           ),
           h(OdemeGir,{renk:"#80c040",label:"Odeme Toplami",kk:hKK,ib:hIB,nk:hNK,
             beklenen:hizTop, onSil:true,
-            ibanPersoneller:aktifP.filter(p=>p.id!==aktifKullanici?.id),
-            ibanSecili:hIbanSec,
-            onIbanSec:(pId,pAd)=>ibanPersonelSec("hiz",pId,pAd),
+            ibanPersoneller: _isManikurist&&anaPersonelId ? [] : aktifP.filter(p=>p.id!==aktifKullanici?.id),
+            ibanSecili: _isManikurist&&anaPersonelId ? anaPersonelId : hIbanSec,
+            ibanBilgi: _isManikurist&&anaPersonelId ? ("IBAN → "+aktifP.find(p=>p.id===anaPersonelId)?.ad) : null,
+            onIbanSec: _isManikurist&&anaPersonelId ? null : (pId,pAd)=>ibanPersonelSec("hiz",pId,pAd),
             onChange:(k,v)=>{if(k==="kk")setHKK(v);else if(k==="ib"){setHIB(v);if(!v)setHIbanSec("");}else setHNK(v);}})
         ),
         // Urunler
