@@ -378,6 +378,19 @@ function BarkodTarayici({onOku, onKapat}) {
   const divId = "qr-" + React.useRef(Math.random().toString(36).slice(2)).current;
   const scannerRef = React.useRef(null);
 
+  const bip = () => {
+    try {
+      const ac = new (window.AudioContext||window.webkitAudioContext)();
+      const o=ac.createOscillator(), g=ac.createGain();
+      o.connect(g); g.connect(ac.destination);
+      o.type="square"; o.frequency.value=1500;
+      g.gain.setValueAtTime(0.5, ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+0.15);
+      o.start(ac.currentTime); o.stop(ac.currentTime+0.15);
+      setTimeout(()=>ac.close(), 400);
+    } catch(e){}
+  };
+
   React.useEffect(() => {
     let scanner = null;
     const startScan = async () => {
@@ -406,6 +419,7 @@ function BarkodTarayici({onOku, onKapat}) {
             }
           },
           (kod) => {
+            bip();
             scanner.stop().then(() => {
               scannerRef.current = null;
               onOku(kod);
@@ -423,7 +437,7 @@ function BarkodTarayici({onOku, onKapat}) {
           await scanner.start(
             { facingMode: "environment" },
             { fps: 30, qrbox: (w,h)=>({width:Math.min(w-20,350),height:Math.min(h*0.35,130)}) },
-            (kod) => { scanner.stop().then(()=>{ scannerRef.current=null; onOku(kod); }).catch(()=>onOku(kod)); },
+            (kod) => { bip(); scanner.stop().then(()=>{ scannerRef.current=null; onOku(kod); }).catch(()=>onOku(kod)); },
             ()=>{}
           );
         } catch(e2) {
