@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
@@ -12,28 +13,33 @@
 html,body{margin:0;padding:0;background:#0a0805;min-height:100%}
 #root{min-height:100vh}
 
-input[type="date"], input[type="month"] {
-  width: 100% !important;
-  max-width: 100% !important;
-  min-width: 0 !important;
-  box-sizing: border-box !important;
-  display: block !important;
-  color: #e8dcc8 !important;
-  -webkit-appearance: none;
-  appearance: none;
+input[type=“date”], input[type=“month”] {
+width: 100% !important;
+max-width: 100% !important;
+min-width: 0 !important;
+box-sizing: border-box !important;
+display: block !important;
+color: #e8dcc8 !important;
+-webkit-appearance: none;
+appearance: none;
 }
-input[type="date"]::-webkit-date-and-time-value,
-input[type="month"]::-webkit-date-and-time-value {
-  text-align: left;
-  color: #e8dcc8;
+input[type=“date”]::-webkit-date-and-time-value,
+input[type=“month”]::-webkit-date-and-time-value {
+text-align: left;
+color: #e8dcc8;
 }
 </style>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
 </head>
 <body>
 <div id="root"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js" crossorigin></script>
+
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 
 <script>
@@ -367,6 +373,58 @@ const OdemeGir = React.memo(function OdemeGir({renk, kk, ib, nk, onChange, label
 });
 
 // ── KayitForm ─────────────────────────────────────────────────────────
+// ── BARKOD TARAYICI COMPONENT ──────────────────────────────────────────────
+function BarkodTarayici({onOku, onKapat}) {
+  const divRef = React.useRef(null);
+  const scannerRef = React.useRef(null);
+
+  React.useEffect(() => {
+    let scanner = null;
+    const startScan = async () => {
+      if(!divRef.current) return;
+      try {
+        scanner = new Html5Qrcode(divRef.current.id);
+        scannerRef.current = scanner;
+        const devices = await Html5Qrcode.getCameras();
+        const cam = devices.find(d=>/back|rear|env/i.test(d.label)) || devices[devices.length-1];
+        if(!cam) { onKapat(); return; }
+        await scanner.start(
+          cam.id,
+          { fps:20, qrbox:{width:260,height:100}, aspectRatio:2.0 },
+          (kod) => { scanner.stop().then(()=>{ scannerRef.current=null; onOku(kod); }); },
+          ()=>{}
+        );
+      } catch(err) {
+        console.error("Tarayici hata:", err);
+        onKapat();
+      }
+    };
+    startScan();
+    return () => {
+      if(scannerRef.current) {
+        scannerRef.current.stop().catch(()=>{});
+        scannerRef.current = null;
+      }
+    };
+  }, []);
+
+  return h('div', {style:{position:"fixed",inset:0,background:"#000",zIndex:999,
+    display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
+    h('div', {
+      id:"qr-reader-"+Math.random().toString(36).slice(2),
+      ref: divRef,
+      style:{width:"100%",maxWidth:420,minHeight:280,background:"#111",borderRadius:12,overflow:"hidden"}
+    }),
+    h('div', {style:{color:"#7a8aaa",fontSize:12,marginTop:14,letterSpacing:1,textAlign:"center",padding:"0 20px"}},
+      "Barkodu kamera çerçevesine getirin"),
+    h('button', {
+      style:{marginTop:16,background:"rgba(160,40,40,.2)",border:"1px solid #6a2020",
+        borderRadius:10,color:"#c06060",fontSize:13,padding:"11px 32px",cursor:"pointer"},
+      onClick: onKapat
+    }, "İptal")
+  );
+}
+
 function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKaydet, onIptal, hizListeleri}) {
   const aktifP = personeller.filter(p=>p.rol==="personel"&&p.aktif);
   const _poz = aktifKullanici?.pozisyon||"";
@@ -455,89 +513,36 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
   },[barkod]);
 
   // Kamera kapat
+  const bipSes = () => {
+    try {
+      const ac = new (window.AudioContext||window.webkitAudioContext)();
+      const o=ac.createOscillator(), g=ac.createGain();
+      o.connect(g); g.connect(ac.destination);
+      o.type="square"; o.frequency.value=1500;
+      g.gain.setValueAtTime(0.4, ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+0.15);
+      o.start(ac.currentTime); o.stop(ac.currentTime+0.15);
+      setTimeout(()=>ac.close(), 400);
+    } catch(e){}
+  };
+
   const kameraKapat = () => {
     try {
-      if(scannerRef.current==="quagga" && window.Quagga) Quagga.stop();
-      else if(scannerRef.current) {
-        if(typeof scannerRef.current.stop==="function") scannerRef.current.stop().catch(()=>{});
-        else clearInterval(scannerRef.current);
+      if(scannerRef.current && typeof scannerRef.current.stop==="function"){
+        scannerRef.current.stop();
+      } else if(scannerRef.current){
+        clearInterval(scannerRef.current);
       }
     } catch(e){}
     scannerRef.current = null;
-    if(streamRef.current) { streamRef.current.getTracks().forEach(t=>t.stop()); streamRef.current=null; }
+    if(streamRef.current){ streamRef.current.getTracks().forEach(t=>t.stop()); streamRef.current=null; }
     setKameraAcik(false);
   };
 
   // Kamera aç ve barkod tara
-  const kameraAc = async () => {
+  const kameraAc = () => {
     setKameraAcik(true);
-    setTimeout(async () => {
-      try {
-        if(window.Html5Qrcode) {
-          // html5-qrcode kütüphanesi
-          const qr = new Html5Qrcode("barkod-video-el");
-          scannerRef.current = qr;
-          await qr.start(
-            { facingMode: "environment" },
-            {
-              fps: 25,
-              qrbox: { width: 280, height: 110 },
-              aspectRatio: 1.7,
-              disableFlip: false,
-              experimentalFeatures: { useBarCodeDetectorIfSupported: true }
-            },
-            (decodedText) => {
-              qr.stop().then(() => {
-                // Bip sesi
-                try {
-                  const ac = new (window.AudioContext||window.webkitAudioContext)();
-                  ac.resume().then(()=>{
-                    const o=ac.createOscillator(), g=ac.createGain();
-                    o.connect(g); g.connect(ac.destination);
-                    o.type="square"; o.frequency.value=1500;
-                    g.gain.setValueAtTime(0.5,ac.currentTime);
-                    g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+0.15);
-                    o.start(ac.currentTime); o.stop(ac.currentTime+0.15);
-                    setTimeout(()=>ac.close(),300);
-                  });
-                } catch(e){}
-                setKameraAcik(false);
-                setBarkod(decodedText);
-                scannerRef.current = null;
-              });
-            },
-            () => {}
-          );
-        } else {
-          // Fallback: BarcodeDetector
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "environment" }
-          });
-          streamRef.current = stream;
-          if(videoRef.current) {
-            videoRef.current.srcObject = stream;
-            await videoRef.current.play();
-          }
-          if("BarcodeDetector" in window) {
-            const detector = new BarcodeDetector({formats:["ean_13","ean_8","code_128","code_39","upc_a","upc_e","qr_code"]});
-            scannerRef.current = setInterval(async () => {
-              if(!videoRef.current || videoRef.current.readyState < 2) return;
-              try {
-                const barcodes = await detector.detect(videoRef.current);
-                if(barcodes.length > 0) {
-                  kameraKapat();
-                  setBarkod(barcodes[0].rawValue);
-                }
-              } catch(e){}
-            }, 200);
-          }
-        }
-      } catch(err) {
-        kameraKapat();
-        showToast("Kamera izni gerekli!", "uy");
-      }
-    }, 100);
-  };
+  };;
 
   const sEkle = u => {
     setUrunler(p=>{
@@ -771,21 +776,13 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
             btn({style:{background:"rgba(60,100,180,.15)",border:"1px solid #1e2a3a",
               borderRadius:9,color:"#60a0e0",fontSize:18,padding:"0 13px",
               cursor:"pointer",flexShrink:0,height:44,display:"flex",alignItems:"center"},
-              onClick:()=>kameraAcik?kameraKapat():kameraAc()},
-              kameraAcik?"✕":"📷"
+              onClick:kameraAc},"📷"
             ),
             // Kamera overlay
-            kameraAcik&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.95)",
-              zIndex:999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
-              div({style:{position:"relative",width:"100%",maxWidth:400}},
-                h("div",{id:"barkod-video-el",style:{width:"100%",borderRadius:12,overflow:"hidden",minHeight:280,background:"#000"}})
-              ),
-              div({style:{color:"#7a8aaa",fontSize:12,marginTop:16,letterSpacing:1}},
-                "Barkodu çerçeve içine getirin"),
-              btn({style:{marginTop:16,background:"rgba(160,40,40,.15)",border:"1px solid #4a1010",
-                borderRadius:10,color:"#c06060",fontSize:13,padding:"10px 24px",cursor:"pointer"},
-                onClick:kameraKapat},"İptal")
-            )
+            kameraAcik&&h(BarkodTarayici,{
+              onOku:(kod)=>{ bipSes(); setKameraAcik(false); setBarkod(kod); },
+              onKapat:kameraKapat
+            })
           ),
           bSon.length>0&&div({className:"ares"},
             bSon.map(u=>div({key:u.b,className:"aitem",onClick:()=>sEkle(u)},
@@ -3157,5 +3154,6 @@ const TOP = TODAY();
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(ErrorBoundary,null,h(App,null)));
 
 </script>
+
 </body>
 </html>
