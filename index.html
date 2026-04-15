@@ -408,25 +408,40 @@ function BarkodTarayici({onOku, onKapat}) {
           { deviceId: { exact: cam.id } },
           {
             fps: 30,
-            // Tarama kutusunu geniş tut - barkod için yatay
             qrbox: (w, h) => ({ width: Math.min(w-20, 350), height: Math.min(h*0.35, 130) }),
             aspectRatio: window.innerWidth/window.innerHeight,
-            // Otofokus için advanced constraints
             videoConstraints: {
               deviceId: { exact: cam.id },
               focusMode: "continuous",
-              advanced: [{ focusMode: "continuous" }]
+              advanced: [
+                { focusMode: "continuous" },
+                { focusDistance: 0 },
+                { zoom: 1.0 }
+              ]
             }
           },
           (kod) => {
             bip();
             scanner.stop().then(() => {
               scannerRef.current = null;
+              // Kamera track'ine otofokus uygula - tarama bitince de netleşsin
               onOku(kod);
             }).catch(() => { onOku(kod); });
           },
           () => {}
         );
+        // Kamera başladıktan 500ms sonra track'e direkt otofokus uygula
+        setTimeout(async () => {
+          try {
+            const vid = document.querySelector("#"+divId+" video");
+            const track = vid?.srcObject?.getVideoTracks?.()?.[0];
+            if(track?.applyConstraints) {
+              await track.applyConstraints({
+                advanced: [{ focusMode: "continuous" }, { focusDistance: 0 }]
+              });
+            }
+          } catch(e){}
+        }, 500);
       } catch(err) {
         console.error("Tarayici hata:", err);
         // Fallback: facingMode ile dene
