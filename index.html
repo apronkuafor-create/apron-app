@@ -416,7 +416,7 @@ function UrunMuhasebe({
   // FIFO ile kalan stok ve ortalama maliyet
   const stokOzet = React.useMemo(() => {
     const ozet = {};
-    stokPartiler.forEach(p => {
+    (stokPartiler||[]).forEach(p => {
       if (!ozet[p.barkod]) ozet[p.barkod] = {
         barkod:p.barkod, urunAd:p.urunAd, marka:p.marka,
         toplamGiren:0, kalan:0, partiler:[], toplamMaliyet:0
@@ -435,12 +435,12 @@ function UrunMuhasebe({
   // Tedarikçi bakiyeleri
   const tedarikciBakiye = React.useMemo(() => {
     const bak = {};
-    tedarikciler.forEach(t => { bak[t.id] = {toplam:0, odenen:0, kalan:0, vadesi:{}}; });
-    faturalar.forEach(f => {
+    (tedarikciler||[]).forEach(t => { bak[t.id] = {toplam:0, odenen:0, kalan:0, vadesi:{}}; });
+    (faturalar||[]).forEach(f => {
       if (!bak[f.tedarikcId]) bak[f.tedarikcId] = {toplam:0, odenen:0, kalan:0, vadesi:{}};
       bak[f.tedarikcId].toplam += toN(f.tutar);
     });
-    odemeler.forEach(o => {
+    (odemeler||[]).forEach(o => {
       if (!bak[o.tedarikcId]) bak[o.tedarikcId] = {toplam:0, odenen:0, kalan:0, vadesi:{}};
       bak[o.tedarikcId].odenen += toN(o.tutar);
     });
@@ -465,9 +465,9 @@ function UrunMuhasebe({
   // Hareket istatistikleri
   const harStat = React.useMemo(() => {
     const buAy = new Date().toISOString().slice(0,7);
-    const icTuketimBuAy = hareketler.filter(h=>h.tip==="icTuketim"&&h.tarih?.startsWith(buAy))
+    const icTuketimBuAy = (hareketler||[]).filter(h=>h.tip==="icTuketim"&&h.tarih?.startsWith(buAy))
       .reduce((s,h)=>s+toN(h.miktar)*toN(h.birimMaliyet),0);
-    const fireBuAy = hareketler.filter(h=>h.tip==="fire"&&h.tarih?.startsWith(buAy))
+    const fireBuAy = (hareketler||[]).filter(h=>h.tip==="fire"&&h.tarih?.startsWith(buAy))
       .reduce((s,h)=>s+toN(h.miktar)*toN(h.birimMaliyet),0);
     return {icTuketimBuAy, fireBuAy};
   }, [hareketler]);
@@ -483,8 +483,8 @@ function UrunMuhasebe({
 
   // Vadesi geçmiş faturalar
   const bugun = TODAY();
-  const kritikFaturalar = faturalar.filter(f=>{
-    const odenen = odemeler.filter(o=>o.faturId===f.id).reduce((s,o)=>s+toN(o.tutar),0);
+  const kritikFaturalar = (faturalar||[]).filter(f=>{
+    const odenen = (odemeler||[]).filter(o=>o.faturId===f.id).reduce((s,o)=>s+toN(o.tutar),0);
     return f.vade && f.vade < bugun && toN(f.tutar) > odenen;
   });
 
@@ -634,7 +634,7 @@ function UrunMuhasebe({
           // Hareket Defteri (Ledger)
           div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},"📋 Hareket Defteri"),
           (()=>{
-            const urunHar = hareketler.filter(h=>h.barkod===stokDetay.barkod)
+            const urunHar = (hareketler||[]).filter(h=>h.barkod===stokDetay.barkod)
               .concat(stokDetay.partiler?.map(p=>({
                 id:p.id, barkod:p.barkod, tip:p.tip||"malKabul",
                 miktar:p.adet, birimMaliyet:p.alisF, tarih:p.tarih,
@@ -751,7 +751,7 @@ function UrunMuhasebe({
           "⚠ Kritik Ödemeler ("+kritikFaturalar.length+")"),
         kritikFaturalar.map(f=>{
           const ted=tedarikciler.find(t=>t.id===f.tedarikcId);
-          const odenen=odemeler.filter(o=>o.faturId===f.id).reduce((s,o)=>s+toN(o.tutar),0);
+          const odenen=(odemeler||[]).filter(o=>o.faturId===f.id).reduce((s,o)=>s+toN(o.tutar),0);
           const kalan=toN(f.tutar)-odenen;
           return div({key:f.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
             padding:"9px 0",borderBottom:"1px solid rgba(224,60,60,.1)"}},
@@ -818,7 +818,7 @@ function UrunMuhasebe({
                 lbl({className:"fl"},"Tedarikçi"),
                 sel({className:"fi",value:hareketTedarikci,onChange:e=>setHareketTedarikci(e.target.value)},
                   opt("","Seçiniz"),
-                  tedarikciler.map(t=>opt(t.id,t.ad))
+                  (tedarikciler||[]).map(t=>opt(t.id,t.ad))
                 )
               ),
               div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
@@ -1093,9 +1093,9 @@ function UrunMuhasebe({
             div({style:{fontSize:36,marginBottom:8}},"🏭"),
             div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2}},"Tedarikçi eklenmedi")
           )
-        :tedarikciler.map(t=>{
+        :(tedarikciler||[]).map(t=>{
             const bak=tedarikciBakiye[t.id]||{toplam:0,odenen:0,kalan:0};
-            const tFaturalar=faturalar.filter(f=>f.tedarikcId===t.id).sort((a,b)=>b.tarih.localeCompare(a.tarih));
+            const tFaturalar=(faturalar||[]).filter(f=>f.tedarikcId===t.id).sort((a,b)=>b.tarih.localeCompare(a.tarih));
             return div({key:t.id,style:{background:"var(--bg2)",border:"1px solid "+(bak.kalan>0?"rgba(224,100,100,.3)":"var(--br)"),
               borderRadius:12,padding:14,marginBottom:10}},
               div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}},
@@ -1125,7 +1125,7 @@ function UrunMuhasebe({
               tFaturalar.length>0&&div({style:{marginTop:10,paddingTop:8,borderTop:"1px solid var(--br)"}},
                 div({style:{fontSize:9,color:"var(--mu)",letterSpacing:1,marginBottom:6}},"FATURALAR"),
                 tFaturalar.slice(0,3).map(f=>{
-                  const fOd=odemeler.filter(o=>o.faturId===f.id).reduce((s,o)=>s+toN(o.tutar),0);
+                  const fOd=(odemeler||[]).filter(o=>o.faturId===f.id).reduce((s,o)=>s+toN(o.tutar),0);
                   const fKalan=toN(f.tutar)-fOd;
                   return div({key:f.id,style:{display:"flex",justifyContent:"space-between",
                     padding:"5px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}},
@@ -1148,16 +1148,16 @@ function UrunMuhasebe({
     // ── RAPOR ──
     umSek==="rapor"&&(()=>{
       const buAy=new Date().toISOString().slice(0,7);
-      const topGiren=stokPartiler.reduce((s,p)=>s+p.adet,0);
-      const topKalan=stokPartiler.reduce((s,p)=>s+p.kalan,0);
+      const topGiren=(stokPartiler||[]).reduce((s,p)=>s+p.adet,0);
+      const topKalan=(stokPartiler||[]).reduce((s,p)=>s+p.kalan,0);
       const topSatilan=topGiren-topKalan;
-      const topAlMaliyet=stokPartiler.reduce((s,p)=>s+p.adet*p.alisF,0);
-      const kalanMaliyet=stokPartiler.reduce((s,p)=>s+p.kalan*p.alisF,0);
+      const topAlMaliyet=(stokPartiler||[]).reduce((s,p)=>s+p.adet*p.alisF,0);
+      const kalanMaliyet=(stokPartiler||[]).reduce((s,p)=>s+p.kalan*p.alisF,0);
       const satisCiro=Object.values(satisStat).reduce((s,x)=>s+x.ciro,0);
       const satMaliyet=topAlMaliyet-kalanMaliyet;
       const brutKar=satisCiro-satMaliyet;
-      const icTuketimTop=hareketler.filter(h=>h.tip==="icTuketim").reduce((s,h)=>s+toN(h.miktar)*toN(h.birimMaliyet),0);
-      const fireTop=hareketler.filter(h=>h.tip==="fire").reduce((s,h)=>s+toN(h.miktar)*toN(h.birimMaliyet),0);
+      const icTuketimTop=(hareketler||[]).filter(h=>h.tip==="icTuketim").reduce((s,h)=>s+toN(h.miktar)*toN(h.birimMaliyet),0);
+      const fireTop=(hareketler||[]).filter(h=>h.tip==="fire").reduce((s,h)=>s+toN(h.miktar)*toN(h.birimMaliyet),0);
       const netKar=brutKar-icTuketimTop-fireTop;
 
       return div(null,
@@ -1181,7 +1181,7 @@ function UrunMuhasebe({
         ),
         // Hareket tipi dağılımı
         Object.entries(HAR_TIPLER).map(([id,t])=>{
-          const har=hareketler.filter(h=>h.tip===id);
+          const har=(hareketler||[]).filter(h=>h.tip===id);
           if(!har.length) return null;
           const topAdet=har.reduce((s,h)=>s+toN(h.miktar),0);
           const topTutar=har.reduce((s,h)=>s+toN(h.miktar)*toN(h.birimMaliyet),0);
