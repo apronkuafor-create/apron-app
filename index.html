@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
@@ -13,29 +14,33 @@
 html,body{margin:0;padding:0;background:#0a0805;min-height:100%}
 #root{min-height:100vh}
 
-input[type="date"], input[type="month"] {
-  width: 100% !important;
-  max-width: 100% !important;
-  min-width: 0 !important;
-  box-sizing: border-box !important;
-  display: block !important;
-  color: #e8dcc8 !important;
-  -webkit-appearance: none;
-  appearance: none;
+input[type=“date”], input[type=“month”] {
+width: 100% !important;
+max-width: 100% !important;
+min-width: 0 !important;
+box-sizing: border-box !important;
+display: block !important;
+color: #e8dcc8 !important;
+-webkit-appearance: none;
+appearance: none;
 }
-input[type="date"]::-webkit-date-and-time-value,
-input[type="month"]::-webkit-date-and-time-value {
-  text-align: left;
-  color: #e8dcc8;
+input[type=“date”]::-webkit-date-and-time-value,
+input[type=“month”]::-webkit-date-and-time-value {
+text-align: left;
+color: #e8dcc8;
 }
 </style>
+
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
 </head>
 <body>
 <div id="root"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js" crossorigin></script>
+
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 
 <script>
@@ -1546,6 +1551,440 @@ function OduncModul({oduncler,setOduncler,komsular,setKomsular,stokPartiler,setS
   );
 }
 
+// ── AVANS İSTE COMPONENT (Personel) ────────────────────────────────────────
+function AvansIste({kul, avanslar, setAvanslar, showToast}) {
+  const [acik, setAcik] = React.useState(false);
+  const [tutar, setTutar] = React.useState("");
+  const [notlar, setNotlar] = React.useState("");
+
+  const benimAvanslar = (avanslar||[]).filter(a=>a.staffId===kul?.id)
+    .sort((a,b)=>b.tarih.localeCompare(a.tarih));
+  const bekleyen = benimAvanslar.filter(a=>a.durum==="bekliyor");
+  const toplam = benimAvanslar.filter(a=>a.durum==="onaylandi").reduce((s,a)=>s+toN(a.tutar),0);
+
+  return div({style:{background:"rgba(212,160,23,.06)",border:"1px solid rgba(212,160,23,.2)",
+    borderRadius:12,padding:14,marginBottom:14}},
+    div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:acik?12:0}},
+      div(null,
+        div({style:{fontSize:12,color:"var(--g)",fontWeight:600,letterSpacing:1}},"💵 Avans İste"),
+        toplam>0&&div({style:{fontSize:10,color:"var(--mu)",marginTop:2}},
+          "Toplam avans: "+fmt(toplam))
+      ),
+      btn({style:{background:"rgba(212,160,23,.1)",border:"1px solid rgba(212,160,23,.3)",
+        borderRadius:8,color:"var(--g)",fontSize:11,padding:"6px 12px",cursor:"pointer"},
+        onClick:()=>setAcik(p=>!p)},
+        acik?"Kapat":"+ Avans İste")
+    ),
+    acik&&div({style:{marginTop:12}},
+      div({style:{marginBottom:8}},
+        lbl({className:"fl"},"Tutar (₺) *"),
+        inp({className:"fi",type:"number",placeholder:"0",value:tutar,
+          onChange:e=>setTutar(e.target.value)})
+      ),
+      div({style:{marginBottom:10}},
+        lbl({className:"fl"},"Açıklama (İsteğe bağlı)"),
+        inp({className:"fi",placeholder:"Neden ihtiyaç duyduğunuzu yazın...",
+          value:notlar,onChange:e=>setNotlar(e.target.value)})
+      ),
+      bekleyen.length>0&&div({style:{padding:"8px 10px",background:"rgba(240,160,60,.08)",
+        border:"1px solid rgba(240,160,60,.2)",borderRadius:8,marginBottom:10}},
+        div({style:{fontSize:10,color:"#f0a060"}},"⏳ "+bekleyen.length+" bekleyen avans talebiniz var")
+      ),
+      div({className:"btn-r"},
+        btn({className:"btn-i",onClick:()=>{setAcik(false);setTutar("");setNotlar("");}},"İptal"),
+        btn({className:"btn-k",disabled:!tutar||toN(tutar)<=0,
+          onClick:()=>{
+            setAvanslar(p=>[...p,{
+              id:uid(), staffId:kul.id, staffAd:kul.ad,
+              tutar:toN(tutar), tarih:TODAY(), notlar,
+              durum:"bekliyor", odendi:false
+            }]);
+            setTutar(""); setNotlar(""); setAcik(false);
+            showToast("Avans talebiniz gönderildi");
+          }},"Gönder")
+      )
+    ),
+    // Geçmiş
+    benimAvanslar.length>0&&!acik&&div({style:{marginTop:10,borderTop:"1px solid var(--br)",paddingTop:10}},
+      div({style:{fontSize:9,color:"var(--mu)",letterSpacing:1,marginBottom:6}},"AVANS GEÇMİŞİ"),
+      benimAvanslar.slice(0,3).map(a=>
+        div({key:a.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+          padding:"5px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}},
+          div(null,
+            div({style:{fontSize:11,color:"var(--tx)"}},fmt(a.tutar)),
+            div({style:{fontSize:9,color:"var(--mu)",marginTop:1}},a.tarih)
+          ),
+          h("span",{style:{fontSize:9,padding:"2px 7px",borderRadius:8,
+            background:a.durum==="onaylandi"?"rgba(80,160,0,.1)":a.durum==="reddedildi"?"rgba(160,40,40,.1)":"rgba(240,160,60,.1)",
+            border:"1px solid "+(a.durum==="onaylandi"?"rgba(80,160,0,.3)":a.durum==="reddedildi"?"rgba(160,40,40,.3)":"rgba(240,160,60,.3)"),
+            color:a.durum==="onaylandi"?"var(--gr)":a.durum==="reddedildi"?"#c06060":"#f0a060"}},
+            a.durum==="onaylandi"?"✓ Onaylandı":a.durum==="reddedildi"?"✕ Reddedildi":"⏳ Bekliyor")
+        )
+      )
+    )
+  );
+}
+
+// ── GELİR/GİDER MODÜLÜ ─────────────────────────────────────────────────────
+function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, setAvanslar, showToast}) {
+  const [sekme, setSekme] = React.useState("ozet");
+  const [secAy, setSecAy] = React.useState(new Date().toISOString().slice(0,7));
+  const [giderFrm, setGiderFrm] = React.useState(null);
+  const GID_KATEGORILER = ["Kira","Elektrik","Su","Doğalgaz","Maaş","SGK/Sigorta","Malzeme","Temizlik","Vergi","Avans Ödemesi","Diğer"];
+
+  // Seçilen ay kayıtları
+  const ayKayitlar = (tumK||[]).filter(r=>r.tarih?.startsWith(secAy)&&r.gonderildi!==false);
+  const ayGiderler = (giderler||[]).filter(g=>g.tarih?.startsWith(secAy));
+  const ayAvanslar = (avanslar||[]).filter(a=>a.durum==="onaylandi"&&a.tarih?.startsWith(secAy));
+
+  // Personel bazlı gelir
+  const pGelir = {};
+  (personeller||[]).filter(p=>p.rol==="personel"&&p.aktif).forEach(p=>{
+    const pk = ayKayitlar.filter(r=>r.staffId===p.id);
+    pGelir[p.id] = {
+      ad:p.ad,
+      hizGelir: pk.reduce((s,r)=>s+(r.hizKK||0)+(r.hizIB||0)+(r.hizNK||0),0),
+      urunGelir: pk.reduce((s,r)=>s+(r.uKK||0)+(r.uIB||0)+(r.uNK||0),0),
+      kayitSay: pk.length,
+      kkToplam: pk.reduce((s,r)=>s+(r.hizKK||0)+(r.uKK||0),0),
+      ibToplam: pk.reduce((s,r)=>s+(r.hizIB||0)+(r.uIB||0),0),
+      nkToplam: pk.reduce((s,r)=>s+(r.hizNK||0)+(r.uNK||0),0),
+    };
+    pGelir[p.id].toplam = pGelir[p.id].hizGelir + pGelir[p.id].urunGelir;
+  });
+
+  const topGelir = Object.values(pGelir).reduce((s,p)=>s+p.toplam,0);
+  const topGider = ayGiderler.reduce((s,g)=>s+toN(g.tutar),0);
+  const topAvans = ayAvanslar.reduce((s,a)=>s+toN(a.tutar),0);
+  const netKar = topGelir - topGider;
+
+  // Bekleyen avans talepleri
+  const bekleyenAvans = (avanslar||[]).filter(a=>a.durum==="bekliyor");
+
+  // Ay seçici
+  const aylar = [];
+  for(let i=0;i<12;i++){
+    const d=new Date(); d.setMonth(d.getMonth()-i);
+    aylar.push(d.toISOString().slice(0,7));
+  }
+
+  return div(null,
+
+    // Gider formu
+    giderFrm&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:900,
+      display:"flex",alignItems:"center",justifyContent:"center",padding:18}},
+      div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:16,
+        padding:20,maxWidth:400,width:"100%"}},
+        div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",marginBottom:14}},
+          giderFrm.id?"Gider Düzenle":"Yeni Gider Ekle"),
+        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+          div(null,lbl({className:"fl"},"Tarih *"),
+            h("input",{type:"date",className:"fi",value:giderFrm.tarih||"",
+              onChange:e=>setGiderFrm(p=>({...p,tarih:e.target.value}))})),
+          div(null,lbl({className:"fl"},"Tutar (₺) *"),
+            inp({className:"fi",type:"number",placeholder:"0",value:giderFrm.tutar||"",
+              onChange:e=>setGiderFrm(p=>({...p,tutar:e.target.value}))}))
+        ),
+        div({style:{marginBottom:10}},lbl({className:"fl"},"Kategori *"),
+          sel({className:"fi",value:giderFrm.kategori||"",
+            onChange:e=>setGiderFrm(p=>({...p,kategori:e.target.value}))},
+            opt("","Seçin..."),
+            GID_KATEGORILER.map(k=>opt(k,k))
+          )
+        ),
+        div({style:{marginBottom:14}},lbl({className:"fl"},"Açıklama"),
+          inp({className:"fi",placeholder:"Detay...",value:giderFrm.aciklama||"",
+            onChange:e=>setGiderFrm(p=>({...p,aciklama:e.target.value}))})),
+        div({className:"btn-r"},
+          btn({className:"btn-i",onClick:()=>setGiderFrm(null)},"İptal"),
+          btn({className:"btn-k",
+            disabled:!giderFrm.tarih||!giderFrm.tutar||!giderFrm.kategori,
+            onClick:()=>{
+              const g={...giderFrm,id:giderFrm.id||uid(),tutar:toN(giderFrm.tutar)};
+              setGiderler(p=>giderFrm.id?p.map(x=>x.id===g.id?g:x):[...p,g]);
+              setGiderFrm(null);
+              showToast("Gider kaydedildi");
+            }},"Kaydet")
+        )
+      )
+    ),
+
+    // Üst kontroller
+    div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+      sel({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:9,
+        color:"var(--g)",fontSize:12,padding:"7px 12px",outline:"none",cursor:"pointer"},
+        value:secAy,onChange:e=>setSecAy(e.target.value)},
+        aylar.map(a=>opt(a, new Date(a+"-01").toLocaleDateString("tr-TR",{month:"long",year:"numeric"})))
+      ),
+      bekleyenAvans.length>0&&div({style:{fontSize:11,color:"#f0a060",
+        padding:"5px 10px",borderRadius:8,background:"rgba(240,160,60,.1)",
+        border:"1px solid rgba(240,160,60,.25)"}},
+        "⏳ "+bekleyenAvans.length+" avans talebi")
+    ),
+
+    // Alt sekmeler
+    div({style:{display:"flex",gap:0,borderBottom:"1px solid var(--br)",marginBottom:14}},
+      [["ozet","📊 Özet"],["gelir","💚 Gelir"],["gider","🔴 Gider"],["avans","💵 Avans"]].map(([id,lb])=>
+        div({key:id,style:{padding:"8px 14px",cursor:"pointer",fontSize:10,
+          letterSpacing:1,textTransform:"uppercase",whiteSpace:"nowrap",flexShrink:0,
+          color:sekme===id?"var(--g)":"var(--mu)",
+          borderBottom:"2px solid "+(sekme===id?"var(--g)":"transparent"),transition:"all .2s"},
+          onClick:()=>setSekme(id)},lb)
+      )
+    ),
+
+    // ── ÖZET ──
+    sekme==="ozet"&&div(null,
+      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:14}},
+        [
+          {lb:"Toplam Gelir",  v:fmt(topGelir),  ic:"💚",c:"var(--gr)"},
+          {lb:"Toplam Gider",  v:fmt(topGider),  ic:"🔴",c:"#e06060"},
+          {lb:"Net Kar",       v:fmt(netKar),     ic:"✨",c:netKar>=0?"var(--gr)":"#c06060"},
+          {lb:"Avans Ödemeleri",v:fmt(topAvans),  ic:"💵",c:"#f0a060"},
+        ].map(({lb,v,ic,c})=>
+          div({key:lb,style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:13}},
+            div({style:{fontSize:18,marginBottom:5}},ic),
+            div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:c,fontWeight:700}},v),
+            div({style:{fontSize:9,color:"var(--mu)",textTransform:"uppercase",letterSpacing:1,marginTop:2}},lb)
+          )
+        )
+      ),
+      // Gelir vs Gider bar
+      topGelir>0&&div({style:{background:"var(--bg2)",border:"1px solid var(--br)",
+        borderRadius:12,padding:14,marginBottom:12}},
+        div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
+          "Gelir / Gider Oranı"),
+        div({style:{height:10,borderRadius:5,background:"rgba(160,40,40,.3)",overflow:"hidden",marginBottom:6}},
+          div({style:{height:"100%",borderRadius:5,background:"var(--gr)",
+            width:Math.min(100,Math.round(topGelir/(topGelir+topGider)*100))+"%",transition:"width .5s"}})
+        ),
+        div({style:{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--mu)"}},
+          h("span",null,"Gelir: "+fmt(topGelir)),
+          h("span",null,"Gider: "+fmt(topGider))
+        )
+      ),
+      // Personel özet
+      div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14}},
+        div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},
+          "Personel Gelirleri"),
+        Object.values(pGelir).sort((a,b)=>b.toplam-a.toplam).map(p=>
+          div({key:p.ad,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+            padding:"8px 0",borderBottom:"1px solid var(--br)"}},
+            div({style:{fontSize:12,color:"var(--tx)"}},(p.ad)),
+            div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt(p.toplam))
+          )
+        )
+      )
+    ),
+
+    // ── GELİR ──
+    sekme==="gelir"&&div(null,
+      div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},
+        "Personel Bazlı Gelir Detayı"),
+      Object.values(pGelir).sort((a,b)=>b.toplam-a.toplam).map(p=>
+        div({key:p.ad,style:{background:"var(--bg2)",border:"1px solid var(--br)",
+          borderRadius:12,padding:14,marginBottom:10}},
+          div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+            div(null,
+              div({style:{fontSize:14,color:"var(--tx)",fontWeight:500}},(p.ad)),
+              div({style:{fontSize:10,color:"var(--mu)",marginTop:2}},p.kayitSay+" kayıt")
+            ),
+            div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"var(--g)",fontWeight:700}},
+              fmt(p.toplam))
+          ),
+          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+            [
+              ["✂ Hizmet Geliri",p.hizGelir,"var(--gr)"],
+              ["📦 Ürün Geliri",p.urunGelir,"var(--bl)"],
+            ].map(([lb,v,c])=>
+              div({key:lb,style:{background:"rgba(0,0,0,.2)",borderRadius:8,padding:"9px 10px"}},
+                div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:15,color:c,fontWeight:600}},fmt(v)),
+                div({style:{fontSize:9,color:"var(--mu)",marginTop:1,textTransform:"uppercase",letterSpacing:1}},lb)
+              )
+            )
+          ),
+          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}},
+            [["💳 K.Kartı",p.kkToplam],["🏦 IBAN",p.ibToplam],["💵 Nakit",p.nkToplam]].map(([lb,v])=>
+              div({key:lb,style:{background:"rgba(0,0,0,.15)",borderRadius:7,padding:"6px 8px",textAlign:"center"}},
+                div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:13,color:"var(--g)",fontWeight:600}},fmt(v)),
+                div({style:{fontSize:8,color:"var(--mu)",marginTop:1,textTransform:"uppercase"}},lb)
+              )
+            )
+          )
+        )
+      ),
+      // İşletme toplam
+      div({style:{background:"linear-gradient(135deg,var(--bg2),var(--bg3))",
+        border:"1.5px solid rgba(212,160,23,.3)",borderRadius:12,padding:14,marginTop:4}},
+        div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
+          "İşletme Toplam Geliri"),
+        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}},
+          [
+            ["Hizmet",Object.values(pGelir).reduce((s,p)=>s+p.hizGelir,0),"var(--gr)"],
+            ["Ürün",Object.values(pGelir).reduce((s,p)=>s+p.urunGelir,0),"var(--bl)"],
+            ["Toplam",topGelir,"var(--g)"],
+          ].map(([lb,v,c])=>
+            div({key:lb,style:{background:"rgba(0,0,0,.2)",borderRadius:8,padding:"10px 8px",textAlign:"center"}},
+              div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:17,color:c,fontWeight:700}},fmt(v)),
+              div({style:{fontSize:9,color:"var(--mu)",marginTop:2,textTransform:"uppercase",letterSpacing:1}},lb)
+            )
+          )
+        ),
+        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}},
+          [
+            ["💳 K.Kartı", Object.values(pGelir).reduce((s,p)=>s+p.kkToplam,0)],
+            ["🏦 IBAN",    Object.values(pGelir).reduce((s,p)=>s+p.ibToplam,0)],
+            ["💵 Nakit",   Object.values(pGelir).reduce((s,p)=>s+p.nkToplam,0)],
+          ].map(([lb,v])=>
+            div({key:lb,style:{background:"rgba(0,0,0,.15)",borderRadius:7,padding:"6px 8px",textAlign:"center"}},
+              div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:13,color:"var(--g)",fontWeight:600}},fmt(v)),
+              div({style:{fontSize:8,color:"var(--mu)",marginTop:1,textTransform:"uppercase"}},lb)
+            )
+          )
+        )
+      )
+    ),
+
+    // ── GİDER ──
+    sekme==="gider"&&div(null,
+      div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+        div(null,
+          div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase"}},"Giderler"),
+          div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},
+            ayGiderler.length+" kayıt · "+fmt(topGider))
+        ),
+        btn({style:{background:"rgba(212,160,23,.1)",border:"1px solid rgba(212,160,23,.3)",
+          borderRadius:9,color:"var(--g)",fontSize:12,padding:"8px 13px",cursor:"pointer"},
+          onClick:()=>setGiderFrm({tarih:TODAY(),tutar:"",kategori:"",aciklama:""})},"+ Gider Ekle")
+      ),
+      // Kategori özeti
+      ayGiderler.length>0&&(()=>{
+        const katOzet = {};
+        ayGiderler.forEach(g=>{
+          if(!katOzet[g.kategori]) katOzet[g.kategori]=0;
+          katOzet[g.kategori]+=toN(g.tutar);
+        });
+        return div({style:{background:"var(--bg2)",border:"1px solid var(--br)",
+          borderRadius:12,padding:12,marginBottom:12}},
+          div({style:{fontSize:9,color:"var(--mu)",letterSpacing:1,marginBottom:8}},"KATEGORİ DAĞILIMI"),
+          Object.entries(katOzet).sort((a,b)=>b[1]-a[1]).map(([kat,tutar])=>
+            div({key:kat,style:{display:"flex",justifyContent:"space-between",
+              padding:"5px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}},
+              div({style:{fontSize:11,color:"var(--tx)"}},(kat)),
+              div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:13,
+                color:"#e06060",fontWeight:600}},fmt(tutar))
+            )
+          )
+        );
+      })(),
+      // Gider listesi
+      ayGiderler.length===0
+        ?div({className:"bos"},
+            div({style:{fontSize:36,marginBottom:8}},"📋"),
+            div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2}},"Bu ay gider girilmedi"),
+            btn({style:{marginTop:12,padding:"9px 18px",borderRadius:9,
+              background:"rgba(212,160,23,.1)",border:"1px solid rgba(212,160,23,.3)",
+              color:"var(--g)",fontSize:12,cursor:"pointer"},
+              onClick:()=>setGiderFrm({tarih:TODAY(),tutar:"",kategori:"",aciklama:""})},"+ İlk Gideri Ekle")
+          )
+        :ayGiderler.sort((a,b)=>b.tarih.localeCompare(a.tarih)).map(g=>
+            div({key:g.id,style:{display:"flex",alignItems:"center",gap:10,
+              padding:"10px 12px",background:"var(--bg2)",borderRadius:11,
+              marginBottom:7,border:"1px solid var(--br)"}},
+              div({style:{flex:1}},
+                div({style:{display:"flex",alignItems:"center",gap:7,marginBottom:3}},
+                  h("span",{style:{fontSize:9,padding:"2px 7px",borderRadius:7,
+                    background:"rgba(224,96,96,.1)",border:"1px solid rgba(224,96,96,.2)",
+                    color:"#e06060"}},g.kategori),
+                  div({style:{fontSize:10,color:"var(--mu)"}},g.tarih)
+                ),
+                g.aciklama&&div({style:{fontSize:11,color:"var(--di)"}},(g.aciklama))
+              ),
+              div({style:{textAlign:"right",flexShrink:0}},
+                div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,
+                  color:"#e06060",fontWeight:700}},fmt(toN(g.tutar))),
+                div({style:{display:"flex",gap:5,marginTop:4,justifyContent:"flex-end"}},
+                  btn({style:{background:"transparent",border:"1px solid var(--br)",
+                    borderRadius:6,color:"var(--mu)",fontSize:10,padding:"3px 8px",cursor:"pointer"},
+                    onClick:()=>setGiderFrm({...g})},"✏"),
+                  btn({style:{background:"transparent",border:"1px solid #3a1010",
+                    borderRadius:6,color:"#c06060",fontSize:10,padding:"3px 8px",cursor:"pointer"},
+                    onClick:()=>setGiderler(p=>p.filter(x=>x.id!==g.id))},"🗑")
+                )
+              )
+            )
+          )
+    ),
+
+    // ── AVANS ──
+    sekme==="avans"&&div(null,
+      bekleyenAvans.length>0&&div({style:{background:"rgba(240,160,60,.06)",
+        border:"1px solid rgba(240,160,60,.25)",borderRadius:12,padding:14,marginBottom:12}},
+        div({style:{fontSize:10,color:"#f0a060",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
+          "⏳ Bekleyen Talepler ("+bekleyenAvans.length+")"),
+        bekleyenAvans.map(a=>
+          div({key:a.id,style:{background:"rgba(0,0,0,.2)",borderRadius:9,padding:"11px 12px",marginBottom:8}},
+            div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}},
+              div(null,
+                div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},(a.staffAd)),
+                div({style:{fontSize:10,color:"var(--mu)",marginTop:2}},a.tarih),
+                a.notlar&&div({style:{fontSize:11,color:"var(--di)",marginTop:3,fontStyle:"italic"}},(a.notlar))
+              ),
+              div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,
+                color:"#f0a060",fontWeight:700}},fmt(a.tutar))
+            ),
+            div({style:{display:"flex",gap:8}},
+              btn({style:{flex:1,padding:"9px 0",borderRadius:8,
+                background:"rgba(80,160,0,.1)",border:"1px solid rgba(80,160,0,.25)",
+                color:"var(--gr)",fontSize:12,cursor:"pointer"},
+                onClick:()=>{
+                  setAvanslar(p=>p.map(x=>x.id===a.id?{...x,durum:"onaylandi",odendi:true,odendiTarih:TODAY()}:x));
+                  setGiderler(p=>[...p,{id:uid(),tarih:TODAY(),
+                    kategori:"Avans Ödemesi",
+                    tutar:a.tutar,aciklama:a.staffAd+" avans ödemesi"}]);
+                  showToast(a.staffAd+"'e avans onaylandı");
+                }},"✓ Onayla & Öde"),
+              btn({style:{flex:1,padding:"9px 0",borderRadius:8,
+                background:"rgba(160,40,40,.1)",border:"1px solid rgba(160,40,40,.25)",
+                color:"#c06060",fontSize:12,cursor:"pointer"},
+                onClick:()=>{
+                  setAvanslar(p=>p.map(x=>x.id===a.id?{...x,durum:"reddedildi"}:x));
+                  showToast(a.staffAd+" avans talebi reddedildi","uy");
+                }},"✕ Reddet")
+            )
+          )
+        )
+      ),
+      // Tüm avans geçmişi
+      (avanslar||[]).length>0&&div({style:{background:"var(--bg2)",border:"1px solid var(--br)",
+        borderRadius:12,padding:14}},
+        div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
+          "Avans Geçmişi"),
+        (avanslar||[]).sort((a,b)=>b.tarih.localeCompare(a.tarih)).map(a=>
+          div({key:a.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+            padding:"8px 0",borderBottom:"1px solid var(--br)"}},
+            div(null,
+              div({style:{fontSize:12,color:"var(--tx)"}},(a.staffAd)),
+              div({style:{fontSize:10,color:"var(--mu)",marginTop:1}},a.tarih)
+            ),
+            div({style:{display:"flex",alignItems:"center",gap:10}},
+              div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:14,
+                color:"var(--g)",fontWeight:600}},fmt(a.tutar)),
+              h("span",{style:{fontSize:9,padding:"2px 7px",borderRadius:8,
+                background:a.durum==="onaylandi"?"rgba(80,160,0,.1)":a.durum==="reddedildi"?"rgba(160,40,40,.1)":"rgba(240,160,60,.1)",
+                border:"1px solid "+(a.durum==="onaylandi"?"rgba(80,160,0,.3)":a.durum==="reddedildi"?"rgba(160,40,40,.3)":"rgba(240,160,60,.3)"),
+                color:a.durum==="onaylandi"?"var(--gr)":a.durum==="reddedildi"?"#c06060":"#f0a060"}},
+                a.durum==="onaylandi"?"✓ Onaylandı":a.durum==="reddedildi"?"✕ Reddedildi":"⏳ Bekliyor")
+            )
+          )
+        )
+      )
+    )
+  );
+}
+
+
+
 // ── BARKOD TARAYICI COMPONENT ──────────────────────────────────────────────
 function BarkodTarayici({onOku, onKapat}) {
   const divId = "qr-" + React.useRef(Math.random().toString(36).slice(2)).current;
@@ -2445,6 +2884,8 @@ function App() {
   const [odemeler, setOdemeler]           = useState([]); // [{id,faturId,tedarikcId,tarih,tutar,tip}]
   const [hareketler, setHareketler]       = useState([]); // [{id,barkod,urunAd,tip,miktar,birimMaliyet,tarih,faturId,notlar}]
   const [umDetay, setUmDetay]             = useState(null);
+  const [giderler, setGiderler]           = useState([]); // [{id,tarih,kategori,tutar,aciklama}]
+  const [avanslar, setAvanslar]           = useState([]); // [{id,staffId,staffAd,tutar,tarih,notlar,durum,odendi}]
   const [oduncler, setOduncler]           = useState([]); // [{id,komsuId,komsuAd,barkod,urunAd,miktar,tarih,notlar,geriAlindi,geriAlindiTarih}]
   const [komsular, setKomsular]           = useState([]); // [{id,ad,tel,adres}] // [{id,musteriAd,tel,staffId,tarih,gonderiTarih,gonderildi,tip}]
   const [stokSek, setStokSek]         = useState("liste"); // liste|giris|hareketler
@@ -2542,6 +2983,8 @@ function App() {
     if(local.hareketler?.length) setHareketler(local.hareketler);
     if(local.oduncler?.length) setOduncler(local.oduncler);
     if(local.komsular?.length) setKomsular(local.komsular);
+    if(local.giderler?.length) setGiderler(local.giderler);
+    if(local.avanslar?.length) setAvanslar(local.avanslar);
         }
         const [k,m,d] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
@@ -2601,7 +3044,7 @@ function App() {
 
   useEffect(()=>{
     if(yukleniyor) return;
-    localStorage.setItem("apron_v3",JSON.stringify({records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular}));
+    localStorage.setItem("apron_v3",JSON.stringify({records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,giderler,avanslar}));
   },[records,bekleyen,musteriDB,personeller,devDB,gecmis,yukleniyor]);
 
   // Ay başı gecmis temizle
@@ -3747,6 +4190,7 @@ function App() {
 
       // Ayarlar sekmesi
       psek==="ayarlar"&&div({className:"pg"},
+        h(AvansIste,{kul,avanslar,setAvanslar,showToast}),
         div({style:{background:"linear-gradient(135deg,#1a1408,#120e04)",border:"1.5px solid #3a2e10",borderRadius:16,padding:20,marginBottom:16}},
           div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"#d4a017",marginBottom:10}},"Şifre Değiştir"),
 
@@ -3812,7 +4256,7 @@ function App() {
         btn({className:"tbtn",onClick:cikis},"Çıkış")
       ),
       div({className:"atabs"},
-        [["ozet","Muhasebe"],["kayitlar","Kayıtlar"],["ayarlar","⚙ Ayarlar"]].map(([id,lb])=>
+        [["ozet","Muhasebe"],["gelirGider","💰 Gelir/Gider"],["kayitlar","Kayıtlar"],["ayarlar","⚙ Ayarlar"]].map(([id,lb])=>
           div({key:id,className:`atab${asek===id?" a":""}`,onClick:()=>setAsek(id)},lb)
         )
       ),
@@ -3856,6 +4300,11 @@ function App() {
             )
           )
         ),
+
+        asek==="gelirGider"&&h(GelirGiderModul,{
+          tumK, personeller, giderler, setGiderler,
+          avanslar, setAvanslar, showToast
+        }),
 
         asek==="kayitlar"&&div(null,
 
@@ -5069,5 +5518,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
 
 
 </script>
+
 </body>
 </html>
