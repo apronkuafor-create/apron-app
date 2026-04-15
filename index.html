@@ -2353,65 +2353,167 @@ function App() {
         btn({className:"tbtn",onClick:cikis},"Çıkış")
       ),
       div({className:"atabs"},
-        [["ozet","Özet"],["kayitlar","Kayıtlar"],["ayarlar","⚙ Ayarlar"]].map(([id,lb])=>
+        [["ozet","Muhasebe"],["kayitlar","Kayıtlar"],["ayarlar","⚙ Ayarlar"]].map(([id,lb])=>
           div({key:id,className:`atab${asek===id?" a":""}`,onClick:()=>setAsek(id)},lb)
         )
       ),
       div({className:"pg"},
 
         asek==="ozet"&&div(null,
+
+          // Şifre sıfırlama bildirimleri
           unuttumBildirim.filter(b=>!b.okundu).length>0&&div({
-            style:{background:"rgba(180,60,0,.12)",border:"1px solid rgba(200,80,0,.3)",borderRadius:12,padding:14,marginBottom:16}},
-            div({style:{fontSize:10,color:"#f0a060",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},"Şifre Sıfırlama Talepleri"),
+            style:{background:"rgba(180,60,0,.12)",border:"1px solid rgba(200,80,0,.3)",
+              borderRadius:12,padding:14,marginBottom:16}},
+            div({style:{fontSize:10,color:"#f0a060",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
+              "🔔 Şifre Sıfırlama Talepleri"),
             unuttumBildirim.filter(b=>!b.okundu).map(b=>
-              div({key:b.id,style:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid rgba(200,80,0,.15)"}},
+              div({key:b.id,style:{display:"flex",alignItems:"center",justifyContent:"space-between",
+                padding:"9px 0",borderBottom:"1px solid rgba(200,80,0,.15)"}},
                 div(null,
                   div({style:{fontSize:13,color:"#e8dcc8",fontWeight:500}},b.staffAd),
                   div({style:{fontSize:10,color:"#9a6a4a",marginTop:2}},b.tarih+" "+b.saat)
                 ),
-                btn({style:{background:"rgba(212,160,23,.1)",border:"1px solid rgba(212,160,23,.3)",borderRadius:8,color:"#d4a017",fontSize:10,padding:"6px 11px",cursor:"pointer"},
+                btn({style:{background:"rgba(212,160,23,.1)",border:"1px solid rgba(212,160,23,.3)",
+                  borderRadius:8,color:"#d4a017",fontSize:10,padding:"6px 11px",cursor:"pointer"},
                   onClick:()=>{
                     setPersoneller(p=>p.map(x=>x.id===b.staffId?{...x,pin:"1234"}:x));
                     setUnuttumBildirim(p=>p.map(x=>x.id===b.id?{...x,okundu:true}:x));
-                    showToast(b.staffAd+" gecici PIN: 1234","uy");
+                    showToast(b.staffAd+" geçici PIN: 1234","uy");
                   }},"Geçici PIN Ver")
               )
             )
           ),
-          div({className:"kpi2"},
-            div({className:"kpi"},div({className:"kl"},"Bugün Ciro"),div({className:"kv"},fmt(bugunku.reduce((s,r)=>s+r.toplam,0))),div({className:"ks"},bugunku.length+" kayit")),
-            div({className:"kpi"},div({className:"kl"},"Toplam Ciro"),div({className:"kv"},fmt(tumK.reduce((s,r)=>s+r.toplam,0))),div({className:"ks"},tumK.length+" kayit"))
-          ),
-          div({className:"sek",style:{marginBottom:9}},"Ödeme Dağılımı — Bugün"),
-          div({className:"og"},
-            [["💳","K.Karti",bugunku.reduce((s,r)=>s+(r.hizKK||0)+(r.uKK||0),0),tumK.reduce((s,r)=>s+(r.hizKK||0)+(r.uKK||0),0)],
-             ["🏦","IBAN",bugunku.reduce((s,r)=>s+(r.hizIB||0)+(r.uIB||0),0),tumK.reduce((s,r)=>s+(r.hizIB||0)+(r.uIB||0),0)],
-             ["💵","Nakit",bugunku.reduce((s,r)=>s+(r.hizNK||0)+(r.uNK||0),0),tumK.reduce((s,r)=>s+(r.hizNK||0)+(r.uNK||0),0)]
-            ].map(([ic,lb,b,t])=>
-              div({key:lb,className:"ok"},
-                div({style:{fontSize:20,marginBottom:5}},ic),
-                div({style:{fontSize:9,color:"#5a4a2a",textTransform:"uppercase",letterSpacing:1,marginBottom:4}},lb),
-                div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:15,color:"#d4a017",fontWeight:700}},fmt(b)),
-                div({style:{fontSize:9,color:"#2a2010",marginTop:2}},fmt(t)+" toplam")
-              )
-            )
-          ),
-          div({className:"sek",style:{marginBottom:9}},"Personel"),
-          personeller.filter(p=>p.rol==="personel"&&p.aktif).map(p=>{
-            const pk=tumK.filter(r=>r.staffId===p.id);
-            return div({key:p.id,className:"pk"},
-              div({className:"pav ak"},p.ad[0]),
-              div({className:"pi"},
-                div({className:"pad"},p.ad),
-                div({style:{display:"flex",gap:13,marginTop:3,flexWrap:"wrap"}},
-                  div({style:{fontSize:10,color:"#5a4a2a"}},"Bugün: ",h("span",{style:{color:"#d4a017",fontFamily:"Cormorant Garamond,serif",fontSize:13}},fmt(pk.filter(r=>r.tarih===TODAY()).reduce((s,r)=>s+r.toplam,0)))),
-                  div({style:{fontSize:10,color:"#5a4a2a"}},"Toplam: ",h("span",{style:{color:"#d4a017",fontFamily:"Cormorant Garamond,serif",fontSize:13}},fmt(pk.reduce((s,r)=>s+r.toplam,0))))
+
+          // ── MUHASEBESel ÖZET ──
+          (()=>{
+            const buAy = new Date();
+            const buAyStr = buAy.toISOString().slice(0,7); // YYYY-MM
+            const gecenAy = new Date(buAy.getFullYear(), buAy.getMonth()-1, 1).toISOString().slice(0,7);
+            const buAyK = tumK.filter(r=>r.tarih?.startsWith(buAyStr));
+            const gecenAyK = tumK.filter(r=>r.tarih?.startsWith(gecenAy));
+            const bugunK = bugunku;
+            const buAyCiro = buAyK.reduce((s,r)=>s+r.toplam,0);
+            const gecenAyCiro = gecenAyK.reduce((s,r)=>s+r.toplam,0);
+            const degisim = gecenAyCiro>0 ? Math.round(((buAyCiro-gecenAyCiro)/gecenAyCiro)*100) : 0;
+            const topCiro = tumK.reduce((s,r)=>s+r.toplam,0);
+            const bugunCiro = bugunK.reduce((s,r)=>s+r.toplam,0);
+            // Ödeme dağılımı
+            const topKK = tumK.reduce((s,r)=>s+(r.hizKK||0)+(r.uKK||0),0);
+            const topIB = tumK.reduce((s,r)=>s+(r.hizIB||0)+(r.uIB||0),0);
+            const topNK = tumK.reduce((s,r)=>s+(r.hizNK||0)+(r.uNK||0),0);
+            const ayKK = buAyK.reduce((s,r)=>s+(r.hizKK||0)+(r.uKK||0),0);
+            const ayIB = buAyK.reduce((s,r)=>s+(r.hizIB||0)+(r.uIB||0),0);
+            const ayNK = buAyK.reduce((s,r)=>s+(r.hizNK||0)+(r.uNK||0),0);
+            const ayAdi = buAy.toLocaleDateString("tr-TR",{month:"long",year:"numeric"});
+
+            return div(null,
+
+              // Ana KPI'lar
+              div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:14}},
+                [
+                  {lb:"Bugün",      v:bugunCiro,  s:bugunK.length+" kayıt",    ic:"📅"},
+                  {lb:"Bu Ay",      v:buAyCiro,   s:buAyK.length+" kayıt",     ic:"📆"},
+                  {lb:"Toplam",     v:topCiro,    s:tumK.length+" kayıt",      ic:"📊"},
+                  {lb:"Geçen Ay",   v:gecenAyCiro,s:gecenAyK.length+" kayıt",  ic:"📋"},
+                ].map(({lb,v,s,ic})=>
+                  div({key:lb,style:{background:"var(--bg2)",border:"1px solid var(--br)",
+                    borderRadius:12,padding:14}},
+                    div({style:{fontSize:16,marginBottom:6}},ic),
+                    div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:22,color:"var(--g)",fontWeight:700}},fmt(v)),
+                    div({style:{fontSize:10,color:"var(--mu)",letterSpacing:1,textTransform:"uppercase",marginTop:2}},lb),
+                    div({style:{fontSize:10,color:"var(--di)",marginTop:2}},s)
+                  )
                 )
+              ),
+
+              // Bu ay değişim
+              gecenAyCiro>0&&div({style:{background:"var(--bg2)",border:"1px solid var(--br)",
+                borderRadius:12,padding:12,marginBottom:12,
+                display:"flex",alignItems:"center",justifyContent:"space-between"}},
+                div({style:{fontSize:12,color:"var(--mu)"}},ayAdi+" performansı"),
+                div({style:{display:"flex",alignItems:"center",gap:6}},
+                  div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,
+                    color:degisim>=0?"var(--gr)":"#c06060",fontWeight:700}},
+                    (degisim>=0?"+":"")+degisim+"%"),
+                  div({style:{fontSize:10,color:"var(--mu)"}},"geçen aya göre")
+                )
+              ),
+
+              // Bu ay ödeme dağılımı
+              div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:12}},
+                div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},
+                  ayAdi+" Ödeme Dağılımı"),
+                div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}},
+                  [["💳","K.Kartı",ayKK],["🏦","IBAN",ayIB],["💵","Nakit",ayNK]].map(([ic,lb,v])=>
+                    div({key:lb,style:{background:"rgba(0,0,0,.2)",borderRadius:9,padding:"10px 6px",textAlign:"center"}},
+                      div({style:{fontSize:17,marginBottom:4}},ic),
+                      div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt(v)),
+                      div({style:{fontSize:9,color:"var(--mu)",textTransform:"uppercase",letterSpacing:1,marginTop:2}},lb)
+                    )
+                  )
+                ),
+                // Bar chart görsel
+                (()=>{
+                  const ayTop = ayKK+ayIB+ayNK;
+                  if(ayTop===0) return null;
+                  return div({style:{borderRadius:6,overflow:"hidden",height:8,display:"flex",gap:1}},
+                    [[ayKK,"#a060e0"],[ayIB,"var(--bl)"],[ayNK,"var(--gr)"]].map(([v,c],i)=>
+                      v>0&&div({key:i,style:{height:"100%",background:c,
+                        width:Math.round(v/ayTop*100)+"%",transition:"width .3s"}})
+                    )
+                  );
+                })()
+              ),
+
+              // Toplam ödeme dağılımı
+              div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:12}},
+                div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},
+                  "Tüm Zamanlar Ödeme Dağılımı"),
+                div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}
+                  ,[["💳","K.Kartı",topKK],["🏦","IBAN",topIB],["💵","Nakit",topNK]].map(([ic,lb,v])=>
+                    div({key:lb,style:{background:"rgba(0,0,0,.2)",borderRadius:9,padding:"10px 6px",textAlign:"center"}},
+                      div({style:{fontSize:17,marginBottom:4}},ic),
+                      div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt(v)),
+                      div({style:{fontSize:9,color:"var(--mu)",textTransform:"uppercase",letterSpacing:1,marginTop:2}},lb),
+                      div({style:{fontSize:9,color:"var(--di)",marginTop:1}},
+                        topCiro>0?Math.round(v/topCiro*100)+"%":"0%")
+                    )
+                  )
+                )
+              ),
+
+              // Personel performansı
+              div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14}},
+                div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},
+                  "Personel Performansı"),
+                personeller.filter(p=>p.rol==="personel"&&p.aktif).map(p=>{
+                  const pk=tumK.filter(r=>r.staffId===p.id);
+                  const ayPk=buAyK.filter(r=>r.staffId===p.id);
+                  const pTop=pk.reduce((s,r)=>s+r.toplam,0);
+                  const pAy=ayPk.reduce((s,r)=>s+r.toplam,0);
+                  const pBugun=bugunK.filter(r=>r.staffId===p.id).reduce((s,r)=>s+r.toplam,0);
+                  return div({key:p.id,style:{display:"flex",alignItems:"center",gap:10,
+                    padding:"10px 0",borderBottom:"1px solid var(--br)"}},
+                    div({style:{width:36,height:36,borderRadius:9,flexShrink:0,
+                      background:"linear-gradient(135deg,#2a2010,#1a1508)",
+                      border:"1px solid var(--br)",display:"flex",alignItems:"center",
+                      justifyContent:"center",fontFamily:"Cormorant Garamond,serif",
+                      fontSize:16,color:"var(--g)"}},p.ad[0]),
+                    div({style:{flex:1,minWidth:0}},
+                      div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},p.ad),
+                      p.pozisyon&&div({style:{fontSize:9,color:"var(--g)",letterSpacing:1,marginTop:1}},p.pozisyon)
+                    ),
+                    div({style:{textAlign:"right"}},
+                      div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt(pAy)),
+                      div({style:{fontSize:9,color:"var(--mu)",marginTop:1}},"Bu ay"),
+                      div({style:{fontSize:9,color:"var(--di)",marginTop:1}},fmt(pTop)+" toplam")
+                    )
+                  );
+                })
               )
             );
-          }),
-
-          
+          })()
         ),
 
         asek==="kayitlar"&&div(null,
@@ -3563,37 +3665,6 @@ function App() {
               )
             ),
 
-            div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14}},
-              div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:14}},"📋 Sekme İsimleri"),
-              div({style:{fontSize:9,color:"var(--mu)",letterSpacing:2,marginBottom:8,
-                paddingBottom:5,borderBottom:"1px solid var(--br)"}},"PERSONEL PANELİ"),
-              div({style:{display:"grid",gap:8,marginBottom:14}},
-                [["p_bugun","Bugün"],["p_gecmis","Geçmişim"],["p_ayarlar","Ayarlar"]].map(([k,def])=>
-                  div({key:k,style:{display:"grid",gridTemplateColumns:"90px 1fr",gap:8,alignItems:"center"}},
-                    div({style:{fontSize:11,color:"var(--mu)"}},def),
-                    inp({className:"fi",style:{margin:0},value:sekmeler[k]||def,placeholder:def,
-                      onChange:ev=>setSekmeler(p=>({...p,[k]:ev.target.value}))})
-                  )
-                )
-              ),
-              div({style:{fontSize:9,color:"var(--mu)",letterSpacing:2,marginBottom:8,
-                paddingBottom:5,borderBottom:"1px solid var(--br)"}},"YÖNETİCİ PANELİ"),
-              div({style:{display:"grid",gap:8,marginBottom:12}},
-                [["y_ozet","Özet"],["y_kayitlar","Kayıtlar"],["y_urunler","Ürünler"],["y_ayarlar","Ayarlar"]].map(([k,def])=>
-                  div({key:k,style:{display:"grid",gridTemplateColumns:"90px 1fr",gap:8,alignItems:"center"}},
-                    div({style:{fontSize:11,color:"var(--mu)"}},def),
-                    inp({className:"fi",style:{margin:0},value:sekmeler[k]||def,placeholder:def,
-                      onChange:ev=>setSekmeler(p=>({...p,[k]:ev.target.value}))})
-                  )
-                )
-              ),
-              btn({style:{width:"100%",padding:"8px 0",borderRadius:9,
-                border:"1px dashed rgba(160,40,40,.3)",background:"transparent",
-                color:"#c06060",fontSize:11,cursor:"pointer"},
-                onClick:()=>setSekmeler({p_bugun:"Bugün",p_gecmis:"Geçmişim",p_ayarlar:"Ayarlar",
-                  y_ozet:"Özet",y_kayitlar:"Kayıtlar",y_urunler:"Ürünler",y_ayarlar:"Ayarlar"})},
-                "↺ Sekme İsimlerini Sıfırla")
-            )
           ),
 
           // ── İŞLETME ──
