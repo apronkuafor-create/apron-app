@@ -1926,6 +1926,43 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
 
     // ── AVANS ──
     sekme==="avans"&&div(null,
+
+      // Personel bazlı IBAN ve Avans özeti
+      div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,
+        padding:14,marginBottom:14}},
+        div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",
+          marginBottom:12}},"👤 Personel Bazlı Detay"),
+        (personeller||[]).filter(p=>p.rol==="personel"&&p.aktif).map(p=>{
+          const pIban = (tumK||[]).filter(r=>r.staffId===p.id&&r.tarih?.startsWith(secAy))
+            .reduce((s,r)=>s+(r.hizIB||0)+(r.uIB||0),0);
+          const manIban = (tumK||[]).filter(r=>r.hizIbanId===p.id&&r.staffId!==p.id&&r.tarih?.startsWith(secAy))
+            .reduce((s,r)=>s+(r.hizIB||0),0);
+          const toplamIban = pIban + manIban;
+          const pAvans = (avanslar||[]).filter(a=>a.staffId===p.id&&a.durum==="onaylandi"&&a.tarih?.startsWith(secAy))
+            .reduce((s,a)=>s+toN(a.tutar),0);
+          return div({key:p.id,style:{background:"rgba(0,0,0,.2)",borderRadius:10,padding:12,marginBottom:8}},
+            div({style:{fontSize:13,color:"var(--tx)",fontWeight:500,marginBottom:8}},(p.ad)),
+            div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+              div({style:{background:"rgba(96,160,224,.06)",borderRadius:8,padding:"9px 10px"}},
+                div({style:{fontSize:9,color:"var(--mu)",letterSpacing:1,marginBottom:4}},"🏦 IBAN GELİRİ"),
+                div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"var(--bl)",fontWeight:600}},fmt(toplamIban)),
+                pIban>0&&div({style:{fontSize:9,color:"var(--mu)",marginTop:2}},"Hizmet: "+fmt(pIban)),
+                manIban>0&&div({style:{fontSize:9,color:"var(--bl)",marginTop:1}},"Manikürist: +"+fmt(manIban))
+              ),
+              div({style:{background:"rgba(240,160,60,.06)",borderRadius:8,padding:"9px 10px"}},
+                div({style:{fontSize:9,color:"var(--mu)",letterSpacing:1,marginBottom:4}},"💵 AVANS"),
+                div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,
+                  color:pAvans>0?"#f0a060":"var(--mu)",fontWeight:600}},fmt(pAvans)),
+                (avanslar||[]).filter(a=>a.staffId===p.id&&a.durum==="onaylandi"&&a.tarih?.startsWith(secAy))
+                  .map(a=>div({key:a.id,style:{fontSize:9,color:"var(--di)",marginTop:1}},
+                    a.tarih+" · "+fmt(a.tutar)))
+              )
+            )
+          );
+        })
+      ),
+
+      // Bekleyen avans talepleri
       bekleyenAvans.length>0&&div({style:{background:"rgba(240,160,60,.06)",
         border:"1px solid rgba(240,160,60,.25)",borderRadius:12,padding:14,marginBottom:12}},
         div({style:{fontSize:10,color:"#f0a060",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
@@ -1938,8 +1975,7 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
                 div({style:{fontSize:10,color:"var(--mu)",marginTop:2}},a.tarih),
                 a.notlar&&div({style:{fontSize:11,color:"var(--di)",marginTop:3,fontStyle:"italic"}},(a.notlar))
               ),
-              div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,
-                color:"#f0a060",fontWeight:700}},fmt(a.tutar))
+              div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"#f0a060",fontWeight:700}},fmt(a.tutar))
             ),
             div({style:{display:"flex",gap:8}},
               btn({style:{flex:1,padding:"9px 0",borderRadius:8,
@@ -1947,8 +1983,7 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
                 color:"var(--gr)",fontSize:12,cursor:"pointer"},
                 onClick:()=>{
                   setAvanslar(p=>p.map(x=>x.id===a.id?{...x,durum:"onaylandi",odendi:true,odendiTarih:TODAY()}:x));
-                  setGiderler(p=>[...p,{id:uid(),tarih:TODAY(),
-                    kategori:"Avans Ödemesi",
+                  setGiderler(p=>[...p,{id:uid(),tarih:TODAY(),kategori:"Avans Ödemesi",
                     tutar:a.tutar,aciklama:a.staffAd+" avans ödemesi"}]);
                   showToast(a.staffAd+"'e avans onaylandı");
                 }},"✓ Onayla & Öde"),
@@ -1957,32 +1992,8 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
                 color:"#c06060",fontSize:12,cursor:"pointer"},
                 onClick:()=>{
                   setAvanslar(p=>p.map(x=>x.id===a.id?{...x,durum:"reddedildi"}:x));
-                  showToast(a.staffAd+" avans talebi reddedildi","uy");
+                  showToast(a.staffAd+" talebi reddedildi","uy");
                 }},"✕ Reddet")
-            )
-          )
-        )
-      ),
-      // Tüm avans geçmişi
-      (avanslar||[]).length>0&&div({style:{background:"var(--bg2)",border:"1px solid var(--br)",
-        borderRadius:12,padding:14}},
-        div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
-          "Avans Geçmişi"),
-        (avanslar||[]).sort((a,b)=>b.tarih.localeCompare(a.tarih)).map(a=>
-          div({key:a.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
-            padding:"8px 0",borderBottom:"1px solid var(--br)"}},
-            div(null,
-              div({style:{fontSize:12,color:"var(--tx)"}},(a.staffAd)),
-              div({style:{fontSize:10,color:"var(--mu)",marginTop:1}},a.tarih)
-            ),
-            div({style:{display:"flex",alignItems:"center",gap:10}},
-              div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:14,
-                color:"var(--g)",fontWeight:600}},fmt(a.tutar)),
-              h("span",{style:{fontSize:9,padding:"2px 7px",borderRadius:8,
-                background:a.durum==="onaylandi"?"rgba(80,160,0,.1)":a.durum==="reddedildi"?"rgba(160,40,40,.1)":"rgba(240,160,60,.1)",
-                border:"1px solid "+(a.durum==="onaylandi"?"rgba(80,160,0,.3)":a.durum==="reddedildi"?"rgba(160,40,40,.3)":"rgba(240,160,60,.3)"),
-                color:a.durum==="onaylandi"?"var(--gr)":a.durum==="reddedildi"?"#c06060":"#f0a060"}},
-                a.durum==="onaylandi"?"✓ Onaylandı":a.durum==="reddedildi"?"✕ Reddedildi":"⏳ Bekliyor")
             )
           )
         )
