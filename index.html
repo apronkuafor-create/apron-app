@@ -1634,7 +1634,7 @@ function AvansIste({kul, avanslar, setAvanslar, showToast}) {
 }
 
 // ── GELİR/GİDER MODÜLÜ ─────────────────────────────────────────────────────
-function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, setAvanslar, showToast}) {
+function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, setAvanslar, ibanBildirimler, showToast}) {
   const [sekme, setSekme] = React.useState("ozet");
   const [secAy, setSecAy] = React.useState(new Date().toISOString().slice(0,7));
   const [giderFrm, setGiderFrm] = React.useState(null);
@@ -1933,15 +1933,20 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
         div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",
           marginBottom:12}},"👤 Personel Bazlı Detay"),
         (personeller||[]).filter(p=>p.rol==="personel"&&p.aktif).map(p=>{
-          // IBAN kuralı: hizIbanId kime set edilmişse hizIB ona gider
-          // uIB her zaman kaydı açan personele gider
-          const pHizIban = (tumK||[]).filter(r=>r.tarih?.startsWith(secAy)&&r.hizIbanId===p.id)
+          // IBAN kuralı:
+          // - Normal personel: kendi kayıtlarındaki hizIB (hizIbanId kendisi veya boş)
+          // - Maniküristten gelen: ibanBildirimler'de onaylananlar
+          const normalHizIban = (tumK||[]).filter(r=>r.tarih?.startsWith(secAy)
+            &&r.staffId===p.id&&(!r.hizIbanId||r.hizIbanId===p.id))
             .reduce((s,r)=>s+(r.hizIB||0),0);
+          const onaylananIban = (ibanBildirimler||[]).filter(b=>b.hedefId===p.id
+            &&b.durum==="onaylandi"&&b.tarih?.startsWith(secAy))
+            .reduce((s,b)=>s+toN(b.tutar),0);
           const pUrunIban = (tumK||[]).filter(r=>r.tarih?.startsWith(secAy)&&r.staffId===p.id)
             .reduce((s,r)=>s+(r.uIB||0),0);
-          const toplamIban = pHizIban + pUrunIban;
+          const toplamIban = normalHizIban + onaylananIban + pUrunIban;
           const pIban = toplamIban;
-          const manIban = 0;
+          const manIban = onaylananIban;
           const pAvans = (avanslar||[]).filter(a=>a.staffId===p.id&&a.durum==="onaylandi"&&a.tarih?.startsWith(secAy))
             .reduce((s,a)=>s+toN(a.tutar),0);
           return div({key:p.id,style:{background:"rgba(0,0,0,.2)",borderRadius:10,padding:12,marginBottom:8}},
@@ -2899,6 +2904,7 @@ function App() {
   const [stokGirisTip, setStokGirisTip] = useState("giris"); // giris/baslangic
   const [stokDetay, setStokDetay]     = useState(null);
   const [hatirlatmalar, setHatirlatmalar] = useState([]);
+  const [ibanBildirimler, setIbanBildirimler] = useState([]); // [{id,kayitId,manKulId,manKulAd,hedefId,hedefAd,musteriAd,hizmetAd,tutar,tarih,durum}]
   const [randevular, setRandevular]       = useState([]); // [{id,staffId,staffAd,musteriAd,tel,tarih,saat,notlar,iptal}]
   const [randevuForm, setRandevuForm]     = useState(null);
   // Ürün Muhasebesi state'leri
@@ -3008,6 +3014,7 @@ function App() {
     if(local.komsular?.length) setKomsular(local.komsular);
     if(local.giderler?.length) setGiderler(local.giderler);
     if(local.avanslar?.length) setAvanslar(local.avanslar);
+    if(local.ibanBildirimler?.length) setIbanBildirimler(local.ibanBildirimler);
         }
         const [k,m,d] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
@@ -3067,7 +3074,7 @@ function App() {
 
   useEffect(()=>{
     if(yukleniyor) return;
-    localStorage.setItem("apron_v3",JSON.stringify({records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,giderler,avanslar}));
+    localStorage.setItem("apron_v3",JSON.stringify({records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,giderler,avanslar,ibanBildirimler}));
   },[records,bekleyen,musteriDB,personeller,devDB,gecmis,yukleniyor]);
 
   // Ay başı gecmis temizle
@@ -3224,6 +3231,27 @@ function App() {
 
   const gunSonu = () => {
     const ids=myBekleyen.map(r=>r.id);
+    // IBAN bildirimi oluştur - manikürist kayıtları için
+    myBekleyen.forEach(kayit => {
+      if(kayit.hizIB > 0 && kayit.hizIbanId && kayit.hizIbanId !== kul.id) {
+        // Bu kayıtta IBAN başka personele gidiyor - bildirim oluştur
+        const hizAd = (kayit.hizler||[]).map(h=>h.n||h).join(", ") || "Hizmet";
+        setIbanBildirimler(p=>[...p, {
+          id: uid(),
+          kayitId: kayit.id,
+          manKulId: kul.id,
+          manKulAd: kul.ad,
+          hedefId: kayit.hizIbanId,
+          hedefAd: kayit.hizIbanAd || "",
+          musteriAd: kayit.musteri || "",
+          hizmetAd: hizAd,
+          tutar: kayit.hizIB,
+          tarih: kayit.tarih || TODAY(),
+          durum: "bekliyor" // bekliyor | onaylandi | reddedildi
+        }]);
+      }
+    });
+
     // Stok düşümü + hareket kaydı - satılan ürünler için FIFO
     myBekleyen.forEach(kayit => {
       (kayit.urunler||[]).forEach(u => {
@@ -3953,6 +3981,72 @@ function App() {
           )
         ),
 
+        // IBAN Onay Bildirimleri - Murat gibi personele gelen
+        (()=>{
+          const bekleyenIban = (ibanBildirimler||[]).filter(b=>b.hedefId===kul.id&&b.durum==="bekliyor");
+          const reddedilenIban = (ibanBildirimler||[]).filter(b=>b.manKulId===kul.id&&b.durum==="reddedildi");
+          if(!bekleyenIban.length && !reddedilenIban.length) return null;
+          return div(null,
+            // Onay bekleyen IBAN bildirimleri
+            bekleyenIban.length>0&&div({style:{background:"rgba(96,160,224,.08)",
+              border:"1.5px solid rgba(96,160,224,.3)",borderRadius:12,padding:14,marginBottom:14}},
+              div({style:{fontSize:10,color:"var(--bl)",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
+                "🏦 IBAN Onay Bekliyor ("+bekleyenIban.length+")"),
+              bekleyenIban.map(b=>
+                div({key:b.id,style:{background:"rgba(0,0,0,.2)",borderRadius:9,padding:"11px 12px",marginBottom:8}},
+                  div({style:{fontSize:12,color:"var(--tx)",marginBottom:4}},
+                    h("strong",{style:{color:"var(--bl)"}},b.manKulAd),
+                    " müşteriniz ",
+                    h("strong",{style:{color:"var(--tx)"}},b.musteriAd),
+                    "'a ",
+                    h("strong",null,b.hizmetAd),
+                    " yaptı."
+                  ),
+                  div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+                    div({style:{fontSize:11,color:"var(--mu)"}},b.tarih),
+                    div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,
+                      color:"var(--bl)",fontWeight:700}},fmt(b.tutar)+" IBAN'ınıza geldi")
+                  ),
+                  div({style:{display:"flex",gap:8}},
+                    btn({style:{flex:1,padding:"9px 0",borderRadius:8,
+                      background:"rgba(80,160,0,.1)",border:"1px solid rgba(80,160,0,.25)",
+                      color:"var(--gr)",fontSize:12,cursor:"pointer"},
+                      onClick:()=>setIbanBildirimler(p=>p.map(x=>x.id===b.id?{...x,durum:"onaylandi"}:x))},"✓ Onaylıyorum"),
+                    btn({style:{flex:1,padding:"9px 0",borderRadius:8,
+                      background:"rgba(160,40,40,.1)",border:"1px solid rgba(160,40,40,.25)",
+                      color:"#c06060",fontSize:12,cursor:"pointer"},
+                      onClick:()=>setIbanBildirimler(p=>p.map(x=>x.id===b.id?{...x,durum:"reddedildi"}:x))},"✕ Hayır")
+                  )
+                )
+              )
+            ),
+            // Reddedilen IBAN bildirimleri - maniküristin göreceği
+            reddedilenIban.length>0&&div({style:{background:"rgba(160,40,40,.08)",
+              border:"1.5px solid rgba(160,40,40,.3)",borderRadius:12,padding:14,marginBottom:14}},
+              div({style:{fontSize:10,color:"#c06060",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
+                "❌ Reddedilen IBAN Bildirimleri"),
+              reddedilenIban.map(b=>
+                div({key:b.id,style:{background:"rgba(0,0,0,.2)",borderRadius:9,padding:"11px 12px",marginBottom:8}},
+                  div({style:{fontSize:12,color:"var(--tx)",marginBottom:6}},
+                    h("strong",{style:{color:"#c06060"}},b.hedefAd),
+                    " İban'ına gittiğini iddia ettiğiniz ",
+                    h("strong",null,fmt(b.tutar)),
+                    " tutarı onaylamadı."
+                  ),
+                  div({style:{fontSize:11,color:"var(--mu)",marginBottom:8}},
+                    "Müşteri: "+b.musteriAd+" · "+b.tarih),
+                  div({style:{fontSize:11,color:"#f0a060",marginBottom:8}},
+                    "Lütfen kontrol edip yeniden gönderin veya "+b.hedefAd+" ile iletişime geçin."),
+                  btn({style:{padding:"7px 14px",borderRadius:8,
+                    background:"transparent",border:"1px solid #4a1010",
+                    color:"#c06060",fontSize:11,cursor:"pointer"},
+                    onClick:()=>setIbanBildirimler(p=>p.filter(x=>x.id!==b.id))},"Tamam, Anladım")
+                )
+              )
+            )
+          );
+        })(),
+
         // Hatırlatma bildirimleri
         (()=>{
           const bugun = TODAY();
@@ -4318,7 +4412,7 @@ function App() {
 
           muhSek==="gelirGider"&&h(GelirGiderModul,{
             tumK, personeller, giderler, setGiderler,
-            avanslar, setAvanslar, showToast
+            avanslar, setAvanslar, ibanBildirimler, showToast
           }),
 
           muhSek==="ozet"&&div(null,
