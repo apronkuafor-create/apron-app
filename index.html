@@ -2326,8 +2326,8 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
       tarih:ilk?.tarih, saat:ilk?.saat, gonderildi:ilk?.gonderildi,
       hizler:temizH,hizKK:hKK,hizIB:hIB,hizNK:hNK,
       urunler:temizU,uKK,uIB,uNK,
-      hizIbanId: toN(hIB)>0 ? (_isManikurist&&anaPersonelId ? anaPersonelId : (hIbanSec||aktifKullanici?.id||"")) : "",
-      hizIbanAd: toN(hIB)>0 ? (_isManikurist&&anaPersonelId ? (aktifP.find(p=>p.id===anaPersonelId)?.ad||"") : (hIbanSec ? aktifP.find(p=>p.id===hIbanSec)?.ad||"" : aktifKullanici?.ad||"")) : "",
+      hizIbanId: toN(hIB)>0 ? (_isManikurist ? (anaPersonelId||"" ) : (hIbanSec||aktifKullanici?.id||"")) : "",
+      hizIbanAd: toN(hIB)>0 ? (_isManikurist ? (aktifP.find(p=>p.id===anaPersonelId)?.ad||"") : (hIbanSec ? aktifP.find(p=>p.id===hIbanSec)?.ad||"" : aktifKullanici?.ad||"")) : "",
       urunIbanId: toN(uIB)>0 ? (uIbanSec||aktifKullanici?.id||"") : "",
       urunIbanAd: toN(uIB)>0 ? (uIbanSec ? aktifP.find(p=>p.id===uIbanSec)?.ad||"" : aktifKullanici?.ad||"") : ""
     });
@@ -3231,26 +3231,25 @@ function App() {
 
   const gunSonu = () => {
     const ids=myBekleyen.map(r=>r.id);
-    // IBAN bildirimi oluştur - manikürist kayıtları için
-    myBekleyen.forEach(kayit => {
-      if(kayit.hizIB > 0 && kayit.hizIbanId && kayit.hizIbanId !== kul.id) {
-        // Bu kayıtta IBAN başka personele gidiyor - bildirim oluştur
-        const hizAd = (kayit.hizler||[]).map(h=>h.n||h).join(", ") || "Hizmet";
-        setIbanBildirimler(p=>[...p, {
-          id: uid(),
-          kayitId: kayit.id,
-          manKulId: kul.id,
-          manKulAd: kul.ad,
-          hedefId: kayit.hizIbanId,
-          hedefAd: kayit.hizIbanAd || "",
-          musteriAd: kayit.musteri || "",
-          hizmetAd: hizAd,
-          tutar: kayit.hizIB,
-          tarih: kayit.tarih || TODAY(),
-          durum: "bekliyor" // bekliyor | onaylandi | reddedildi
-        }]);
-      }
-    });
+    // IBAN bildirimi oluştur - toplu olarak tek seferde
+    const yeniBildirimler = myBekleyen
+      .filter(kayit => kayit.hizIB > 0 && kayit.hizIbanId && kayit.hizIbanId !== kul.id && kayit.hizIbanId !== "")
+      .map(kayit => ({
+        id: uid(),
+        kayitId: kayit.id,
+        manKulId: kul.id,
+        manKulAd: kul.ad,
+        hedefId: kayit.hizIbanId,
+        hedefAd: kayit.hizIbanAd || "",
+        musteriAd: kayit.musteri || "",
+        hizmetAd: (kayit.hizler||[]).map(h=>h.n||h).join(", ") || "Hizmet",
+        tutar: kayit.hizIB,
+        tarih: kayit.tarih || TODAY(),
+        durum: "bekliyor"
+      }));
+    if(yeniBildirimler.length > 0) {
+      setIbanBildirimler(p=>[...p, ...yeniBildirimler]);
+    }
 
     // Stok düşümü + hareket kaydı - satılan ürünler için FIFO
     myBekleyen.forEach(kayit => {
