@@ -1933,10 +1933,16 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
         div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",
           marginBottom:12}},"👤 Personel Bazlı Detay"),
         (personeller||[]).filter(p=>p.rol==="personel"&&p.aktif).map(p=>{
-          const pIban = (tumK||[]).filter(r=>r.staffId===p.id&&r.tarih?.startsWith(secAy))
-            .reduce((s,r)=>s+(r.hizIB||0)+(r.uIB||0),0);
-          const manIban = (tumK||[]).filter(r=>r.hizIbanId===p.id&&r.staffId!==p.id&&r.tarih?.startsWith(secAy))
-            .reduce((s,r)=>s+(r.hizIB||0),0);
+          // Kendi kayıtlarından IBAN - sadece hizIbanId kendisine ait olanlar
+          // Manikürist kayıtlarında hizIB aslında hizIbanId'ye gider, staffId'ye değil
+          const pIban = (tumK||[]).filter(r=>r.tarih?.startsWith(secAy)&&(
+            // Normal personel: kendi kaydı VE hizIbanId kendisi (veya boş)
+            (r.staffId===p.id && (!r.hizIbanId || r.hizIbanId===p.id))
+          )).reduce((s,r)=>s+(r.hizIB||0)+(r.uIB||0),0);
+          // Maniküristin kayıtlarından bu personele gelen IBAN
+          const manIban = (tumK||[]).filter(r=>r.tarih?.startsWith(secAy)&&
+            r.hizIbanId===p.id&&r.staffId!==p.id
+          ).reduce((s,r)=>s+(r.hizIB||0),0);
           const toplamIban = pIban + manIban;
           const pAvans = (avanslar||[]).filter(a=>a.staffId===p.id&&a.durum==="onaylandi"&&a.tarih?.startsWith(secAy))
             .reduce((s,a)=>s+toN(a.tutar),0);
