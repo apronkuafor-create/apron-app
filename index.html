@@ -4266,7 +4266,97 @@ function App() {
                 )
               )
             ),
-            div({style:{fontSize:10,color:"#3a2e1e",marginTop:10,textAlign:"center"}},"Geçmiş kayıtlar kalıcı olarak saklanır")
+            div({style:{fontSize:10,color:"#3a2e1e",marginTop:10,textAlign:"center"}},"Geçmiş kayıtlar kalıcı olarak saklanır"),
+
+            // IBAN ve Avans özet kartları
+            (()=>{
+              const buAy = new Date().toISOString().slice(0,7);
+              const filAy = gecmisAyFil||buAy;
+              // Bu personele ait IBAN gelirleri (onaylananlar dahil)
+              const myIban = tumK.filter(r=>r.staffId===kul.id&&r.tarih?.startsWith(filAy))
+                .reduce((s,r)=>s+((!r.hizIbanId||r.hizIbanId===kul.id)?toN(r.hizIB):0)+toN(r.uIB),0);
+              const onaylananIban = (avanslar||[]).filter(a=>false).reduce((s,a)=>s,0); // placeholder
+              const manOnaylanan = (ibanBildirimler||[])
+                .filter(b=>b.hedefId===kul.id&&b.durum==="onaylandi"&&b.tarih?.startsWith(filAy))
+                .reduce((s,b)=>s+toN(b.tutar),0);
+              const topIban = myIban + manOnaylanan;
+              const myAvans = (avanslar||[]).filter(a=>a.staffId===kul.id&&a.durum==="onaylandi"&&a.tarih?.startsWith(filAy))
+                .reduce((s,a)=>s+toN(a.tutar),0);
+
+              return div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}},
+                // IBAN Kartı
+                div({style:{background:"rgba(96,160,224,.08)",border:"1px solid rgba(96,160,224,.2)",
+                  borderRadius:11,padding:11,cursor:"pointer"},
+                  onClick:()=>setGecmisMusteriFil(gecmisMusteriFil==="__iban__"?"":"__iban__")},
+                  div({style:{fontSize:9,color:"var(--mu)",letterSpacing:1,textTransform:"uppercase",marginBottom:4}},"🏦 IBAN GELİRİ"),
+                  div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--bl)",fontWeight:700}},fmt(topIban)),
+                  div({style:{fontSize:9,color:"var(--mu)",marginTop:2}},"Detay için tıkla ↓")
+                ),
+                // Avans Kartı
+                div({style:{background:"rgba(240,160,60,.08)",border:"1px solid rgba(240,160,60,.2)",
+                  borderRadius:11,padding:11,cursor:"pointer"},
+                  onClick:()=>setGecmisMusteriFil(gecmisMusteriFil==="__avans__"?"":"__avans__")},
+                  div({style:{fontSize:9,color:"var(--mu)",letterSpacing:1,textTransform:"uppercase",marginBottom:4}},"💵 AVANS"),
+                  div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"#f0a060",fontWeight:700}},fmt(myAvans)),
+                  div({style:{fontSize:9,color:"var(--mu)",marginTop:2}},"Detay için tıkla ↓")
+                )
+              );
+            })(),
+
+            // IBAN detay
+            gecmisMusteriFil==="__iban__"&&(()=>{
+              const filAy = gecmisAyFil||new Date().toISOString().slice(0,7);
+              const ibanKayitlar = tumK.filter(r=>r.staffId===kul.id&&r.tarih?.startsWith(filAy)
+                &&((!r.hizIbanId||r.hizIbanId===kul.id)?(r.hizIB>0):false||r.uIB>0));
+              const manKayitlar = (ibanBildirimler||[]).filter(b=>b.hedefId===kul.id&&b.durum==="onaylandi"&&b.tarih?.startsWith(filAy));
+              return div({style:{background:"rgba(96,160,224,.05)",border:"1px solid rgba(96,160,224,.15)",
+                borderRadius:11,padding:12,marginTop:8}},
+                div({style:{fontSize:9,color:"var(--bl)",letterSpacing:2,textTransform:"uppercase",marginBottom:8}},"IBAN DETAYI"),
+                ibanKayitlar.length===0&&manKayitlar.length===0&&div({style:{fontSize:11,color:"var(--mu)",textAlign:"center",padding:8}},"Bu ay IBAN geliri yok"),
+                ibanKayitlar.sort((a,b)=>b.tarih.localeCompare(a.tarih)).map(r=>
+                  div({key:r.id,style:{display:"flex",justifyContent:"space-between",
+                    padding:"6px 0",borderBottom:"1px solid rgba(96,160,224,.08)"}},
+                    div(null,
+                      div({style:{fontSize:11,color:"var(--tx)"}},(r.musteri||"-")),
+                      div({style:{fontSize:9,color:"var(--mu)",marginTop:1}},r.tarih+" · Kendi hizmeti")
+                    ),
+                    div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:13,color:"var(--bl)",fontWeight:600}},
+                      fmt(((!r.hizIbanId||r.hizIbanId===kul.id)?r.hizIB:0)+r.uIB))
+                  )
+                ),
+                manKayitlar.sort((a,b)=>b.tarih.localeCompare(a.tarih)).map(b=>
+                  div({key:b.id,style:{display:"flex",justifyContent:"space-between",
+                    padding:"6px 0",borderBottom:"1px solid rgba(96,160,224,.08)"}},
+                    div(null,
+                      div({style:{fontSize:11,color:"var(--tx)"}},(b.musteriAd||"-")),
+                      div({style:{fontSize:9,color:"var(--bl)",marginTop:1}},b.tarih+" · "+b.manKulAd+" · "+b.hizmetAd)
+                    ),
+                    div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:13,color:"var(--bl)",fontWeight:600}},fmt(b.tutar))
+                  )
+                )
+              );
+            })(),
+
+            // Avans detay
+            gecmisMusteriFil==="__avans__"&&(()=>{
+              const filAy = gecmisAyFil||new Date().toISOString().slice(0,7);
+              const myAvanslar = (avanslar||[]).filter(a=>a.staffId===kul.id&&a.durum==="onaylandi"&&a.tarih?.startsWith(filAy));
+              return div({style:{background:"rgba(240,160,60,.05)",border:"1px solid rgba(240,160,60,.15)",
+                borderRadius:11,padding:12,marginTop:8}},
+                div({style:{fontSize:9,color:"#f0a060",letterSpacing:2,textTransform:"uppercase",marginBottom:8}},"AVANS DETAYI"),
+                myAvanslar.length===0&&div({style:{fontSize:11,color:"var(--mu)",textAlign:"center",padding:8}},"Bu ay avans yok"),
+                myAvanslar.sort((a,b)=>b.tarih.localeCompare(a.tarih)).map(a=>
+                  div({key:a.id,style:{display:"flex",justifyContent:"space-between",
+                    padding:"6px 0",borderBottom:"1px solid rgba(240,160,60,.08)"}},
+                    div(null,
+                      div({style:{fontSize:11,color:"var(--tx)"}},a.tarih),
+                      a.notlar&&div({style:{fontSize:9,color:"var(--mu)",marginTop:1,fontStyle:"italic"}},(a.notlar))
+                    ),
+                    div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:13,color:"#f0a060",fontWeight:600}},fmt(a.tutar))
+                  )
+                )
+              );
+            })()
           ),
 
           // Kayıt listesi
