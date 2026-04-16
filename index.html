@@ -3311,8 +3311,6 @@ function App() {
   // DEFAULT ile merge et - yeni eklenen personeller kaybolmasın, eksik alanlar tamamlansın
   const merged = DEFAULT_PERSONELLER.map(dp => {
     const lp = local.personeller.find(x=>x.id===dp.id);
-    // lp varsa: localStorage'daki PIN, aktif durumu ve diğer alanları koru
-    // aktif: lp.aktif kullan (yöneticinin değişikliği korunsun)
     return lp ? {...dp, ...lp, pozisyon: lp.pozisyon||dp.pozisyon, grup: lp.grup||dp.grup} : dp;
   });
   // localStorage'da olup DEFAULT'ta olmayan (sonradan eklenmiş) personeller
@@ -3336,14 +3334,25 @@ function App() {
     if(local.bankalar?.length) setBankalar(local.bankalar);
     if(local.hesapSaglama) setHesapSaglama(local.hesapSaglama);
         }
-        const [k,m,d] = await Promise.all([
+        const [k,m,d,p] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
           dbAl("musteriler"),
           dbAl("devamsizliklar"),
+          dbAl("personeller"),
         ]);
         if(k.length){
           setRecords(k.filter(r=>r.gonderildi).map(mapR));
           setBekleyen(k.filter(r=>!r.gonderildi).map(mapR));
+        }
+        // Personelleri DB'den yükle - PIN değişiklikleri korunsun
+        if(p&&p.length>0){
+          const dbPers = p.map(x=>({
+            id:x.id, ad:x.ad, pin:x.pin, rol:x.rol, aktif:x.aktif,
+            grup:x.grup||"gelir", pozisyon:x.pozisyon||""
+          }));
+          // DEFAULT'ta olup DB'de olmayan yeni personelleri de ekle
+          const extras = DEFAULT_PERSONELLER.filter(dp=>!dbPers.find(x=>x.id===dp.id));
+          setPersoneller([...dbPers, ...extras]);
         }
         if(m.length) setMusteriDB(m.map(x=>({id:x.id,ad:x.ad,tel:x.tel||"",sahipId:x.sahip_id||"",sahipAd:x.sahip_ad||"",ilkGiris:x.ilk_giris||"",dogumTarihi:x.dogum_tarihi||"",cinsiyet:x.cinsiyet||"",adres:x.adres||"",notlar:x.notlar||""})));
         // Stok yükle
@@ -3606,7 +3615,9 @@ function App() {
     if(!yeniP.ad.trim()){setPHata("Ad Soyad zorunlu");return;}
     if(!yeniP.pin||yeniP.pin.length!==4||!/^\d{4}$/.test(yeniP.pin)){setPHata("PIN 4 haneli sayi olmali");return;}
     if(personeller.find(p=>p.pin===yeniP.pin)){setPHata("Bu PIN kullaniliyor");return;}
-    setPersoneller(p=>[...p,{id:"s"+uid(),ad:yeniP.ad.trim(),pin:yeniP.pin,rol:yeniP.rol,aktif:false}]);
+    const yp={id:"s"+uid(),ad:yeniP.ad.trim(),pin:yeniP.pin,rol:yeniP.rol,aktif:false,grup:"gelir",pozisyon:""};
+    setPersoneller(p=>[...p,yp]);
+    if(DB) DB.from("personeller").insert({id:yp.id,ad:yp.ad,pin:yp.pin,rol:yp.rol,aktif:yp.aktif,grup:yp.grup,pozisyon:yp.pozisyon}).then(()=>{}).catch(()=>{});
     setYeniP({ad:"",pin:"",rol:"personel"}); setPEkle(false); setPHata("");
     showToast("Personel eklendi - aktiflestirilmeyi bekliyor");
   };
@@ -3616,7 +3627,10 @@ function App() {
     if(!pDuz.ad.trim()){setPHata("Ad Soyad zorunlu");return;}
     if(!pDuz.pin||pDuz.pin.length!==4||!/^\d{4}$/.test(pDuz.pin)){setPHata("PIN 4 haneli olmali");return;}
     if(personeller.find(p=>p.pin===pDuz.pin&&p.id!==pDuz.id)){setPHata("Bu PIN baska personelde");return;}
-    setPersoneller(p=>p.map(x=>x.id===pDuz.id?pDuz:x)); setPDuz(null); setPHata("");
+    setPersoneller(p=>p.map(x=>x.id===pDuz.id?pDuz:x));
+    // Supabase'e kaydet - kalıcı olsun
+    if(DB) DB.from("personeller").upsert({id:pDuz.id,ad:pDuz.ad,pin:pDuz.pin,rol:pDuz.rol,aktif:pDuz.aktif,grup:pDuz.grup||"gelir",pozisyon:pDuz.pozisyon||""},{onConflict:"id"}).then(()=>{}).catch(()=>{});
+    setPDuz(null); setPHata("");
     showToast("Personel guncellendi");
   };
 
@@ -5856,7 +5870,7 @@ function App() {
                 div({className:"pav pa"},p.ad[0]),
                 div({className:"pi"},div({className:"pad"},p.ad),div({className:"ppin"},"PIN: "+p.pin)),
                 div({className:"pak"},
-                  btn({className:"pbt ok2",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:true}:x));}},"Aktifleştir"),
+                  btn({className:"pbt ok2",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:true}:x));if(DB)DB.from("personeller").update({aktif:true}).eq("id",p.id).then(()=>{}).catch(()=>{});}},"Aktifleştir"),
                   btn({className:"pbt",onClick:ev=>{ev.stopPropagation();setPHata("");setPDuz({...p});}},"Düzenle"),
                   btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.filter(x=>x.id!==p.id));}},"Sil")
                 )
@@ -5889,7 +5903,7 @@ function App() {
                     ),
                     div({className:"pak"},
                       btn({className:"pbt",onClick:ev=>{ev.stopPropagation();setPHata("");setPDuz({...p});}},"Düzenle"),
-                      btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));}},"Pasife Al")
+                      btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));if(DB)DB.from("personeller").update({aktif:false}).eq("id",p.id).then(()=>{}).catch(()=>{});}},"Pasife Al")
                     )
                   );
                 })
@@ -5920,7 +5934,7 @@ function App() {
                 ),
                 div({className:"pak"},
                   btn({className:"pbt",onClick:ev=>{ev.stopPropagation();setPHata("");setPDuz({...p});}},"Düzenle"),
-                  btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));}},"Pasife Al")
+                  btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));if(DB)DB.from("personeller").update({aktif:false}).eq("id",p.id).then(()=>{}).catch(()=>{});}},"Pasife Al")
                 )
               );
             })
