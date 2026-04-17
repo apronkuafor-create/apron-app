@@ -112,7 +112,6 @@ const HIZMETLER = ["Sac Kesimi","Sakal Trasi","Cocuk Sac Kesimi","Sac Bakim","Sa
 const MANIKURIST_HIZMETLER_VARSAYILAN = ["Manikur","Pedikur","El Tirnak Kesimi","Ayak Tirnak Kesimi","Agda","Cilt Bakimi"];
 const DEV_SECENEKLER = ["Isteydim ama Musterim Olmadi","Calistim ama Kayit Yapmadim","Haftalik Iznim","Ise Gitmedim","Mazeret Izni Aldim","Ramazan Bayrami","Kurban Bayrami","Isyeri Acilmadi","Diger"];
 const DEFAULT_PERSONELLER = [
-  {id:"s1",ad:"Ahmet SERDAR",  pin:"1111",rol:"personel",aktif:true,grup:"gelir"},
   {id:"s2",ad:"Murat SERDAR",  pin:"2222",rol:"personel",aktif:true,grup:"gelir"},
   {id:"s3",ad:"Azize HAKIMOVA",pin:"3333",rol:"personel",aktif:true,pozisyon:"Manikurist",grup:"gelir"},
   {id:"s4",ad:"Omer DENIZ",    pin:"4444",rol:"personel",aktif:true,grup:"gelir"},
@@ -3311,7 +3310,7 @@ function App() {
   // DEFAULT ile merge et - yeni eklenen personeller kaybolmasın, eksik alanlar tamamlansın
   const merged = DEFAULT_PERSONELLER.map(dp => {
     const lp = local.personeller.find(x=>x.id===dp.id);
-    return lp ? {...dp, ...lp, pozisyon: lp.pozisyon||dp.pozisyon, grup: lp.grup||dp.grup} : dp;
+    return lp ? {...dp, ...lp, aktif: dp.aktif, pozisyon: lp.pozisyon||dp.pozisyon, grup: dp.grup||lp.grup} : dp;
   });
   // localStorage'da olup DEFAULT'ta olmayan (sonradan eklenmiş) personeller
   const extras = local.personeller.filter(lp=>!DEFAULT_PERSONELLER.find(dp=>dp.id===lp.id));
@@ -3344,13 +3343,28 @@ function App() {
           setRecords(k.filter(r=>r.gonderildi).map(mapR));
           setBekleyen(k.filter(r=>!r.gonderildi).map(mapR));
         }
-        // Personelleri DB'den yükle - PIN değişiklikleri korunsun
-        if(p&&p.length>0){
-          const dbPers = p.map(x=>({
-            id:x.id, ad:x.ad, pin:x.pin, rol:x.rol, aktif:x.aktif,
-            grup:x.grup||"gelir", pozisyon:x.pozisyon||""
+        // Personelleri Supabase'den yükle - PIN değişiklikleri korunsun
+        // Eğer Supabase'de personel yoksa, default personelleri yükle
+        if(p&&p.length===0&&DB){
+          const toInsert = DEFAULT_PERSONELLER.map(x=>({
+            id:x.id,ad:x.ad,pin:x.pin,rol:x.rol||"personel",aktif:x.aktif!==false,
+            grup:x.grup||"gelir",pozisyon:x.pozisyon||""
           }));
-          // DEFAULT'ta olup DB'de olmayan yeni personelleri de ekle
+          DB.from("personeller").insert(toInsert).then(()=>{}).catch(()=>{});
+        }
+        if(p&&p.length>0){
+          const localPers = local?.personeller || [];
+          const dbPers = p.map(x=>{
+            // localStorage'da bu personel için PIN kaydedilmişse onu kullan
+            const lp = localPers.find(lp=>lp.id===x.id);
+            return {
+              id:x.id, ad:x.ad,
+              pin: x.pin, // Supabase'deki PIN (artık güncel - değişince oraya da kaydediliyor)
+              rol:x.rol||"personel", aktif:x.aktif!==undefined?x.aktif:true,
+              grup:x.grup||lp?.grup||"gelir",
+              pozisyon:x.pozisyon||lp?.pozisyon||""
+            };
+          });
           const extras = DEFAULT_PERSONELLER.filter(dp=>!dbPers.find(x=>x.id===dp.id));
           setPersoneller([...dbPers, ...extras]);
         }
@@ -3615,9 +3629,7 @@ function App() {
     if(!yeniP.ad.trim()){setPHata("Ad Soyad zorunlu");return;}
     if(!yeniP.pin||yeniP.pin.length!==4||!/^\d{4}$/.test(yeniP.pin)){setPHata("PIN 4 haneli sayi olmali");return;}
     if(personeller.find(p=>p.pin===yeniP.pin)){setPHata("Bu PIN kullaniliyor");return;}
-    const yp={id:"s"+uid(),ad:yeniP.ad.trim(),pin:yeniP.pin,rol:yeniP.rol,aktif:false,grup:"gelir",pozisyon:""};
-    setPersoneller(p=>[...p,yp]);
-    if(DB) DB.from("personeller").insert({id:yp.id,ad:yp.ad,pin:yp.pin,rol:yp.rol,aktif:yp.aktif,grup:yp.grup,pozisyon:yp.pozisyon}).then(()=>{}).catch(()=>{});
+    setPersoneller(p=>[...p,{id:"s"+uid(),ad:yeniP.ad.trim(),pin:yeniP.pin,rol:yeniP.rol,aktif:false}]);
     setYeniP({ad:"",pin:"",rol:"personel"}); setPEkle(false); setPHata("");
     showToast("Personel eklendi - aktiflestirilmeyi bekliyor");
   };
@@ -3627,10 +3639,7 @@ function App() {
     if(!pDuz.ad.trim()){setPHata("Ad Soyad zorunlu");return;}
     if(!pDuz.pin||pDuz.pin.length!==4||!/^\d{4}$/.test(pDuz.pin)){setPHata("PIN 4 haneli olmali");return;}
     if(personeller.find(p=>p.pin===pDuz.pin&&p.id!==pDuz.id)){setPHata("Bu PIN baska personelde");return;}
-    setPersoneller(p=>p.map(x=>x.id===pDuz.id?pDuz:x));
-    // Supabase'e kaydet - kalıcı olsun
-    if(DB) DB.from("personeller").upsert({id:pDuz.id,ad:pDuz.ad,pin:pDuz.pin,rol:pDuz.rol,aktif:pDuz.aktif,grup:pDuz.grup||"gelir",pozisyon:pDuz.pozisyon||""},{onConflict:"id"}).then(()=>{}).catch(()=>{});
-    setPDuz(null); setPHata("");
+    setPersoneller(p=>p.map(x=>x.id===pDuz.id?pDuz:x)); setPDuz(null); setPHata("");
     showToast("Personel guncellendi");
   };
 
@@ -4476,18 +4485,7 @@ function App() {
         const ozIB    = filtreliGecmis.reduce((s,r)=>s+(r.hizIB||0)+(r.uIB||0),0);
         const ozNK    = filtreliGecmis.reduce((s,r)=>s+(r.hizNK||0)+(r.uNK||0),0);
 
-        // Müşteri bazlı özet (arama varsa)
         const musteriArama = gecmisMusteriFil.trim();
-        const musteriOzeti = musteriArama ? (() => {
-          const tumZiyaretler = benim.filter(r=>normText(r.musteri).includes(normText(musteriArama)));
-          return {
-            toplam: tumZiyaretler.reduce((s,r)=>s+r.toplam,0),
-            sayi: tumZiyaretler.length,
-            kk: tumZiyaretler.reduce((s,r)=>s+(r.hizKK||0)+(r.uKK||0),0),
-            ib: tumZiyaretler.reduce((s,r)=>s+(r.hizIB||0)+(r.uIB||0),0),
-            nk: tumZiyaretler.reduce((s,r)=>s+(r.hizNK||0)+(r.uNK||0),0),
-          };
-        })() : null;
 
         // Mevcut ay varsayılanı
         const simdi = new Date();
@@ -4531,32 +4529,7 @@ function App() {
             )
           ),
 
-          // Müşteri kümülatif özet (arama varsa)
-          musteriOzeti&&div({style:{background:"linear-gradient(135deg,#0e1018,#0a0c14)",
-            border:"1px solid #1e2a3a",borderRadius:13,padding:14,marginBottom:14}},
-            div({style:{fontSize:10,color:"#60a0e0",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
-              "👤 "+gecmisMusteriFil.trim()+" — Toplam Ozet"),
-            div({style:{display:"flex",gap:10,marginBottom:10}},
-              div({style:{flex:1,textAlign:"center"}},
-                div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:22,color:"#60a0e0",fontWeight:700}},fmt(musteriOzeti.toplam)),
-                div({style:{fontSize:9,color:"#3a5a8a",letterSpacing:2,textTransform:"uppercase",marginTop:2}},"Toplam Harcama")
-              ),
-              div({style:{width:1,background:"#1e2a3a"}}),
-              div({style:{flex:1,textAlign:"center"}},
-                div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:22,color:"#60a0e0",fontWeight:700}},String(musteriOzeti.sayi)),
-                div({style:{fontSize:9,color:"#3a5a8a",letterSpacing:2,textTransform:"uppercase",marginTop:2}},"Ziyaret")
-              )
-            ),
-            div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}},
-              [["💳","K.Karti",musteriOzeti.kk],["🏦","IBAN",musteriOzeti.ib],["💵","Nakit",musteriOzeti.nk]].map(([ic,lb,v])=>
-                div({key:lb,style:{background:"rgba(0,0,0,.25)",borderRadius:8,padding:"8px 5px",textAlign:"center"}},
-                  div({style:{fontSize:13,marginBottom:2}},ic),
-                  div({style:{fontSize:8,color:"#3a5a8a",textTransform:"uppercase",letterSpacing:1,marginBottom:3}},lb),
-                  div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:13,color:v>0?"#60a0e0":"#2a3a4a",fontWeight:700}},fmt(v))
-                )
-              )
-            )
-          ),
+
 
           // Dönem özeti
           div({style:{background:"linear-gradient(135deg,#1a1408,#120e04)",
@@ -4588,96 +4561,7 @@ function App() {
             ),
             div({style:{fontSize:10,color:"#3a2e1e",marginTop:10,textAlign:"center"}},"Geçmiş kayıtlar kalıcı olarak saklanır"),
 
-            // IBAN ve Avans özet kartları
-            (()=>{
-              const buAy = new Date().toISOString().slice(0,7);
-              const filAy = gecmisAyFil||buAy;
-              // Bu personele ait IBAN gelirleri (onaylananlar dahil)
-              const myIban = tumK.filter(r=>r.staffId===kul.id&&r.tarih?.startsWith(filAy))
-                .reduce((s,r)=>s+((!r.hizIbanId||r.hizIbanId===kul.id)?toN(r.hizIB):0)+toN(r.uIB),0);
-              const onaylananIban = (avanslar||[]).filter(a=>false).reduce((s,a)=>s,0); // placeholder
-              const manOnaylanan = (ibanBildirimler||[])
-                .filter(b=>b.hedefId===kul.id&&b.durum==="onaylandi"&&b.tarih?.startsWith(filAy))
-                .reduce((s,b)=>s+toN(b.tutar),0);
-              const topIban = myIban + manOnaylanan;
-              const myAvans = (avanslar||[]).filter(a=>a.staffId===kul.id&&a.durum==="onaylandi"&&a.tarih?.startsWith(filAy))
-                .reduce((s,a)=>s+toN(a.tutar),0);
 
-              return div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}},
-                // IBAN Kartı
-                div({style:{background:"rgba(96,160,224,.08)",border:"1px solid rgba(96,160,224,.2)",
-                  borderRadius:11,padding:11,cursor:"pointer"},
-                  onClick:()=>setGecmisMusteriFil(gecmisMusteriFil==="__iban__"?"":"__iban__")},
-                  div({style:{fontSize:9,color:"var(--mu)",letterSpacing:1,textTransform:"uppercase",marginBottom:4}},"🏦 IBAN GELİRİ"),
-                  div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--bl)",fontWeight:700}},fmt(topIban)),
-                  div({style:{fontSize:9,color:"var(--mu)",marginTop:2}},"Detay için tıkla ↓")
-                ),
-                // Avans Kartı
-                div({style:{background:"rgba(240,160,60,.08)",border:"1px solid rgba(240,160,60,.2)",
-                  borderRadius:11,padding:11,cursor:"pointer"},
-                  onClick:()=>setGecmisMusteriFil(gecmisMusteriFil==="__avans__"?"":"__avans__")},
-                  div({style:{fontSize:9,color:"var(--mu)",letterSpacing:1,textTransform:"uppercase",marginBottom:4}},"💵 AVANS"),
-                  div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"#f0a060",fontWeight:700}},fmt(myAvans)),
-                  div({style:{fontSize:9,color:"var(--mu)",marginTop:2}},"Detay için tıkla ↓")
-                )
-              );
-            })(),
-
-            // IBAN detay
-            gecmisMusteriFil==="__iban__"&&(()=>{
-              const filAy = gecmisAyFil||new Date().toISOString().slice(0,7);
-              const ibanKayitlar = tumK.filter(r=>r.staffId===kul.id&&r.tarih?.startsWith(filAy)
-                &&((!r.hizIbanId||r.hizIbanId===kul.id)?(r.hizIB>0):false||r.uIB>0));
-              const manKayitlar = (ibanBildirimler||[]).filter(b=>b.hedefId===kul.id&&b.durum==="onaylandi"&&b.tarih?.startsWith(filAy));
-              return div({style:{background:"rgba(96,160,224,.05)",border:"1px solid rgba(96,160,224,.15)",
-                borderRadius:11,padding:12,marginTop:8}},
-                div({style:{fontSize:9,color:"var(--bl)",letterSpacing:2,textTransform:"uppercase",marginBottom:8}},"IBAN DETAYI"),
-                ibanKayitlar.length===0&&manKayitlar.length===0&&div({style:{fontSize:11,color:"var(--mu)",textAlign:"center",padding:8}},"Bu ay IBAN geliri yok"),
-                ibanKayitlar.sort((a,b)=>b.tarih.localeCompare(a.tarih)).map(r=>
-                  div({key:r.id,style:{display:"flex",justifyContent:"space-between",
-                    padding:"6px 0",borderBottom:"1px solid rgba(96,160,224,.08)"}},
-                    div(null,
-                      div({style:{fontSize:11,color:"var(--tx)"}},(r.musteri||"-")),
-                      div({style:{fontSize:9,color:"var(--mu)",marginTop:1}},r.tarih+" · Kendi hizmeti")
-                    ),
-                    div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:13,color:"var(--bl)",fontWeight:600}},
-                      fmt(((!r.hizIbanId||r.hizIbanId===kul.id)?r.hizIB:0)+r.uIB))
-                  )
-                ),
-                manKayitlar.sort((a,b)=>b.tarih.localeCompare(a.tarih)).map(b=>
-                  div({key:b.id,style:{display:"flex",justifyContent:"space-between",
-                    padding:"6px 0",borderBottom:"1px solid rgba(96,160,224,.08)"}},
-                    div(null,
-                      div({style:{fontSize:11,color:"var(--tx)"}},(b.musteriAd||"-")),
-                      div({style:{fontSize:9,color:"var(--bl)",marginTop:1}},b.tarih+" · "+b.manKulAd+" · "+b.hizmetAd)
-                    ),
-                    div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:13,color:"var(--bl)",fontWeight:600}},fmt(b.tutar))
-                  )
-                )
-              );
-            })(),
-
-            // Avans detay
-            gecmisMusteriFil==="__avans__"&&(()=>{
-              const filAy = gecmisAyFil||new Date().toISOString().slice(0,7);
-              const myAvanslar = (avanslar||[]).filter(a=>a.staffId===kul.id&&a.durum==="onaylandi"&&a.tarih?.startsWith(filAy));
-              return div({style:{background:"rgba(240,160,60,.05)",border:"1px solid rgba(240,160,60,.15)",
-                borderRadius:11,padding:12,marginTop:8}},
-                div({style:{fontSize:9,color:"#f0a060",letterSpacing:2,textTransform:"uppercase",marginBottom:8}},"AVANS DETAYI"),
-                myAvanslar.length===0&&div({style:{fontSize:11,color:"var(--mu)",textAlign:"center",padding:8}},"Bu ay avans yok"),
-                myAvanslar.sort((a,b)=>b.tarih.localeCompare(a.tarih)).map(a=>
-                  div({key:a.id,style:{display:"flex",justifyContent:"space-between",
-                    padding:"6px 0",borderBottom:"1px solid rgba(240,160,60,.08)"}},
-                    div(null,
-                      div({style:{fontSize:11,color:"var(--tx)"}},a.tarih),
-                      a.notlar&&div({style:{fontSize:9,color:"var(--mu)",marginTop:1,fontStyle:"italic"}},(a.notlar))
-                    ),
-                    div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:13,color:"#f0a060",fontWeight:600}},fmt(a.tutar))
-                  )
-                )
-              );
-            })()
-          ),
 
           // Kayıt listesi
           filtreliGecmis.length===0
@@ -5870,7 +5754,7 @@ function App() {
                 div({className:"pav pa"},p.ad[0]),
                 div({className:"pi"},div({className:"pad"},p.ad),div({className:"ppin"},"PIN: "+p.pin)),
                 div({className:"pak"},
-                  btn({className:"pbt ok2",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:true}:x));if(DB)DB.from("personeller").update({aktif:true}).eq("id",p.id).then(()=>{}).catch(()=>{});}},"Aktifleştir"),
+                  btn({className:"pbt ok2",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:true}:x));}},"Aktifleştir"),
                   btn({className:"pbt",onClick:ev=>{ev.stopPropagation();setPHata("");setPDuz({...p});}},"Düzenle"),
                   btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.filter(x=>x.id!==p.id));}},"Sil")
                 )
@@ -5903,7 +5787,7 @@ function App() {
                     ),
                     div({className:"pak"},
                       btn({className:"pbt",onClick:ev=>{ev.stopPropagation();setPHata("");setPDuz({...p});}},"Düzenle"),
-                      btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));if(DB)DB.from("personeller").update({aktif:false}).eq("id",p.id).then(()=>{}).catch(()=>{});}},"Pasife Al")
+                      btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));}},"Pasife Al")
                     )
                   );
                 })
@@ -5934,7 +5818,7 @@ function App() {
                 ),
                 div({className:"pak"},
                   btn({className:"pbt",onClick:ev=>{ev.stopPropagation();setPHata("");setPDuz({...p});}},"Düzenle"),
-                  btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));if(DB)DB.from("personeller").update({aktif:false}).eq("id",p.id).then(()=>{}).catch(()=>{});}},"Pasife Al")
+                  btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));}},"Pasife Al")
                 )
               );
             })
