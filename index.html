@@ -2335,6 +2335,543 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
 
 
 // ── HESAP ÖZETİ MODÜLÜ ─────────────────────────────────────────────────────
+// ── KREDİ KARTI MODÜLÜ ──────────────────────────────────────────────────────
+function KrediKartiModul({kartlar,setKartlar,kartHareketler,setKartHareketler,kartOdemeler,setKartOdemeler,showToast}) {
+  const [sek, setSek]         = React.useState("genel");
+  const [kartFrm, setKartFrm] = React.useState(null);
+  const [hrcFrm, setHrcFrm]   = React.useState(null);
+  const [odmFrm, setOdmFrm]   = React.useState(null);
+  const [secKart, setSecKart] = React.useState(null);
+  const [secAy, setSecAy]     = React.useState(new Date().toISOString().slice(0,7));
+
+  const KART_RENKLERI = ["#1a1a2e","#16213e","#0f3460","#533483","#2d6a4f","#1b4332","#780000","#6d4c41","#37474f","#263238"];
+  const KATEGORILER   = ["Market","Yakıt","Fatura","Restoran","Giyim","Sağlık","Online Alışveriş","İş Gideri","Ulaşım","Eğitim","Diğer"];
+
+  // Her kart özeti
+  const kartOzetleri = React.useMemo(()=>{
+    const bugun = new Date();
+    return kartlar.map(krt=>{
+      const kHrc = (kartHareketler||[]).filter(x=>x.kartId===krt.id);
+      const kOdm = (kartOdemeler||[]).filter(x=>x.kartId===krt.id).reduce((s,x)=>s+toN(x.tutar),0);
+      const topKullanim = kHrc.reduce((s,x)=>s+toN(x.tutar),0);
+      const topBorc     = topKullanim - kOdm;
+      const buAyHrc     = kHrc.filter(x=>(x.tarih||"").startsWith(secAy));
+      const buAyBorc    = buAyHrc.reduce((s,x)=>s+toN(x.tutar),0);
+      const kalanLimit  = toN(krt.limit) - topBorc;
+      const kullOran    = toN(krt.limit)>0 ? Math.min(100,Math.round((topBorc/toN(krt.limit))*100)) : 0;
+      const sonOdGun    = parseInt(krt.sonOdemeGunu)||10;
+      const nextOd      = new Date(bugun.getFullYear(), bugun.getMonth(), sonOdGun);
+      if(nextOd <= bugun) nextOd.setMonth(nextOd.getMonth()+1);
+      const kalanGun    = Math.ceil((nextOd-bugun)/(1000*60*60*24));
+      return {...krt, topBorc, buAyBorc, kalanLimit, kullOran, kalanGun,
+        nextOdeme: nextOd.toISOString().split("T")[0]};
+    });
+  }, [kartlar, kartHareketler, kartOdemeler, secAy]);
+
+  const topBorc  = kartOzetleri.reduce((s,k)=>s+k.topBorc,0);
+  const topLimit = kartOzetleri.reduce((s,k)=>s+toN(k.limit),0);
+  const kritikKartlar = kartOzetleri.filter(k=>k.topBorc>0&&k.kalanGun<=7);
+
+  const aylar = [];
+  for(let i=0;i<13;i++){
+    const d=new Date(); d.setMonth(d.getMonth()-i);
+    aylar.push(d.toISOString().slice(0,7));
+  }
+
+  return div(null,
+
+    // ── KART FORMU ──
+    kartFrm&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:900,overflow:"auto"}},
+      div({style:{background:"var(--bg)",minHeight:"100vh",paddingBottom:60}},
+        div({className:"mhd"},
+          div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)"}},
+            kartFrm.id?"Kartı Düzenle":"Yeni Kart Ekle"),
+          btn({className:"xbtn",onClick:()=>setKartFrm(null)},"✕")
+        ),
+        div({style:{padding:16,maxWidth:500,margin:"0 auto"}},
+          // Kart önizleme
+          div({style:{height:140,borderRadius:16,padding:"16px 20px",marginBottom:18,
+            background:"linear-gradient(135deg,"+(kartFrm.renk||"#1a1a2e")+"dd,"+(kartFrm.renk||"#1a1a2e")+")",
+            display:"flex",flexDirection:"column",justifyContent:"space-between",
+            boxShadow:"0 8px 30px rgba(0,0,0,.5)"}},
+            div({style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+              div({style:{fontSize:16,fontWeight:700,color:"#fff",letterSpacing:1}},
+                (kartFrm.ad||"KART ADI").toUpperCase()),
+              div({style:{fontSize:24}},"💳")
+            ),
+            div(null,
+              div({style:{fontSize:11,color:"rgba(255,255,255,.5)",marginBottom:3,letterSpacing:1}},
+                (kartFrm.banka||"Banka").toUpperCase()),
+              div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"#fff",fontWeight:700}},
+                toN(kartFrm.limit)>0 ? fmt(toN(kartFrm.limit)) : "— Limit —")
+            )
+          ),
+          div({style:{marginBottom:10}},lbl({className:"fl"},"Kart Adı *"),
+            inp({className:"fi",placeholder:"Garanti Platinum...",value:kartFrm.ad||"",
+              onChange:ev=>setKartFrm(p=>({...p,ad:ev.target.value}))})),
+          div({style:{marginBottom:10}},lbl({className:"fl"},"Banka"),
+            inp({className:"fi",placeholder:"Garanti Bankası...",value:kartFrm.banka||"",
+              onChange:ev=>setKartFrm(p=>({...p,banka:ev.target.value}))})),
+          div({style:{marginBottom:10}},lbl({className:"fl"},"Kart Limiti (₺)"),
+            inp({className:"fi",type:"number",placeholder:"50000",value:kartFrm.limit||"",
+              onChange:ev=>setKartFrm(p=>({...p,limit:ev.target.value}))})),
+          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}},
+            div(null,lbl({className:"fl"},"Hesap Kesim Günü"),
+              inp({className:"fi",type:"number",min:1,max:31,placeholder:"15",
+                value:kartFrm.kesimGunu||"",
+                onChange:ev=>setKartFrm(p=>({...p,kesimGunu:ev.target.value}))})),
+            div(null,lbl({className:"fl"},"Son Ödeme Günü"),
+              inp({className:"fi",type:"number",min:1,max:31,placeholder:"5",
+                value:kartFrm.sonOdemeGunu||"",
+                onChange:ev=>setKartFrm(p=>({...p,sonOdemeGunu:ev.target.value}))}))
+          ),
+          div({style:{marginBottom:16}},
+            lbl({className:"fl"},"Kart Rengi"),
+            div({style:{display:"flex",gap:8,flexWrap:"wrap"}},
+              KART_RENKLERI.map(rk=>
+                div({key:rk,style:{width:30,height:30,borderRadius:8,background:rk,cursor:"pointer",
+                  border:"3px solid "+(kartFrm.renk===rk?"var(--g)":"transparent")},
+                  onClick:()=>setKartFrm(p=>({...p,renk:rk}))})
+              )
+            )
+          ),
+          div({className:"btn-r"},
+            btn({className:"btn-i",onClick:()=>setKartFrm(null)},"İptal"),
+            btn({className:"btn-k",disabled:!(kartFrm.ad||"").trim(),
+              onClick:()=>{
+                const krt={...kartFrm,id:kartFrm.id||uid()};
+                setKartlar(p=>kartFrm.id?p.map(x=>x.id===krt.id?krt:x):[...p,krt]);
+                setKartFrm(null); showToast("Kart kaydedildi ✓");
+              }},"Kaydet")
+          )
+        )
+      )
+    ),
+
+    // ── HARCAMA FORMU ──
+    hrcFrm&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:900,overflow:"auto"}},
+      div({style:{background:"var(--bg)",minHeight:"100vh",paddingBottom:60}},
+        div({className:"mhd"},
+          div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)"}},"Harcama Ekle"),
+          btn({className:"xbtn",onClick:()=>setHrcFrm(null)},"✕")
+        ),
+        div({style:{padding:16,maxWidth:500,margin:"0 auto"}},
+          div({style:{marginBottom:10}},lbl({className:"fl"},"Kart *"),
+            sel({className:"fi",value:hrcFrm.kartId||"",
+              onChange:ev=>setHrcFrm(p=>({...p,kartId:ev.target.value}))},
+              opt("","Kart seçin..."),
+              kartlar.map(krt=>opt(krt.id,krt.ad+" — "+krt.banka))
+            )),
+          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+            div(null,lbl({className:"fl"},"Tarih *"),
+              h("input",{type:"date",className:"fi",value:hrcFrm.tarih||TODAY(),
+                onChange:ev=>setHrcFrm(p=>({...p,tarih:ev.target.value}))})),
+            div(null,lbl({className:"fl"},"Tutar (₺) *"),
+              inp({className:"fi",type:"number",placeholder:"0",value:hrcFrm.tutar||"",
+                onChange:ev=>setHrcFrm(p=>({...p,tutar:ev.target.value}))}))
+          ),
+          div({style:{marginBottom:10}},lbl({className:"fl"},"Açıklama / İçerik *"),
+            inp({className:"fi",placeholder:"Migros market alışverişi...",value:hrcFrm.aciklama||"",
+              onChange:ev=>setHrcFrm(p=>({...p,aciklama:ev.target.value}))})),
+          div({style:{marginBottom:10}},lbl({className:"fl"},"Kategori"),
+            sel({className:"fi",value:hrcFrm.kategori||"",
+              onChange:ev=>setHrcFrm(p=>({...p,kategori:ev.target.value}))},
+              opt("","Seçin..."),
+              KATEGORILER.map(kt=>opt(kt,kt))
+            )),
+          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+            div(null,lbl({className:"fl"},"Taksit Sayısı"),
+              sel({className:"fi",value:hrcFrm.taksitSay||"1",
+                onChange:ev=>setHrcFrm(p=>({...p,taksitSay:ev.target.value}))},
+                ["1","2","3","4","6","9","12","18","24"].map(n=>opt(n,n==="1"?"Peşin":n+" Taksit"))
+              )),
+            div(null,lbl({className:"fl"},"Taksit / Ay"),
+              div({style:{padding:"12px 13px",background:"var(--bg3)",borderRadius:10,
+                fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",fontWeight:700}},
+                hrcFrm.tutar&&parseInt(hrcFrm.taksitSay||1)>1
+                  ? fmt(toN(hrcFrm.tutar)/parseInt(hrcFrm.taksitSay))
+                  : "—"
+              ))
+          ),
+          div({style:{marginBottom:16}},lbl({className:"fl"},"Not (İsteğe bağlı)"),
+            h("textarea",{className:"fi",rows:2,style:{resize:"none",fontFamily:"Jost,sans-serif"},
+              placeholder:"Ek açıklama...",value:hrcFrm.notlar||"",
+              onChange:ev=>setHrcFrm(p=>({...p,notlar:ev.target.value}))})),
+          div({className:"btn-r"},
+            btn({className:"btn-i",onClick:()=>setHrcFrm(null)},"İptal"),
+            btn({className:"btn-k",
+              disabled:!hrcFrm.kartId||!hrcFrm.tutar||!hrcFrm.aciklama,
+              onClick:()=>{
+                const nx={id:uid(),...hrcFrm,
+                  tutar:toN(hrcFrm.tutar),
+                  taksitSay:parseInt(hrcFrm.taksitSay)||1};
+                setKartHareketler(p=>[nx,...p]);
+                setHrcFrm(null); showToast("Harcama eklendi ✓");
+              }},"Kaydet")
+          )
+        )
+      )
+    ),
+
+    // ── ÖDEME FORMU ──
+    odmFrm&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:900,
+      display:"flex",alignItems:"center",justifyContent:"center",padding:16}},
+      div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:16,
+        padding:20,maxWidth:360,width:"100%"}},
+        div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",marginBottom:14}},"💳 Ödeme Yap"),
+        div({style:{marginBottom:10}},lbl({className:"fl"},"Kart"),
+          sel({className:"fi",value:odmFrm.kartId||"",
+            onChange:ev=>setOdmFrm(p=>({...p,kartId:ev.target.value}))},
+            opt("","Kart seçin..."),
+            kartlar.map(krt=>opt(krt.id,krt.ad))
+          )),
+        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+          div(null,lbl({className:"fl"},"Tarih"),
+            h("input",{type:"date",className:"fi",value:odmFrm.tarih||TODAY(),
+              onChange:ev=>setOdmFrm(p=>({...p,tarih:ev.target.value}))})),
+          div(null,lbl({className:"fl"},"Tutar (₺)"),
+            inp({className:"fi",type:"number",placeholder:"0",value:odmFrm.tutar||"",
+              onChange:ev=>setOdmFrm(p=>({...p,tutar:ev.target.value}))}))
+        ),
+        // Hızlı seçim
+        odmFrm.kartId&&(()=>{
+          const oz=kartOzetleri.find(k=>k.id===odmFrm.kartId);
+          if(!oz||oz.topBorc<=0) return null;
+          return div({style:{marginBottom:12}},
+            lbl({className:"fl"},"Hızlı Seçim"),
+            div({style:{display:"flex",gap:6}},
+              [{lb:"Asgari %20",v:Math.ceil(oz.topBorc*0.2)},
+               {lb:"Yarısı",v:Math.ceil(oz.topBorc*0.5)},
+               {lb:"Tamamı",v:Math.ceil(oz.topBorc)}
+              ].map(itm=>
+                btn({key:itm.lb,style:{flex:1,padding:"7px 4px",borderRadius:8,fontSize:10,cursor:"pointer",
+                  background:"rgba(212,160,23,.08)",border:"1px solid rgba(212,160,23,.2)",color:"var(--g)"},
+                  onClick:()=>setOdmFrm(p=>({...p,tutar:String(itm.v)}))},itm.lb)
+              )
+            )
+          );
+        })(),
+        div({style:{marginBottom:14}},lbl({className:"fl"},"Ödeme Kaynağı"),
+          sel({className:"fi",value:odmFrm.tip||"banka",
+            onChange:ev=>setOdmFrm(p=>({...p,tip:ev.target.value}))},
+            opt("banka","🏦 Banka Havalesi"),
+            opt("nakit","💵 Nakit"),
+            opt("otomatik","⚡ Otomatik Ödeme")
+          )),
+        div({className:"btn-r"},
+          btn({className:"btn-i",onClick:()=>setOdmFrm(null)},"İptal"),
+          btn({className:"btn-k",disabled:!odmFrm.kartId||!odmFrm.tutar,
+            onClick:()=>{
+              setKartOdemeler(p=>[...p,{id:uid(),...odmFrm,tutar:toN(odmFrm.tutar)}]);
+              setOdmFrm(null); showToast("Ödeme kaydedildi ✓");
+            }},"Ödemeyi Kaydet")
+        )
+      )
+    ),
+
+    // ── ANA İÇERİK ──
+    // Üst butonlar
+    div({style:{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}},
+      btn({style:{flex:1,padding:"10px 8px",borderRadius:10,cursor:"pointer",fontSize:11,
+        background:"rgba(212,160,23,.08)",border:"1px solid rgba(212,160,23,.3)",color:"var(--g)"},
+        onClick:()=>setKartFrm({ad:"",banka:"",limit:"",kesimGunu:"",sonOdemeGunu:"",renk:"#1a1a2e"})},
+        "+ Kart Ekle"),
+      btn({style:{flex:1,padding:"10px 8px",borderRadius:10,cursor:"pointer",fontSize:11,
+        background:"rgba(96,160,224,.08)",border:"1px solid rgba(96,160,224,.3)",color:"var(--bl)"},
+        onClick:()=>setHrcFrm({kartId:kartlar[0]?.id||"",tarih:TODAY(),tutar:"",aciklama:"",kategori:"",taksitSay:"1",notlar:""})},
+        "+ Harcama Ekle"),
+      btn({style:{flex:1,padding:"10px 8px",borderRadius:10,cursor:"pointer",fontSize:11,
+        background:"rgba(80,160,0,.08)",border:"1px solid rgba(80,160,0,.3)",color:"var(--gr)"},
+        onClick:()=>setOdmFrm({kartId:kartlar[0]?.id||"",tarih:TODAY(),tutar:"",tip:"banka"})},
+        "💳 Ödeme Yap")
+    ),
+
+    // Kart yoksa
+    kartlar.length===0 ? div({style:{textAlign:"center",padding:"40px 16px"}},
+      div({style:{fontSize:48,marginBottom:12}},"💳"),
+      div({style:{fontSize:14,color:"var(--tx)",fontWeight:500,marginBottom:6}},"Henüz kart eklenmedi"),
+      div({style:{fontSize:11,color:"var(--mu)",marginBottom:16}},
+        "Kredi kartlarınızı ekleyerek harcama ve ödemelerinizi takip edin"),
+      btn({style:{padding:"12px 24px",borderRadius:10,background:"var(--g)",border:"none",
+        color:"var(--bg)",fontSize:13,fontWeight:700,cursor:"pointer"},
+        onClick:()=>setKartFrm({ad:"",banka:"",limit:"",kesimGunu:"",sonOdemeGunu:"",renk:"#1a1a2e"})},
+        "+ İlk Kartı Ekle")
+    ) : div(null,
+
+      // Toplam özet
+      div({style:{background:"linear-gradient(135deg,var(--bg2),var(--bg3))",
+        border:"1.5px solid rgba(212,160,23,.25)",borderRadius:14,padding:14,marginBottom:14}},
+        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}},
+          [
+            {lb:"Toplam Borç",v:fmt(topBorc),ic:"💳",c:topBorc>0?"#e06060":"var(--gr)"},
+            {lb:"Toplam Limit",v:fmt(topLimit),ic:"🏦",c:"var(--g)"},
+            {lb:"Kullanım",v:topLimit>0?Math.round((topBorc/topLimit)*100)+"%":"0%",ic:"📊",
+              c:topBorc/topLimit>0.7?"#e06060":topBorc/topLimit>0.4?"#f0a060":"var(--gr)"},
+          ].map(itm=>
+            div({key:itm.lb,style:{background:"rgba(0,0,0,.2)",borderRadius:10,padding:"10px 6px",textAlign:"center"}},
+              div({style:{fontSize:16,marginBottom:4}},itm.ic),
+              div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:itm.c,fontWeight:700}},itm.v),
+              div({style:{fontSize:9,color:"var(--mu)",textTransform:"uppercase",letterSpacing:1,marginTop:2}},itm.lb)
+            )
+          )
+        ),
+        sel({style:{width:"100%",background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:8,
+          color:"var(--g)",fontSize:11,padding:"6px 10px",outline:"none",cursor:"pointer"},
+          value:secAy,onChange:ev=>setSecAy(ev.target.value)},
+          aylar.map(ay=>opt(ay,new Date(ay+"-01").toLocaleDateString("tr-TR",{month:"long",year:"numeric"})))
+        )
+      ),
+
+      // Yaklaşan ödeme uyarısı
+      kritikKartlar.length>0&&div({style:{background:"rgba(224,60,60,.07)",
+        border:"1px solid rgba(224,60,60,.3)",borderRadius:12,padding:14,marginBottom:14}},
+        div({style:{fontSize:10,color:"#e06060",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
+          "⚠ Yaklaşan Ödemeler"),
+        kritikKartlar.map(krt=>
+          div({key:krt.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+            padding:"8px 0",borderBottom:"1px solid rgba(224,60,60,.1)"}},
+            div(null,
+              div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},krt.ad),
+              div({style:{fontSize:10,color:"#e06060",marginTop:2}},
+                krt.kalanGun<=0?"Bugün son ödeme!":krt.kalanGun+" gün kaldı · "+krt.nextOdeme)
+            ),
+            div({style:{textAlign:"right"}},
+              div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"#e06060",fontWeight:700}},
+                fmt(krt.topBorc)),
+              btn({style:{marginTop:4,padding:"4px 10px",borderRadius:7,fontSize:10,cursor:"pointer",
+                background:"rgba(80,160,0,.1)",border:"1px solid rgba(80,160,0,.3)",color:"var(--gr)"},
+                onClick:()=>setOdmFrm({kartId:krt.id,tarih:TODAY(),tutar:String(Math.ceil(krt.topBorc)),tip:"banka"})},
+                "Öde")
+            )
+          )
+        )
+      ),
+
+      // Alt sekmeler
+      div({style:{display:"flex",gap:0,borderBottom:"1px solid var(--br)",marginBottom:14}},
+        [["genel","💳 Kartlarım"],["harcamalar","🛒 Harcamalar"],["analizler","📈 Analiz"]].map(([id,lb])=>
+          div({key:id,style:{padding:"8px 12px",cursor:"pointer",fontSize:10,letterSpacing:1,
+            textTransform:"uppercase",whiteSpace:"nowrap",flexShrink:0,
+            color:sek===id?"var(--g)":"var(--mu)",
+            borderBottom:"2px solid "+(sek===id?"var(--g)":"transparent"),transition:"all .2s"},
+            onClick:()=>setSek(id)},lb)
+        )
+      ),
+
+      // ── KARTLARIM ──
+      sek==="genel"&&div(null,
+        kartOzetleri.map(krt=>
+          div({key:krt.id,style:{marginBottom:14}},
+            // Kart görseli
+            div({style:{height:120,borderRadius:14,padding:"14px 18px",marginBottom:10,
+              background:"linear-gradient(135deg,"+(krt.renk||"#1a1a2e")+"dd,"+(krt.renk||"#1a1a2e")+")",
+              display:"flex",flexDirection:"column",justifyContent:"space-between",
+              boxShadow:"0 8px 24px rgba(0,0,0,.4)",position:"relative",overflow:"hidden"}},
+              div({style:{position:"absolute",top:-20,right:-20,width:90,height:90,
+                borderRadius:"50%",background:"rgba(255,255,255,.05)"}}),
+              div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+                div(null,
+                  div({style:{fontSize:14,fontWeight:700,color:"#fff",letterSpacing:1}},krt.ad),
+                  div({style:{fontSize:10,color:"rgba(255,255,255,.55)",marginTop:2}},krt.banka)
+                ),
+                div({style:{display:"flex",gap:5}},
+                  btn({style:{background:"rgba(255,255,255,.15)",border:"none",borderRadius:6,
+                    color:"#fff",fontSize:10,padding:"4px 8px",cursor:"pointer"},
+                    onClick:()=>setKartFrm({...krt})},"✏"),
+                  btn({style:{background:"rgba(255,60,60,.3)",border:"none",borderRadius:6,
+                    color:"#fff",fontSize:10,padding:"4px 8px",cursor:"pointer"},
+                    onClick:()=>{if(confirm("Bu kart silinsin mi?"))setKartlar(p=>p.filter(x=>x.id!==krt.id))}},"🗑")
+                )
+              ),
+              div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}},
+                div(null,
+                  div({style:{fontSize:10,color:"rgba(255,255,255,.45)",marginBottom:2}},"KULLANILAN / LİMİT"),
+                  div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"#fff",fontWeight:700}},
+                    fmt(krt.topBorc)+" / "+fmt(toN(krt.limit)))
+                ),
+                div({style:{textAlign:"right"}},
+                  div({style:{fontSize:9,color:"rgba(255,255,255,.45)",marginBottom:2}},"SON ÖDEME"),
+                  div({style:{fontSize:11,color:krt.kalanGun<=3?"#ff8080":"rgba(255,255,255,.8)"}},
+                    krt.nextOdeme)
+                )
+              )
+            ),
+            // Kullanım çubuğu
+            toN(krt.limit)>0&&div({style:{background:"rgba(0,0,0,.2)",borderRadius:5,height:5,
+              overflow:"hidden",marginBottom:10}},
+              div({style:{height:"100%",borderRadius:5,
+                background:krt.kullOran>70?"#e06060":krt.kullOran>40?"#f0a060":"var(--gr)",
+                width:krt.kullOran+"%",transition:"width .5s"}})
+            ),
+            // Özet satırları
+            div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:10}},
+              [
+                {lb:"Bu Ay",v:fmt(krt.buAyBorc),c:"#f0a060"},
+                {lb:"Toplam Borç",v:fmt(krt.topBorc),c:"#e06060"},
+                {lb:"Kalan Limit",v:fmt(krt.kalanLimit),c:"var(--gr)"},
+              ].map(itm=>
+                div({key:itm.lb,style:{background:"rgba(0,0,0,.2)",borderRadius:8,
+                  padding:"8px 6px",textAlign:"center"}},
+                  div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:13,
+                    color:itm.c,fontWeight:700}},itm.v),
+                  div({style:{fontSize:8,color:"var(--mu)",textTransform:"uppercase",
+                    letterSpacing:.5,marginTop:2}},itm.lb)
+                )
+              )
+            ),
+            // Harcamalar listesi (bu kart için)
+            (()=>{
+              const kHrc = (kartHareketler||[])
+                .filter(x=>x.kartId===krt.id&&(x.tarih||"").startsWith(secAy))
+                .sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
+              if(!kHrc.length) return div({style:{textAlign:"center",padding:"10px",
+                color:"var(--di)",fontSize:11}},"Bu ay harcama yok");
+              return div({style:{background:"var(--bg2)",border:"1px solid var(--br)",
+                borderRadius:11,overflow:"hidden",marginBottom:8}},
+                kHrc.slice(0,5).map((hk,idx)=>
+                  div({key:hk.id,style:{padding:"10px 13px",
+                    borderBottom:idx<kHrc.slice(0,5).length-1?"1px solid rgba(255,255,255,.04)":"none",
+                    display:"flex",alignItems:"center",gap:10}},
+                    div({style:{width:32,height:32,borderRadius:8,flexShrink:0,
+                      background:"rgba(0,0,0,.3)",display:"flex",alignItems:"center",
+                      justifyContent:"center",fontSize:14}},
+                      hk.taksitSay>1?"🔄":"🛒"),
+                    div({style:{flex:1,minWidth:0}},
+                      div({style:{fontSize:12,color:"var(--tx)",fontWeight:500,
+                        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},
+                        hk.aciklama),
+                      div({style:{fontSize:10,color:"var(--mu)",marginTop:2}},
+                        hk.tarih+" · "+(hk.kategori||"Diğer")+
+                        (hk.taksitSay>1?" · "+hk.taksitSay+" taksit":""))
+                    ),
+                    div({style:{textAlign:"right",flexShrink:0}},
+                      div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:14,
+                        color:"#e06060",fontWeight:700}},fmt(hk.tutar)),
+                      hk.taksitSay>1&&div({style:{fontSize:9,color:"var(--mu)",marginTop:1}},
+                        fmt(hk.tutar/hk.taksitSay)+"/ay")
+                    )
+                  )
+                ),
+                kHrc.length>5&&div({style:{padding:"8px",textAlign:"center",
+                  fontSize:10,color:"var(--mu)"}},
+                  "+"+(kHrc.length-5)+" daha · Tümü için 'Harcamalar' sekmesi")
+              );
+            })(),
+            btn({style:{width:"100%",padding:"9px 0",borderRadius:9,fontSize:11,cursor:"pointer",
+              background:"rgba(80,160,0,.07)",border:"1px solid rgba(80,160,0,.2)",color:"var(--gr)"},
+              onClick:()=>setOdmFrm({kartId:krt.id,tarih:TODAY(),tutar:"",tip:"banka"})},
+              "💳 Bu Kart İçin Ödeme Yap")
+          )
+        )
+      ),
+
+      // ── HARCAMALAR ──
+      sek==="harcamalar"&&div(null,
+        // Kart filtresi
+        div({style:{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}},
+          btn({style:{padding:"6px 12px",borderRadius:20,fontSize:10,cursor:"pointer",
+            whiteSpace:"nowrap",flexShrink:0,
+            background:!secKart?"var(--g)":"transparent",
+            border:"1px solid "+(!secKart?"var(--g)":"var(--br)"),
+            color:!secKart?"var(--bg)":"var(--mu)"},
+            onClick:()=>setSecKart(null)},"Tüm Kartlar"),
+          kartlar.map(krt=>
+            btn({key:krt.id,style:{padding:"6px 12px",borderRadius:20,fontSize:10,
+              cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,
+              background:secKart===krt.id?"var(--g)":"transparent",
+              border:"1px solid "+(secKart===krt.id?"var(--g)":"var(--br)"),
+              color:secKart===krt.id?"var(--bg)":"var(--mu)"},
+              onClick:()=>setSecKart(krt.id)},krt.ad)
+          )
+        ),
+        (()=>{
+          const liste = (kartHareketler||[])
+            .filter(x=>(secKart?x.kartId===secKart:true)&&(x.tarih||"").startsWith(secAy))
+            .sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
+          if(!liste.length) return div({className:"bos"},
+            div({style:{fontSize:36,marginBottom:8}},"🛒"),
+            div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2}},"Bu ay harcama yok")
+          );
+          const topT = liste.reduce((s,x)=>s+toN(x.tutar),0);
+          return div(null,
+            div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+              padding:"8px 0",marginBottom:8,borderBottom:"1px solid var(--br)"}},
+              div({style:{fontSize:11,color:"var(--mu)"}},liste.length+" işlem"),
+              div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,
+                color:"#e06060",fontWeight:700}},fmt(topT))
+            ),
+            liste.map(hk=>{
+              const krt=kartlar.find(x=>x.id===hk.kartId);
+              return div({key:hk.id,style:{display:"flex",alignItems:"center",gap:10,
+                padding:"11px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}},
+                div({style:{width:36,height:36,borderRadius:9,flexShrink:0,
+                  background:krt?.renk||"#1a1a2e",display:"flex",alignItems:"center",
+                  justifyContent:"center",fontSize:13}},
+                  hk.taksitSay>1?"🔄":"🛒"),
+                div({style:{flex:1,minWidth:0}},
+                  div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},hk.aciklama),
+                  div({style:{fontSize:10,color:"var(--mu)",marginTop:2}},
+                    hk.tarih+" · "+(hk.kategori||"Diğer")+
+                    (hk.taksitSay>1?" · "+hk.taksitSay+" taksit":"")+
+                    " · "+(krt?.ad||"?")),
+                  hk.notlar&&div({style:{fontSize:10,color:"var(--di)",marginTop:1,
+                    fontStyle:"italic"}},hk.notlar)
+                ),
+                div({style:{textAlign:"right",flexShrink:0}},
+                  div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:15,
+                    color:"#e06060",fontWeight:700}},fmt(hk.tutar)),
+                  hk.taksitSay>1&&div({style:{fontSize:9,color:"var(--mu)",marginTop:1}},
+                    fmt(hk.tutar/hk.taksitSay)+"/ay")
+                )
+              );
+            })
+          );
+        })()
+      ),
+
+      // ── ANALİZ ──
+      sek==="analizler"&&div(null,
+        div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",
+          marginBottom:12}},"Kategori Bazlı Harcama — "+
+          new Date(secAy+"-01").toLocaleDateString("tr-TR",{month:"long",year:"numeric"})),
+        (()=>{
+          const filtre = (kartHareketler||[])
+            .filter(x=>(secKart?x.kartId===secKart:true)&&(x.tarih||"").startsWith(secAy));
+          const ozet = {};
+          filtre.forEach(x=>{ const kt=x.kategori||"Diğer"; ozet[kt]=(ozet[kt]||0)+toN(x.tutar); });
+          const sirali = Object.entries(ozet).sort((a,b)=>b[1]-a[1]);
+          if(!sirali.length) return div({className:"bos"},
+            div({style:{fontSize:36,marginBottom:8}},"📈"),
+            div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2}},"Veri yok")
+          );
+          const topTutar = sirali.reduce((s,[,v])=>s+v,0);
+          return div(null,
+            sirali.map(([kat,tutar])=>{
+              const oran = topTutar>0?Math.round((tutar/topTutar)*100):0;
+              return div({key:kat,style:{marginBottom:12}},
+                div({style:{display:"flex",justifyContent:"space-between",
+                  alignItems:"center",marginBottom:4}},
+                  div({style:{fontSize:12,color:"var(--tx)"}},(kat)),
+                  div({style:{display:"flex",gap:8,alignItems:"center"}},
+                    div({style:{fontSize:10,color:"var(--mu)"}},"% "+oran),
+                    div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:14,
+                      color:"#e06060",fontWeight:600}},fmt(tutar))
+                  )
+                ),
+                div({style:{background:"rgba(0,0,0,.2)",borderRadius:4,height:6,overflow:"hidden"}},
+                  div({style:{height:"100%",borderRadius:4,
+                    background:"linear-gradient(90deg,#e06060,#f0a060)",
+                    width:oran+"%",transition:"width .5s"}})
+                )
+              );
+            })
+          );
+        })()
+      )
+    )
+  );
+}
+
 function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToast}) {
   const [secTarih, setSecTarih] = React.useState(TODAY());
   const [girisBankalar, setGirisBankalar] = React.useState({});
@@ -3519,6 +4056,9 @@ function App() {
   const [stokHar, setStokHar]         = useState([]); // hareket geçmişi
   const [stokPartiler, setStokPartiler] = useState([]); // {id,barkod,urunAd,marka,adet,kalan,alisF,tarih,faturaN,tip}
   const [muhSek, setMuhSek]           = useState("urunMuhasebe");
+  const [kartlar, setKartlar]         = useState([]); // [{id,ad,banka,limit,kesimGunu,sonOdemeGunu,renk}]
+  const [kartHareketler, setKartHareketler] = useState([]); // [{id,kartId,tarih,tutar,aciklama,kategori,taksit,taksitSay}]
+  const [kartOdemeler, setKartOdemeler]   = useState([]); // [{id,kartId,tarih,tutar,tip}]
   const [umSekApp, setUmSekApp]       = useState("dashboard");
   const [ggSekApp, setGgSekApp]       = useState("ozet");
   const [stokGirisForm, setStokGirisForm] = useState(false);
@@ -5095,6 +5635,16 @@ function App() {
               )
             ),
 
+            // ── Kredi Kartı ──
+            btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
+              padding:"11px 14px",background:muhSek==="krediKarti"?"rgba(212,160,23,.08)":"transparent",
+              border:"none",borderBottom:"1px solid #1a1510",
+              color:muhSek==="krediKarti"?"var(--g)":"var(--mu)",fontSize:12,cursor:"pointer",textAlign:"left"},
+              onClick:()=>setMuhSek("krediKarti")},
+              div(null,"💳 KREDİ KARTI"),
+              h("span",{style:{fontSize:10}},"›")
+            ),
+
             // ── Genel Özet ──
             btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
               padding:"11px 14px",background:muhSek==="genelOzet"?"rgba(212,160,23,.08)":"transparent",
@@ -5131,6 +5681,11 @@ function App() {
               tumK, personeller, giderler, setGiderler,
               avanslar, setAvanslar, ibanBildirimler, showToast,
               disariSek:ggSekApp, setDisariSek:setGgSekApp
+            }),
+
+            muhSek==="krediKarti"&&h(KrediKartiModul,{
+              kartlar,setKartlar,kartHareketler,setKartHareketler,
+              kartOdemeler,setKartOdemeler,showToast
             }),
 
             muhSek==="genelOzet"&&div(null,
