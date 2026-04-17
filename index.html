@@ -76,6 +76,9 @@ const DB = (window.supabase && window.supabase.createClient)
   ? window.supabase.createClient("https://txbvqwcwarpkwvvhxdoo.supabase.co", "sb_publishable_fqTUK7zk4d0peq6jFib-VQ__gYCl34J")
   : null;
 
+// İşletme kimliği - ileride her müşteri için farklı olacak
+const ISLETME_ID = "apron_001";
+
 const TODAY = () => new Date().toISOString().split("T")[0];
 const SAAT  = () => new Date().toTimeString().slice(0,5);
 const fmt   = n => Number(n||0).toLocaleString("tr-TR") + " \u20ba";
@@ -130,29 +133,58 @@ const ayarlariYukle = async () => {
     return data.veri;
   } catch(e){ return null; }
 };
-// Ayarlar cache - merge için
-let _ayarlarCache = {};
-const ayarlariKaydet = (yeniVeri) => {
+const ayarlariKaydet = (veri) => {
   if(!DB) return;
-  // Mevcut cache ile merge et - hiçbir şey kaybolmasın
-  _ayarlarCache = {..._ayarlarCache, ...yeniVeri};
-  DB.from('ayarlar').upsert({id:'global', veri: _ayarlarCache, guncelleme: new Date().toISOString()},{onConflict:'id'})
+  DB.from('ayarlar').upsert({id:'global', veri, guncelleme: new Date().toISOString()},{onConflict:'id'})
     .then(()=>{}).catch(()=>{});
+};
+const gorunumKaydet = (veri) => {
+  if(!DB) return;
+  DB.from('ayarlar').upsert({id:'gorunum', veri, guncelleme: new Date().toISOString()},{onConflict:'id'})
+    .then(()=>{}).catch(()=>{});
+};
+const gorunumYukle = async () => {
+  if(!DB) return null;
+  try {
+    const {data,error} = await DB.from('ayarlar').select('*').eq('id','gorunum').single();
+    if(error||!data) return null;
+    return data.veri;
+  } catch(e){ return null; }
 };
 
 const dbAl = async (t,opts={}) => {
   if(!DB) return [];
   try {
     let q = DB.from(t).select("*");
+    // Her sorguda işletme filtresi uygula
+    const TABLOLAR_FILTRE = ["kayitlar","musteriler","personeller","devamsizliklar"];
+    if(TABLOLAR_FILTRE.includes(t)) q = q.eq("isletme_id", ISLETME_ID);
     if(opts.order) q = q.order(opts.order,{ascending:!!opts.asc});
     const {data,error} = await q;
     if(error) throw error;
     return data||[];
   } catch(e){ console.warn("dbAl",e); return []; }
 };
-const dbEkle = (t,r) => DB&&DB.from(t).insert(r).then(()=>{}).catch(console.warn);
-const dbGnc  = (t,r,id) => DB&&DB.from(t).update(r).eq("id",id).then(()=>{}).catch(console.warn);
-const dbSil  = (t,id) => DB&&DB.from(t).delete().eq("id",id).then(()=>{}).catch(console.warn);
+const dbEkle = (t,r) => {
+  if(!DB) return;
+  const TABLOLAR_FILTRE = ["kayitlar","musteriler","personeller","devamsizliklar"];
+  const veri = TABLOLAR_FILTRE.includes(t) ? {...r, isletme_id: ISLETME_ID} : r;
+  DB.from(t).insert(veri).then(()=>{}).catch(console.warn);
+};
+const dbGnc  = (t,r,id) => {
+  if(!DB) return;
+  const TABLOLAR_FILTRE = ["kayitlar","musteriler","personeller","devamsizliklar"];
+  let q = DB.from(t).update(r).eq("id",id);
+  if(TABLOLAR_FILTRE.includes(t)) q = q.eq("isletme_id", ISLETME_ID);
+  q.then(()=>{}).catch(console.warn);
+};
+const dbSil  = (t,id) => {
+  if(!DB) return;
+  const TABLOLAR_FILTRE = ["kayitlar","musteriler","personeller","devamsizliklar"];
+  let q = DB.from(t).delete().eq("id",id);
+  if(TABLOLAR_FILTRE.includes(t)) q = q.eq("isletme_id", ISLETME_ID);
+  q.then(()=>{}).catch(console.warn);
+};
 const dbUpsert = (t,rows,c) => DB&&DB.from(t).upsert(rows,{onConflict:c}).then(()=>{}).catch(console.warn);
 const mapR = r => ({
   id:r.id, staffId:r.staff_id, staffAd:r.staff_name,
@@ -3329,20 +3361,19 @@ function App() {
       try {
         // Önce Supabase ayarlar tablosundan yükle (PWA uyumlu)
         const supabaseAyarlar = await ayarlariYukle();
-        // Cache'i doldur
-        if(supabaseAyarlar) _ayarlarCache = supabaseAyarlar;
         const local = supabaseAyarlar || JSON.parse(localStorage.getItem("apron_v3")||"null");
-        // Tema, işletme, sekme ayarlarını Supabase'den yükle
-        if(supabaseAyarlar?.tema) {
-          setTema(supabaseAyarlar.tema);
-          localStorage.setItem("apron_tema", JSON.stringify(supabaseAyarlar.tema));
+        // Tema ve görünüm ayarlarını ayrı tablodan yükle
+        const gorunum = await gorunumYukle();
+        if(gorunum?.tema) {
+          setTema(gorunum.tema);
+          localStorage.setItem("apron_tema", JSON.stringify(gorunum.tema));
         }
-        if(supabaseAyarlar?.isletme) {
-          setIsletme(supabaseAyarlar.isletme);
-          localStorage.setItem("apron_isletme", JSON.stringify(supabaseAyarlar.isletme));
+        if(gorunum?.isletme) {
+          setIsletme(gorunum.isletme);
+          localStorage.setItem("apron_isletme", JSON.stringify(gorunum.isletme));
         }
-        if(supabaseAyarlar?.sekmeler) {
-          setSekmeler(supabaseAyarlar.sekmeler);
+        if(gorunum?.sekmeler) {
+          setSekmeler(gorunum.sekmeler);
         }
         if(local){
           if(local.records) setRecords(local.records);
@@ -3445,14 +3476,13 @@ function App() {
     const fonts = {"Jost":"'Jost',system-ui,sans-serif","Inter":"'Inter',system-ui,sans-serif","Playfair":"'Playfair Display',Georgia,serif"};
     document.body.style.fontFamily = fonts[tema.font]||fonts["Jost"];
     localStorage.setItem("apron_tema", JSON.stringify(tema));
-    // Supabase'e de kaydet
-    if(!yukleniyor) ayarlariKaydet({tema, isletme, sekmeler});
+    if(!yukleniyor) gorunumKaydet({tema, isletme, sekmeler});
   }, [tema]);
 
   // İşletme bilgilerini kaydet
   useEffect(()=>{
     localStorage.setItem("apron_isletme", JSON.stringify(isletme));
-    if(!yukleniyor) ayarlariKaydet({tema, isletme, sekmeler});
+    if(!yukleniyor) gorunumKaydet({tema, isletme, sekmeler});
   }, [isletme]);
 
   // Sekme isimlerini kaydet
