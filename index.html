@@ -387,9 +387,12 @@ function UrunMuhasebe({
   stokGirisTip,setStokGirisTip,stokDetay,setStokDetay,
   tedarikciler,setTedarikciler,faturalar,setFaturalar,
   odemeler,setOdemeler,hareketler,setHareketler,
-  umDetay,setUmDetay,tumK,showToast
+  umDetay,setUmDetay,tumK,showToast,
+  disariSek, setDisariSek
 }) {
-  const [umSek, setUmSek] = React.useState("dashboard");
+  const [umSekIc, setUmSekIc] = React.useState("dashboard");
+  const umSek = disariSek||umSekIc;
+  const setUmSek = v => { setUmSekIc(v); if(setDisariSek) setDisariSek(v); };
   const [aramaQ, setAramaQ] = React.useState("");
   const [girisArama, setGirisArama] = React.useState("");
   const [girisAramaSon, setGirisAramaSon] = React.useState([]);
@@ -710,8 +713,8 @@ function UrunMuhasebe({
       )
     ),
 
-    // Alt sekme barı
-    div({style:{display:"flex",gap:0,borderBottom:"1px solid var(--br)",marginBottom:14,overflowX:"auto",scrollbarWidth:"none"}},
+    // Alt sekme barı - sadece sidebar yoksa göster
+    !disariSek&&div({style:{display:"flex",gap:0,borderBottom:"1px solid var(--br)",marginBottom:14,overflowX:"auto",scrollbarWidth:"none"}},
       [
         ["dashboard","📊 Dashboard"],
         ["hareketler","📋 Hareketler"],
@@ -1634,8 +1637,10 @@ function AvansIste({kul, avanslar, setAvanslar, showToast}) {
 }
 
 // ── GELİR/GİDER MODÜLÜ ─────────────────────────────────────────────────────
-function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, setAvanslar, ibanBildirimler, showToast}) {
-  const [sekme, setSekme] = React.useState("ozet");
+function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, setAvanslar, ibanBildirimler, showToast, disariSek, setDisariSek}) {
+  const [sekmeIc, setSekmeIc] = React.useState("ozet");
+  const sekme = disariSek||sekmeIc;
+  const setSekme = v => { setSekmeIc(v); if(setDisariSek) setDisariSek(v); };
   const [secAy, setSecAy] = React.useState(new Date().toISOString().slice(0,7));
   const [giderFrm, setGiderFrm] = React.useState(null);
   const GID_KATEGORILER = ["Kira","Elektrik","Su","Doğalgaz","Maaş","SGK/Sigorta","Malzeme","Temizlik","Vergi","Avans Ödemesi","Diğer"];
@@ -1730,8 +1735,8 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
         "⏳ "+bekleyenAvans.length+" avans talebi")
     ),
 
-    // Alt sekmeler
-    div({style:{display:"flex",gap:0,borderBottom:"1px solid var(--br)",marginBottom:14}},
+    // Alt sekmeler - sadece sidebar yoksa göster
+    !disariSek&&div({style:{display:"flex",gap:0,borderBottom:"1px solid var(--br)",marginBottom:14}},
       [["ozet","📊 Özet"],["gelir","💚 Gelir"],["gider","🔴 Gider"],["avans","💵 Avans"]].map(([id,lb])=>
         div({key:id,style:{padding:"8px 14px",cursor:"pointer",fontSize:10,
           letterSpacing:1,textTransform:"uppercase",whiteSpace:"nowrap",flexShrink:0,
@@ -3210,6 +3215,8 @@ function App() {
   const [stokHar, setStokHar]         = useState([]); // hareket geçmişi
   const [stokPartiler, setStokPartiler] = useState([]); // {id,barkod,urunAd,marka,adet,kalan,alisF,tarih,faturaN,tip}
   const [muhSek, setMuhSek]           = useState("urunMuhasebe");
+  const [umSekApp, setUmSekApp]       = useState("dashboard");
+  const [ggSekApp, setGgSekApp]       = useState("ozet");
   const [stokGirisForm, setStokGirisForm] = useState(false);
   const [stokGirisUrun, setStokGirisUrun] = useState([]); // [{barkod,adet,alisF}]
   const [stokGirisTarih, setStokGirisTarih] = useState(TODAY());
@@ -4689,23 +4696,62 @@ function App() {
 
         asek==="ozet"&&div({style:{display:"flex",gap:0,minHeight:"60vh"}},
 
-          // Sol sidebar - Ayarlar gibi
-          div({style:{width:140,flexShrink:0,borderRight:"1px solid #1e1a10",paddingRight:0}},
-            [
-              ["urunMuhasebe","📦 Ürün Muhasebesi"],
-              ["gelirGider","💰 Gelir/Gider"],
-              ["genelOzet","📊 Genel Özet"],
-            ].map(([id,lb])=>
-              btn({key:id,style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
-                padding:"11px 14px",
-                background:muhSek===id?"rgba(212,160,23,.08)":"transparent",
-                border:"none",borderBottom:"1px solid #1a1510",
-                color:muhSek===id?"var(--g)":"var(--mu)",
-                fontSize:11,cursor:"pointer",textAlign:"left"},
-                onClick:()=>setMuhSek(id)},
-                div(null,lb),
-                h("span",{style:{fontSize:10,color:"#3a2e1e"}},"›")
+          // Sol sidebar
+          div({style:{width:145,flexShrink:0,borderRight:"1px solid #1e1a10"}},
+
+            // ── Ürün Muhasebesi ──
+            btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
+              padding:"11px 14px",background:muhSek==="urunMuhasebe"?"rgba(212,160,23,.08)":"transparent",
+              border:"none",borderBottom:"1px solid #1a1510",
+              color:muhSek==="urunMuhasebe"?"var(--g)":"var(--mu)",fontSize:12,cursor:"pointer",textAlign:"left"},
+              onClick:()=>setMuhSek(p=>p==="urunMuhasebe"?"":"urunMuhasebe")},
+              div(null,"📦 ÜRÜN"),
+              h("span",{style:{fontSize:10}},muhSek==="urunMuhasebe"?"▾":"▸")
+            ),
+            muhSek==="urunMuhasebe"&&div({style:{background:"rgba(0,0,0,.2)"}},
+              [["dashboard","📊 Dashboard"],["hareketler","📋 Hareketler"],
+               ["stok","📦 Stok"],["tedarikciler","🏭 Tedarikçiler"],
+               ["odunc","🤝 Ödünç"],["rapor","📈 Rapor"]
+              ].map(([id,lb])=>
+                btn({key:id,style:{width:"100%",padding:"9px 14px 9px 22px",
+                  border:"none",borderBottom:"1px solid #1a1510",textAlign:"left",
+                  fontSize:10,cursor:"pointer",
+                  background:umSekApp===id?"rgba(212,160,23,.12)":"transparent",
+                  color:umSekApp===id?"var(--g)":"var(--mu)"},
+                  onClick:()=>setUmSekApp(id)},lb)
               )
+            ),
+
+            // ── Gelir/Gider ──
+            btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
+              padding:"11px 14px",background:muhSek==="gelirGider"?"rgba(212,160,23,.08)":"transparent",
+              border:"none",borderBottom:"1px solid #1a1510",
+              color:muhSek==="gelirGider"?"var(--g)":"var(--mu)",fontSize:12,cursor:"pointer",textAlign:"left"},
+              onClick:()=>setMuhSek(p=>p==="gelirGider"?"":"gelirGider")},
+              div(null,"💰 GELİR"),
+              h("span",{style:{fontSize:10}},muhSek==="gelirGider"?"▾":"▸")
+            ),
+            muhSek==="gelirGider"&&div({style:{background:"rgba(0,0,0,.2)"}},
+              [["ozet","📊 Özet"],["gelir","💚 Gelir"],
+               ["gider","🔴 Gider"],["avans","💵 Avans"]
+              ].map(([id,lb])=>
+                btn({key:id,style:{width:"100%",padding:"9px 14px 9px 22px",
+                  border:"none",borderBottom:"1px solid #1a1510",textAlign:"left",
+                  fontSize:10,cursor:"pointer",
+                  background:ggSekApp===id?"rgba(212,160,23,.12)":"transparent",
+                  color:ggSekApp===id?"var(--g)":"var(--mu)"},
+                  onClick:()=>setGgSekApp(id)},lb)
+              )
+            ),
+
+            // ── Genel Özet ──
+            btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
+              padding:"11px 14px",background:muhSek==="genelOzet"?"rgba(212,160,23,.08)":"transparent",
+              border:"none",borderBottom:"1px solid #1a1510",
+              color:muhSek==="genelOzet"?"var(--g)":"var(--mu)",fontSize:12,cursor:"pointer",textAlign:"left"},
+              onClick:()=>setMuhSek("genelOzet")},
+              div(null,"📊 ÖZET"),
+              h("span",{style:{fontSize:10}},"›")
             )
           ),
 
@@ -4726,12 +4772,14 @@ function App() {
               oduncler,setOduncler,
               komsular,setKomsular,
               umDetay,setUmDetay,
-              tumK,showToast
+              tumK,showToast,
+              disariSek:umSekApp, setDisariSek:setUmSekApp
             }),
 
             muhSek==="gelirGider"&&h(GelirGiderModul,{
               tumK, personeller, giderler, setGiderler,
-              avanslar, setAvanslar, ibanBildirimler, showToast
+              avanslar, setAvanslar, ibanBildirimler, showToast,
+              disariSek:ggSekApp, setDisariSek:setGgSekApp
             }),
 
             muhSek==="genelOzet"&&div(null,
