@@ -121,6 +121,21 @@ const DEFAULT_PERSONELLER = [
 const YONETICI = {id:"ad",ad:"Yonetici",pin:"0000",rol:"yonetici",aktif:true};
 
 // ── DB ────────────────────────────────────────────────────────────────
+// Supabase ayarlar tablosu - PWA/tarayıcı arası senkronizasyon
+const ayarlariYukle = async () => {
+  if(!DB) return null;
+  try {
+    const {data,error} = await DB.from('ayarlar').select('*').eq('id','global').single();
+    if(error||!data) return null;
+    return data.veri;
+  } catch(e){ return null; }
+};
+const ayarlariKaydet = (veri) => {
+  if(!DB) return;
+  DB.from('ayarlar').upsert({id:'global', veri, guncelleme: new Date().toISOString()},{onConflict:'id'})
+    .then(()=>{}).catch(()=>{});
+};
+
 const dbAl = async (t,opts={}) => {
   if(!DB) return [];
   try {
@@ -3308,7 +3323,19 @@ function App() {
     (async()=>{
       setYukleniyor(true);
       try {
-        const local = JSON.parse(localStorage.getItem("apron_v3")||"null");
+        // Önce Supabase ayarlar tablosundan yükle (PWA uyumlu)
+        const supabaseAyarlar = await ayarlariYukle();
+        const local = supabaseAyarlar || JSON.parse(localStorage.getItem("apron_v3")||"null");
+        // Tema, işletme, sekme ayarlarını da Supabase'den yükle
+        if(supabaseAyarlar?.tema) {
+          setTema(supabaseAyarlar.tema);
+        }
+        if(supabaseAyarlar?.isletme) {
+          setIsletme(supabaseAyarlar.isletme);
+        }
+        if(supabaseAyarlar?.sekmeler) {
+          setSekmeler(supabaseAyarlar.sekmeler);
+        }
         if(local){
           if(local.records) setRecords(local.records);
           if(local.bekleyen) setBekleyen(local.bekleyen);
@@ -3410,11 +3437,14 @@ function App() {
     const fonts = {"Jost":"'Jost',system-ui,sans-serif","Inter":"'Inter',system-ui,sans-serif","Playfair":"'Playfair Display',Georgia,serif"};
     document.body.style.fontFamily = fonts[tema.font]||fonts["Jost"];
     localStorage.setItem("apron_tema", JSON.stringify(tema));
+    // Supabase'e de kaydet
+    if(!yukleniyor) ayarlariKaydet({tema, isletme, sekmeler});
   }, [tema]);
 
   // İşletme bilgilerini kaydet
   useEffect(()=>{
     localStorage.setItem("apron_isletme", JSON.stringify(isletme));
+    if(!yukleniyor) ayarlariKaydet({tema, isletme, sekmeler});
   }, [isletme]);
 
   // Sekme isimlerini kaydet
@@ -3424,7 +3454,10 @@ function App() {
 
   useEffect(()=>{
     if(yukleniyor) return;
-    localStorage.setItem("apron_v3",JSON.stringify({records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,giderler,avanslar,ibanBildirimler,bankalar,hesapSaglama}));
+    const veri = {records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,giderler,avanslar,ibanBildirimler,bankalar,hesapSaglama};
+    localStorage.setItem("apron_v3",JSON.stringify(veri));
+    // Supabase'e de kaydet (PWA için)
+    ayarlariKaydet(veri);
   },[records,bekleyen,musteriDB,personeller,devDB,gecmis,yukleniyor]);
 
   // Ay başı gecmis temizle
