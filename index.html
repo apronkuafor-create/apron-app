@@ -1121,28 +1121,281 @@ function UrunMuhasebe({
 
       // Tedarikçi formu
       tedarikciFrm&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:900,
-        display:"flex",alignItems:"center",justifyContent:"center",padding:18}},
-        div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:16,
-          padding:20,maxWidth:360,width:"100%"}},
-          div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",marginBottom:14}},
-            tedarikciFrm.id?"Tedarikçi Düzenle":"Yeni Tedarikçi"),
-          div({style:{marginBottom:10}},lbl({className:"fl"},"Firma Adı *"),
-            inp({className:"fi",placeholder:"Firma adı...",value:tedarikciFrm.ad||"",
-              onChange:e=>setTedarikciFrm(p=>({...p,ad:e.target.value}))})),
-          div({style:{marginBottom:10}},lbl({className:"fl"},"Telefon"),
-            inp({className:"fi",placeholder:"0xxx...",value:tedarikciFrm.tel||"",
-              onChange:e=>setTedarikciFrm(p=>({...p,tel:e.target.value}))})),
-          div({style:{marginBottom:14}},lbl({className:"fl"},"Notlar"),
-            inp({className:"fi",placeholder:"Açıklama...",value:tedarikciFrm.notlar||"",
-              onChange:e=>setTedarikciFrm(p=>({...p,notlar:e.target.value}))})),
-          div({className:"btn-r"},
-            btn({className:"btn-i",onClick:()=>setTedarikciFrm(null)},"İptal"),
-            btn({className:"btn-k",disabled:!(tedarikciFrm.ad||"").trim(),
-              onClick:()=>{
-                const t={...tedarikciFrm,id:tedarikciFrm.id||uid()};
-                setTedarikciler(p=>tedarikciFrm.id?p.map(x=>x.id===t.id?t:x):[...p,t]);
-                setTedarikciFrm(null); showToast("Tedarikçi kaydedildi");
-              }},"Kaydet")
+        overflow:"auto",WebkitOverflowScrolling:"touch"}},
+        div({style:{background:"var(--bg)",minHeight:"100vh",paddingBottom:80}},
+          // Başlık
+          div({style:{background:"var(--bg2)",borderBottom:"1px solid var(--br)",
+            padding:"13px 16px",display:"flex",alignItems:"center",
+            justifyContent:"space-between",position:"sticky",top:0,zIndex:5}},
+            div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)"}},
+              tedarikciFrm.id?"Tedarikçi Düzenle":"Yeni Tedarikçi"),
+            btn({className:"xbtn",onClick:()=>setTedarikciFrm(null)},"✕")
+          ),
+          div({style:{padding:16,maxWidth:560,margin:"0 auto"}},
+
+            // BÖLÜM 1: Firma Bilgileri
+            div({style:{background:"var(--bg2)",border:"1px solid var(--br)",
+              borderRadius:13,padding:14,marginBottom:14}},
+              div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,
+                textTransform:"uppercase",marginBottom:12}},"🏭 Firma Bilgileri"),
+              div({style:{marginBottom:10}},
+                lbl({className:"fl"},"Firma Adı *"),
+                inp({className:"fi",placeholder:"Wella Türkiye...",
+                  value:tedarikciFrm.ad||"",
+                  onChange:e=>setTedarikciFrm(p=>({...p,ad:e.target.value}))})
+              ),
+              div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                div(null,lbl({className:"fl"},"Telefon"),
+                  inp({className:"fi",placeholder:"0xxx xxx xx xx",
+                    value:tedarikciFrm.tel||"",
+                    onChange:e=>setTedarikciFrm(p=>({...p,tel:e.target.value}))})),
+                div(null,lbl({className:"fl"},"E-posta"),
+                  inp({className:"fi",placeholder:"info@firma.com",
+                    value:tedarikciFrm.email||"",
+                    onChange:e=>setTedarikciFrm(p=>({...p,email:e.target.value}))}))
+              ),
+              div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                div(null,lbl({className:"fl"},"Yetkili Kişi"),
+                  inp({className:"fi",placeholder:"Satış temsilcisi...",
+                    value:tedarikciFrm.yetkili||"",
+                    onChange:e=>setTedarikciFrm(p=>({...p,yetkili:e.target.value}))})),
+                div(null,lbl({className:"fl"},"Yetkili Telefon"),
+                  inp({className:"fi",placeholder:"0xxx...",
+                    value:tedarikciFrm.yetkiliTel||"",
+                    onChange:e=>setTedarikciFrm(p=>({...p,yetkiliTel:e.target.value}))}))
+              ),
+              div({style:{marginBottom:10}},
+                lbl({className:"fl"},"Adres"),
+                h("textarea",{className:"fi",rows:2,style:{resize:"none"},
+                  placeholder:"Firma adresi...",
+                  value:tedarikciFrm.adres||"",
+                  onChange:e=>setTedarikciFrm(p=>({...p,adres:e.target.value}))})
+              ),
+              div({style:{marginBottom:0}},
+                lbl({className:"fl"},"Vergi No / IBAN"),
+                inp({className:"fi",placeholder:"Vergi numarası veya IBAN...",
+                  value:tedarikciFrm.vergiNo||"",
+                  onChange:e=>setTedarikciFrm(p=>({...p,vergiNo:e.target.value}))})
+              )
+            ),
+
+            // BÖLÜM 2: Sipariş / Ödeme Koşulları
+            div({style:{background:"var(--bg2)",border:"1px solid var(--br)",
+              borderRadius:13,padding:14,marginBottom:14}},
+              div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,
+                textTransform:"uppercase",marginBottom:12}},"💳 Ödeme Koşulları"),
+              div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                div(null,lbl({className:"fl"},"Ödeme Vadesi (gün)"),
+                  inp({className:"fi",type:"number",placeholder:"30",
+                    value:tedarikciFrm.vadeSuresi||"",
+                    onChange:e=>setTedarikciFrm(p=>({...p,vadeSuresi:e.target.value}))})),
+                div(null,lbl({className:"fl"},"Para Birimi"),
+                  sel({className:"fi",value:tedarikciFrm.paraBirimi||"TRY",
+                    onChange:e=>setTedarikciFrm(p=>({...p,paraBirimi:e.target.value}))},
+                    opt("TRY","₺ Türk Lirası"),
+                    opt("USD","$ Dolar"),
+                    opt("EUR","€ Euro")
+                  ))
+              ),
+              div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                div(null,lbl({className:"fl"},"Min. Sipariş Tutarı"),
+                  inp({className:"fi",type:"number",placeholder:"0",
+                    value:tedarikciFrm.minSiparis||"",
+                    onChange:e=>setTedarikciFrm(p=>({...p,minSiparis:e.target.value}))})),
+                div(null,lbl({className:"fl"},"İskonto Oranı (%)"),
+                  inp({className:"fi",type:"number",placeholder:"0",
+                    value:tedarikciFrm.iskontoOran||"",
+                    onChange:e=>setTedarikciFrm(p=>({...p,iskontoOran:e.target.value}))}))
+              ),
+              div({style:{marginBottom:0}},
+                lbl({className:"fl"},"Ödeme Yöntemi"),
+                sel({className:"fi",value:tedarikciFrm.odemeYontemi||"",
+                  onChange:e=>setTedarikciFrm(p=>({...p,odemeYontemi:e.target.value}))},
+                  opt("","Seçiniz..."),
+                  opt("havale","Havale/EFT"),
+                  opt("cek","Çek"),
+                  opt("nakit","Nakit"),
+                  opt("kart","Kredi Kartı"),
+                  opt("acik","Açık Hesap")
+                ))
+            ),
+
+            // BÖLÜM 3: Sipariş Geçmişi (sadece mevcut tedarikçilerde)
+            tedarikciFrm.id&&div({style:{background:"var(--bg2)",border:"1px solid var(--br)",
+              borderRadius:13,padding:14,marginBottom:14}},
+              div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+                div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,textTransform:"uppercase"}},
+                  "📋 Sipariş / Fatura Geçmişi"),
+                btn({style:{background:"rgba(212,160,23,.1)",border:"1px solid rgba(212,160,23,.3)",
+                  borderRadius:8,color:"var(--g)",fontSize:11,padding:"5px 11px",cursor:"pointer"},
+                  onClick:()=>setTedarikciFrm(p=>({...p,
+                    _yeniFatura:{
+                      tarih:TODAY(),faturaNo:"",vadeTarihi:"",
+                      tutar:"",kdv:"",aciklama:"",kalemler:[]
+                    }
+                  }))},"+ Fatura Ekle")
+              ),
+
+              // Yeni fatura formu
+              tedarikciFrm._yeniFatura&&div({style:{background:"rgba(212,160,23,.06)",
+                border:"1px solid rgba(212,160,23,.2)",borderRadius:11,padding:13,marginBottom:12}},
+                div({style:{fontSize:11,color:"var(--g)",marginBottom:10}},"📄 Yeni Fatura"),
+                div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+                  div(null,lbl({className:"fl"},"Sipariş Tarihi *"),
+                    h("input",{type:"date",className:"fi",
+                      value:tedarikciFrm._yeniFatura.tarih,
+                      onChange:e=>setTedarikciFrm(p=>({...p,
+                        _yeniFatura:{...p._yeniFatura,tarih:e.target.value}}))})),
+                  div(null,lbl({className:"fl"},"Fatura No"),
+                    inp({className:"fi",placeholder:"FAT-2024-001",
+                      value:tedarikciFrm._yeniFatura.faturaNo,
+                      onChange:e=>setTedarikciFrm(p=>({...p,
+                        _yeniFatura:{...p._yeniFatura,faturaNo:e.target.value}}))}))
+                ),
+                div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+                  div(null,lbl({className:"fl"},"Vade Tarihi"),
+                    h("input",{type:"date",className:"fi",
+                      value:tedarikciFrm._yeniFatura.vadeTarihi,
+                      onChange:e=>setTedarikciFrm(p=>({...p,
+                        _yeniFatura:{...p._yeniFatura,vadeTarihi:e.target.value}}))})),
+                  div(null,lbl({className:"fl"},"Son Ödeme Tarihi"),
+                    h("input",{type:"date",className:"fi",
+                      value:tedarikciFrm._yeniFatura.sonOdemeTarihi||"",
+                      onChange:e=>setTedarikciFrm(p=>({...p,
+                        _yeniFatura:{...p._yeniFatura,sonOdemeTarihi:e.target.value}}))}))
+                ),
+                div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+                  div(null,lbl({className:"fl"},"Fatura Tutarı (₺) *"),
+                    inp({className:"fi",type:"number",placeholder:"0",
+                      value:tedarikciFrm._yeniFatura.tutar,
+                      onChange:e=>setTedarikciFrm(p=>({...p,
+                        _yeniFatura:{...p._yeniFatura,tutar:e.target.value}}))})),
+                  div(null,lbl({className:"fl"},"KDV (%)"),
+                    inp({className:"fi",type:"number",placeholder:"20",
+                      value:tedarikciFrm._yeniFatura.kdv,
+                      onChange:e=>setTedarikciFrm(p=>({...p,
+                        _yeniFatura:{...p._yeniFatura,kdv:e.target.value}}))}))
+                ),
+                div({style:{marginBottom:8}},lbl({className:"fl"},"Fatura İçeriği / Notlar"),
+                  h("textarea",{className:"fi",rows:2,style:{resize:"none"},
+                    placeholder:"Sipariş edilen ürünler, notlar...",
+                    value:tedarikciFrm._yeniFatura.aciklama,
+                    onChange:e=>setTedarikciFrm(p=>({...p,
+                      _yeniFatura:{...p._yeniFatura,aciklama:e.target.value}}))})),
+                div({className:"btn-r"},
+                  btn({className:"btn-i",style:{flex:1},
+                    onClick:()=>setTedarikciFrm(p=>{const {_yeniFatura,...rest}=p;return rest;})},"İptal"),
+                  btn({className:"btn-k",style:{flex:2},
+                    disabled:!tedarikciFrm._yeniFatura.tutar||!tedarikciFrm._yeniFatura.tarih,
+                    onClick:()=>{
+                      const f={
+                        id:uid(),
+                        tedarikcId:tedarikciFrm.id,
+                        tarih:tedarikciFrm._yeniFatura.tarih,
+                        faturaNo:tedarikciFrm._yeniFatura.faturaNo||"-",
+                        vadeTarihi:tedarikciFrm._yeniFatura.vadeTarihi,
+                        sonOdemeTarihi:tedarikciFrm._yeniFatura.sonOdemeTarihi||"",
+                        tutar:toN(tedarikciFrm._yeniFatura.tutar),
+                        kdv:toN(tedarikciFrm._yeniFatura.kdv),
+                        aciklama:tedarikciFrm._yeniFatura.aciklama,
+                        durum:"odenmedi"
+                      };
+                      setFaturalar(p=>[...p,f]);
+                      setTedarikciFrm(p=>{const{_yeniFatura,...rest}=p;return rest;});
+                      showToast("Fatura eklendi ✓");
+                    }},"Fatura Kaydet")
+                )
+              ),
+
+              // Mevcut faturalar
+              (()=>{
+                const tFaturalar=(faturalar||[]).filter(f=>f.tedarikcId===tedarikciFrm.id)
+                  .sort((a,b)=>b.tarih.localeCompare(a.tarih));
+                if(!tFaturalar.length) return div({style:{textAlign:"center",
+                  padding:"16px 0",color:"var(--di)",fontSize:11}},"Henüz fatura yok");
+                return tFaturalar.map(f=>{
+                  const odenen=(odemeler||[]).filter(o=>o.faturId===f.id)
+                    .reduce((s,o)=>s+toN(o.tutar),0);
+                  const kalan=f.tutar-odenen;
+                  const bugun=TODAY();
+                  const vadeli=f.vadeTarihi&&f.vadeTarihi<bugun&&kalan>0;
+                  const sonOdeme=f.sonOdemeTarihi&&f.sonOdemeTarihi<bugun&&kalan>0;
+                  return div({key:f.id,style:{background:vadeli?"rgba(224,60,60,.06)":"rgba(0,0,0,.15)",
+                    border:"1px solid "+(vadeli?"rgba(224,60,60,.3)":"var(--br)"),
+                    borderRadius:10,padding:12,marginBottom:8}},
+                    div({style:{display:"flex",justifyContent:"space-between",
+                      alignItems:"flex-start",marginBottom:6}},
+                      div(null,
+                        div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},
+                          "📄 "+(f.faturaNo||"-")),
+                        div({style:{fontSize:10,color:"var(--mu)",marginTop:2}},
+                          "Sipariş: "+f.tarih+
+                          (f.vadeTarihi?" · Vade: "+f.vadeTarihi:"")+
+                          (f.sonOdemeTarihi?" · Son Ödeme: "+f.sonOdemeTarihi:""))
+                      ),
+                      div({style:{textAlign:"right"}},
+                        div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,
+                          color:kalan>0?"#e06060":"var(--gr)",fontWeight:700}},fmt(kalan)),
+                        div({style:{fontSize:9,color:"var(--mu)",marginTop:1}},
+                          "Toplam: "+fmt(f.tutar))
+                      )
+                    ),
+                    f.aciklama&&div({style:{fontSize:11,color:"var(--mu)",
+                      marginBottom:6,padding:"6px 8px",
+                      background:"rgba(0,0,0,.2)",borderRadius:6}},f.aciklama),
+                    div({style:{display:"flex",gap:6,alignItems:"center"}},
+                      vadeli&&h("span",{style:{fontSize:9,padding:"2px 7px",borderRadius:8,
+                        background:"rgba(224,60,60,.15)",border:"1px solid rgba(224,60,60,.3)",
+                        color:"#e06060"}},"⚠ Vadesi Geçti"),
+                      sonOdeme&&h("span",{style:{fontSize:9,padding:"2px 7px",borderRadius:8,
+                        background:"rgba(240,100,0,.15)",border:"1px solid rgba(240,100,0,.3)",
+                        color:"#f06030"}},"⏰ Son Ödeme Geçti"),
+                      kalan<=0&&h("span",{style:{fontSize:9,padding:"2px 7px",borderRadius:8,
+                        background:"rgba(80,160,0,.1)",border:"1px solid rgba(80,160,0,.3)",
+                        color:"var(--gr)"}},"✓ Ödendi"),
+                      div({style:{flex:1}}),
+                      kalan>0&&btn({style:{padding:"5px 10px",borderRadius:7,fontSize:10,
+                        cursor:"pointer",background:"rgba(96,160,224,.1)",
+                        border:"1px solid rgba(96,160,224,.25)",color:"var(--bl)"},
+                        onClick:()=>setOdemeFrm({faturId:f.id,
+                          tedarikcId:f.tedarikcId,tarih:TODAY(),tutar:"",tip:"havale"})},
+                        "💳 Ödeme Yap"),
+                      btn({style:{padding:"5px 8px",borderRadius:7,fontSize:10,
+                        cursor:"pointer",background:"transparent",
+                        border:"1px solid #3a1010",color:"#c06060"},
+                        onClick:()=>{
+                          if(confirm("Bu fatura silinsin mi?"))
+                            setFaturalar(p=>p.filter(x=>x.id!==f.id));
+                        }},"🗑")
+                    )
+                  );
+                });
+              })()
+            ),
+
+            // BÖLÜM 4: Notlar
+            div({style:{background:"var(--bg2)",border:"1px solid var(--br)",
+              borderRadius:13,padding:14,marginBottom:20}},
+              div({style:{fontSize:10,color:"var(--g)",letterSpacing:2,
+                textTransform:"uppercase",marginBottom:10}},"📝 Notlar"),
+              h("textarea",{className:"fi",rows:3,style:{resize:"none"},
+                placeholder:"Tedarikçi hakkında notlar...",
+                value:tedarikciFrm.notlar||"",
+                onChange:e=>setTedarikciFrm(p=>({...p,notlar:e.target.value}))})
+            ),
+
+            // Kaydet / İptal
+            div({className:"btn-r"},
+              btn({className:"btn-i",onClick:()=>setTedarikciFrm(null)},"İptal"),
+              btn({className:"btn-k",disabled:!(tedarikciFrm.ad||"").trim(),
+                onClick:()=>{
+                  const t={...tedarikciFrm,id:tedarikciFrm.id||uid()};
+                  delete t._yeniFatura;
+                  setTedarikciler(p=>tedarikciFrm.id?p.map(x=>x.id===t.id?t:x):[...p,t]);
+                  setTedarikciFrm(null);
+                  showToast("Tedarikçi kaydedildi ✓");
+                }},"Kaydet")
+            )
           )
         )
       ),
