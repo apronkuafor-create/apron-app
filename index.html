@@ -134,18 +134,14 @@ const dbAl = async (t,opts={}) => {
 const dbEkle = (t,r) => DB&&DB.from(t).insert(r).then(()=>{}).catch(console.warn);
 const dbGnc  = (t,r,id) => {
   if(!DB) return;
-  const TABLOLAR_FILTRE = ["kayitlar","musteriler","personeller","devamsizliklar"];
-  let q = DB.from(t).update(r).eq("id",id);
-  if(TABLOLAR_FILTRE.includes(t)) q = q.eq("isletme_id", ISLETME_ID);
-  q.then(()=>{}).catch(console.warn);
+  try {
+    const TABLOLAR_FILTRE = ["kayitlar","musteriler","personeller","devamsizliklar"];
+    let q = DB.from(t).update(r).eq("id",id);
+    if(TABLOLAR_FILTRE.includes(t)) q = q.eq("isletme_id", ISLETME_ID);
+    q.then(()=>{}).catch(console.warn);
+  } catch(e){ console.warn(e); }
 };
-const dbSil  = (t,id) => {
-  if(!DB) return;
-  const TABLOLAR_FILTRE = ["kayitlar","musteriler","personeller","devamsizliklar"];
-  let q = DB.from(t).delete().eq("id",id);
-  if(TABLOLAR_FILTRE.includes(t)) q = q.eq("isletme_id", ISLETME_ID);
-  q.then(()=>{}).catch(console.warn);
-};
+const dbSil  = (t,id) => DB&&DB.from(t).delete().eq("id",id).then(()=>{}).catch(console.warn);
 const dbUpsert = (t,rows,c) => DB&&DB.from(t).upsert(rows,{onConflict:c}).then(()=>{}).catch(console.warn);
 const mapR = r => ({
   id:r.id, staffId:r.staff_id, staffAd:r.staff_name,
@@ -2358,10 +2354,12 @@ function BarkodTarayici({onOku, onKapat}) {
 
   React.useEffect(() => {
     let scanner = null;
+    let _kapandı = false;
+    const güvenliKapat = () => { if(!_kapandı){ _kapandı=true; onKapat(); } };
     const startScan = async () => {
       try {
         const devices = await Html5Qrcode.getCameras();
-        if(!devices || devices.length===0){ onKapat(); return; }
+        if(!devices || devices.length===0){ güvenliKapat(); return; }
         // Arka kamerayı seç
         const cam = devices.find(d=>/back|rear|env|arka/i.test(d.label)) 
                  || devices[devices.length-1];
@@ -2419,7 +2417,7 @@ function BarkodTarayici({onOku, onKapat}) {
           );
         } catch(e2) {
           console.error("Fallback hata:", e2);
-          onKapat();
+          güvenliKapat();
         }
       }
     };
@@ -2587,7 +2585,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
   const kameraKapat = () => {
     try {
       if(scannerRef.current && typeof scannerRef.current.stop==="function"){
-        scannerRef.current.stop();
+        scannerRef.current.stop().catch(()=>{});
       } else if(scannerRef.current){
         clearInterval(scannerRef.current);
       }
@@ -3166,7 +3164,7 @@ function StokGiris({stokDB, setStokDB, stokHar, setStokHar, kul, showToast, akti
               const harId=uid();
               harlar.push({id:harId,barkod,urun_ad:urun?.a||"",tip:"giris",adet,tarih:TODAY(),staff_id:kul.id,staff_name:kul.ad});
               dbEkle("stok_hareketleri",{id:harId,barkod,urun_ad:urun?.a||"",tip:"giris",adet,tarih:TODAY(),staff_id:kul.id,staff_name:kul.ad});
-              dbUpsert("stok",[{id:barkod,barkod,urun_ad:urun?.a||"",marka:urun?.m||"",qty:yeniQty,son_guncelleme:TODAY()}],"id");
+              dbGnc("stok",{qty:yeniQty,son_guncelleme:TODAY()},barkod).catch(()=>dbEkle("stok",{id:barkod,barkod,urun_ad:urun?.a||"",marka:urun?.m||"",qty:yeniQty,son_guncelleme:TODAY()}));
             });
             setStokHar(p=>[...harlar,...p]);
             setGB({});
@@ -3460,7 +3458,7 @@ function App() {
 
   const devKaydet = () => {
     if(!devSec) return;
-    if(devSec==="Calistim ama Kayit Yapmadim"){ setDevUnuttum(true); return; }
+    if(devSec==="Calistim ama Kayit Yapmadim"){ setDevUyari(false); setDevUnuttum(true); return; }
     const ac=devSec==="Diger"?devDiger.trim():devSec;
     if(!ac) return;
     const dun=new Date(); dun.setDate(dun.getDate()-1);
@@ -3557,8 +3555,9 @@ function App() {
   };
 
   const kayitSil = id => {
+    setSilOnay(null); setDetay(null);
     setRecords(p=>p.filter(r=>r.id!==id)); setBekleyen(p=>p.filter(r=>r.id!==id));
-    dbSil("kayitlar",id); setSilOnay(null); setDetay(null);
+    dbSil("kayitlar",id);
     showToast("Kayıt silindi","uy");
   };
 
