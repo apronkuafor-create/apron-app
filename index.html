@@ -3211,6 +3211,7 @@ function App() {
   const [devSec, setDevSec]           = useState("");
   const [devDiger, setDevDiger]       = useState("");
   const [devUnuttum, setDevUnuttum]   = useState(false);
+  const [eksikGunTarih, setEksikGunTarih] = useState("");
   const [kayitForm, setKayitForm]     = useState(null);
   const [detay, setDetay]             = useState(null);
   const [silOnay, setSilOnay]         = useState(null);
@@ -3464,31 +3465,25 @@ function App() {
       if(!k){ setPinHata(true); setTimeout(()=>{setPin("");setPinHata(false);},700); return; }
       setKul(k); setPin(""); setPinHata(false);
       if(k.rol==="yonetici"){ setEkran("yonetici"); return; }
-      const dun=new Date(); dun.setDate(dun.getDate()-1);
-      const ds=dun.toISOString().split("T")[0];
-      const dunVar=[...records,...bekleyen].some(r=>r.staffId===k.id&&r.tarih===ds);
-      if(!dunVar&&!devDB[ds+"_"+k.id]){ setDevUyari(true); setDevSec(""); setDevDiger(""); }
-      else setEkran("personel");
+      setEkran("personel");
     },120);
   };
 
   const cikis = () => { setKul(null); setEkran("login"); setKayitForm(null); setDetay(null); };
 
-  const devKaydet = () => {
+ const devKaydet = () => {
     if(!devSec) return;
     if(devSec==="Calistim ama Kayit Yapmadim"){ setDevUyari(false); setDevUnuttum(true); return; }
     const ac=devSec==="Diger"?devDiger.trim():devSec;
     if(!ac) return;
-    const dun=new Date(); dun.setDate(dun.getDate()-1);
-    const ds=dun.toISOString().split("T")[0];
-    setDevDB(p=>({...p,[ds+"_"+kul.id]:ac,[TODAY()+"_"+kul.id]:ac}));
-    dbUpsert("devamsizliklar",[{staff_id:kul.id,tarih:ds,aciklama:ac},{staff_id:kul.id,tarih:TODAY(),aciklama:ac}],"staff_id,tarih");
-    setDevUyari(false); setEkran("personel");
+    const ds = eksikGunTarih || (()=>{ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; })();
+    setDevDB(p=>({...p,[ds+"_"+kul.id]:ac}));
+    dbUpsert("devamsizliklar",[{staff_id:kul.id,tarih:ds,aciklama:ac}],"staff_id,tarih");
+    setDevUyari(false); setEksikGunTarih(""); setDevSec(""); setDevDiger("");
   };
 
   const devUnuttumKaydet = (f) => {
-    const dun=new Date(); dun.setDate(dun.getDate()-1);
-    const ds=dun.toISOString().split("T")[0];
+    const ds = f.tarih || TODAY();
     const hKK=toN(f.hizKK),hIB=toN(f.hizIB),hNK=toN(f.hizNK);
     const uKK=toN(f.uKK),uIB=toN(f.uIB),uNK=toN(f.uNK);
     const top=(hKK+hIB+hNK)+(uKK+uIB+uNK);
@@ -3501,7 +3496,7 @@ function App() {
       hizmetler:y.hizler,hiz_kk:y.hizKK,hiz_ib:y.hizIB,hiz_nk:y.hizNK,urunler:y.urunler,
       urun_kk:y.uKK,urun_ib:y.uIB,urun_nk:y.uNK,toplam:y.toplam,tarih:y.tarih,saat:y.saat,gonderildi:true});
     setDevDB(p=>({...p,[ds+"_"+kul.id]:"Calistim - sonradan girildi"}));
-    setDevUnuttum(false); setDevUyari(false); setEkran("personel");
+    setDevUnuttum(false); setDevUyari(false); setEksikGunTarih(""); setEkran("personel");
     showToast("Kayit gonderildi!");
   };
 
@@ -3662,15 +3657,14 @@ function App() {
       div({style:{color:"#d4a017",fontSize:10,letterSpacing:4,textTransform:"uppercase"}},"Yukleniyor...")
     ),
 
-    // Devamsizlik - unuttum formu
+   // Devamsizlik - unuttum formu
     devUnuttum&&kul&&(()=>{
-      const dun=new Date(); dun.setDate(dun.getDate()-1);
-      const ds=dun.toISOString().split("T")[0];
-      const dl=dun.toLocaleDateString("tr-TR",{day:"2-digit",month:"long",year:"numeric"});
+      const ds = eksikGunTarih || (()=>{ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; })();
+      const dl = new Date(ds+"T12:00:00").toLocaleDateString("tr-TR",{day:"2-digit",month:"long",year:"numeric"});
       return h(KayitForm,{ilk:{tarih:ds},musteriDB,personeller,aktifKullanici:kul,
         baslik:dl+" Tarihli Kayit",
         onKaydet:devUnuttumKaydet,
-        onIptal:()=>setDevUnuttum(false)});
+        onIptal:()=>{setDevUnuttum(false);setEksikGunTarih("");}});
     })(),
 
     // Devamsizlik
@@ -3957,8 +3951,12 @@ function App() {
           h('strong',{style:{color:"#d4a017"}},new Date(new Date().setDate(new Date().getDate()-1)).toLocaleDateString("tr-TR",{day:"2-digit",month:"long",year:"numeric"})),
           " tarihine kayit bulunamadi. Devam etmek icin durumu secin."
         ),
-        div({style:{maxHeight:255,overflowY:"auto",marginBottom:13}},
-          DEV_SECENEKLER.map(s=>div({key:s,className:`dev-o${devSec===s?" s":""}`,onClick:()=>setDevSec(s)},s))
+        div({style:{fontSize:11,color:"#7a6a4a",textAlign:"center",marginBottom:18,lineHeight:1.6}},
+          h('strong',{style:{color:"#d4a017"}},(()=>{
+            const ds = eksikGunTarih || (()=>{ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; })();
+            return new Date(ds+"T12:00:00").toLocaleDateString("tr-TR",{day:"2-digit",month:"long",year:"numeric"});
+          })()),
+          " tarihine kayit bulunamadi. Devam etmek icin durumu secin."
         ),
         devSec==="Diger"&&h('textarea',{placeholder:"Aciklama...",value:devDiger,onChange:e=>setDevDiger(e.target.value),
           style:{width:"100%",background:"#1a1510",border:"1px solid #2a2010",borderRadius:8,color:"#e8dcc8",fontSize:12,padding:"9px 11px",outline:"none",resize:"none",height:65,marginBottom:11,fontFamily:"Jost,system-ui,sans-serif"}}),
@@ -4304,6 +4302,53 @@ function App() {
 
       // Bugun
       psek==="bugun"&&div({className:"pg"},
+
+        // Eksik Gün Bildirimi - içinde bulunulan ayda kayıt yapılmamış günler
+        (()=>{
+          const bugun = new Date();
+          const yil = bugun.getFullYear();
+          const ay = bugun.getMonth();
+          const bugunStr = TODAY();
+          const eksikGunler = [];
+          for(let g=1; g<=bugun.getDate(); g++){
+            const d = new Date(yil, ay, g);
+            const ds = d.toISOString().split("T")[0];
+            if(ds === bugunStr) continue;
+            const kayitVar = [...records, ...bekleyen].some(r=>r.staffId===kul.id && r.tarih===ds);
+            const mazeretVar = !!devDB[ds+"_"+kul.id];
+            if(!kayitVar && !mazeretVar) eksikGunler.push(ds);
+          }
+          if(eksikGunler.length === 0) return null;
+          return div({style:{background:"rgba(224,96,96,.06)",border:"1.5px solid rgba(224,96,96,.25)",
+            borderRadius:12,padding:14,marginBottom:14}},
+            div({style:{fontSize:10,color:"#e06060",letterSpacing:2,textTransform:"uppercase",marginBottom:4}},
+              "⚠ Eksik Veri Girişi ("+eksikGunler.length+")"),
+            div({style:{fontSize:11,color:"#9a6a4a",marginBottom:12,lineHeight:1.5}},
+              "Bu ay içinde kayıt yapılmamış günleriniz var. Her gün için ya çalıştığınız kayıtlarını girin ya da bir mazeret seçin."),
+            eksikGunler.slice().reverse().map(ds=>{
+              const d = new Date(ds+"T12:00:00");
+              const lb = d.toLocaleDateString("tr-TR",{weekday:"long",day:"2-digit",month:"long"});
+              return div({key:ds,style:{display:"flex",alignItems:"center",justifyContent:"space-between",
+                gap:8,padding:"10px 12px",marginBottom:6,
+                background:"rgba(0,0,0,.25)",borderRadius:9,border:"1px solid rgba(224,96,96,.15)"}},
+                div({style:{flex:1,minWidth:0}},
+                  div({style:{fontSize:12,color:"#e8dcc8",fontWeight:500}},lb),
+                  div({style:{fontSize:10,color:"#7a6a4a",marginTop:2}},ds)
+                ),
+                btn({style:{background:"rgba(224,96,96,.12)",border:"1px solid rgba(224,96,96,.3)",
+                  borderRadius:8,color:"#e06060",fontSize:11,padding:"6px 12px",cursor:"pointer",
+                  whiteSpace:"nowrap",flexShrink:0},
+                  onClick:()=>{
+                    setEksikGunTarih(ds);
+                    setDevSec(""); setDevDiger("");
+                    setDevUyari(true);
+                  }},"İşlem Yap")
+              );
+            })
+          );
+        })(),
+
+        // Yönetici bildirimleri
         // Yönetici bildirimleri
         yonBildirim.filter(b=>b.staffId===kul.id&&b.durum==="bekliyor").length>0&&div({
           style:{background:"rgba(212,160,23,.08)",border:"1.5px solid rgba(212,160,23,.25)",
