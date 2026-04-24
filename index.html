@@ -3220,6 +3220,7 @@ function App() {
   const [devDiger, setDevDiger]       = useState("");
   const [devUnuttum, setDevUnuttum]   = useState(false);
   const [eksikGunTarih, setEksikGunTarih] = useState("");
+  const [calistiGunler, setCalistiGunler] = useState([]); // "Calistim ama Kayit Yapmadim" secilen gunler
   const [kayitForm, setKayitForm]     = useState(null);
   const [detay, setDetay]             = useState(null);
   const [silOnay, setSilOnay]         = useState(null);
@@ -3484,6 +3485,11 @@ function App() {
     // Çalıştım ama Kayıt Yapmadım → direkt kayıt formu aç (o tarih seçili)
     if(devSec==="Calistim ama Kayit Yapmadim"){
       const ds = eksikGunTarih || (()=>{ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; })();
+      // Bu günü "çalıştı" olarak işaretle - bir sonraki tıklamada modal açılmasın
+      const anahtar = ds+"_"+kul.id;
+      if(!calistiGunler.includes(anahtar)){
+        setCalistiGunler(p=>[...p,anahtar]);
+      }
       setDevUyari(false);
       setKayitForm({tarih:ds});
       setDevSec(""); setDevDiger("");
@@ -3654,6 +3660,22 @@ function App() {
     setGecmis(p=>[...myBekleyen.map(r=>({...r,gonderildi:true})),...p]);
     setRecords(p=>[...myBekleyen.map(r=>({...r,gonderildi:true})),...p]);
     setBekleyen(p=>p.filter(r=>r.staffId!==kul.id));
+    // Bu personelin "çalıştı" işaretlerini temizle (bildirimler kaybolsun)
+    setCalistiGunler(p=>p.filter(anahtar=>!anahtar.endsWith("_"+kul.id)));
+    // Gün sonu gönderilen günleri devDB'ye "çalıştı" olarak yaz (eksik gün kartından kaybolsunlar)
+    const gonderilenTarihler = [...new Set(myBekleyen.map(r=>r.tarih))];
+    if(gonderilenTarihler.length>0){
+      setDevDB(p=>{
+        const yeni={...p};
+        gonderilenTarihler.forEach(t=>{
+          if(!yeni[t+"_"+kul.id]) yeni[t+"_"+kul.id]="Calistim - kayit yapildi";
+        });
+        return yeni;
+      });
+      dbUpsert("devamsizliklar",
+        gonderilenTarihler.map(t=>({staff_id:kul.id,tarih:t,aciklama:"Calistim - kayit yapildi"})),
+        "staff_id,tarih");
+    }
     setGsOnay(false);
     if(ids.length>0&&DB) DB.from("kayitlar").update({gonderildi:true}).in("id",ids).then(()=>{}).catch(()=>{});
     showToast("Veriler yoneticiye gonderildi!");
@@ -4375,10 +4397,15 @@ function App() {
                   borderRadius:8,color:"#e06060",fontSize:11,padding:"6px 12px",cursor:"pointer",
                   whiteSpace:"nowrap",flexShrink:0},
                   onClick:()=>{
-                    // O günü seçili yap, mazeret/kayıt seçim modalını aç
-                    setEksikGunTarih(ds);
-                    setDevSec(""); setDevDiger("");
-                    setDevUyari(true);
+                    // Önceden "Çalıştım ama Kayıt Yapmadım" seçildiyse direkt form aç
+                    if(calistiGunler.includes(ds+"_"+kul.id)){
+                      setKayitForm({tarih:ds});
+                    } else {
+                      // İlk tıklama - mazeret/kayıt seçim modalını aç
+                      setEksikGunTarih(ds);
+                      setDevSec(""); setDevDiger("");
+                      setDevUyari(true);
+                    }
                   }},"İşlem Yap")
               );
             })
