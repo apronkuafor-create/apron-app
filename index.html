@@ -3487,17 +3487,38 @@ function App() {
     const hKK=toN(f.hizKK),hIB=toN(f.hizIB),hNK=toN(f.hizNK);
     const uKK=toN(f.uKK),uIB=toN(f.uIB),uNK=toN(f.uNK);
     const top=(hKK+hIB+hNK)+(uKK+uIB+uNK);
-    const y={id:uid(),staffId:kul.id,staffAd:kul.ad,musteri:f.musteri.trim(),tel:(f.tel||"").trim(),
-      hizler:f.hizler||[],hizKK,hizIB:hIB,hizNK,urunler:f.urunler||[],uKK,uIB,uNK,
-      toplam:top,tarih:ds,saat:"23:59",gonderildi:true};
-    setRecords(p=>[y,...p]);
-    setGecmis(p=>[y,...p]);
-    dbEkle("kayitlar",{id:y.id,staff_id:y.staffId,staff_name:y.staffAd,musteri:y.musteri,telefon:y.tel,
-      hizmetler:y.hizler,hiz_kk:y.hizKK,hiz_ib:y.hizIB,hiz_nk:y.hizNK,urunler:y.urunler,
-      urun_kk:y.uKK,urun_ib:y.uIB,urun_nk:y.uNK,toplam:y.toplam,tarih:y.tarih,saat:y.saat,gonderildi:true});
+    const y={id:uid(),staffId:kul.id,staffAd:kul.ad,
+      musteri:(f.musteri||"").trim(),tel:(f.tel||"").trim(),
+      hizler:f.hizler||[],hizKK,hizIB:hIB,hizNK,
+      urunler:f.urunler||[],uKK,uIB,uNK,
+      toplam:top,tarih:ds,saat:f.saat||"23:59",gonderildi:false,
+      anaPersonelId:f.anaPersonelId||"",
+      hizIbanId:f.hizIbanId||"", hizIbanAd:f.hizIbanAd||"",
+      urunIbanId:f.urunIbanId||"", urunIbanAd:f.urunIbanAd||""};
+    setBekleyen(p=>[y,...p]);
+    dbEkle("kayitlar",{id:y.id,staff_id:y.staffId,staff_name:y.staffAd,
+      musteri:y.musteri,telefon:y.tel,
+      hizmetler:y.hizler,hiz_kk:y.hizKK,hiz_ib:y.hizIB,hiz_nk:y.hizNK,
+      urunler:y.urunler,urun_kk:y.uKK,urun_ib:y.uIB,urun_nk:y.uNK,
+      toplam:y.toplam,tarih:y.tarih,saat:y.saat,gonderildi:false});
+    // O tarih için "çalıştı" işareti (mazeret değil, sadece kayıt verildi)
     setDevDB(p=>({...p,[ds+"_"+kul.id]:"Calistim - sonradan girildi"}));
-    setDevUnuttum(false); setDevUyari(false); setEksikGunTarih(""); setEkran("personel");
-    showToast("Kayit gonderildi!");
+    // Müşteriyi de kaydet
+    if(f.musteriKaydet!==false && f.musteri && f.musteri.trim()){
+      const vm=musteriDB.find(m=>m.ad.toLowerCase()===f.musteri.trim().toLowerCase()||
+        (f.tel&&f.tel.trim()&&m.tel===f.tel.trim()));
+      if(!vm){
+        const ym={id:uid(),ad:f.musteri.trim(),tel:(f.tel||"").trim(),
+          sahipId:kul.id,sahipAd:kul.ad,ilkGiris:ds};
+        setMusteriDB(p=>[...p,ym]);
+        dbEkle("musteriler",{id:ym.id,ad:ym.ad,tel:ym.tel,
+          sahip_id:ym.sahipId,sahip_ad:ym.sahipAd,ilk_giris:ym.ilkGiris});
+      }
+    }
+    // Formu kapat ama ekran personelde kalsın
+    setDevUnuttum(false); setDevUyari(false); setEksikGunTarih("");
+    setEkran("personel");
+    showToast("Kayit bekleyen listesine eklendi!");
   };
 
   const kayitKaydet = f => {
