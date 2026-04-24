@@ -3481,13 +3481,21 @@ function App() {
 
   const devKaydet = () => {
     if(!devSec) return;
-    if(devSec==="Calistim ama Kayit Yapmadim"){ setDevUyari(false); setDevUnuttum(true); return; }
+    // Çalıştım ama Kayıt Yapmadım → direkt kayıt formu aç (o tarih seçili)
+    if(devSec==="Calistim ama Kayit Yapmadim"){
+      const ds = eksikGunTarih || (()=>{ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; })();
+      setDevUyari(false);
+      setKayitForm({tarih:ds});
+      setDevSec(""); setDevDiger("");
+      return;
+    }
     const ac=devSec==="Diger"?devDiger.trim():devSec;
     if(!ac) return;
     const ds = eksikGunTarih || (()=>{ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; })();
     setDevDB(p=>({...p,[ds+"_"+kul.id]:ac}));
     dbUpsert("devamsizliklar",[{staff_id:kul.id,tarih:ds,aciklama:ac}],"staff_id,tarih");
     setDevUyari(false); setEksikGunTarih(""); setDevSec(""); setDevDiger("");
+    showToast("Mazeret kaydedildi");
   };
 
   const devUnuttumKaydet = (f) => {
@@ -4367,9 +4375,11 @@ function App() {
                   borderRadius:8,color:"#e06060",fontSize:11,padding:"6px 12px",cursor:"pointer",
                   whiteSpace:"nowrap",flexShrink:0},
                   onClick:()=>{
-                    // Direkt kayıt formu aç, o tarih seçili gelsin
-                    setKayitForm({tarih:ds});
-                  }},"Kayıt Ekle")
+                    // O günü seçili yap, mazeret/kayıt seçim modalını aç
+                    setEksikGunTarih(ds);
+                    setDevSec(""); setDevDiger("");
+                    setDevUyari(true);
+                  }},"İşlem Yap")
               );
             })
           );
