@@ -5181,7 +5181,7 @@ function App() {
                 h("span",{style:{fontSize:10,color:"#3a2e1e"}},aySek==="listeler"?"▾":"▸")
               ),
               aySek==="listeler"&&div({style:{background:"rgba(0,0,0,.2)"}},
-                [["manikurist","💅 Manikurist"],["ürün","📦 Ürünler"],["personel","👥 Personel"],["musteriler","👤 Müşteriler"],["banka","🏦 Bankalar"]].map(([id,lb])=>
+                [["genel","✂ Genel"],["manikurist","💅 Manikurist"],["ürün","📦 Ürünler"],["personel","👥 Personel"],["musteriler","👤 Müşteriler"],["banka","🏦 Bankalar"]].map(([id,lb])=>
                   btn({key:id,style:{width:"100%",padding:"9px 14px 9px 22px",border:"none",
                     borderBottom:"1px solid #1a1510",textAlign:"left",fontSize:11,cursor:"pointer",
                     background:ayListeSek===id?"rgba(212,160,23,.12)":"transparent",
@@ -5222,7 +5222,105 @@ function App() {
           // Sağ içerik
           div({style:{flex:1,paddingLeft:16,minWidth:0}},
 
-              // Manikurist Hizmet Listesi
+            // Genel Hizmet Listesi
+        aySek==="listeler"&&ayListeSek==="genel"&&div(null,
+          div({style:{fontSize:10,color:"#d4a017",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},"Genel Hizmet Listesi"),
+          div({style:{fontSize:11,color:"#5a4a2a",marginBottom:12}},hizListeleri.genel.length+" hizmet"),
+
+          // Düzenleme modalı
+          hizDuzIdx&&hizDuzIdx.liste==="genel"&&div({style:{background:"rgba(212,160,23,.06)",
+            border:"1px solid rgba(212,160,23,.2)",borderRadius:11,padding:13,marginBottom:12}},
+            div({style:{fontSize:11,color:"#d4a017",marginBottom:10}},"Hizmet Düzenle"),
+            div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+              div(null,
+                lbl({className:"fl"},"Hizmet Adı"),
+                inp({className:"fi",value:hizDuzIdx.ad,
+                  onChange:e=>setHizDuzIdx(p=>({...p,ad:e.target.value}))})
+              ),
+              div(null,
+                lbl({className:"fl"},"Liste Fiyatı (₺)"),
+                inp({className:"fi",type:"number",placeholder:"0",value:hizDuzIdx.fiyat,
+                  onChange:e=>setHizDuzIdx(p=>({...p,fiyat:e.target.value}))})
+              )
+            ),
+            div({className:"btn-r"},
+              btn({className:"btn-i",onClick:()=>setHizDuzIdx(null)},"İptal"),
+              btn({className:"btn-k",onClick:()=>{
+                const yeniAd = hizDuzIdx.ad.trim();
+                if(!yeniAd) return;
+                setHizListeleri(p=>{
+                  const yeni=[...p.genel];
+                  yeni[hizDuzIdx.idx]=yeniAd;
+                  return {...p,genel:yeni};
+                });
+                // HIZ_LISTE_FIYAT güncelle
+                if(hizDuzIdx.fiyat) HIZ_LISTE_FIYAT[yeniAd]=toN(hizDuzIdx.fiyat);
+                setHizDuzIdx(null);
+                showToast("Hizmet güncellendi");
+              }},"Kaydet")
+            )
+          ),
+
+          // Hizmet listesi
+          hizListeleri.genel.map((hz,i)=>
+            div({key:i,style:{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",
+              marginBottom:6,background:"#111008",borderRadius:10,border:"1px solid #1e1a10"}},
+              div({style:{flex:1}},
+                div({style:{fontSize:13,color:"#e8dcc8"}},(typeof hz==="object"?hz.ad:hz)),
+                HIZ_LISTE_FIYAT[(typeof hz==="object"?hz.ad:hz)]&&
+                  div({style:{fontSize:10,color:"#7a6a4a",marginTop:2}},
+                    "Liste: "+fmt(HIZ_LISTE_FIYAT[(typeof hz==="object"?hz.ad:hz)]))
+              ),
+              btn({style:{background:"rgba(212,160,23,.08)",border:"1px solid rgba(212,160,23,.2)",
+                borderRadius:6,color:"#d4a017",fontSize:11,padding:"4px 10px",cursor:"pointer"},
+                onClick:()=>setHizDuzIdx({liste:"genel",idx:i,
+                  ad:(typeof hz==="object"?hz.ad:hz),
+                  fiyat:String(HIZ_LISTE_FIYAT[(typeof hz==="object"?hz.ad:hz)]||"")})
+              },"✏ Düzenle"),
+              btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #4a1010",
+                borderRadius:6,color:"#c06060",fontSize:11,padding:"4px 10px",cursor:"pointer"},
+                onClick:()=>setHizListeleri(p=>({...p,genel:p.genel.filter((_,j)=>j!==i)}))
+              },"Sil")
+            )
+          ),
+
+          // Yeni Hizmet Ekle
+          !yeniHizAcik
+            ?btn({style:{width:"100%",marginTop:10,padding:"12px 0",borderRadius:11,
+                border:"1.5px dashed rgba(212,160,23,.3)",background:"rgba(212,160,23,.04)",
+                color:"#d4a017",fontSize:13,cursor:"pointer",textAlign:"center"},
+                onClick:()=>{setYeniHizAcik(true);setYeniHizAd("");setYeniHizFiyat("");}},
+                "+ Yeni Hizmet Ekle")
+            :div({style:{background:"rgba(212,160,23,.06)",border:"1px solid rgba(212,160,23,.2)",
+                borderRadius:11,padding:13,marginTop:10}},
+                div({style:{fontSize:11,color:"#d4a017",marginBottom:10}},"Yeni Hizmet"),
+                div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+                  div(null,
+                    lbl({className:"fl"},"Hizmet Adı *"),
+                    inp({className:"fi",placeholder:"Hizmet adı...",value:yeniHizAd,
+                      onChange:e=>setYeniHizAd(e.target.value)})
+                  ),
+                  div(null,
+                    lbl({className:"fl"},"Liste Fiyatı (₺)"),
+                    inp({className:"fi",type:"number",placeholder:"0",value:yeniHizFiyat,
+                      onChange:e=>setYeniHizFiyat(e.target.value)})
+                  )
+                ),
+                div({className:"btn-r"},
+                  btn({className:"btn-i",onClick:()=>setYeniHizAcik(false)},"İptal"),
+                  btn({className:"btn-k",disabled:!yeniHizAd.trim(),
+                    onClick:()=>{
+                      const ad=yeniHizAd.trim();
+                      setHizListeleri(p=>({...p,genel:[...p.genel,ad]}));
+                      if(yeniHizFiyat) HIZ_LISTE_FIYAT[ad]=toN(yeniHizFiyat);
+                      setYeniHizAcik(false);
+                      showToast("Hizmet eklendi");
+                    }},"Ekle")
+                )
+              )
+        ),
+
+            // Manikurist Hizmet Listesi
               aySek==="listeler"&&ayListeSek==="manikurist"&&div(null,
                 div({style:{fontSize:10,color:"#d4a017",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},"💅 Manikurist Hizmet Listesi"),
                 div({style:{fontSize:11,color:"#5a4a2a",marginBottom:12}},hizListeleri.manikurist.length+" hizmet"),
