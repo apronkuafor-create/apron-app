@@ -132,15 +132,7 @@ const dbAl = async (t,opts={}) => {
   } catch(e){ console.warn("dbAl",e); return []; }
 };
 const dbEkle = (t,r) => DB&&DB.from(t).insert(r).then(()=>{}).catch(console.warn);
-const dbGnc  = (t,r,id) => {
-  if(!DB) return;
-  try {
-    const TABLOLAR_FILTRE = ["kayitlar","musteriler","personeller","devamsizliklar"];
-    let q = DB.from(t).update(r).eq("id",id);
-    if(TABLOLAR_FILTRE.includes(t)) q = q.eq("isletme_id", ISLETME_ID);
-    q.then(()=>{}).catch(console.warn);
-  } catch(e){ console.warn(e); }
-};
+const dbGnc  = (t,r,id) => DB&&DB.from(t).update(r).eq("id",id).then(()=>{}).catch(console.warn);
 const dbSil  = (t,id) => DB&&DB.from(t).delete().eq("id",id).then(()=>{}).catch(console.warn);
 const dbUpsert = (t,rows,c) => DB&&DB.from(t).upsert(rows,{onConflict:c}).then(()=>{}).catch(console.warn);
 const mapR = r => ({
@@ -2338,7 +2330,7 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
 function BarkodTarayici({onOku, onKapat}) {
   const divId = "qr-" + React.useRef(Math.random().toString(36).slice(2)).current;
   const scannerRef = React.useRef(null);
-  const kapandıRef = React.useRef(false);
+  const kapandiRef = React.useRef(false);
   const [zoom, setZoom] = React.useState(1);
   const [hata, setHata] = React.useState(null);
 
@@ -2356,8 +2348,8 @@ function BarkodTarayici({onOku, onKapat}) {
   };
 
   const kapat = React.useCallback(() => {
-    if(kapandıRef.current) return;
-    kapandıRef.current = true;
+    if(kapandiRef.current) return;
+    kapandiRef.current = true;
     try {
       if(scannerRef.current) {
         scannerRef.current.stop().catch(()=>{});
@@ -2368,11 +2360,11 @@ function BarkodTarayici({onOku, onKapat}) {
   }, [onKapat]);
 
   React.useEffect(() => {
-    kapandıRef.current = false;
+    kapandiRef.current = false;
     let zoomTimer = null;
 
     const taraBaslat = async () => {
-      if(typeof Html5Qrcode === "undefined") { kapat(); return; }
+      if(typeof Html5Qrcode === "undefined") { setHata("genel"); return; }
       try {
         const scanner = new Html5Qrcode(divId);
         scannerRef.current = scanner;
@@ -2384,29 +2376,28 @@ function BarkodTarayici({onOku, onKapat}) {
           },
           (kod) => {
             bip();
-            if(kapandıRef.current) return;
-            kapandıRef.current = true;
+            if(kapandiRef.current) return;
+            kapandiRef.current = true;
             try { scanner.stop().catch(()=>{}); } catch(e){}
             scannerRef.current = null;
             onOku(kod);
           },
           () => {}
         );
-        // Zoom uygula
         zoomTimer = setTimeout(() => {
           try {
             const vid = document.querySelector("#"+divId+" video");
-            const track = vid?.srcObject?.getVideoTracks?.()?.[0];
-            const caps = track?.getCapabilities?.();
-            if(caps?.zoom) {
+            const track = vid && vid.srcObject && vid.srcObject.getVideoTracks && vid.srcObject.getVideoTracks()[0];
+            const caps = track && track.getCapabilities && track.getCapabilities();
+            if(caps && caps.zoom) {
               const zv = caps.zoom.min + (caps.zoom.max - caps.zoom.min) * 0.3;
               track.applyConstraints({ advanced: [{ zoom: zv }] }).catch(()=>{});
             }
           } catch(e){}
         }, 1000);
       } catch(err) {
-        const ad = err?.name || "";
-        console.warn("Kamera hatasi:", ad, err?.message);
+        const ad = (err && err.name) || "";
+        console.warn("Kamera hatasi:", ad, err && err.message);
         if(ad === "NotAllowedError" || ad === "PermissionDeniedError") {
           setHata("izin");
         } else if(ad === "NotFoundError" || ad === "DevicesNotFoundError") {
@@ -2432,24 +2423,24 @@ function BarkodTarayici({onOku, onKapat}) {
     setZoom(val);
     try {
       const vid = document.querySelector("#"+divId+" video");
-      const track = vid?.srcObject?.getVideoTracks?.()?.[0];
-      if(track?.applyConstraints) {
+      const track = vid && vid.srcObject && vid.srcObject.getVideoTracks && vid.srcObject.getVideoTracks()[0];
+      if(track && track.applyConstraints) {
         await track.applyConstraints({ advanced: [{ zoom: val }] });
       }
     } catch(e){}
   };
 
-  // Hata ekranı
+  // Hata ekranı - izin reddi, kamera yok veya genel hata
   if(hata) {
     const mesajlar = {
       izin: {
         ikon:"🔒", baslik:"Kamera İzni Gerekli",
-        aciklama:"Kamera izni reddedilmiş. Aşağıdaki adımları izleyin:",
-        adimlar:["📱 Telefon Ayarları","Safari > Kamera > İzin Ver","Sayfayı yenileyip tekrar deneyin"]
+        aciklama:"Kamera izni reddedilmiş. Barkod okumak için izin vermelisiniz.",
+        adimlar:["📱 Telefon Ayarları'nı açın","Safari > Kamera > İzin Ver","Sayfayı yenileyip tekrar deneyin"]
       },
       bulunamadi: {
         ikon:"📵", baslik:"Kamera Bulunamadı",
-        aciklama:"Cihazda kullanılabilir kamera bulunamadı.",
+        aciklama:"Cihazda kullanılabilir kamera yok.",
         adimlar:[]
       },
       genel: {
@@ -2467,7 +2458,7 @@ function BarkodTarayici({onOku, onKapat}) {
         h('div', {style:{fontSize:12,color:"#7a6a4a",lineHeight:1.7,marginBottom:20}}, m.aciklama),
         m.adimlar.length>0 && h('div', {style:{background:"#1a1510",border:"1px solid #2a2010",borderRadius:10,
           padding:"14px 16px",textAlign:"left",marginBottom:16}},
-          h('div', {style:{fontSize:11,color:"#5a4a2a",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}, "ÇÖZÜM ADIMLAR"),
+          h('div', {style:{fontSize:10,color:"#5a4a2a",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}, "ÇÖZÜM"),
           m.adimlar.map((a,i)=>h('div', {key:i, style:{fontSize:12,color:"#d4a017",padding:"4px 0",
             borderTop:i>0?"1px solid #2a2010":"none"}}, (i+1)+". "+a))
         ),
@@ -3557,7 +3548,7 @@ function App() {
             staffId:y.staffId,staffAd:y.staffAd,kayitId:y.id,urunAd:u.a,olusturma:Date.now()},
             ...p]);
           // Supabase güncelle
-          dbGnc("stok",{qty:(stokDB[u.b]||0)-adet},u.b);
+          dbGnc("stok",{qty:(stokDB[u.b]||0)-adet},u.b).catch(()=>{});
           dbEkle("stok_hareketleri",{id:harId,barkod:u.b,urun_ad:u.a,tip:"cikis",
             adet,tarih:y.tarih,staff_id:y.staffId,staff_name:y.staffAd,kayit_id:y.id});
         });
