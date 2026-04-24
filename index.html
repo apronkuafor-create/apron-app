@@ -4367,8 +4367,24 @@ function App() {
           const yil = bugun.getFullYear();
           const ay = bugun.getMonth();
           const bugunStr = TODAY();
+          const ayPrefix = bugunStr.slice(0,7); // "2026-04"
+
+          // Bu personelin bu ay içindeki tüm kayıt/mazeret tarihlerini topla
+          const personelTumTarihler = [
+            ...records.filter(r=>r.staffId===kul.id && r.tarih && r.tarih.startsWith(ayPrefix)).map(r=>r.tarih),
+            ...bekleyen.filter(r=>r.staffId===kul.id && r.tarih && r.tarih.startsWith(ayPrefix)).map(r=>r.tarih),
+            ...Object.keys(devDB).filter(k=>k.endsWith("_"+kul.id)).map(k=>k.split("_")[0]).filter(t=>t.startsWith(ayPrefix))
+          ];
+
+          // Hiç kayıt/mazeret yoksa uyarı çıkarma (yeni personel veya yeni uygulama)
+          if(personelTumTarihler.length === 0) return null;
+
+          // En erken tarih = personelin bu ay ilk kayıt/mazeret attığı gün
+          const enErkenTarih = personelTumTarihler.sort()[0];
+          const enErkenGun = parseInt(enErkenTarih.split("-")[2]);
+
           const eksikGunler = [];
-          for(let g=1; g<=bugun.getDate(); g++){
+          for(let g=enErkenGun; g<=bugun.getDate(); g++){
             const d = new Date(yil, ay, g);
             const ds = d.toISOString().split("T")[0];
             if(ds === bugunStr) continue;
