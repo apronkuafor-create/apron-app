@@ -388,9 +388,11 @@ function UrunMuhasebe({
   stokGirisTip,setStokGirisTip,stokDetay,setStokDetay,
   tedarikciler,setTedarikciler,faturalar,setFaturalar,
   odemeler,setOdemeler,hareketler,setHareketler,
-  umDetay,setUmDetay,tumK,showToast
+  umDetay,setUmDetay,tumK,showToast,aktifSekme
 }) {
-  const [umSek, setUmSek] = React.useState("dashboard");
+  const [umSekLocal, setUmSekLocal] = React.useState("dashboard");
+  const umSek = aktifSekme || umSekLocal;
+  const setUmSek = aktifSekme ? (()=>{}) : setUmSekLocal;
   const [aramaQ, setAramaQ] = React.useState("");
   const [girisArama, setGirisArama] = React.useState("");
   const [girisAramaSon, setGirisAramaSon] = React.useState([]);
@@ -711,8 +713,8 @@ function UrunMuhasebe({
       )
     ),
 
-    // Alt sekme barı
-    div({style:{display:"flex",gap:0,borderBottom:"1px solid var(--br)",marginBottom:14,overflowX:"auto",scrollbarWidth:"none"}},
+    // Alt sekme barı - dışarıdan kontrol edilmiyorsa göster
+    !aktifSekme&&div({style:{display:"flex",gap:0,borderBottom:"1px solid var(--br)",marginBottom:14,overflowX:"auto",scrollbarWidth:"none"}},
       [
         ["dashboard","📊 Dashboard"],
         ["hareketler","📋 Hareketler"],
@@ -1635,8 +1637,10 @@ function AvansIste({kul, avanslar, setAvanslar, showToast}) {
 }
 
 // ── GELİR/GİDER MODÜLÜ ─────────────────────────────────────────────────────
-function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, setAvanslar, ibanBildirimler, showToast}) {
-  const [sekme, setSekme] = React.useState("ozet");
+function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, setAvanslar, ibanBildirimler, showToast, aktifSekme}) {
+  const [sekmeLocal, setSekmeLocal] = React.useState("ozet");
+  const sekme = aktifSekme || sekmeLocal;
+  const setSekme = aktifSekme ? (()=>{}) : setSekmeLocal;
   const [secAy, setSecAy] = React.useState(new Date().toISOString().slice(0,7));
   const [giderFrm, setGiderFrm] = React.useState(null);
   const GID_KATEGORILER = ["Kira","Elektrik","Su","Doğalgaz","Maaş","SGK/Sigorta","Malzeme","Temizlik","Vergi","Avans Ödemesi","Diğer"];
@@ -1731,8 +1735,8 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
         "⏳ "+bekleyenAvans.length+" avans talebi")
     ),
 
-    // Alt sekmeler
-    div({style:{display:"flex",gap:0,borderBottom:"1px solid var(--br)",marginBottom:14}},
+    // Alt sekmeler - dışarıdan kontrol edilmiyorsa göster
+    !aktifSekme&&div({style:{display:"flex",gap:0,borderBottom:"1px solid var(--br)",marginBottom:14}},
       [["ozet","📊 Özet"],["gelir","💚 Gelir"],["gider","🔴 Gider"],["avans","💵 Avans"]].map(([id,lb])=>
         div({key:id,style:{padding:"8px 14px",cursor:"pointer",fontSize:10,
           letterSpacing:1,textTransform:"uppercase",whiteSpace:"nowrap",flexShrink:0,
@@ -3305,6 +3309,7 @@ function App() {
   const [stokHar, setStokHar]         = useState([]); // hareket geçmişi
   const [stokPartiler, setStokPartiler] = useState([]); // {id,barkod,urunAd,marka,adet,kalan,alisF,tarih,faturaN,tip}
   const [muhSek, setMuhSek]           = useState("urunMuhasebe");
+  const [muhAlt, setMuhAlt]           = useState("dashboard");
   const [stokGirisForm, setStokGirisForm] = useState(false);
   const [stokGirisUrun, setStokGirisUrun] = useState([]); // [{barkod,adet,alisF}]
   const [stokGirisTarih, setStokGirisTarih] = useState(TODAY());
@@ -5003,9 +5008,9 @@ function App() {
         asek==="ozet"&&div({style:{display:"flex",gap:0,minHeight:"60vh"}},
 
           // Sol sidebar
-          div({style:{width:150,flexShrink:0,borderRight:"1px solid #1e1a10",paddingRight:0}},
+          div({style:{width:160,flexShrink:0,borderRight:"1px solid #1e1a10",paddingRight:0}},
 
-            // Ürün Muhasebesi - ANA BAŞLIK (alt içeriği var)
+            // ── ÜRÜN MUHASEBESİ - ANA BAŞLIK ──
             btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
               padding:"11px 14px",
               background:muhSek==="urunMuhasebe"?"rgba(212,160,23,.08)":"transparent",
@@ -5013,12 +5018,26 @@ function App() {
               color:muhSek==="urunMuhasebe"?"#d4a017":"#7a6a4a",
               fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",
               cursor:"pointer",textAlign:"left"},
-              onClick:()=>setMuhSek("urunMuhasebe")},
+              onClick:()=>{
+                if(muhSek==="urunMuhasebe"){setMuhSek("")}
+                else{setMuhSek("urunMuhasebe");setMuhAlt("dashboard")}
+              }},
               div(null,"📦 ÜRÜN MUHASEBESİ"),
-              h("span",{style:{fontSize:8,color:"#3a2e1e"}},"▸")
+              h("span",{style:{fontSize:10,color:"#3a2e1e"}},muhSek==="urunMuhasebe"?"▾":"▸")
+            ),
+            // Alt başlıklar
+            muhSek==="urunMuhasebe"&&div({style:{background:"rgba(0,0,0,.2)"}},
+              [["dashboard","📊 Dashboard"],["hareketler","📋 Hareketler"],["stok","📦 Stok"],
+               ["tedarikciler","🏭 Tedarikçiler"],["odunc","🤝 Ödünç"],["rapor","📈 Rapor"]].map(([id,lb])=>
+                btn({key:id,style:{width:"100%",padding:"8px 14px 8px 24px",border:"none",
+                  borderBottom:"1px solid #1a1510",textAlign:"left",fontSize:10,cursor:"pointer",
+                  background:muhAlt===id?"rgba(212,160,23,.12)":"transparent",
+                  color:muhAlt===id?"#d4a017":"#5a4a2a"},
+                  onClick:()=>setMuhAlt(id)},lb)
+              )
             ),
 
-            // Gelir/Gider - ANA BAŞLIK (alt içeriği var)
+            // ── GELİR/GİDER - ANA BAŞLIK ──
             btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
               padding:"11px 14px",
               background:muhSek==="gelirGider"?"rgba(212,160,23,.08)":"transparent",
@@ -5026,30 +5045,43 @@ function App() {
               color:muhSek==="gelirGider"?"#d4a017":"#7a6a4a",
               fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",
               cursor:"pointer",textAlign:"left"},
-              onClick:()=>setMuhSek("gelirGider")},
+              onClick:()=>{
+                if(muhSek==="gelirGider"){setMuhSek("")}
+                else{setMuhSek("gelirGider");setMuhAlt("ozet")}
+              }},
               div(null,"💰 GELİR/GİDER"),
-              h("span",{style:{fontSize:8,color:"#3a2e1e"}},"▸")
+              h("span",{style:{fontSize:10,color:"#3a2e1e"}},muhSek==="gelirGider"?"▾":"▸")
+            ),
+            // Alt başlıklar
+            muhSek==="gelirGider"&&div({style:{background:"rgba(0,0,0,.2)"}},
+              [["ozet","📊 Özet"],["gelir","💚 Gelir"],["gider","🔴 Gider"],["avans","💵 Avans"]].map(([id,lb])=>
+                btn({key:id,style:{width:"100%",padding:"8px 14px 8px 24px",border:"none",
+                  borderBottom:"1px solid #1a1510",textAlign:"left",fontSize:10,cursor:"pointer",
+                  background:muhAlt===id?"rgba(212,160,23,.12)":"transparent",
+                  color:muhAlt===id?"#d4a017":"#5a4a2a"},
+                  onClick:()=>setMuhAlt(id)},lb)
+              )
             ),
 
-            // Genel Özet - ALT BAŞLIK (alt içeriği yok)
-            btn({style:{width:"100%",padding:"9px 14px 9px 18px",
-              background:muhSek==="ozet"?"rgba(212,160,23,.12)":"transparent",
+            // ── GENEL ÖZET - TEK BAŞLIK ──
+            btn({style:{width:"100%",padding:"11px 14px",
+              background:muhSek==="ozet"?"rgba(212,160,23,.08)":"transparent",
               border:"none",borderBottom:"1px solid #1a1510",borderLeft:muhSek==="ozet"?"3px solid #d4a017":"3px solid transparent",
               color:muhSek==="ozet"?"#d4a017":"#5a4a2a",
-              fontSize:10,fontWeight:400,
+              fontSize:10,fontWeight:500,
               cursor:"pointer",textAlign:"left"},
-              onClick:()=>setMuhSek("ozet")},
+              onClick:()=>{setMuhSek("ozet");setMuhAlt("")}},
               "📊 Genel Özet"
             ),
 
-            // Hesap Özeti - ALT BAŞLIK (alt içeriği yok)
-            btn({style:{width:"100%",padding:"9px 14px 9px 18px",
-              background:muhSek==="hesapOzeti"?"rgba(212,160,23,.12)":"transparent",
+            // ── HESAP ÖZETİ - TEK BAŞLIK ──
+            btn({style:{width:"100%",padding:"11px 14px",
+              background:muhSek==="hesapOzeti"?"rgba(212,160,23,.08)":"transparent",
               border:"none",borderBottom:"1px solid #1a1510",borderLeft:muhSek==="hesapOzeti"?"3px solid #d4a017":"3px solid transparent",
               color:muhSek==="hesapOzeti"?"#d4a017":"#5a4a2a",
-              fontSize:10,fontWeight:400,
+              fontSize:10,fontWeight:500,
               cursor:"pointer",textAlign:"left"},
-              onClick:()=>setMuhSek("hesapOzeti")},
+              onClick:()=>{setMuhSek("hesapOzeti");setMuhAlt("")}},
               "🔍 Hesap Özeti"
             )
           ),
@@ -5072,12 +5104,12 @@ function App() {
               oduncler,setOduncler,
               komsular,setKomsular,
               umDetay,setUmDetay,
-              tumK,showToast
+              tumK,showToast,aktifSekme:muhAlt
             }),
 
             muhSek==="gelirGider"&&h(GelirGiderModul,{
               tumK, personeller, giderler, setGiderler,
-              avanslar, setAvanslar, ibanBildirimler, showToast
+              avanslar, setAvanslar, ibanBildirimler, showToast,aktifSekme:muhAlt
             }),
 
             muhSek==="ozet"&&div(null,
@@ -5272,53 +5304,59 @@ function App() {
         asek==="ayarlar"&&div({style:{display:"flex",gap:0,minHeight:"60vh"}},
 
           // Sol sidebar
-          div({style:{width:140,flexShrink:0,borderRight:"1px solid #1e1a10",paddingRight:0}},
-            // Listeler başlığı
+          div({style:{width:160,flexShrink:0,borderRight:"1px solid #1e1a10",paddingRight:0}},
+            // ── LİSTELER - ANA BAŞLIK (alt başlıkları var) ──
             div(null,
               btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
-                padding:"11px 14px",background:aySek==="listeler"?"rgba(212,160,23,.08)":"transparent",
-                border:"none",borderBottom:"1px solid #1a1510",color:aySek==="listeler"?"#d4a017":"#7a6a4a",
-                fontSize:12,cursor:"pointer",textAlign:"left"},
+                padding:"11px 14px",
+                background:aySek==="listeler"?"rgba(212,160,23,.08)":"transparent",
+                border:"none",borderBottom:"1px solid #1a1510",borderLeft:aySek==="listeler"?"3px solid #d4a017":"3px solid transparent",
+                color:aySek==="listeler"?"#d4a017":"#7a6a4a",
+                fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",
+                cursor:"pointer",textAlign:"left"},
                 onClick:()=>setAySek(aySek==="listeler"?"":"listeler")},
                 div(null,"📋 LİSTELER"),
                 h("span",{style:{fontSize:10,color:"#3a2e1e"}},aySek==="listeler"?"▾":"▸")
               ),
               aySek==="listeler"&&div({style:{background:"rgba(0,0,0,.2)"}},
                 [["genel","✂ Genel Hizmet Listesi"],["ustaKalfa","💈 Usta/Kalfa Hizmet Listesi"],["manikurist","💅 Manikürist Hizmet Listesi"],["ürün","📦 Ürünler Listesi"],["personel","👥 Personel Listesi"],["musteriler","👤 Müşteriler Listesi"],["banka","🏦 Bankalar Listesi"]].map(([id,lb])=>
-                  btn({key:id,style:{width:"100%",padding:"9px 14px 9px 22px",border:"none",
-                    borderBottom:"1px solid #1a1510",textAlign:"left",fontSize:11,cursor:"pointer",
+                  btn({key:id,style:{width:"100%",padding:"8px 14px 8px 24px",border:"none",
+                    borderBottom:"1px solid #1a1510",textAlign:"left",fontSize:10,cursor:"pointer",
                     background:ayListeSek===id?"rgba(212,160,23,.12)":"transparent",
                     color:ayListeSek===id?"#d4a017":"#5a4a2a"},
                     onClick:()=>setAyListeSek(id)},lb)
                 )
               )
             ),
-            // Görünüm
-            btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
-              padding:"11px 14px",background:aySek==="goruntum"?"rgba(212,160,23,.08)":"transparent",
-              border:"none",borderBottom:"1px solid #1a1510",color:aySek==="goruntum"?"#d4a017":"#7a6a4a",
-              fontSize:12,cursor:"pointer",textAlign:"left"},
+            // ── GÖRÜNÜM - TEK BAŞLIK ──
+            btn({style:{width:"100%",padding:"11px 14px",
+              background:aySek==="goruntum"?"rgba(212,160,23,.08)":"transparent",
+              border:"none",borderBottom:"1px solid #1a1510",borderLeft:aySek==="goruntum"?"3px solid #d4a017":"3px solid transparent",
+              color:aySek==="goruntum"?"#d4a017":"#5a4a2a",
+              fontSize:10,fontWeight:500,
+              cursor:"pointer",textAlign:"left"},
               onClick:()=>setAySek("goruntum")},
-              div(null,"🎨 GÖRÜNÜM"),
-              h("span",{style:{fontSize:10,color:"#3a2e1e"}},"›")
+              "🎨 Görünüm"
             ),
-            // İşletme
-            btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
-              padding:"11px 14px",background:aySek==="isletme"?"rgba(212,160,23,.08)":"transparent",
-              border:"none",borderBottom:"1px solid #1a1510",color:aySek==="isletme"?"#d4a017":"#7a6a4a",
-              fontSize:12,cursor:"pointer",textAlign:"left"},
+            // ── İŞLETME - TEK BAŞLIK ──
+            btn({style:{width:"100%",padding:"11px 14px",
+              background:aySek==="isletme"?"rgba(212,160,23,.08)":"transparent",
+              border:"none",borderBottom:"1px solid #1a1510",borderLeft:aySek==="isletme"?"3px solid #d4a017":"3px solid transparent",
+              color:aySek==="isletme"?"#d4a017":"#5a4a2a",
+              fontSize:10,fontWeight:500,
+              cursor:"pointer",textAlign:"left"},
               onClick:()=>setAySek("isletme")},
-              div(null,"🏢 İŞLETME"),
-              h("span",{style:{fontSize:10,color:"#3a2e1e"}},"›")
+              "🏢 İşletme"
             ),
-            // Personel Grupları başlığı
-            btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
-              padding:"11px 14px",background:aySek==="gruplar"?"rgba(212,160,23,.08)":"transparent",
-              border:"none",borderBottom:"1px solid #1a1510",color:aySek==="gruplar"?"#d4a017":"#7a6a4a",
-              fontSize:12,cursor:"pointer",textAlign:"left"},
+            // ── GRUPLAR - TEK BAŞLIK ──
+            btn({style:{width:"100%",padding:"11px 14px",
+              background:aySek==="gruplar"?"rgba(212,160,23,.08)":"transparent",
+              border:"none",borderBottom:"1px solid #1a1510",borderLeft:aySek==="gruplar"?"3px solid #d4a017":"3px solid transparent",
+              color:aySek==="gruplar"?"#d4a017":"#5a4a2a",
+              fontSize:10,fontWeight:500,
+              cursor:"pointer",textAlign:"left"},
               onClick:()=>setAySek("gruplar")},
-              div(null,"👥 GRUPLAR"),
-              h("span",{style:{fontSize:10,color:"#3a2e1e"}},"›")
+              "👥 Gruplar"
             )
           ),
 
