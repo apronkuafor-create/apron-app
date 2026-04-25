@@ -2507,7 +2507,9 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
   const [tel,      setTel]      = useState(ilk?.tel||"");
   const [formTarih, setFormTarih] = useState(ilk?.tarih || TODAY());
   const [musteriKaydet, setMusteriKaydet] = useState(false);
-  const [hatirlatmaSec, setHatirlatmaSec] = useState(false);
+  cconst [hatirlatmaSec, setHatirlatmaSec] = useState(false);
+const [mevcutHatirlatma, setMevcutHatirlatma] = useState(null);
+const [hatirlatmaUyari, setHatirlatmaUyari] = useState(false);onst [hatirlatmaSec, setHatirlatmaSec] = useState(false);
   const [hizler,   setHizler]   = useState(
     ilk?.hizler?.length
       ? ilk.hizler.map(h=>({...h,listef:h.listef||HIZ_LISTE_FIYAT[h.n]||0}))
@@ -2648,7 +2650,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
       const gonTarih = new Date();
       gonTarih.setDate(gonTarih.getDate()+20);
       const hatId = uid();
-      setHatirlatmalar(p=>[...p,{
+      const yeniHat = {
         id:hatId,
         musteriAd:musteri,
         tel:tel,
@@ -2659,7 +2661,11 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
         gonderildi:false,
         tip:"sacKesimi",
         mesaj:"Merhaba "+musteri+"! Saç kesiminizin üzerinden 20 gün geçti, yenileme zamanı geldi. Randevu için bizi arayabilirsiniz. 💈"
-      }]);
+      };
+      setHatirlatmalar(p=>{
+        const filtre = p.filter(h=>!(normText(h.musteriAd)===normText(musteri) && !h.gonderildi));
+        return [...filtre, yeniHat];
+      });
     }
     onKaydet({id:ilk?.id,musteri,tel,
       anaPersonelId:anaPersonelId||ilk?.anaPersonelId||"",
@@ -3016,11 +3022,23 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
             )
           )
         ),
-        // Hatırlatma seçeneği - sadece normal personel için
+       // Hatırlatma seçeneği - sadece normal personel için
         !_isManikurist&&div({style:{background:"rgba(96,160,224,.06)",border:"1px solid rgba(96,160,224,.15)",
           borderRadius:12,padding:12,marginBottom:10}},
           div({style:{display:"flex",alignItems:"center",gap:10,cursor:"pointer"},
-            onClick:()=>setHatirlatmaSec(p=>!p)},
+            onClick:()=>{
+              if(!hatirlatmaSec && musteri.trim()) {
+                const mevcut = (hatirlatmalar||[]).find(h=>
+                  !h.gonderildi && normText(h.musteriAd)===normText(musteri)
+                );
+                if(mevcut) {
+                  setMevcutHatirlatma(mevcut);
+                  setHatirlatmaUyari(true);
+                  return;
+                }
+              }
+              setHatirlatmaSec(p=>!p);
+            }},
             div({style:{width:20,height:20,borderRadius:5,flexShrink:0,transition:"all .2s",
               border:"2px solid "+(hatirlatmaSec?"#60a0e0":"#2a3a50"),
               background:hatirlatmaSec?"#60a0e0":"transparent",
@@ -3039,6 +3057,44 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
                 const d=new Date(); d.setDate(d.getDate()+20);
                 return d.toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric"});
               })()+" tarihinde WhatsApp mesajı hazırlanacak")
+          ),
+          // Uyarı diyalogu
+          hatirlatmaUyari&&mevcutHatirlatma&&div({style:{position:"fixed",top:0,left:0,right:0,bottom:0,
+            background:"rgba(0,0,0,.7)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+            div({style:{background:"#1a1408",border:"1.5px solid rgba(96,160,224,.4)",borderRadius:14,
+              padding:20,maxWidth:340,width:"100%"}},
+              div({style:{fontSize:14,color:"#60a0e0",fontWeight:600,marginBottom:12,textAlign:"center"}},
+                "⚠️ Mevcut Hatırlatma Var"),
+              div({style:{fontSize:12,color:"#e8dcc8",lineHeight:1.6,marginBottom:6,textAlign:"center"}},
+                "\""+mevcutHatirlatma.musteriAd+"\" adlı müşterinin henüz gönderilmemiş bir hatırlatması bulunuyor."),
+              div({style:{background:"rgba(96,160,224,.08)",borderRadius:8,padding:"9px 12px",marginBottom:14,
+                border:"1px solid rgba(96,160,224,.15)"}},
+                div({style:{fontSize:10,color:"#5a7a9a",marginBottom:3}},"Mevcut hatırlatma tarihi:"),
+                div({style:{fontSize:12,color:"#60a0e0",fontWeight:500}},
+                  new Date(mevcutHatirlatma.gonderiTarih).toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric"})),
+                mevcutHatirlatma.staffAd&&div({style:{fontSize:10,color:"#5a7a9a",marginTop:4}},
+                  "Oluşturan: "+mevcutHatirlatma.staffAd)
+              ),
+              div({style:{display:"flex",flexDirection:"column",gap:8}},
+                btn({style:{padding:"10px 0",borderRadius:8,border:"1px solid rgba(96,160,224,.4)",
+                  background:"rgba(96,160,224,.12)",color:"#60a0e0",fontSize:12,fontWeight:600,
+                  cursor:"pointer",textAlign:"center"},
+                  onClick:()=>{
+                    setHatirlatmalar(p=>p.filter(x=>x.id!==mevcutHatirlatma.id));
+                    setHatirlatmaUyari(false);
+                    setMevcutHatirlatma(null);
+                    setHatirlatmaSec(true);
+                  }},"🔄 Eskiyi Sil ve Yeni Hatırlatma Oluştur"),
+                btn({style:{padding:"10px 0",borderRadius:8,border:"1px solid #2a2010",
+                  background:"transparent",color:"#9a8a6a",fontSize:12,
+                  cursor:"pointer",textAlign:"center"},
+                  onClick:()=>{
+                    setHatirlatmaUyari(false);
+                    setMevcutHatirlatma(null);
+                    setHatirlatmaSec(false);
+                  }},"❌ Hatırlatmadan Vazgeç")
+              )
+            )
           )
         ),
 
