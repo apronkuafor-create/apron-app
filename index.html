@@ -534,15 +534,17 @@ function UrunMuhasebe({
             onChange:e=>setSipTedarikciTel(e.target.value)}),
           btn({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,color:"var(--g)",
             padding:"0 13px",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",height:44},
-            onClick:()=>{
-              if(navigator.contacts && navigator.contacts.select){
-                navigator.contacts.select(["tel"],{multiple:false}).then(c=>{
-                  if(c&&c[0]&&c[0].tel&&c[0].tel[0]){
-                    const no=c[0].tel[0].replace(/\s/g,"");
-                    setSipTedarikciTel(no);
+            onClick:async()=>{
+              try{
+                if("contacts" in navigator && "select" in navigator.contacts){
+                  const cs=await navigator.contacts.select(["tel"],{multiple:false});
+                  if(cs&&cs.length>0&&cs[0].tel&&cs[0].tel.length>0){
+                    setSipTedarikciTel(cs[0].tel[0].replace(/[\s\-\(\)]/g,""));
                   }
-                }).catch(()=>{});
-              }
+                }else{
+                  showToast("Rehber bu cihazda desteklenmiyor, numarayı elle girin","uy");
+                }
+              }catch(e){}
             }},
             h("svg",{viewBox:"0 0 24 24",width:22,height:22,fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
               h("rect",{x:3,y:2,width:15,height:20,rx:2}),
@@ -3924,9 +3926,36 @@ function App() {
               div({style:{marginBottom:10}},lbl({className:"fl"},"Müşteri Adı"),
                 inp({className:"fi",placeholder:"Müşteri adı...",value:randevuForm.musteriAd||"",
                   onChange:e=>setRandevuForm(p=>({...p,musteriAd:e.target.value}))})),
-              div({style:{marginBottom:10}},lbl({className:"fl"},"Telefon (Zorunlu)"),
-                inp({className:"fi",type:"tel",placeholder:"05xx xxx xx xx",value:randevuForm.tel||"",
-                  onChange:e=>setRandevuForm(p=>({...p,tel:e.target.value}))})),
+              div({style:{marginBottom:10}},
+                lbl({className:"fl"},"Telefon (Zorunlu)"),
+                div({style:{display:"flex",gap:7}},
+                  inp({className:"fi",type:"tel",style:{flex:1,margin:0},placeholder:"05xx xxx xx xx",value:randevuForm.tel||"",
+                    onChange:e=>setRandevuForm(p=>({...p,tel:e.target.value}))}),
+                  btn({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,color:"var(--g)",
+                    padding:"0 13px",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",height:44},
+                    onClick:async()=>{
+                      try{
+                        if("contacts" in navigator && "select" in navigator.contacts){
+                          const cs=await navigator.contacts.select(["tel"],{multiple:false});
+                          if(cs&&cs.length>0&&cs[0].tel&&cs[0].tel.length>0){
+                            setRandevuForm(p=>({...p,tel:cs[0].tel[0].replace(/[\s\-\(\)]/g,"")}));
+                          }
+                        }else{
+                          showToast("Rehber bu cihazda desteklenmiyor, numarayı elle girin","uy");
+                        }
+                      }catch(e){}
+                    }},
+                    h("svg",{viewBox:"0 0 24 24",width:22,height:22,fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
+                      h("rect",{x:3,y:2,width:15,height:20,rx:2}),
+                      h("circle",{cx:10.5,cy:9,r:2.5}),
+                      h("path",{d:"M5 19c0-2.5 2.5-4 5.5-4s5.5 1.5 5.5 4"}),
+                      h("line",{x1:20,y1:7,x2:22,y2:7}),
+                      h("line",{x1:20,y1:11,x2:22,y2:11}),
+                      h("line",{x1:20,y1:15,x2:22,y2:15})
+                    )
+                  )
+                )
+              ),
               div({style:{marginBottom:16}},lbl({className:"fl"},"Not"),
                 h("textarea",{className:"fi",rows:2,style:{resize:"none",fontFamily:"Jost,sans-serif"},
                   placeholder:"Randevu notu...",value:randevuForm.notlar||"",
