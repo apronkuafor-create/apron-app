@@ -412,6 +412,7 @@ function UrunMuhasebe({
   const [mkTarih, setMkTarih] = React.useState(TODAY());
   const [mkFatura, setMkFatura] = React.useState("");
   const [mkFaturaImg, setMkFaturaImg] = React.useState("");
+  const [mkFaturaTarih, setMkFaturaTarih] = React.useState("");
   const [mkUrunler, setMkUrunler] = React.useState([]);
   const [mkBarkod, setMkBarkod] = React.useState("");
   const [mkIsimArama, setMkIsimArama] = React.useState("");
@@ -455,51 +456,90 @@ function UrunMuhasebe({
     try{const a=JSON.parse(localStorage.getItem("apron_mk_arsiv")||"[]");setMkArsiv(a);}catch(e){}
   },[]);
 
-  // ── Ortak Barkod+İsim arama bileşeni ──
-  const UrunAramaBilesen = ({barkodVal,setBarkodVal,isimVal,setIsimVal,onEkle,placeholder})=>{
-    const bSon = barkodVal.length>=3 ? URUN_DB.filter(u=>u.b.includes(barkodVal)).slice(0,6) : [];
-    const aSon = isimVal.length>=2 ? URUN_DB.filter(u=>{
-      const q=normText(isimVal);
-      return normText(u.a).includes(q)||normText(u.m).includes(q);
-    }).slice(0,6) : [];
+  // ── Tek kutu ürün arama: barkod + isim + kamera ──
+  const UrunAramaBilesen = ({aramaVal,setAramaVal,onEkle,placeholder})=>{
+    const [kameraAktif, setKameraAktif] = React.useState(false);
+    const videoRef = React.useRef(null);
+    const canvasRef = React.useRef(null);
+    const streamRef = React.useRef(null);
+
+    const q = (aramaVal||"").trim();
+    // Sayı ile başlıyorsa barkod araması, yoksa isim araması, ikisini de göster
+    const sonuclar = q.length>=2 ? URUN_DB.filter(u=>{
+      const nq=normText(q);
+      return u.b.includes(q) || normText(u.a).includes(nq) || normText(u.m).includes(nq);
+    }).slice(0,8) : [];
+
+    // Tam barkod eşleşmesi kontrolü
+    React.useEffect(()=>{
+      if(q.length>=8){
+        const tam=URUN_DB.find(u=>u.b===q);
+        if(tam){onEkle(tam);setAramaVal("");}
+      }
+    },[q]);
+
+    // Kamera barkod tarama
+    const kameraAc = async()=>{
+      try{
+        const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+        streamRef.current=stream;
+        setKameraAktif(true);
+        setTimeout(()=>{
+          if(videoRef.current){videoRef.current.srcObject=stream;videoRef.current.play();}
+          // BarcodeDetector API
+          if(window.BarcodeDetector){
+            const detector = new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128","code_39"]});
+            const scan=async()=>{
+              if(!videoRef.current||!streamRef.current) return;
+              try{
+                const barcodes=await detector.detect(videoRef.current);
+                if(barcodes.length>0){
+                  const bc=barcodes[0].rawValue;
+                  const urun=URUN_DB.find(u=>u.b===bc);
+                  if(urun){onEkle(urun);kameraKapat();showToast(urun.a+" bulundu");}
+                  else{setAramaVal(bc);kameraKapat();}
+                  return;
+                }
+              }catch(e){}
+              if(streamRef.current) requestAnimationFrame(scan);
+            };
+            requestAnimationFrame(scan);
+          }else{showToast("Tarayıcınız barkod okumayı desteklemiyor","uy");}
+        },200);
+      }catch(e){showToast("Kamera erişimi reddedildi","uy");}
+    };
+    const kameraKapat=()=>{
+      if(streamRef.current){streamRef.current.getTracks().forEach(t=>t.stop());streamRef.current=null;}
+      setKameraAktif(false);
+    };
 
     return div(null,
-      lbl({className:"fl"},"Barkod ile Ara"),
+      // Kamera görüntüsü
+      kameraAktif&&div({style:{position:"relative",marginBottom:10,borderRadius:10,overflow:"hidden",border:"2px solid var(--g)"}},
+        h("video",{ref:videoRef,style:{width:"100%",maxHeight:200,objectFit:"cover"},playsInline:true,muted:true}),
+        div({style:{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",
+          width:"60%",height:2,background:"red",opacity:.7}}),
+        btn({style:{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.7)",border:"none",
+          borderRadius:8,color:"#fff",fontSize:14,cursor:"pointer",padding:"6px 10px"},
+          onClick:kameraKapat},"✕ Kapat")
+      ),
+      // Arama kutusu + kamera ikonu
       div({style:{display:"flex",gap:7,marginBottom:4}},
-        inp({className:"fi",style:{flex:1},placeholder:"Barkod numarası...",value:barkodVal,
-          onChange:e=>{
-            setBarkodVal(e.target.value);
-            const tam=URUN_DB.find(u=>u.b===e.target.value.trim());
-            if(tam){onEkle(tam);setBarkodVal("");}
-          }}),
+        inp({className:"fi",style:{flex:1},placeholder:placeholder||"Barkod veya ürün adı ile ara...",
+          value:aramaVal,onChange:e=>setAramaVal(e.target.value)}),
         btn({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,color:"var(--g)",
-          fontSize:18,padding:"0 13px",cursor:"pointer"},onClick:()=>{
-            if(navigator.mediaDevices){showToast("Kamera barkod desteği yakında");}
-          }},"📷")
+          fontSize:18,padding:"0 13px",cursor:"pointer",flexShrink:0},
+          onClick:kameraAc},"📷")
       ),
-      bSon.length>0&&div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:9,
-        overflow:"hidden",maxHeight:180,overflowY:"auto",marginBottom:8}},
-        bSon.map(u=>div({key:u.b,style:{padding:"9px 11px",borderBottom:"1px solid var(--br)",
+      // Sonuçlar
+      sonuclar.length>0&&!kameraAktif&&div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:9,
+        overflow:"hidden",maxHeight:220,overflowY:"auto",marginBottom:8}},
+        sonuclar.map(u=>div({key:u.b,style:{padding:"9px 11px",borderBottom:"1px solid var(--br)",
           cursor:"pointer",display:"flex",alignItems:"center",gap:7},
-          onClick:()=>{onEkle(u);setBarkodVal("");}},
+          onClick:()=>{onEkle(u);setAramaVal("");}},
           div({style:{flex:1,minWidth:0}},
             div({style:{fontSize:14,color:"var(--tx)"}},u.a),
-            div({style:{fontSize:11,color:"var(--di)"}},u.b+" · "+u.m+" · "+u.ml)
-          ),
-          div({style:{fontSize:13,color:"var(--g)"}},fmt(u.sp))
-        ))
-      ),
-      lbl({className:"fl",style:{marginTop:4}},"İsimle Ara"),
-      inp({className:"fi",placeholder:placeholder||"Ürün adı veya marka...",value:isimVal,
-        onChange:e=>setIsimVal(e.target.value),style:{marginBottom:4}}),
-      aSon.length>0&&div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:9,
-        overflow:"hidden",maxHeight:180,overflowY:"auto",marginBottom:8}},
-        aSon.map(u=>div({key:u.b,style:{padding:"9px 11px",borderBottom:"1px solid var(--br)",
-          cursor:"pointer",display:"flex",alignItems:"center",gap:7},
-          onClick:()=>{onEkle(u);setIsimVal("");}},
-          div({style:{flex:1,minWidth:0}},
-            div({style:{fontSize:14,color:"var(--tx)"}},u.a),
-            div({style:{fontSize:11,color:"var(--di)"}},u.m+" · "+u.ml)
+            div({style:{fontSize:11,color:"var(--di)"}},u.b+" · "+u.m+" · "+(u.ml||""))
           ),
           div({style:{fontSize:13,color:"var(--g)"}},fmt(u.sp))
         ))
@@ -525,32 +565,37 @@ function UrunMuhasebe({
     umSek==="siparis"&&div(null,
       div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},"📋 Sipariş Listesi"),
 
-      // Tedarikçi telefon - rehbere yönlendir
+      // Tedarikçi telefon - rehber ikonu
       div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:12}},
-        lbl({className:"fl"},"Tedarikçi WhatsApp No"),
-        inp({className:"fi",type:"tel",placeholder:"05XX XXX XX XX",value:sipTedarikciTel,
-          onChange:e=>setSipTedarikciTel(e.target.value),
-          onClick:e=>{if(!sipTedarikciTel&&navigator.contacts){
-            navigator.contacts.select(["tel"],{multiple:false}).then(c=>{
-              if(c&&c[0]&&c[0].tel&&c[0].tel[0]) setSipTedarikciTel(c[0].tel[0]);
-            }).catch(()=>{});
-          }}}),
+        lbl({className:"fl"},"Tedarikçi Telefon No"),
+        div({style:{display:"flex",gap:7,marginBottom:10}},
+          inp({className:"fi",type:"tel",style:{flex:1,margin:0},placeholder:"05XX XXX XX XX",value:sipTedarikciTel,
+            onChange:e=>setSipTedarikciTel(e.target.value)}),
+          btn({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,color:"var(--g)",
+            fontSize:18,padding:"0 13px",cursor:"pointer",flexShrink:0},
+            onClick:()=>{
+              if(navigator.contacts){
+                navigator.contacts.select(["tel"],{multiple:false}).then(c=>{
+                  if(c&&c[0]&&c[0].tel&&c[0].tel[0]) setSipTedarikciTel(c[0].tel[0]);
+                }).catch(()=>showToast("Rehber erişimi reddedildi","uy"));
+              }else{showToast("Rehber erişimi bu tarayıcıda desteklenmiyor","uy");}
+            }},"📇")
+        ),
         lbl({className:"fl",style:{marginTop:10}},"Sipariş Notu (isteğe bağlı)"),
         inp({className:"fi",placeholder:"Ek notlar...",value:sipNot,onChange:e=>setSipNot(e.target.value)})
       ),
 
-      // Ürün ekleme (barkod+isim)
+      // Ürün ekleme (tek kutu)
       div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:12}},
         div({style:{fontSize:13,color:"var(--g)",fontWeight:500,marginBottom:10}},"Ürün Ekle"),
-        h(UrunAramaBilesen,{barkodVal:sipBarkod,setBarkodVal:setSipBarkod,
-          isimVal:sipArama,setIsimVal:setSipArama,
+        h(UrunAramaBilesen,{aramaVal:sipArama,setAramaVal:setSipArama,
           onEkle:u=>{
             if(siparisListesi.find(s=>s.barkod===u.b)){showToast("Zaten listede","uy");return;}
             setSiparisListesi(p=>[...p,{barkod:u.b,urunAd:u.a,marka:u.m,
               mevcutStok:stokOzet[u.b]?.kalan||0,siparisAdet:"",otomatik:false}]);
             showToast(u.a+" eklendi");
           },
-          placeholder:"Sipariş listesine ürün ara..."})
+          placeholder:"Barkod veya ürün adı ara..."})
       ),
 
       // Liste
@@ -598,7 +643,7 @@ function UrunMuhasebe({
           btn({style:{width:"100%",padding:"14px 0",borderRadius:11,border:"none",
             background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)",
             fontSize:14,fontWeight:700,cursor:"pointer"},
-            onClick:()=>{setMkForm(true);setMkTarih(TODAY());setMkFatura("");setMkFaturaImg("");setMkUrunler([]);}},
+            onClick:()=>{setMkForm(true);setMkTarih(TODAY());setMkFatura("");setMkFaturaTarih("");setMkFaturaImg("");setMkUrunler([]);}},
             "+ Yeni Mal Kabul"),
 
           // ARŞİV
@@ -609,7 +654,8 @@ function UrunMuhasebe({
                 div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
                   div(null,
                     div({style:{fontSize:14,color:"var(--tx)",fontWeight:500}},fmtT(ar.tarih)),
-                    ar.faturaN&&div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},"Fatura: "+ar.faturaN)
+                    ar.faturaN&&div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},
+                      "Fatura: "+ar.faturaN+(ar.faturaTarih?" · "+fmtT(ar.faturaTarih):""))
                   ),
                   div({style:{fontSize:13,color:"var(--g)",fontWeight:600}},ar.urunler.length+" ürün")
                 ),
@@ -653,11 +699,15 @@ function UrunMuhasebe({
               onClick:()=>setMkForm(false)},"✕")
           ),
 
-          // Tarih ve Fatura No
-          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}},
+          // Tarih, Fatura Tarihi ve Fatura No
+          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}},
             div(null,
               lbl({className:"fl"},"Geliş Tarihi *"),
               inp({className:"fi",type:"date",value:mkTarih,onChange:e=>setMkTarih(e.target.value)})
+            ),
+            div(null,
+              lbl({className:"fl"},"Fatura Tarihi"),
+              inp({className:"fi",type:"date",value:mkFaturaTarih,onChange:e=>setMkFaturaTarih(e.target.value)})
             ),
             div(null,
               lbl({className:"fl"},"Fatura / İrsaliye No"),
@@ -692,17 +742,16 @@ function UrunMuhasebe({
                 }},"📎 Fatura / İrsaliye Yükle")
           ),
 
-          // Ürün Ekleme (barkod + isim)
+          // Ürün Ekleme (tek kutu)
           div({style:{marginBottom:12}},
             div({style:{fontSize:13,color:"var(--g)",fontWeight:500,marginBottom:10}},"Ürün Ekle"),
-            h(UrunAramaBilesen,{barkodVal:mkBarkod,setBarkodVal:setMkBarkod,
-              isimVal:mkIsimArama,setIsimVal:setMkIsimArama,
+            h(UrunAramaBilesen,{aramaVal:mkIsimArama,setAramaVal:setMkIsimArama,
               onEkle:u=>{
                 if(mkUrunler.find(x=>x.barkod===u.b)){showToast("Zaten eklendi","uy");return;}
                 setMkUrunler(p=>[...p,{barkod:u.b,urunAd:u.a,marka:u.m,ml:u.ml,
                   adet:"",birimF:String(u.bp||""),kdv:"20"}]);
               },
-              placeholder:"Mal kabule ürün ekle..."})
+              placeholder:"Barkod veya ürün adı ara..."})
           ),
 
           // Eklenen ürünler listesi
@@ -767,7 +816,7 @@ function UrunMuhasebe({
                       staff_id:"yonetici",staff_name:"Yönetici"}]);
                   });
                   // Arşive ekle
-                  const arsivKayit={tarih:mkTarih,faturaN:mkFatura,faturaImg:mkFaturaImg,
+                  const arsivKayit={tarih:mkTarih,faturaTarih:mkFaturaTarih,faturaN:mkFatura,faturaImg:mkFaturaImg,
                     urunler:mkUrunler.map(u=>({barkod:u.barkod,urunAd:u.urunAd,marka:u.marka,
                       adet:toN(u.adet),birimF:toN(u.birimF),toplamF:toN(u.adet)*toN(u.birimF)}))};
                   const yeniArsiv=[arsivKayit,...mkArsiv];
@@ -786,14 +835,13 @@ function UrunMuhasebe({
       div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},"🔍 Stok Detay"),
 
       !sdSecili&&div(null,
-        h(UrunAramaBilesen,{barkodVal:sdBarkod,setBarkodVal:setSdBarkod,
-          isimVal:sdArama,setIsimVal:setSdArama,
+        h(UrunAramaBilesen,{aramaVal:sdArama,setAramaVal:setSdArama,
           onEkle:u=>{
             const oz=stokOzet[u.b];
             if(oz){setSdSecili(oz);setSdSatisFiyat(String(u.sp||""));}
             else{showToast("Bu ürün stoğunuzda yok","uy");}
           },
-          placeholder:"Stok detayı görmek için ürün ara..."})
+          placeholder:"Stok detayı için barkod veya ürün adı ara..."})
       ),
 
       // Seçili ürün detayı
