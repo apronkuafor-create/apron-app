@@ -401,44 +401,23 @@ function UrunAramaBilesen({aramaVal,setAramaVal,onEkle,placeholder}) {
     }
   },[q]);
 
-  // Kamera ile barkod oku (iOS uyumlu - fotoğraf çekip okuma)
-  const kameraBarkodOku = ()=>{
-    const fi=document.createElement("input");
-    fi.type="file"; fi.accept="image/*"; fi.setAttribute("capture","environment");
-    fi.onchange=ev=>{
-      const f=ev.target.files[0]; if(!f) return;
-      const rd=new FileReader();
-      rd.onload=e=>{
-        const img2=new Image();
-        img2.onload=()=>{
-          // BarcodeDetector varsa kullan
-          if(window.BarcodeDetector){
-            const det=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128","code_39"]});
-            det.detect(img2).then(bc=>{
-              if(bc.length>0){
-                const kod=bc[0].rawValue;
-                const urun=URUN_DB.find(u=>u.b===kod);
-                if(urun){onEkle(urun);}else{setAramaVal(kod);}
-              }else{setAramaVal(""); alert("Barkod okunamadı. Lütfen barkodu elle girin.");}
-            }).catch(()=>alert("Barkod okunamadı."));
-          }else{
-            alert("Barkod okunamadı. Lütfen barkodu elle girin.");
-          }
-        };
-        img2.src=e.target.result;
-      };
-      rd.readAsDataURL(f);
-    };
-    fi.click();
-  };
+  const [barkodAc, setBarkodAc] = React.useState(false);
 
   return div(null,
+    barkodAc&&h(BarkodTarayici,{
+      onOku: kod=>{
+        setBarkodAc(false);
+        const urun=URUN_DB.find(u=>u.b===kod);
+        if(urun){onEkle(urun);}else{setAramaVal(kod);}
+      },
+      onKapat:()=>setBarkodAc(false)
+    }),
     div({style:{display:"flex",gap:7,marginBottom:4}},
       inp({className:"fi",style:{flex:1,margin:0},placeholder:placeholder||"Barkod veya ürün adı ile ara...",
         value:aramaVal,onChange:e=>setAramaVal(e.target.value)}),
       btn({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,color:"var(--g)",
         fontSize:20,padding:"0 14px",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center"},
-        onClick:kameraBarkodOku},"📷")
+        onClick:()=>setBarkodAc(true)},"📷")
     ),
     sonuclar.length>0&&div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:9,
       overflow:"hidden",maxHeight:220,overflowY:"auto",marginBottom:8}},
