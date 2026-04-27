@@ -401,9 +401,45 @@ function UrunAramaBilesen({aramaVal,setAramaVal,onEkle,placeholder}) {
     }
   },[q]);
 
+  // Kamera ile barkod oku (iOS uyumlu - fotoğraf çekip okuma)
+  const kameraBarkodOku = ()=>{
+    const fi=document.createElement("input");
+    fi.type="file"; fi.accept="image/*"; fi.setAttribute("capture","environment");
+    fi.onchange=ev=>{
+      const f=ev.target.files[0]; if(!f) return;
+      const rd=new FileReader();
+      rd.onload=e=>{
+        const img2=new Image();
+        img2.onload=()=>{
+          // BarcodeDetector varsa kullan
+          if(window.BarcodeDetector){
+            const det=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128","code_39"]});
+            det.detect(img2).then(bc=>{
+              if(bc.length>0){
+                const kod=bc[0].rawValue;
+                const urun=URUN_DB.find(u=>u.b===kod);
+                if(urun){onEkle(urun);}else{setAramaVal(kod);}
+              }else{setAramaVal(""); alert("Barkod okunamadı. Lütfen barkodu elle girin.");}
+            }).catch(()=>alert("Barkod okunamadı."));
+          }else{
+            alert("Barkod okunamadı. Lütfen barkodu elle girin.");
+          }
+        };
+        img2.src=e.target.result;
+      };
+      rd.readAsDataURL(f);
+    };
+    fi.click();
+  };
+
   return div(null,
-    inp({className:"fi",style:{marginBottom:4},placeholder:placeholder||"Barkod veya ürün adı ile ara...",
-      value:aramaVal,onChange:e=>setAramaVal(e.target.value)}),
+    div({style:{display:"flex",gap:7,marginBottom:4}},
+      inp({className:"fi",style:{flex:1,margin:0},placeholder:placeholder||"Barkod veya ürün adı ile ara...",
+        value:aramaVal,onChange:e=>setAramaVal(e.target.value)}),
+      btn({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,color:"var(--g)",
+        fontSize:20,padding:"0 14px",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center"},
+        onClick:kameraBarkodOku},"📷")
+    ),
     sonuclar.length>0&&div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:9,
       overflow:"hidden",maxHeight:220,overflowY:"auto",marginBottom:8}},
       sonuclar.map(u=>div({key:u.b,style:{padding:"9px 11px",borderBottom:"1px solid var(--br)",
@@ -511,12 +547,30 @@ function UrunMuhasebe({
     umSek==="siparis"&&div(null,
       div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},"📋 Sipariş Listesi"),
 
-      // Tedarikçi telefon
+      // Tedarikçi telefon + rehber ikonu
       div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:12}},
         lbl({className:"fl"},"Tedarikçi Telefon No"),
-        inp({className:"fi",type:"tel",placeholder:"05XX XXX XX XX",value:sipTedarikciTel,
-          onChange:e=>setSipTedarikciTel(e.target.value),
-          style:{marginBottom:10}}),
+        div({style:{display:"flex",gap:7,marginBottom:10}},
+          inp({className:"fi",type:"tel",style:{flex:1,margin:0},placeholder:"05XX XXX XX XX",value:sipTedarikciTel,
+            onChange:e=>setSipTedarikciTel(e.target.value)}),
+          btn({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,color:"var(--g)",
+            fontSize:20,padding:"0 14px",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center"},
+            onClick:()=>{
+              if(window.ContactsManager || navigator.contacts){
+                (navigator.contacts||window.ContactsManager).select(["tel"],{multiple:false}).then(c=>{
+                  if(c&&c[0]&&c[0].tel&&c[0].tel[0]){
+                    const no=c[0].tel[0].replace(/\s/g,"");
+                    setSipTedarikciTel(no);
+                  }
+                }).catch(()=>{});
+              }else{
+                // Fallback: tel: link ile rehber açma denemesi
+                const a=document.createElement("a");
+                a.href="tel:";
+                a.click();
+              }
+            }},"📇")
+        ),
         lbl({className:"fl",style:{marginTop:10}},"Sipariş Notu (isteğe bağlı)"),
         inp({className:"fi",placeholder:"Ek notlar...",value:sipNot,onChange:e=>setSipNot(e.target.value)})
       ),
@@ -601,7 +655,15 @@ function UrunMuhasebe({
                     (Array.isArray(ar.faturaImg)?ar.faturaImg:[ar.faturaImg]).filter(Boolean).map((im,k)=>
                       img({key:k,src:im,style:{width:70,height:70,objectFit:"cover",borderRadius:8,
                         border:"1px solid var(--br)",cursor:"pointer"},
-                        onClick:()=>window.open(im,"_blank")})
+                        onClick:()=>{
+                          const ov=document.createElement("div");
+                          ov.style.cssText="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.95);display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer";
+                          const im2=document.createElement("img");
+                          im2.src=im; im2.style.cssText="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px";
+                          ov.appendChild(im2);
+                          ov.onclick=()=>document.body.removeChild(ov);
+                          document.body.appendChild(ov);
+                        }})
                     )
                   ),
                 // Ürünler
@@ -638,25 +700,26 @@ function UrunMuhasebe({
               onClick:()=>setMkForm(false)},"✕")
           ),
 
-          // Tarih, Fatura Tarihi, Fatura No, İrsaliye No
+          // Tarih alanları
           div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
             div(null,
               lbl({className:"fl"},"Geliş Tarihi"),
-              inp({className:"fi",type:"date",value:mkTarih,onChange:e=>setMkTarih(e.target.value)})
+              inp({className:"fi",type:"date",style:{width:"100%"},value:mkTarih,onChange:e=>setMkTarih(e.target.value)})
             ),
             div(null,
               lbl({className:"fl"},"Fatura Tarihi"),
-              inp({className:"fi",type:"date",value:mkFaturaTarih,onChange:e=>setMkFaturaTarih(e.target.value)})
+              inp({className:"fi",type:"date",style:{width:"100%"},value:mkFaturaTarih,onChange:e=>setMkFaturaTarih(e.target.value)})
             )
           ),
+          // Fatura No / İrsaliye No
           div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}},
             div(null,
               lbl({className:"fl"},"Fatura No"),
-              inp({className:"fi",placeholder:"Fatura no...",value:mkFatura,onChange:e=>setMkFatura(e.target.value)})
+              inp({className:"fi",style:{width:"100%"},placeholder:"Fatura no...",value:mkFatura,onChange:e=>setMkFatura(e.target.value)})
             ),
             div(null,
               lbl({className:"fl"},"İrsaliye No"),
-              inp({className:"fi",placeholder:"İrsaliye no...",value:mkIrsaliye||"",onChange:e=>setMkIrsaliye(e.target.value)})
+              inp({className:"fi",style:{width:"100%"},placeholder:"İrsaliye no...",value:mkIrsaliye||"",onChange:e=>setMkIrsaliye(e.target.value)})
             )
           ),
 
@@ -668,11 +731,22 @@ function UrunMuhasebe({
                 (Array.isArray(mkFaturaImg)?mkFaturaImg:[mkFaturaImg]).filter(Boolean).map((im,i)=>
                   div({key:i,style:{position:"relative",width:90,height:90}},
                     img({src:im,style:{width:90,height:90,objectFit:"cover",borderRadius:8,border:"1px solid var(--br)",cursor:"pointer"},
-                      onClick:()=>window.open(im,"_blank")}),
+                      onClick:e=>{
+                        e.stopPropagation();
+                        // Full-screen overlay (iOS data URL desteği için)
+                        const ov=document.createElement("div");
+                        ov.style.cssText="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.95);display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer";
+                        const im2=document.createElement("img");
+                        im2.src=im; im2.style.cssText="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px";
+                        ov.appendChild(im2);
+                        ov.onclick=()=>document.body.removeChild(ov);
+                        document.body.appendChild(ov);
+                      }}),
                     btn({style:{position:"absolute",top:-4,right:-4,background:"rgba(0,0,0,.8)",border:"none",
                       borderRadius:"50%",color:"#fff",fontSize:12,cursor:"pointer",width:22,height:22,
                       display:"flex",alignItems:"center",justifyContent:"center"},
-                      onClick:()=>{
+                      onClick:e=>{
+                        e.stopPropagation();
                         const arr=(Array.isArray(mkFaturaImg)?mkFaturaImg:[mkFaturaImg]).filter(Boolean);
                         const yeni=arr.filter((_,j)=>j!==i);
                         setMkFaturaImg(yeni.length?yeni:"");
