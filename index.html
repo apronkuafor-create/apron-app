@@ -272,6 +272,10 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:5px}
 .ot input[type=number]{-webkit-appearance:none;-moz-appearance:textfield}
 .ot input[type=number]:focus{outline:none}
 input[type=number]{-webkit-appearance:none;-moz-appearance:textfield}
+/* iOS dokunma donmasını önle — touch-action:manipulation tıklama gecikmesini kaldırır */
+button,a,input,select,textarea,label{touch-action:manipulation}
+.ov,.mod{-webkit-overflow-scrolling:touch}
+#root{isolation:isolate}
 
 .ares{background:var(--bg2);border:1px solid var(--br);border-radius:9px;overflow:hidden;max-height:195px;overflow-y:auto;margin-bottom:10px}
 .aitem{padding:9px 11px;border-bottom:1px solid #143234;cursor:pointer;display:flex;align-items:center;gap:7px}
@@ -404,7 +408,7 @@ function UrunAramaBilesen({aramaVal,setAramaVal,onEkle,placeholder}) {
   const [barkodAc, setBarkodAc] = React.useState(false);
 
   return div(null,
-    barkodAc&&h(BarkodTarayici,{
+    barkodAc&&h(BarkodTarayici,{key:"barkod-"+Date.now().toString(36),
       onOku: kod=>{
         setBarkodAc(false);
         const urun=URUN_DB.find(u=>u.b===kod);
@@ -473,6 +477,11 @@ function UrunMuhasebe({
   const [arsivAc, setArsivAc] = React.useState(null); // arşiv detay index
   const [sdAramaF, setSdAramaF] = React.useState(""); // stok durumu arama
   const [cariSek, setCariSek] = React.useState("borclarim");
+  const [cariOdeSec, setCariOdeSec] = React.useState(null); // seçili fatura ödemesi için
+  const [cariOdeTutar, setCariOdeTutar] = React.useState("");
+  const [cariOdeTarih, setCariOdeTarih] = React.useState(TODAY());
+  const [cariOdeTip, setCariOdeTip] = React.useState("Nakit");
+  const [cariOdeNot, setCariOdeNot] = React.useState("");
 
   // Stok detay state
   const [sdArama, setSdArama] = React.useState("");
@@ -1189,13 +1198,31 @@ function UrunMuhasebe({
     })(),
 
     // ═══════════════ CARİ ═══════════════
-    (umSek==="cari"||umSek==="cariOde")&&div(null,
-      div({style:{display:"flex",gap:0,borderBottom:"1px solid var(--br)",marginBottom:14}},
-        [["cari","📋 Borçlarım"],["cariOde","💰 Ödemelerim"]].map(([id,lb])=>
-          div({key:id,style:{padding:"9px 16px",cursor:"pointer",fontSize:13,
-            color:umSek===id?"var(--g)":"var(--mu)",fontWeight:umSek===id?600:400,
-            borderBottom:"2px solid "+(umSek===id?"var(--g)":"transparent"),transition:"all .2s"},
-            onClick:()=>setUmSek(id)},lb)
+    (umSek==="cari"||umSek==="cariOde")&&div({style:{position:"fixed",inset:0,zIndex:902,
+      background:"var(--bg)",display:"flex",flexDirection:"column",overflow:"hidden"}},
+
+      // ── Header ──
+      div({style:{background:"var(--bg2)",borderBottom:"2px solid var(--br)",padding:"12px 14px",flexShrink:0}},
+        div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}},
+          div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:17,color:"var(--g)"}},"💳 Cari"),
+          div({style:{display:"flex",gap:6}},
+            btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:8,
+              color:"var(--g)",fontSize:13,cursor:"pointer",padding:"5px 12px",
+              display:"flex",alignItems:"center",gap:4},onClick:()=>setUmSek("siparis")},
+              h("span",null,"←")," Geri"),
+            btn({style:{background:"transparent",border:"1px solid #3a1010",borderRadius:8,
+              color:"#c05050",fontSize:13,cursor:"pointer",padding:"5px 12px"},
+              onClick:()=>setUmSek("siparis")},"✕ Kapat")
+          )
+        ),
+        // Sekmeler
+        div({style:{display:"flex",gap:0,borderBottom:"1px solid var(--br)"}},
+          [["cari","📋 Borçlarım"],["cariOde","💰 Ödemelerim"]].map(([id,lb])=>
+            div({key:id,style:{padding:"9px 20px",cursor:"pointer",fontSize:13,
+              color:umSek===id?"var(--g)":"var(--mu)",fontWeight:umSek===id?600:400,
+              borderBottom:"2px solid "+(umSek===id?"var(--g)":"transparent"),transition:"all .2s"},
+              onClick:()=>setUmSek(id)},lb)
+          )
         )
       ),
 
@@ -1209,31 +1236,14 @@ function UrunMuhasebe({
         };
         const bugun=TODAY();
         const sorted=mkArsiv.slice().sort((a,b)=>(b.faturaTarih||b.tarih||"").localeCompare(a.faturaTarih||a.tarih||""));
-        return div({style:{position:"fixed",inset:0,zIndex:902,background:"var(--bg)",
-          display:"flex",flexDirection:"column",overflow:"hidden"}},
-
-          // Header
-          div({style:{background:"var(--bg2)",borderBottom:"2px solid var(--br)",padding:"12px 14px",flexShrink:0}},
-            div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}},
-              div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:17,color:"var(--g)"}},"📋 Borçlarım"),
-              div({style:{display:"flex",gap:6}},
-                btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:8,
-                  color:"var(--g)",fontSize:13,cursor:"pointer",padding:"5px 12px",
-                  display:"flex",alignItems:"center",gap:4},
-                  onClick:()=>setUmSek("siparis")},
-                  h("span",null,"←")," Geri"),
-                btn({style:{background:"transparent",border:"1px solid #3a1010",borderRadius:8,
-                  color:"#c05050",fontSize:13,cursor:"pointer",padding:"5px 12px"},
-                  onClick:()=>setUmSek("siparis")},"✕ Kapat")
-              )
-            ),
-            sorted.length>0&&div({style:{fontSize:12,color:"var(--mu)",marginTop:6}},
-              sorted.length+" kayıt · Toplam borç: ",
-              h("span",{style:{color:"var(--g)",fontWeight:700,fontFamily:"Cormorant Garamond,serif",fontSize:14}},
-                fmt(sorted.reduce((s,ar)=>s+ar.urunler.reduce((ss,u)=>ss+(u.toplamF||0),0),0)))
-            )
+        return div({style:{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}},
+          // Özet
+          sorted.length>0&&div({style:{background:"var(--bg3)",borderBottom:"1px solid var(--br)",
+            padding:"8px 14px",fontSize:12,color:"var(--mu)",flexShrink:0}},
+            sorted.length+" fatura · Toplam borç: ",
+            h("span",{style:{color:"var(--g)",fontWeight:700,fontFamily:"Cormorant Garamond,serif",fontSize:14}},
+              fmt(sorted.reduce((s,ar)=>s+ar.urunler.reduce((ss,u)=>ss+(u.toplamF||0),0),0)))
           ),
-
           // Tablo
           div({style:{flex:1,overflowY:"auto",overflowX:"auto"}},
             sorted.length===0
@@ -1241,7 +1251,6 @@ function UrunMuhasebe({
                   div({style:{fontSize:40,marginBottom:12}},"📋"),
                   div({style:{fontSize:13,letterSpacing:2,textTransform:"uppercase"}},"Henüz mal kabul kaydı yok"))
               :div({style:{minWidth:860}},
-                // Başlıklar
                 div({style:{display:"grid",
                   gridTemplateColumns:"1fr 100px 110px 110px 70px 110px 56px",
                   background:"var(--bg3)",position:"sticky",top:0,zIndex:2,borderBottom:"2px solid var(--br)"}},
@@ -1251,7 +1260,6 @@ function UrunMuhasebe({
                       borderRight:ci<6?"1px solid var(--br)":"none"}},lb2)
                   )
                 ),
-                // Satırlar
                 sorted.map((ar,i)=>{
                   const odenecek=ar.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
                   const vadeSon=sonOdeme(ar.faturaTarih||ar.tarih,ar.vade);
@@ -1265,12 +1273,10 @@ function UrunMuhasebe({
                     gridTemplateColumns:"1fr 100px 110px 110px 70px 110px 56px",
                     borderBottom:"1px solid var(--br)",
                     background:gecikti?"rgba(192,80,80,.07)":i%2===0?"var(--bg)":"rgba(14,38,40,.5)"}},
-                    // Borçlanılan Firma
                     div({style:{...cel,justifyContent:"flex-start",padding:"6px 8px"}},
                       div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},
                         ar.tedarikci||h("span",{style:{color:"var(--di)",fontSize:11}},"—"))
                     ),
-                    // Borçlanma/Fatura Tarihi (takvim ile düzenlenebilir)
                     div({style:{...cel,position:"relative",padding:0}},
                       inp({style:{position:"absolute",inset:0,background:"transparent",border:"none",
                         color:"var(--tx)",fontSize:12,padding:"6px 4px",outline:"none",textAlign:"center",
@@ -1282,12 +1288,8 @@ function UrunMuhasebe({
                           try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeni));}catch(err){}
                         }})
                     ),
-                    // Fatura No
                     div({style:{...cel,fontSize:12,color:"var(--mu)"}},(ar.faturaN||"—")),
-                    // Borç Tutarı
-                    div({style:{...cel,fontFamily:"Cormorant Garamond,serif",fontSize:15,
-                      color:"var(--g)",fontWeight:700}},fmt(odenecek)),
-                    // Vade (düzenlenebilir)
+                    div({style:{...cel,fontFamily:"Cormorant Garamond,serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt(odenecek)),
                     div({style:{...cel,position:"relative",padding:0}},
                       inp({style:{position:"absolute",inset:0,background:"transparent",border:"none",
                         color:"var(--tx)",fontSize:13,padding:"6px 4px",outline:"none",textAlign:"center",
@@ -1299,7 +1301,6 @@ function UrunMuhasebe({
                           try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeni));}catch(err){}
                         }})
                     ),
-                    // Son Ödeme Tarihi
                     div({style:{...cel,fontSize:12,
                       color:gecikti?"#c05050":yakinda?"#e09030":"var(--mu)",
                       fontWeight:gecikti||yakinda?700:400}},
@@ -1311,21 +1312,15 @@ function UrunMuhasebe({
                           )
                         :h("span",{style:{color:"var(--di)"}},"—")
                     ),
-                    // Fatura Görseli
                     div({style:{...cel,borderRight:"none",flexWrap:"wrap",gap:3}},
                       imgs.length>0
-                        ?imgs.map((im,k)=>
-                            img({key:k,src:im,style:{width:34,height:34,objectFit:"cover",
-                              borderRadius:5,border:"1px solid var(--br)",cursor:"pointer"},
-                              onClick:()=>{
-                                const ov=document.createElement("div");
-                                ov.style.cssText="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.96);display:flex;align-items:center;justify-content:center;padding:16px;cursor:pointer";
-                                const im2=document.createElement("img");
-                                im2.src=im;im2.style.cssText="max-width:100%;max-height:90vh;object-fit:contain;border-radius:8px";
-                                ov.appendChild(im2);ov.onclick=()=>document.body.removeChild(ov);
-                                document.body.appendChild(ov);
-                              }})
-                          )
+                        ?imgs.map((im,k)=>img({key:k,src:im,style:{width:34,height:34,objectFit:"cover",
+                            borderRadius:5,border:"1px solid var(--br)",cursor:"pointer"},
+                            onClick:()=>{const ov=document.createElement("div");
+                              ov.style.cssText="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.96);display:flex;align-items:center;justify-content:center;padding:16px;cursor:pointer";
+                              const im2=document.createElement("img");im2.src=im;
+                              im2.style.cssText="max-width:100%;max-height:90vh;object-fit:contain;border-radius:8px";
+                              ov.appendChild(im2);ov.onclick=()=>document.body.removeChild(ov);document.body.appendChild(ov);}}))
                         :h("span",{style:{fontSize:11,color:"var(--di)"}},"—")
                     )
                   );
@@ -1336,10 +1331,205 @@ function UrunMuhasebe({
       })(),
 
       // ── ÖDEMELERİM ──
-      umSek==="cariOde"&&div({style:{textAlign:"center",padding:40,color:"var(--mu)"}},
-        div({style:{fontSize:36,marginBottom:10}},"💰"),
-        div({style:{fontSize:13,letterSpacing:2,textTransform:"uppercase"}},"Ödemelerim bölümü yakında eklenecek")
-      )
+      umSek==="cariOde"&&(()=>{
+        const secFatura=cariOdeSec;
+        const setSecFatura=setCariOdeSec;
+        const odenenFaturalar=(mkArsiv||[]).filter(ar=>ar.odemeler&&ar.odemeler.length>0);
+        const bekleyenFaturalar=(mkArsiv||[]).filter(ar=>{
+          const odenecek=ar.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
+          const odenen=(ar.odemeler||[]).reduce((s,o)=>s+toN(o.tutar),0);
+          return odenen<odenecek;
+        });
+
+        return div({style:{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}},
+          div({style:{flex:1,overflowY:"auto",padding:"14px"}},
+
+            // Fatura seçim kartları
+            !secFatura&&div(null,
+              div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},
+                "Ödeme Yapmak İçin Fatura Seçin"),
+              bekleyenFaturalar.length===0
+                ?div({style:{textAlign:"center",padding:40,color:"var(--mu)"}},
+                    div({style:{fontSize:40,marginBottom:12}},"💰"),
+                    div({style:{fontSize:13}},"Bekleyen ödeme yok"))
+                :bekleyenFaturalar.slice().sort((a,b)=>(b.faturaTarih||"").localeCompare(a.faturaTarih||"")).map((ar,i)=>{
+                    const odenecek=ar.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
+                    const odenen=(ar.odemeler||[]).reduce((s,o)=>s+toN(o.tutar),0);
+                    const kalan=odenecek-odenen;
+                    return div({key:i,style:{background:"var(--bg2)",border:"1px solid var(--br)",
+                      borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",
+                      transition:"border-color .2s"},
+                      onClick:()=>setSecFatura(ar)},
+                      div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}},
+                        div(null,
+                          ar.tedarikci&&div({style:{fontSize:14,color:"var(--g)",fontWeight:600,marginBottom:3}},ar.tedarikci),
+                          ar.faturaN&&div({style:{fontSize:12,color:"var(--mu)"}},"Fatura: "+ar.faturaN),
+                          div({style:{fontSize:12,color:"var(--di)",marginTop:2}},fmtT(ar.faturaTarih||ar.tarih))
+                        ),
+                        div({style:{textAlign:"right"}},
+                          div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"var(--g)",fontWeight:700}},fmt(kalan)),
+                          div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},"kalan borç"),
+                          odenen>0&&div({style:{fontSize:11,color:"#50b880",marginTop:1}},fmt(odenen)+" ödendi")
+                        )
+                      ),
+                      // Ödeme ilerleme barı
+                      div({style:{height:4,borderRadius:2,background:"var(--bg3)",overflow:"hidden"}},
+                        div({style:{height:"100%",borderRadius:2,background:"var(--g)",
+                          width:Math.min(100,Math.round((odenen/odenecek)*100))+"%"}})
+                      ),
+                      div({style:{display:"flex",justifyContent:"space-between",marginTop:4,fontSize:11,color:"var(--di)"}},
+                        h("span",null,"Toplam: "+fmt(odenecek)),
+                        h("span",{style:{color:"var(--g)"}},"Ödeme Yap →")
+                      )
+                    );
+                  })
+            ),
+
+            // Seçili fatura ödeme formu
+            secFatura&&(()=>{
+              const odenecek=secFatura.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
+              const gecmisOdemeler=(secFatura.odemeler||[]);
+              const topOdenen=gecmisOdemeler.reduce((s,o)=>s+toN(o.tutar),0);
+              const kalan=odenecek-topOdenen;
+              return div(null,
+                // Fatura özeti başlığı
+                div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,
+                  padding:14,marginBottom:14}},
+                  div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+                    div(null,
+                      secFatura.tedarikci&&div({style:{fontSize:15,color:"var(--g)",fontWeight:600}},secFatura.tedarikci),
+                      secFatura.faturaN&&div({style:{fontSize:13,color:"var(--mu)",marginTop:2}},
+                        "Fatura: "+secFatura.faturaN+" · "+fmtT(secFatura.faturaTarih||secFatura.tarih))
+                    ),
+                    btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:7,
+                      color:"var(--mu)",fontSize:12,padding:"4px 10px",cursor:"pointer"},
+                      onClick:()=>setSecFatura(null)},"← Fatura Seç")
+                  ),
+                  div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}},
+                    div({style:{background:"var(--bg3)",borderRadius:8,padding:"9px",textAlign:"center"}},
+                      div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"var(--tx)",fontWeight:600}},fmt(odenecek)),
+                      div({style:{fontSize:10,color:"var(--mu)",marginTop:2,letterSpacing:1,textTransform:"uppercase"}},"Toplam Borç")
+                    ),
+                    div({style:{background:"var(--bg3)",borderRadius:8,padding:"9px",textAlign:"center"}},
+                      div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"#50b880",fontWeight:600}},fmt(topOdenen)),
+                      div({style:{fontSize:10,color:"var(--mu)",marginTop:2,letterSpacing:1,textTransform:"uppercase"}},"Ödenen")
+                    ),
+                    div({style:{background:"var(--bg3)",borderRadius:8,padding:"9px",textAlign:"center"}},
+                      div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:kalan>0?"var(--g)":"#50b880",fontWeight:700}},fmt(kalan)),
+                      div({style:{fontSize:10,color:"var(--mu)",marginTop:2,letterSpacing:1,textTransform:"uppercase"}},"Kalan")
+                    )
+                  )
+                ),
+
+                // Geçmiş ödemeler
+                gecmisOdemeler.length>0&&div({style:{background:"var(--bg2)",border:"1px solid var(--br)",
+                  borderRadius:12,padding:14,marginBottom:14}},
+                  div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
+                    "Ödeme Geçmişi"),
+                  gecmisOdemeler.map((od,oi)=>
+                    div({key:oi,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+                      padding:"8px 0",borderBottom:oi<gecmisOdemeler.length-1?"1px solid var(--br)":"none"}},
+                      div(null,
+                        div({style:{fontSize:13,color:"var(--tx)"}},(od.tip||"Nakit")+" · "+fmtT(od.tarih)),
+                        od.not&&div({style:{fontSize:11,color:"var(--di)",marginTop:1}},od.not)
+                      ),
+                      div({style:{display:"flex",gap:8,alignItems:"center"}},
+                        div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:15,color:"#50b880",fontWeight:600}},fmt(od.tutar)),
+                        btn({style:{background:"transparent",border:"none",color:"#c05050",fontSize:13,cursor:"pointer"},
+                          onClick:()=>{
+                            const yeniArsiv=mkArsiv.map(ar=>ar===secFatura
+                              ?{...ar,odemeler:(ar.odemeler||[]).filter((_,j)=>j!==oi)}:ar);
+                            setMkArsiv(yeniArsiv);
+                            setSecFatura(yeniArsiv.find(ar=>ar.faturaN===secFatura.faturaN&&ar.tarih===secFatura.tarih)||null);
+                            try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
+                          }},"✕")
+                      )
+                    )
+                  )
+                ),
+
+                // Yeni ödeme formu
+                kalan>0&&div({style:{background:"var(--bg2)",border:"1px solid var(--br)",
+                  borderRadius:12,padding:14,marginBottom:14}},
+                  div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},
+                    "💳 Yeni Ödeme Ekle"),
+                  div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                    div(null,lbl({className:"fl"},"Ödeme Tarihi"),
+                      inp({className:"fi",type:"date",value:cariOdeTarih,
+                        onChange:e=>setCariOdeTarih(e.target.value)})),
+                    div(null,lbl({className:"fl"},"Ödeme Tipi"),
+                      sel({className:"fi",value:cariOdeTip,onChange:e=>setCariOdeTip(e.target.value)},
+                        opt("Nakit","💵 Nakit"),opt("Banka","🏦 Banka Havalesi"),
+                        opt("EFT","🏧 EFT"),opt("Çek","📝 Çek"),opt("Senet","📋 Senet"),opt("Diğer","Diğer")))
+                  ),
+                  div({style:{marginBottom:10}},lbl({className:"fl"},"Ödenen Tutar (₺)"),
+                    inp({className:"fi",type:"number",inputMode:"decimal",placeholder:"0",
+                      value:cariOdeTutar,onChange:e=>setCariOdeTutar(e.target.value)}),
+                    kalan>0&&div({style:{fontSize:11,color:"var(--mu)",marginTop:4}},
+                      "Kalan: "+fmt(kalan),
+                      btn({style:{background:"transparent",border:"none",color:"var(--g)",fontSize:11,cursor:"pointer",
+                        marginLeft:8,textDecoration:"underline"},
+                        onClick:()=>setCariOdeTutar(String(Math.round(kalan)))},"Tamamını öde")
+                    )
+                  ),
+                  div({style:{marginBottom:14}},lbl({className:"fl"},"Not (isteğe bağlı)"),
+                    inp({className:"fi",placeholder:"Ödeme notu...",value:cariOdeNot,
+                      onChange:e=>setCariOdeNot(e.target.value)})),
+                  btn({style:{width:"100%",padding:"13px 0",borderRadius:10,border:"none",
+                    background:toN(cariOdeTutar)>0?"linear-gradient(135deg,var(--g),var(--gd))":"var(--bg3)",
+                    color:toN(cariOdeTutar)>0?"var(--bg)":"var(--di)",fontSize:14,fontWeight:700,cursor:"pointer"},
+                    disabled:!toN(cariOdeTutar),
+                    onClick:()=>{
+                      if(!toN(cariOdeTutar)){showToast("Tutar girin","uy");return;}
+                      const yeniOdeme={id:uid(),tarih:cariOdeTarih,tip:cariOdeTip,
+                        tutar:toN(cariOdeTutar),not:cariOdeNot};
+                      const yeniArsiv=mkArsiv.map(ar=>ar===secFatura
+                        ?{...ar,odemeler:[...(ar.odemeler||[]),yeniOdeme]}:ar);
+                      setMkArsiv(yeniArsiv);
+                      const guncel=yeniArsiv.find(ar=>ar.faturaN===secFatura.faturaN&&ar.tarih===secFatura.tarih);
+                      setSecFatura(guncel||null);
+                      setCariOdeTutar(""); setCariOdeNot("");
+                      try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
+                      showToast(fmt(toN(cariOdeTutar))+" ödeme kaydedildi");
+                    }},toN(cariOdeTutar)>0?"✅ Ödeme Kaydet":"Tutar Girin")
+                ),
+
+                // Tamamen ödendi ise
+                kalan<=0&&div({style:{textAlign:"center",padding:"20px 14px",
+                  background:"rgba(50,140,100,.06)",border:"1px solid rgba(50,140,100,.2)",
+                  borderRadius:12,marginBottom:14}},
+                  div({style:{fontSize:30,marginBottom:8}},"✅"),
+                  div({style:{fontSize:14,color:"#50b880",fontWeight:600,letterSpacing:1}},
+                    "Bu Fatura Tamamen Ödendi"),
+                  div({style:{fontSize:12,color:"var(--mu)",marginTop:4}},fmt(topOdenen)+" ödendi")
+                )
+              );
+            })(),
+
+            // Tamamlanmış ödemeler
+            odenenFaturalar.length>0&&!secFatura&&div({style:{marginTop:16}},
+              div({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",
+                marginBottom:10,paddingTop:10,borderTop:"1px solid var(--br)"}},"✅ Tamamlanan Ödemeler"),
+              odenenFaturalar.map((ar,i)=>{
+                const odenecek=ar.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
+                const odenen=(ar.odemeler||[]).reduce((s,o)=>s+toN(o.tutar),0);
+                const kalan=odenecek-odenen;
+                if(kalan>0) return null;
+                return div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+                  padding:"10px 12px",background:"var(--bg2)",borderRadius:10,marginBottom:7,
+                  border:"1px solid rgba(50,140,100,.15)",opacity:.7}},
+                  div(null,
+                    ar.tedarikci&&div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},ar.tedarikci),
+                    div({style:{fontSize:12,color:"var(--mu)"}},(ar.faturaN||"—")+" · "+fmtT(ar.faturaTarih||ar.tarih))
+                  ),
+                  div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:14,color:"#50b880",fontWeight:600}},
+                    "✅ "+fmt(odenen))
+                );
+              })
+            )
+          )
+        );
+      })()
     )
   );
 }
@@ -5057,19 +5247,11 @@ function App() {
                   onClick:()=>setMuhAlt(id)},lb)
               ),
               // ── CARİ alt başlık ──
-              div({style:{padding:"6px 14px 5px",fontSize:10,color:"var(--g)",letterSpacing:2,
-                textTransform:"uppercase",borderTop:"1.5px solid var(--br)",
-                background:"rgba(37,99,168,.05)",display:"flex",alignItems:"center",gap:5}},
-                h("span",null,"💳"),h("span",null,"CARİ")
-              ),
-              [["cari","📋 Borçlarım",true],["cariOde","💰 Ödemelerim",false]].map(([id,lb])=>
-                btn({key:id,style:{width:"100%",padding:"7px 14px 7px 34px",border:"none",
-                  borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:12,cursor:"pointer",
-                  background:muhAlt===id?"rgba(37,99,168,.15)":"transparent",
-                  color:muhAlt===id?"var(--g)":"#3a6a62",
-                  borderLeft:muhAlt===id?"2px solid var(--g)":"2px solid transparent"},
-                  onClick:()=>setMuhAlt(id)},lb)
-              )
+              btn({key:"cari",style:{width:"100%",padding:"8px 14px 8px 24px",border:"none",
+                borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:12,cursor:"pointer",
+                background:muhAlt==="cari"||muhAlt==="cariOde"?"rgba(37,99,168,.12)":"transparent",
+                color:muhAlt==="cari"||muhAlt==="cariOde"?"var(--g)":"#3a6a62"},
+                onClick:()=>setMuhAlt("cari")},"💳 Cari")
             ),
 
             // ── GELİR/GİDER - ANA BAŞLIK ──
