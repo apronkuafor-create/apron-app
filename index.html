@@ -673,6 +673,128 @@ function OzetDashboard({stokPartiler,mkArsiv,tumK,personeller}){
 }
 
 // ── AI SATIŞ DANIŞMANI ──────────────────────────────────────────────────────
+// ── HİZMET MUHASEBESİ ───────────────────────────────────────────────────────
+function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt}){
+  const seciliP = personeller.find(p=>p.id===muhAlt) || null;
+  const [filAy, setFilAy] = React.useState("");
+  const [filYil, setFilYil] = React.useState(new Date().getFullYear().toString());
+
+  // Seçili personelin kayıtları — tarih bazında grupla
+  const gunler = React.useMemo(()=>{
+    if(!seciliP) return [];
+    const kayitlar = (tumK||[]).filter(r=>{
+      if(r.staffId!==seciliP.id && r.staffAd!==seciliP.ad) return false;
+      if(!r.tarih) return false;
+      if(filYil && !r.tarih.startsWith(filYil)) return false;
+      if(filAy && !r.tarih.startsWith(filYil+"-"+filAy.padStart(2,"0"))) return false;
+      return true;
+    });
+    const gruplar = {};
+    kayitlar.forEach(r=>{
+      const t = r.tarih;
+      if(!gruplar[t]) gruplar[t]={tarih:t,hizSay:0,kk:0,ib:0,nk:0};
+      gruplar[t].hizSay += 1;
+      gruplar[t].kk += toN(r.hizKK||0)+toN(r.uKK||0);
+      gruplar[t].ib += toN(r.hizIB||0)+toN(r.uIB||0);
+      gruplar[t].nk += toN(r.hizNK||0)+toN(r.uNK||0);
+    });
+    return Object.values(gruplar).sort((a,b)=>b.tarih.localeCompare(a.tarih));
+  },[tumK,seciliP,filAy,filYil]);
+
+  const topKK  = gunler.reduce((s,g)=>s+g.kk,0);
+  const topIB  = gunler.reduce((s,g)=>s+g.ib,0);
+  const topNK  = gunler.reduce((s,g)=>s+g.nk,0);
+  const topTum = topKK+topIB+topNK;
+  const topHiz = gunler.reduce((s,g)=>s+g.hizSay,0);
+
+  if(!seciliP) return h("div",{style:{padding:40,textAlign:"center",color:"var(--mu)",fontSize:13}},"Sol menüden bir personel seçin.");
+
+  return h("div",{style:{position:"fixed",inset:0,zIndex:901,background:"var(--bg)",display:"flex",flexDirection:"column",overflow:"hidden"}},
+
+    // ── HEADER ──
+    h("div",{style:{background:"var(--bg2)",borderBottom:"2px solid var(--br)",padding:"12px 14px",flexShrink:0}},
+      h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}},
+        h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",fontWeight:700}},
+          "✂️ "+seciliP.ad),
+        h("button",{style:{background:"transparent",border:"1px solid #3a1010",borderRadius:8,
+          color:"#c05050",fontSize:13,cursor:"pointer",padding:"5px 14px"},
+          onClick:()=>setMuhAlt("")},"✕ Kapat")
+      ),
+
+      // Filtreler
+      h("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},
+        h("select",{className:"fi",style:{flex:1,maxWidth:120},value:filAy,onChange:e=>setFilAy(e.target.value)},
+          h("option",{value:""},"Tüm Aylar"),
+          [["01","Ocak"],["02","Şubat"],["03","Mart"],["04","Nisan"],["05","Mayıs"],["06","Haziran"],
+           ["07","Temmuz"],["08","Ağustos"],["09","Eylül"],["10","Ekim"],["11","Kasım"],["12","Aralık"]].map(([v,lb])=>
+            h("option",{key:v,value:v},lb))
+        ),
+        h("select",{className:"fi",style:{flex:"0 0 90px"},value:filYil,onChange:e=>setFilYil(e.target.value)},
+          [2024,2025,2026,2027].map(y=>h("option",{key:y,value:String(y)},y))
+        )
+      ),
+
+      // Özet toplamlar
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginTop:10}},
+        [
+          ["Gün",gunler.length+" gün","var(--mu)"],
+          ["Hizmet",topHiz+" kayıt","var(--bl)"],
+          ["K.Kartı",fmt(topKK),"var(--g)"],
+          ["IBAN",fmt(topIB),"var(--g)"],
+          ["Nakit",fmt(topNK),"var(--gr)"],
+        ].map(([lb,v,c])=>
+          h("div",{key:lb,style:{background:"var(--bg3)",borderRadius:8,padding:"7px 8px",textAlign:"center"}},
+            h("div",{style:{fontSize:13,color:c,fontWeight:700,fontFamily:"Cormorant Garamond,serif"}},v),
+            h("div",{style:{fontSize:9,color:"var(--di)",textTransform:"uppercase",letterSpacing:1,marginTop:2}},lb)
+          )
+        )
+      )
+    ),
+
+    // ── TABLO ──
+    h("div",{style:{flex:1,overflowY:"auto"}},
+      gunler.length===0
+        ? h("div",{style:{padding:40,textAlign:"center",color:"var(--mu)",fontSize:13}},
+            h("div",{style:{fontSize:36,marginBottom:8,opacity:0.3}},"📋"),
+            h("div",null,"Bu dönemde kayıt yok"))
+        : h("table",{style:{width:"100%",borderCollapse:"collapse",fontSize:13}},
+            h("thead",null,
+              h("tr",{style:{background:"var(--bg2)",position:"sticky",top:0,zIndex:2}},
+                ["Tarih","Hizmet Sayısı","K.Kartı","İBAN","Nakit","Toplam"].map(lb=>
+                  h("th",{key:lb,style:{padding:"10px 12px",textAlign:lb==="Tarih"||lb==="Hizmet Sayısı"?"left":"right",
+                    fontSize:10,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",fontWeight:600,
+                    borderBottom:"2px solid var(--br)"}},lb)
+                )
+              )
+            ),
+            h("tbody",null,
+              gunler.map((g,i)=>{
+                const top = g.kk+g.ib+g.nk;
+                return h("tr",{key:g.tarih,style:{background:i%2===0?"var(--bg)":"var(--bg2)",
+                  borderBottom:"1px solid var(--br)"}},
+                  h("td",{style:{padding:"10px 12px",color:"var(--g)",fontWeight:600}},fmtT(g.tarih)),
+                  h("td",{style:{padding:"10px 12px",color:"var(--tx)"}},g.hizSay+" kayıt"),
+                  h("td",{style:{padding:"10px 12px",textAlign:"right",color:"var(--g)",fontFamily:"Cormorant Garamond,serif"}},g.kk>0?fmt(g.kk):"—"),
+                  h("td",{style:{padding:"10px 12px",textAlign:"right",color:"var(--g)",fontFamily:"Cormorant Garamond,serif"}},g.ib>0?fmt(g.ib):"—"),
+                  h("td",{style:{padding:"10px 12px",textAlign:"right",color:"var(--gr)",fontFamily:"Cormorant Garamond,serif"}},g.nk>0?fmt(g.nk):"—"),
+                  h("td",{style:{padding:"10px 12px",textAlign:"right",color:"var(--g)",fontWeight:700,fontFamily:"Cormorant Garamond,serif"}},fmt(top))
+                );
+              }),
+              // Toplam satırı
+              h("tr",{style:{background:"rgba(37,99,168,.08)",borderTop:"2px solid var(--br)"}},
+                h("td",{style:{padding:"10px 12px",color:"var(--g)",fontWeight:700,fontSize:12,letterSpacing:1}},"TOPLAM"),
+                h("td",{style:{padding:"10px 12px",color:"var(--mu)",fontSize:12}},topHiz+" kayıt"),
+                h("td",{style:{padding:"10px 12px",textAlign:"right",color:"var(--g)",fontWeight:700,fontFamily:"Cormorant Garamond,serif"}},fmt(topKK)),
+                h("td",{style:{padding:"10px 12px",textAlign:"right",color:"var(--g)",fontWeight:700,fontFamily:"Cormorant Garamond,serif"}},fmt(topIB)),
+                h("td",{style:{padding:"10px 12px",textAlign:"right",color:"var(--gr)",fontWeight:700,fontFamily:"Cormorant Garamond,serif"}},fmt(topNK)),
+                h("td",{style:{padding:"10px 12px",textAlign:"right",color:"var(--g)",fontWeight:700,fontFamily:"Cormorant Garamond,serif",fontSize:15}},fmt(topTum))
+              )
+            )
+          )
+    )
+  );
+}
+
 function SatisDanismani({persListe,enCokSatan,stokOzet,periyotEtiket,toplamUrun,toplamHiz,periyotK}){
   const sonuc = React.useMemo(()=>{
     if(!persListe||persListe.length===0) return null;
@@ -5547,6 +5669,35 @@ function App() {
           // Sol sidebar
           div({style:{width:140,flexShrink:0,borderRight:"1px solid var(--br)",overflowX:"hidden",paddingRight:0}},
 
+            // ── HİZMET MUHASEBESİ - ANA BAŞLIK ──
+            btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
+              padding:"11px 14px",
+              background:muhSek==="hizmetMuhasebe"?"rgba(37,99,168,.08)":"transparent",
+              border:"none",borderBottom:"1px solid var(--br)",borderLeft:muhSek==="hizmetMuhasebe"?"3px solid #2563a8":"3px solid transparent",
+              color:muhSek==="hizmetMuhasebe"?"var(--g)":"#5a8a82",
+              fontSize:13,fontWeight:700,letterSpacing:1,textTransform:"uppercase",
+              cursor:"pointer",textAlign:"left"},
+              onClick:()=>{
+                if(muhSek==="hizmetMuhasebe"){setMuhSek("");}
+                else{
+                  const ilk=personeller.filter(p=>p.aktif&&p.rol==="personel"&&p.grup==="gelir")[0];
+                  setMuhSek("hizmetMuhasebe");
+                  setMuhAlt(ilk?ilk.id:"");
+                }
+              }},
+              div(null,"\u2702\uFE0F HİZMET"),
+              h("span",{style:{fontSize:12,color:"var(--di)"}},muhSek==="hizmetMuhasebe"?"\u25be":"\u25b8")
+            ),
+            muhSek==="hizmetMuhasebe"&&div({style:{background:"var(--bg3)"}},
+              personeller.filter(p=>p.aktif&&p.rol==="personel"&&p.grup==="gelir").map(p=>
+                btn({key:p.id,style:{width:"100%",padding:"8px 14px 8px 24px",border:"none",
+                  borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:12,cursor:"pointer",
+                  background:muhAlt===p.id?"rgba(37,99,168,.12)":"transparent",
+                  color:muhAlt===p.id?"var(--g)":"#3a6a62"},
+                  onClick:()=>setMuhAlt(p.id)},p.ad)
+              )
+            ),
+
             // ── ÜRÜN MUHASEBESİ - ANA BAŞLIK ──
             btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
               padding:"11px 14px",
@@ -5635,6 +5786,10 @@ function App() {
 
           // Sağ içerik
           div({style:{flex:1,paddingLeft:16,minWidth:0}},
+
+            muhSek==="hizmetMuhasebe"&&h(HizmetMuhasebe,{
+              tumK, personeller, muhAlt, setMuhAlt
+            }),
 
             muhSek==="urunMuhasebe"&&h(UrunMuhasebe,{
               stokPartiler,setStokPartiler,stokDB,setStokDB,
