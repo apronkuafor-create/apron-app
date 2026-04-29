@@ -675,7 +675,7 @@ function OzetDashboard({stokPartiler,mkArsiv,tumK,personeller}){
 
 // ── AI SATIŞ DANIŞMANI ──────────────────────────────────────────────────────
 // ── HİZMET MUHASEBESİ ───────────────────────────────────────────────────────
-function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt}){
+function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar}){
   const seciliP = personeller.find(p=>p.id===muhAlt) || null;
   const [filAy, setFilAy] = React.useState("");
   const [filYil, setFilYil] = React.useState(new Date().getFullYear().toString());
@@ -708,7 +708,21 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt}){
   const topTum = topKK+topIB+topNK;
   const topHiz = gunler.reduce((s,g)=>s+g.hizSay,0);
 
-  if(!seciliP) return h("div",{style:{padding:40,textAlign:"center",color:"var(--mu)",fontSize:13}},"Sol menüden bir personel seçin.");
+  // Gelire doğrudan katkı sağlayanlar: grup "g1" veya "gelir"
+  const gelirPersoneller = personeller.filter(p=>p.aktif&&p.rol==="personel"&&(p.grup==="gelir"||p.grup==="g1"));
+
+  if(gelirPersoneller.length===0)
+    return h("div",{style:{padding:40,textAlign:"center",color:"var(--mu)",fontSize:13}},
+      h("div",{style:{fontSize:32,marginBottom:8,opacity:0.3}},"👥"),
+      h("div",null,"Gelire Doğrudan Katkı Sağlayanlar listesi boş."),
+      h("div",{style:{fontSize:11,marginTop:6,color:"var(--di)"}},"Ayarlar > Personel bölümünden personel ekleyin.")
+    );
+
+  if(!seciliP || !gelirPersoneller.find(p=>p.id===muhAlt))
+    return h("div",{style:{padding:40,textAlign:"center",color:"var(--mu)",fontSize:13}},
+      h("div",{style:{fontSize:32,marginBottom:8,opacity:0.3}},"👈"),
+      h("div",null,"Sol menüden bir personel seçin.")
+    );
 
   return h("div",{style:{position:"fixed",inset:0,zIndex:901,background:"var(--bg)",display:"flex",flexDirection:"column",overflow:"hidden"}},
 
@@ -4052,6 +4066,7 @@ function App() {
     if(local.ibanBildirimler?.length) setIbanBildirimler(local.ibanBildirimler);
     if(local.bankalar?.length) setBankalar(local.bankalar);
     if(local.hesapSaglama) setHesapSaglama(local.hesapSaglama);
+    if(local.pGruplar?.length) setPGruplar(local.pGruplar);
         }
         const [k,m,d] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
@@ -4111,7 +4126,7 @@ function App() {
 
   useEffect(()=>{
     if(yukleniyor) return;
-    localStorage.setItem("apron_v3",JSON.stringify({records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,giderler,avanslar,ibanBildirimler,bankalar,hesapSaglama}));
+    localStorage.setItem("apron_v3",JSON.stringify({records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,giderler,avanslar,ibanBildirimler,bankalar,hesapSaglama,pGruplar}));
   },[records,bekleyen,musteriDB,personeller,devDB,gecmis,yukleniyor]);
 
   // Ay başı gecmis temizle
@@ -5680,17 +5695,13 @@ function App() {
               cursor:"pointer",textAlign:"left"},
               onClick:()=>{
                 if(muhSek==="hizmetMuhasebe"){setMuhSek("");}
-                else{
-                  const ilk=personeller.filter(p=>p.aktif&&p.rol==="personel"&&p.grup==="gelir")[0];
-                  setMuhSek("hizmetMuhasebe");
-                  setMuhAlt(ilk?ilk.id:"");
-                }
+                else{setMuhSek("hizmetMuhasebe");setMuhAlt("");}
               }},
               div(null,"✂️ HİZMET MUHASEBESİ"),
               h("span",{style:{fontSize:12,color:"var(--di)"}},muhSek==="hizmetMuhasebe"?"\u25be":"\u25b8")
             ),
             muhSek==="hizmetMuhasebe"&&div({style:{background:"var(--bg3)"}},
-              personeller.filter(p=>p.aktif&&p.rol==="personel"&&p.grup==="gelir").map(p=>
+              personeller.filter(p=>p.aktif&&p.rol==="personel"&&(p.grup==="gelir"||p.grup==="g1")).map(p=>
                 btn({key:p.id,style:{width:"100%",padding:"8px 14px 8px 24px",border:"none",
                   borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:12,cursor:"pointer",
                   background:muhAlt===p.id?"rgba(37,99,168,.12)":"transparent",
@@ -5789,7 +5800,7 @@ function App() {
           div({style:{flex:1,paddingLeft:16,minWidth:0}},
 
             muhSek==="hizmetMuhasebe"&&h(HizmetMuhasebe,{
-              tumK, personeller, muhAlt, setMuhAlt
+              tumK, personeller, muhAlt, setMuhAlt, pGruplar
             }),
 
             muhSek==="urunMuhasebe"&&h(UrunMuhasebe,{
