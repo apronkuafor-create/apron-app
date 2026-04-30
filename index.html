@@ -4584,13 +4584,33 @@ function App() {
     return temiz || "Sayfa";
   };
 
-  const excelHucre = v => {
+  const excelHucre = (v, styleId="", mergeAcross=0) => {
     const sayiMi = typeof v === "number" && isFinite(v);
-    if(sayiMi) return `<Cell><Data ss:Type="Number">${v}</Data></Cell>`;
-    return `<Cell><Data ss:Type="String">${excelXmlTemizle(v)}</Data></Cell>`;
+    const style = styleId ? ` ss:StyleID="${styleId}"` : "";
+    const merge = mergeAcross ? ` ss:MergeAcross="${mergeAcross}"` : "";
+    if(sayiMi) return `<Cell${style}${merge}><Data ss:Type="Number">${v}</Data></Cell>`;
+    return `<Cell${style}${merge}><Data ss:Type="String">${excelXmlTemizle(v)}</Data></Cell>`;
   };
 
-  const excelSatir = arr => `<Row>${arr.map(excelHucre).join("")}</Row>`;
+  const excelBosHucre = (adet=1) => Array.from({length:adet},()=>"<Cell/>").join("");
+  const excelSatir = (cells, styleId="", height="") => {
+    const style = styleId ? ` ss:StyleID="${styleId}"` : "";
+    const hgt = height ? ` ss:Height="${height}"` : "";
+    return `<Row${style}${hgt}>${cells.join("")}</Row>`;
+  };
+
+  const excelStyles = `
+    <Styles>
+      <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Font ss:FontName="Arial" ss:Size="10"/></Style>
+      <Style ss:ID="title"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:Bold="1" ss:Size="15" ss:Color="#FFFFFF"/><Interior ss:Color="#081A1C" ss:Pattern="Solid"/></Style>
+      <Style ss:ID="cardHead"><Font ss:Bold="1" ss:Size="12" ss:Color="#FFFFFF"/><Interior ss:Color="#2563A8" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#1E4244"/></Borders></Style>
+      <Style ss:ID="section"><Font ss:Bold="1" ss:Color="#2563A8"/><Interior ss:Color="#EAF2FF" ss:Pattern="Solid"/></Style>
+      <Style ss:ID="label"><Font ss:Bold="1" ss:Color="#5A8A82"/></Style>
+      <Style ss:ID="money"><NumberFormat ss:Format="#,##0.00 ₺"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
+      <Style ss:ID="total"><Font ss:Bold="1"/><NumberFormat ss:Format="#,##0.00 ₺"/><Interior ss:Color="#FFF2CC" ss:Pattern="Solid"/><Alignment ss:Horizontal="Right"/></Style>
+      <Style ss:ID="tableHead"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#143234" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#1E4244"/></Borders></Style>
+      <Style ss:ID="thin"><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9E2E1"/></Borders></Style>
+    </Styles>`;
 
   const odemePaylastir = (satirTutar, bolumToplam, kk, ib, nk) => {
     const oran = bolumToplam > 0 ? satirTutar / bolumToplam : 0;
@@ -4601,70 +4621,89 @@ function App() {
     };
   };
 
-  const excelSatirlariOlustur = kaynakKayitlar => {
+  const kayitHizmetleri = r => Array.isArray(r.hizler) ? r.hizler : [];
+  const kayitUrunleri = r => Array.isArray(r.urunler) ? r.urunler : [];
+  const hizmetAd = hz => hz.n || hz.ad || hz.hizmet || "Hizmet";
+  const hizmetTutar = hz => toN(hz.f || hz.fiyat || hz.tutar || hz.toplam);
+  const urunAd = ur => ur.a || ur.ad || ur.urunAd || ur.n || "Ürün";
+  const urunAdet = ur => toN(ur.qty || ur.adet || 1) || 1;
+  const urunBirim = ur => toN(ur.sf || ur.sp || ur.fiyat || ur.birimFiyat || ur.tutar);
+  const urunTutar = ur => urunBirim(ur) * urunAdet(ur);
+
+  const analizSatirlariOlustur = kaynakKayitlar => {
     const satirlar = [];
     (kaynakKayitlar || []).forEach(r => {
-      const hizmetler = Array.isArray(r.hizler) ? r.hizler : [];
-      const urunler = Array.isArray(r.urunler) ? r.urunler : [];
-      const hizmetToplam = hizmetler.reduce((s,h)=>s+toN(h.f || h.fiyat || h.tutar),0);
-      const urunToplam = urunler.reduce((s,u)=>s+(toN(u.sf || u.sp || u.fiyat) * toN(u.qty || u.adet || 1)),0);
-
+      const hizmetler = kayitHizmetleri(r);
+      const urunler = kayitUrunleri(r);
+      const hizmetToplam = hizmetler.reduce((s,hz)=>s+hizmetTutar(hz),0);
+      const urunToplam = urunler.reduce((s,ur)=>s+urunTutar(ur),0);
       hizmetler.forEach(hz => {
-        const tutar = toN(hz.f || hz.fiyat || hz.tutar);
+        const tutar = hizmetTutar(hz);
         const pay = odemePaylastir(tutar, hizmetToplam, r.hizKK, r.hizIB, r.hizNK);
-        satirlar.push({
-          personel: r.staffAd || "", tarih: r.tarih || "", musteri: r.musteri || "",
-          tur: "Hizmet", islem: hz.n || hz.ad || "", adet: 1, birimFiyat: tutar,
-          hizmetKK: pay.kk, hizmetIBAN: pay.ib, hizmetNakit: pay.nk,
-          urunKK: 0, urunIBAN: 0, urunNakit: 0, satirToplam: tutar, kayitToplam: toN(r.toplam)
-        });
+        satirlar.push({personel:r.staffAd || "", tarih:r.tarih || "", saat:r.saat || "", musteri:r.musteri || "", tur:"Hizmet", islem:hizmetAd(hz), adet:1, birimFiyat:tutar, hizmetKK:pay.kk, hizmetIBAN:pay.ib, hizmetNakit:pay.nk, urunKK:0, urunIBAN:0, urunNakit:0, satirToplam:tutar, kayitToplam:toN(r.toplam)});
       });
-
       urunler.forEach(ur => {
-        const adet = toN(ur.qty || ur.adet || 1) || 1;
-        const birim = toN(ur.sf || ur.sp || ur.fiyat);
-        const tutar = birim * adet;
+        const adet = urunAdet(ur), birim = urunBirim(ur), tutar = birim * adet;
         const pay = odemePaylastir(tutar, urunToplam, r.uKK, r.uIB, r.uNK);
-        satirlar.push({
-          personel: r.staffAd || "", tarih: r.tarih || "", musteri: r.musteri || "",
-          tur: "Ürün", islem: ur.a || ur.ad || ur.urunAd || "", adet, birimFiyat: birim,
-          hizmetKK: 0, hizmetIBAN: 0, hizmetNakit: 0,
-          urunKK: pay.kk, urunIBAN: pay.ib, urunNakit: pay.nk, satirToplam: tutar, kayitToplam: toN(r.toplam)
-        });
+        satirlar.push({personel:r.staffAd || "", tarih:r.tarih || "", saat:r.saat || "", musteri:r.musteri || "", tur:"Ürün", islem:urunAd(ur), adet, birimFiyat:birim, hizmetKK:0, hizmetIBAN:0, hizmetNakit:0, urunKK:pay.kk, urunIBAN:pay.ib, urunNakit:pay.nk, satirToplam:tutar, kayitToplam:toN(r.toplam)});
       });
     });
-    return satirlar.sort((a,b)=>(a.tarih||"").localeCompare(b.tarih||"") || (a.musteri||"").localeCompare(b.musteri||""));
+    return satirlar.sort((a,b)=>(a.tarih||"").localeCompare(b.tarih||"") || (a.saat||"").localeCompare(b.saat||"") || (a.musteri||"").localeCompare(b.musteri||""));
+  };
+
+  const kartRowsOlustur = kaynakKayitlar => {
+    const rows = [];
+    const sirali = [...(kaynakKayitlar || [])].sort((a,b)=>(a.tarih||"").localeCompare(b.tarih||"") || (a.saat||"").localeCompare(b.saat||""));
+    rows.push(excelSatir([excelHucre("KART GÖRÜNÜMÜ - Uygulamadaki müşteri kartları", "title", 11)], "", 24));
+    rows.push(excelSatir([excelHucre("", "", 11)]));
+    sirali.forEach(r => {
+      const hizmetler = kayitHizmetleri(r);
+      const urunler = kayitUrunleri(r);
+      const musteriBaslik = `${r.musteri || "İsimsiz Müşteri"}  |  ${fmtT(r.tarih)} ${r.saat || ""}`.trim();
+      rows.push(excelSatir([excelHucre(musteriBaslik, "cardHead", 11)], "", 22));
+      rows.push(excelSatir([excelHucre("Personel", "label"), excelHucre(r.staffAd || "", "", 3), excelHucre("Kayıt Toplam", "label"), excelHucre(toN(r.toplam), "total", 6)]));
+      rows.push(excelSatir([excelHucre("Hizmetler", "section", 11)]));
+      if(hizmetler.length) hizmetler.forEach(hz => rows.push(excelSatir([excelBosHucre(1), excelHucre(hizmetAd(hz), "thin", 4), excelHucre(hizmetTutar(hz), "money", 6)])));
+      else rows.push(excelSatir([excelBosHucre(1), excelHucre("Hizmet yok", "thin", 10)]));
+      rows.push(excelSatir([excelHucre("Ürünler", "section", 11)]));
+      if(urunler.length) urunler.forEach(ur => rows.push(excelSatir([excelBosHucre(1), excelHucre(`${urunAd(ur)} x${urunAdet(ur)}`, "thin", 4), excelHucre(urunTutar(ur), "money", 6)])));
+      else rows.push(excelSatir([excelBosHucre(1), excelHucre("Ürün yok", "thin", 10)]));
+      rows.push(excelSatir([excelHucre("Hizmet K.K", "label"), excelHucre(toN(r.hizKK), "money"), excelHucre("Hizmet IBAN", "label"), excelHucre(toN(r.hizIB), "money"), excelHucre("Hizmet Nakit", "label"), excelHucre(toN(r.hizNK), "money"), excelHucre("Ürün K.K", "label"), excelHucre(toN(r.uKK), "money"), excelHucre("Ürün IBAN", "label"), excelHucre(toN(r.uIB), "money"), excelHucre("Ürün Nakit", "label"), excelHucre(toN(r.uNK), "money")]));
+      rows.push(excelSatir([excelHucre("", "", 11)]));
+    });
+    return rows;
+  };
+
+  const analizRowsOlustur = kaynakKayitlar => {
+    const baslik = ["Personel","Tarih","Saat","Müşteri","Tür","Hizmet / Ürün","Adet","Birim Fiyat","Hizmet K.K","Hizmet IBAN","Hizmet Nakit","Ürün K.K","Ürün IBAN","Ürün Nakit","Satır Toplam","Kayıt Toplam"];
+    const rows = [];
+    rows.push(excelSatir([excelHucre("ANALİZ TABLOSU - filtreleme, sıralama ve toplam alma için", "title", 15)], "", 24));
+    rows.push(excelSatir(baslik.map(x=>excelHucre(x,"tableHead"))));
+    analizSatirlariOlustur(kaynakKayitlar).forEach(x => rows.push(excelSatir([excelHucre(x.personel,"thin"), excelHucre(x.tarih,"thin"), excelHucre(x.saat,"thin"), excelHucre(x.musteri,"thin"), excelHucre(x.tur,"thin"), excelHucre(x.islem,"thin"), excelHucre(x.adet,"thin"), excelHucre(x.birimFiyat,"money"), excelHucre(x.hizmetKK,"money"), excelHucre(x.hizmetIBAN,"money"), excelHucre(x.hizmetNakit,"money"), excelHucre(x.urunKK,"money"), excelHucre(x.urunIBAN,"money"), excelHucre(x.urunNakit,"money"), excelHucre(x.satirToplam,"money"), excelHucre(x.kayitToplam,"money")])));
+    return rows;
+  };
+
+  const worksheetOlustur = (ad, kaynakKayitlar) => {
+    const kolonlar = [110,90,70,145,105,210,60,90,90,95,95,90,95,95,90,95].map(w=>`<Column ss:Width="${w}"/>`).join("");
+    const rows = [...kartRowsOlustur(kaynakKayitlar), ...analizRowsOlustur(kaynakKayitlar)];
+    return `<Worksheet ss:Name="${excelXmlTemizle(excelSayfaAdi(ad))}"><Table>${kolonlar}${rows.join("")}</Table></Worksheet>`;
   };
 
   const excelPersonelYedekIndir = () => {
     try {
       const tumKayitlar = [...(records || []), ...(bekleyen || [])].filter(r => r && (r.staffAd || r.staffId || r.musteri || r.tarih));
       if(!tumKayitlar.length) { showToast("Excel'e aktarılacak kayıt yok", "uy"); return; }
-
-      const baslik = ["Personel","Tarih","Müşteri","Tür","Hizmet / Ürün","Adet","Birim Fiyat","Hizmet K.K","Hizmet IBAN","Hizmet Nakit","Ürün K.K","Ürün IBAN","Ürün Nakit","Satır Toplam","Kayıt Toplam"];
-      const satirArr = x => [x.personel,x.tarih,x.musteri,x.tur,x.islem,x.adet,x.birimFiyat,x.hizmetKK,x.hizmetIBAN,x.hizmetNakit,x.urunKK,x.urunIBAN,x.urunNakit,x.satirToplam,x.kayitToplam];
-
       const gruplar = {};
-      tumKayitlar.forEach(r => {
-        const key = r.staffId || r.staffAd || "Diger";
-        if(!gruplar[key]) gruplar[key] = {ad:r.staffAd || "Diger", kayitlar:[]};
-        gruplar[key].kayitlar.push(r);
-      });
-
-      const genelRows = [baslik, ...excelSatirlariOlustur(tumKayitlar).map(satirArr)].map(excelSatir).join("");
-      const sayfalar = Object.values(gruplar).map(g => {
-        const rowsXml = [baslik, ...excelSatirlariOlustur(g.kayitlar).map(satirArr)].map(excelSatir).join("");
-        return `<Worksheet ss:Name="${excelXmlTemizle(excelSayfaAdi(g.ad))}"><Table>${rowsXml}</Table></Worksheet>`;
-      }).join("");
-
-      const xml = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Tum Kayitlar"><Table>${genelRows}</Table></Worksheet>${sayfalar}</Workbook>`;
+      tumKayitlar.forEach(r => { const key = r.staffId || r.staffAd || "Diger"; if(!gruplar[key]) gruplar[key] = {ad:r.staffAd || "Diger", kayitlar:[]}; gruplar[key].kayitlar.push(r); });
+      const sayfalar = [worksheetOlustur("Tüm Kayıtlar", tumKayitlar), ...Object.values(gruplar).map(g => worksheetOlustur(g.ad, g.kayitlar))].join("");
+      const xml = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">${excelStyles}${sayfalar}</Workbook>`;
       const blob = new Blob([xml], {type:"application/vnd.ms-excel;charset=utf-8"});
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "apron-personel-excel-yedek-" + TODAY() + ".xls";
+      a.download = "apron-hybrid-excel-yedek-" + TODAY() + ".xls";
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-      showToast("Personel sayfalı Excel yedeği indirildi");
+      showToast("Hybrid Excel yedeği indirildi");
     } catch(e) {
       console.error("Excel yedek hatası", e);
       showToast("Excel yedeği oluşturulamadı", "ha");
@@ -6682,9 +6721,9 @@ function App() {
               div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:16,marginBottom:12}},
                 div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:19,color:"var(--g)",fontWeight:700,marginBottom:6}},"Yerel Veri Yedeği"),
                 div({style:{fontSize:13,color:"var(--mu)",lineHeight:1.5,marginBottom:14}},
-                  "Excel yedeği tek dosya olarak iner. İçinde Tüm Kayıtlar sayfası ve her personel için ayrı sayfa bulunur. JSON yedek ise uygulamaya geri yüklemek içindir."
+                  "Hybrid Excel yedeği tek dosya olarak iner. Her personel için ayrı sayfa vardır. Her sayfada üst bölüm uygulamadaki kart görünümüne yakın okunabilir bloklar, alt bölüm ise filtreleme ve analiz için satır satır tablo şeklindedir. JSON yedek ise uygulamaya geri yüklemek içindir."
                 ),
-                btn({className:"btn-k",style:{width:"100%",color:"var(--bg)",fontSize:15,marginBottom:10,padding:"15px 12px"},onClick:excelPersonelYedekIndir},"📊 TEK EXCEL DOSYASI İNDİR"),
+                btn({className:"btn-k",style:{width:"100%",color:"var(--bg)",fontSize:15,marginBottom:10,padding:"15px 12px"},onClick:excelPersonelYedekIndir},"📊 HYBRID EXCEL YEDEK İNDİR"),
                 div({style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}},
                   btn({className:"btn-k",style:{color:"var(--bg)"},onClick:yedekOlustur},"💾 JSON Yedek İndir"),
                   btn({className:"btn-i",onClick:yedekYukleSec},"📂 JSON Yedek Yükle")
