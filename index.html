@@ -4541,6 +4541,92 @@ function App() {
     setTimeout(()=>setToast(x=>({...x,g:false})),3200);
   };
 
+  const yedekOlustur = () => {
+    try {
+      const yedek = {
+        surum: "APRON_BACKUP_V3",
+        tarih: new Date().toISOString(),
+        records, bekleyen, musteriDB, personeller, devDB, gecmis,
+        stokPartiler, hatirlatmalar, randevular, tedarikciler,
+        faturalar, odemeler, hareketler, oduncler, komsular,
+        giderler, avanslar, ibanBildirimler, bankalar, hesapSaglama,
+        pGruplar, hizListeleri, isletme, tema, sekmeler
+      };
+      const blob = new Blob([JSON.stringify(yedek, null, 2)], {type:"application/json"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "apron-business-yedek-" + TODAY() + ".json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast("Yedek dosyası indirildi");
+    } catch(e) {
+      console.error("Yedek oluşturma hatası", e);
+      showToast("Yedek oluşturulamadı", "ha");
+    }
+  };
+
+  const yedekYukle = file => {
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const y = JSON.parse(ev.target.result || "{}");
+        if(y.surum !== "APRON_BACKUP_V3" && !y.records) {
+          showToast("Geçersiz yedek dosyası", "ha");
+          return;
+        }
+        const ok = window.confirm("Bu işlem mevcut yerel verileri yedek dosyasındaki verilerle değiştirir. Devam edilsin mi?");
+        if(!ok) return;
+
+        // Kritik state'leri güvenli varsayılanlarla yükle
+        setRecords(Array.isArray(y.records) ? y.records : []);
+        setBekleyen(Array.isArray(y.bekleyen) ? y.bekleyen : []);
+        setMusteriDB(Array.isArray(y.musteriDB) ? y.musteriDB : []);
+        setPersoneller(Array.isArray(y.personeller) ? y.personeller : DEFAULT_PERSONELLER);
+        setDevDB(Array.isArray(y.devDB) ? y.devDB : []);
+        setGecmis(Array.isArray(y.gecmis) ? y.gecmis : []);
+        setStokPartiler(Array.isArray(y.stokPartiler) ? y.stokPartiler : []);
+        setHatirlatmalar(Array.isArray(y.hatirlatmalar) ? y.hatirlatmalar : []);
+        setRandevular(Array.isArray(y.randevular) ? y.randevular : []);
+        setTedarikciler(Array.isArray(y.tedarikciler) ? y.tedarikciler : []);
+        setFaturalar(Array.isArray(y.faturalar) ? y.faturalar : []);
+        setOdemeler(Array.isArray(y.odemeler) ? y.odemeler : []);
+        setHareketler(Array.isArray(y.hareketler) ? y.hareketler : []);
+        setOduncler(Array.isArray(y.oduncler) ? y.oduncler : []);
+        setKomsular(Array.isArray(y.komsular) ? y.komsular : []);
+        setGiderler(Array.isArray(y.giderler) ? y.giderler : []);
+        setAvanslar(Array.isArray(y.avanslar) ? y.avanslar : []);
+        setIbanBildirimler(Array.isArray(y.ibanBildirimler) ? y.ibanBildirimler : []);
+        setBankalar(Array.isArray(y.bankalar) ? y.bankalar : []);
+        setHesapSaglama(Array.isArray(y.hesapSaglama) ? y.hesapSaglama : []);
+        setPGruplar(Array.isArray(y.pGruplar) ? y.pGruplar : pGruplar);
+
+        if(y.hizListeleri) setHizListeleri(y.hizListeleri);
+        if(y.isletme) setIsletme(y.isletme);
+        if(y.tema) setTema(y.tema);
+        if(y.sekmeler) setSekmeler(y.sekmeler);
+
+        try { localStorage.setItem("apron_v3", JSON.stringify(y)); } catch(e) {}
+        showToast("Yedek başarıyla yüklendi");
+      } catch(e) {
+        console.error("Yedek yükleme hatası", e);
+        showToast("Yedek okunamadı", "ha");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const yedekYukleSec = () => {
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = "application/json,.json";
+    fileInput.onchange = e => yedekYukle(e.target.files && e.target.files[0]);
+    fileInput.click();
+  };
+
   const myBekleyen = kul ? bekleyen.filter(r=>r.staffId===kul.id) : [];
   const tumK = records;
   const bugunku = tumK.filter(r=>r.tarih===TODAY());
@@ -6472,11 +6558,38 @@ function App() {
               cursor:"pointer",textAlign:"left"},
               onClick:()=>setAySek("gruplar")},
               "👥 Gruplar"
+            ),
+            // ── YEDEKLEME - TEK BAŞLIK ──
+            btn({style:{width:"100%",padding:"11px 14px",
+              background:aySek==="yedekleme"?"rgba(37,99,168,.08)":"transparent",
+              border:"none",borderBottom:"1px solid var(--br)",borderLeft:aySek==="yedekleme"?"3px solid #2563a8":"3px solid transparent",
+              color:aySek==="yedekleme"?"var(--g)":"#3a6a62",
+              fontSize:12,fontWeight:500,
+              cursor:"pointer",textAlign:"left"},
+              onClick:()=>setAySek("yedekleme")},
+              "💾 Yedekleme"
             )
           ),
 
           // Sağ içerik
           div({style:{flex:1,paddingLeft:16,minWidth:0}},
+
+            aySek==="yedekleme"&&div(null,
+              div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},"Yedekleme ve Geri Yükleme"),
+              div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:16,marginBottom:12}},
+                div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:19,color:"var(--g)",fontWeight:700,marginBottom:6}},"Yerel Veri Yedeği"),
+                div({style:{fontSize:13,color:"var(--mu)",lineHeight:1.5,marginBottom:14}},
+                  "Bu bölüm cihazdaki kayıt, müşteri, personel, stok, randevu, cari ve ayar verilerini JSON dosyası olarak indirir. Yeni cihaza geçerken veya büyük değişiklik öncesi kullanılır."
+                ),
+                div({style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}},
+                  btn({className:"btn-k",style:{color:"var(--bg)"},onClick:yedekOlustur},"💾 Yedek İndir"),
+                  btn({className:"btn-i",onClick:yedekYukleSec},"📂 Yedek Yükle")
+                )
+              ),
+              div({style:{background:"rgba(180,60,0,.12)",border:"1px solid rgba(200,80,0,.28)",borderRadius:12,padding:12,color:"#f0a060",fontSize:13,lineHeight:1.45}},
+                "Uyarı: Yedek yükleme mevcut yerel verileri değiştirir. Önce mevcut verinin yedeğini indir."
+              )
+            ),
 
             // Genel Hizmet Listesi
         aySek==="listeler"&&ayListeSek==="genel"&&div(null,
