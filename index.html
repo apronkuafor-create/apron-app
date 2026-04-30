@@ -1,9 +1,19 @@
 <!DOCTYPE html>
 
+<!--
+APRON BUSINESS - Bakım Sürümü v1
+Yapılanlar:
+1) Mobil date/month input CSSindeki akıllı tırnak hataları düzeltildi.
+2) Sürüm meta etiketi yenilendi; GitHub Pages/cache kontrolü kolaylaştırıldı.
+3) Supabase yazma işlemleri için hata yakalama güçlendirildi.
+4) Tarayıcı genel JS hataları konsola ve kullanıcıya kontrollü aktarılacak şekilde hazırlandı.
+Not: PIN/personel verileri hâlâ frontend içinde. Bir sonraki güvenlik adımında Supabase tablolarına taşınmalı.
+-->
+
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="1777387837">
+  <meta name="version" content="1777578443">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -14,7 +24,7 @@
 html,body{margin:0;padding:0;background:#081a1c;min-height:100%}
 #root{min-height:100vh}
 
-input[type=“date”], input[type=“month”] {
+input[type="date"], input[type="month"] {
 width: 100% !important;
 max-width: 100% !important;
 min-width: 0 !important;
@@ -24,8 +34,8 @@ color: #e2ecea !important;
 -webkit-appearance: none;
 appearance: none;
 }
-input[type=“date”]::-webkit-date-and-time-value,
-input[type=“month”]::-webkit-date-and-time-value {
+input[type="date"]::-webkit-date-and-time-value,
+input[type="month"]::-webkit-date-and-time-value {
 text-align: left;
 color: #e2ecea;
 }
@@ -70,6 +80,13 @@ class ErrorBoundary extends React.Component {
 
 
 'use strict';
+
+window.addEventListener('error', (e) => {
+  console.error('Genel JS hata:', e.message, e.error);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('Yakalanmayan Promise hatası:', e.reason);
+});
 const {useState, useRef, useEffect, useCallback, createElement: h, Fragment} = React;
 
 const DB = (window.supabase && window.supabase.createClient)
@@ -134,10 +151,26 @@ const dbAl = async (t,opts={}) => {
     return data||[];
   } catch(e){ console.warn("dbAl",e); return []; }
 };
-const dbEkle = (t,r) => DB&&DB.from(t).insert(r).then(()=>{}).catch(console.warn);
-const dbGnc  = (t,r,id) => DB&&DB.from(t).update(r).eq("id",id).then(()=>{}).catch(console.warn);
-const dbSil  = (t,id) => DB&&DB.from(t).delete().eq("id",id).then(()=>{}).catch(console.warn);
-const dbUpsert = (t,rows,c) => DB&&DB.from(t).upsert(rows,{onConflict:c}).then(()=>{}).catch(console.warn);
+// Supabase yazma işlemleri tek güvenli kapıdan geçer.
+// Kritik amaç: hata olursa sessizce yutmak yerine konsola tablo/işlem bilgisiyle düşürmek.
+const dbMutasyon = async (etiket, islem) => {
+  if(!DB) {
+    console.warn("Supabase bağlantısı yok:", etiket);
+    return {ok:false, error:"DB yok"};
+  }
+  try {
+    const {error} = await islem();
+    if(error) throw error;
+    return {ok:true};
+  } catch(e) {
+    console.warn("DB işlem hatası:", etiket, e);
+    return {ok:false, error:e};
+  }
+};
+const dbEkle = (t,r) => dbMutasyon("ekle:"+t, () => DB.from(t).insert(r));
+const dbGnc  = (t,r,id) => dbMutasyon("guncelle:"+t+":"+id, () => DB.from(t).update(r).eq("id",id));
+const dbSil  = (t,id) => dbMutasyon("sil:"+t+":"+id, () => DB.from(t).delete().eq("id",id));
+const dbUpsert = (t,rows,c) => dbMutasyon("upsert:"+t, () => DB.from(t).upsert(rows,{onConflict:c}));
 const mapR = r => ({
   id:r.id, staffId:r.staff_id, staffAd:r.staff_name,
   musteri:r.musteri, tel:r.telefon||"",
