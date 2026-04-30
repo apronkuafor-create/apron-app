@@ -4568,6 +4568,109 @@ function App() {
     }
   };
 
+
+  const excelXmlTemizle = v => String(v ?? "")
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;");
+
+  const excelSayfaAdi = ad => {
+    const temiz = String(ad || "Sayfa")
+      .replace(/[\\/\?\*\[\]:]/g," ")
+      .replace(/\s+/g," ")
+      .trim()
+      .slice(0,31);
+    return temiz || "Sayfa";
+  };
+
+  const excelHucre = v => {
+    const sayiMi = typeof v === "number" && isFinite(v);
+    if(sayiMi) return `<Cell><Data ss:Type="Number">${v}</Data></Cell>`;
+    return `<Cell><Data ss:Type="String">${excelXmlTemizle(v)}</Data></Cell>`;
+  };
+
+  const excelSatir = arr => `<Row>${arr.map(excelHucre).join("")}</Row>`;
+
+  const odemePaylastir = (satirTutar, bolumToplam, kk, ib, nk) => {
+    const oran = bolumToplam > 0 ? satirTutar / bolumToplam : 0;
+    return {
+      kk: Math.round(toN(kk) * oran * 100) / 100,
+      ib: Math.round(toN(ib) * oran * 100) / 100,
+      nk: Math.round(toN(nk) * oran * 100) / 100
+    };
+  };
+
+  const excelSatirlariOlustur = kaynakKayitlar => {
+    const satirlar = [];
+    (kaynakKayitlar || []).forEach(r => {
+      const hizmetler = Array.isArray(r.hizler) ? r.hizler : [];
+      const urunler = Array.isArray(r.urunler) ? r.urunler : [];
+      const hizmetToplam = hizmetler.reduce((s,h)=>s+toN(h.f || h.fiyat || h.tutar),0);
+      const urunToplam = urunler.reduce((s,u)=>s+(toN(u.sf || u.sp || u.fiyat) * toN(u.qty || u.adet || 1)),0);
+
+      hizmetler.forEach(hz => {
+        const tutar = toN(hz.f || hz.fiyat || hz.tutar);
+        const pay = odemePaylastir(tutar, hizmetToplam, r.hizKK, r.hizIB, r.hizNK);
+        satirlar.push({
+          personel: r.staffAd || "", tarih: r.tarih || "", musteri: r.musteri || "",
+          tur: "Hizmet", islem: hz.n || hz.ad || "", adet: 1, birimFiyat: tutar,
+          hizmetKK: pay.kk, hizmetIBAN: pay.ib, hizmetNakit: pay.nk,
+          urunKK: 0, urunIBAN: 0, urunNakit: 0, satirToplam: tutar, kayitToplam: toN(r.toplam)
+        });
+      });
+
+      urunler.forEach(ur => {
+        const adet = toN(ur.qty || ur.adet || 1) || 1;
+        const birim = toN(ur.sf || ur.sp || ur.fiyat);
+        const tutar = birim * adet;
+        const pay = odemePaylastir(tutar, urunToplam, r.uKK, r.uIB, r.uNK);
+        satirlar.push({
+          personel: r.staffAd || "", tarih: r.tarih || "", musteri: r.musteri || "",
+          tur: "Ürün", islem: ur.a || ur.ad || ur.urunAd || "", adet, birimFiyat: birim,
+          hizmetKK: 0, hizmetIBAN: 0, hizmetNakit: 0,
+          urunKK: pay.kk, urunIBAN: pay.ib, urunNakit: pay.nk, satirToplam: tutar, kayitToplam: toN(r.toplam)
+        });
+      });
+    });
+    return satirlar.sort((a,b)=>(a.tarih||"").localeCompare(b.tarih||"") || (a.musteri||"").localeCompare(b.musteri||""));
+  };
+
+  const excelPersonelYedekIndir = () => {
+    try {
+      const tumKayitlar = [...(records || []), ...(bekleyen || [])].filter(r => r && (r.staffAd || r.staffId || r.musteri || r.tarih));
+      if(!tumKayitlar.length) { showToast("Excel'e aktarılacak kayıt yok", "uy"); return; }
+
+      const baslik = ["Personel","Tarih","Müşteri","Tür","Hizmet / Ürün","Adet","Birim Fiyat","Hizmet K.K","Hizmet IBAN","Hizmet Nakit","Ürün K.K","Ürün IBAN","Ürün Nakit","Satır Toplam","Kayıt Toplam"];
+      const satirArr = x => [x.personel,x.tarih,x.musteri,x.tur,x.islem,x.adet,x.birimFiyat,x.hizmetKK,x.hizmetIBAN,x.hizmetNakit,x.urunKK,x.urunIBAN,x.urunNakit,x.satirToplam,x.kayitToplam];
+
+      const gruplar = {};
+      tumKayitlar.forEach(r => {
+        const key = r.staffId || r.staffAd || "Diger";
+        if(!gruplar[key]) gruplar[key] = {ad:r.staffAd || "Diger", kayitlar:[]};
+        gruplar[key].kayitlar.push(r);
+      });
+
+      const genelRows = [baslik, ...excelSatirlariOlustur(tumKayitlar).map(satirArr)].map(excelSatir).join("");
+      const sayfalar = Object.values(gruplar).map(g => {
+        const rowsXml = [baslik, ...excelSatirlariOlustur(g.kayitlar).map(satirArr)].map(excelSatir).join("");
+        return `<Worksheet ss:Name="${excelXmlTemizle(excelSayfaAdi(g.ad))}"><Table>${rowsXml}</Table></Worksheet>`;
+      }).join("");
+
+      const xml = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Tum Kayitlar"><Table>${genelRows}</Table></Worksheet>${sayfalar}</Workbook>`;
+      const blob = new Blob([xml], {type:"application/vnd.ms-excel;charset=utf-8"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "apron-personel-excel-yedek-" + TODAY() + ".xls";
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      showToast("Personel sayfalı Excel yedeği indirildi");
+    } catch(e) {
+      console.error("Excel yedek hatası", e);
+      showToast("Excel yedeği oluşturulamadı", "ha");
+    }
+  };
+
   const yedekYukle = file => {
     if(!file) return;
     const reader = new FileReader();
@@ -6582,8 +6685,9 @@ function App() {
                   "Bu bölüm cihazdaki kayıt, müşteri, personel, stok, randevu, cari ve ayar verilerini JSON dosyası olarak indirir. Yeni cihaza geçerken veya büyük değişiklik öncesi kullanılır."
                 ),
                 div({style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}},
-                  btn({className:"btn-k",style:{color:"var(--bg)"},onClick:yedekOlustur},"💾 Yedek İndir"),
-                  btn({className:"btn-i",onClick:yedekYukleSec},"📂 Yedek Yükle")
+                  btn({className:"btn-k",style:{color:"var(--bg)"},onClick:yedekOlustur},"💾 JSON Yedek İndir"),
+                  btn({className:"btn-i",onClick:yedekYukleSec},"📂 JSON Yedek Yükle"),
+                  btn({className:"btn-k",style:{color:"var(--bg)"},onClick:excelPersonelYedekIndir},"📊 Excel Yedek İndir")
                 )
               ),
               div({style:{background:"rgba(180,60,0,.12)",border:"1px solid rgba(200,80,0,.28)",borderRadius:12,padding:12,color:"#f0a060",fontSize:13,lineHeight:1.45}},
