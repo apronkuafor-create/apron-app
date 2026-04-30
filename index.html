@@ -439,7 +439,7 @@ function UrunAramaBilesen({aramaVal,setAramaVal,onEkle,placeholder}) {
   );
 }
 
-  // ═══════════════ ÖZET DASHBOARD ═══════════════
+  // ═══════════════ ÖZET DASHBOARD (YENİ - PROFESYONEL) ═══════════════
 function OzetDashboard({stokPartiler,mkArsiv,tumK,personeller}){
   const [periyot,setPeriyot]=React.useState("buAy");
   const periyotBaslangic=React.useMemo(()=>{
@@ -469,14 +469,15 @@ function OzetDashboard({stokPartiler,mkArsiv,tumK,personeller}){
     return oz;
   },[stokPartiler]);
   const toplamUrun=periyotK.reduce((s,r)=>s+(r.uKK||0)+(r.uIB||0)+(r.uNK||0),0);
-  const toplamHiz=periyotK.reduce((s,r)=>s+(r.hizKK||0)+(r.hizIB||0)+(r.hizNK||0),0);
   const stokDeger=Object.values(stokOzet).reduce((s,u)=>s+u.toplamMaliyet,0);
   const stokSatisDeger=Object.values(stokOzet).reduce((s,u)=>s+u.kalan*(u.satisF||0),0);
   const potansiyelKar=stokSatisDeger-stokDeger;
+  const tahminiKar=toplamUrun*0.5;
   const urunluK=periyotK.filter(r=>(r.urunler||[]).length>0);
   const ortSepet=urunluK.length>0?toplamUrun/urunluK.length:0;
   const toplamAdet=periyotK.reduce((s,r)=>s+(r.urunler||[]).reduce((ss,u)=>ss+toN(u.qty||1),0),0);
-  const tahminiKar=toplamUrun*0.5;
+  const tukenmis=Object.values(stokOzet).filter(u=>u.kalan===0).length;
+  const azStokSay=Object.values(stokOzet).filter(u=>u.kalan>0&&u.kalan<=2).length;
   const urunGrup={};
   periyotK.forEach(r=>{
     (r.urunler||[]).forEach(u=>{
@@ -505,8 +506,7 @@ function OzetDashboard({stokPartiler,mkArsiv,tumK,personeller}){
     const ua=pk.reduce((s,r)=>s+(r.urunler||[]).reduce((ss,u)=>ss+toN(u.qty||1),0),0);
     persPerf[p.id]={ad:p.ad,urunGelir:ug,hizGelir:hg,toplam:ug+hg,urunAdet:ua,kayitSay:pk.length};
   });
-  const persListe=Object.values(persPerf).sort((a,b)=>b.toplam-a.toplam);
-  const enYukPers=persListe[0]?.toplam||1;
+  const persListe=Object.values(persPerf).sort((a,b)=>b.urunGelir-a.urunGelir);
   const gunluk={};
   periyotK.forEach(r=>{
     if(!r.tarih)return;
@@ -516,7 +516,6 @@ function OzetDashboard({stokPartiler,mkArsiv,tumK,personeller}){
   const trendV=Object.entries(gunluk).sort((a,b)=>a[0].localeCompare(b[0])).map(([t,v])=>({tarih:t,deger:v}));
   const maxTrend=Math.max(...trendV.map(x=>x.deger),1);
   const azStokta=Object.values(stokOzet).filter(u=>u.kalan>0&&u.kalan<=2).sort((a,b)=>a.kalan-b.kalan).slice(0,8);
-  const tukenmis=Object.values(stokOzet).filter(u=>u.kalan===0).length;
   const tumF=mkArsiv||[];
   const tBorc=tumF.reduce((s,ar)=>s+(ar.urunler||[]).reduce((ss,u)=>ss+(u.toplamF||0),0),0);
   const tOd=tumF.reduce((s,ar)=>s+(ar.odemeler||[]).reduce((ss,o)=>ss+toN(o.tutar),0),0);
@@ -524,7 +523,7 @@ function OzetDashboard({stokPartiler,mkArsiv,tumK,personeller}){
   return h("div",{style:{padding:0}},
     h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}},
       h("div",null,
-        h("div",{style:{fontSize:13,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:3,fontWeight:700}},"📊 Ürün Muhasebesi Özeti"),
+        h("div",{style:{fontSize:13,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:3,fontWeight:700}},"📦 Ürün Muhasebesi Özeti"),
         h("div",{style:{fontSize:12,color:"var(--mu)"}},periyotEtiket+" · "+periyotK.length+" satış kaydı")
       ),
       h("div",{style:{display:"flex",gap:5,flexWrap:"wrap"}},
@@ -533,26 +532,36 @@ function OzetDashboard({stokPartiler,mkArsiv,tumK,personeller}){
         )
       )
     ),
-    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginBottom:14}},
-      [{lb:"Ürün Satış Geliri",v:fmt(toplamUrun),ic:"📦",c:"var(--g)",alt:toplamAdet+" adet ürün"},
-       {lb:"Tahmini Brüt Kâr",v:fmt(tahminiKar),ic:"💰",c:"var(--gr)",alt:"%~50 marj"},
-       {lb:"Stok Değeri",v:fmt(stokDeger),ic:"📊",c:"var(--bl)",alt:"Maliyet bazlı"},
-       {lb:"Potansiyel Kâr",v:fmt(potansiyelKar),ic:"✨",c:"#f0a060",alt:"Stok satılırsa"}].map(({lb,v,ic,c,alt})=>
-        h("div",{key:lb,style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14}},
-          h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
-            h("div",{style:{width:36,height:36,borderRadius:9,background:"var(--bg3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}},ic),
-            h("div",{style:{flex:1,fontSize:11,color:"var(--mu)",textTransform:"uppercase",letterSpacing:1,fontWeight:500}},lb)
-          ),
-          h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:22,color:c,fontWeight:700,marginBottom:2}},v),
-          alt&&h("div",{style:{fontSize:11,color:"var(--di)"}},alt)
+    h("div",{style:{background:"linear-gradient(135deg,var(--bg2),var(--bg3))",border:"1.5px solid var(--br)",borderRadius:14,padding:18,marginBottom:14}},
+      h("div",{style:{fontSize:11,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:700,marginBottom:14}},"💼 Finansal Özet"),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14}},
+        h("div",{style:{borderLeft:"3px solid var(--g)",paddingLeft:14}},
+          h("div",{style:{fontSize:11,color:"var(--mu)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}},"📦 Ürün Satış Geliri"),
+          h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:24,color:"var(--g)",fontWeight:700,marginBottom:3}},fmt(toplamUrun)),
+          h("div",{style:{fontSize:11,color:"var(--di)"}},toplamAdet+" adet ürün satıldı")
+        ),
+        h("div",{style:{borderLeft:"3px solid var(--gr)",paddingLeft:14}},
+          h("div",{style:{fontSize:11,color:"var(--mu)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}},"💰 Tahmini Brüt Kâr"),
+          h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:24,color:"var(--gr)",fontWeight:700,marginBottom:3}},fmt(tahminiKar)),
+          h("div",{style:{fontSize:11,color:"var(--di)"}},"~%50 marj ile")
+        ),
+        h("div",{style:{borderLeft:"3px solid var(--bl)",paddingLeft:14}},
+          h("div",{style:{fontSize:11,color:"var(--mu)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}},"📊 Stok Değeri"),
+          h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:24,color:"var(--bl)",fontWeight:700,marginBottom:3}},fmt(stokDeger)),
+          h("div",{style:{fontSize:11,color:"var(--di)"}},"Maliyet bazlı")
+        ),
+        h("div",{style:{borderLeft:"3px solid #f0a060",paddingLeft:14}},
+          h("div",{style:{fontSize:11,color:"var(--mu)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}},"✨ Potansiyel Kâr"),
+          h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:24,color:"#f0a060",fontWeight:700,marginBottom:3}},fmt(potansiyelKar)),
+          h("div",{style:{fontSize:11,color:"var(--di)"}},"Stok satılırsa")
         )
       )
     ),
     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,marginBottom:14}},
-      [{lb:"Hizmet Geliri",v:fmt(toplamHiz),c:"var(--bl)"},
-       {lb:"Toplam Ciro",v:fmt(toplamUrun+toplamHiz),c:"var(--g)"},
-       {lb:"Ort. Sepet",v:fmt(ortSepet),c:"var(--gr)"},
-       {lb:"Tükenen Ürün",v:tukenmis+" çeşit",c:tukenmis>0?"#c05050":"var(--mu)"}].map(({lb,v,c})=>
+      [{lb:"Ortalama Sepet",v:fmt(ortSepet),c:"var(--g)"},
+       {lb:"Stok Satış Değeri",v:fmt(stokSatisDeger),c:"var(--bl)"},
+       {lb:"Tükenen Ürün",v:tukenmis+" çeşit",c:tukenmis>0?"#c05050":"var(--mu)"},
+       {lb:"Az Stoklu",v:azStokSay+" çeşit",c:azStokSay>0?"#f0a060":"var(--mu)"}].map(({lb,v,c})=>
         h("div",{key:lb,style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:10,padding:11,textAlign:"center"}},
           h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:17,color:c,fontWeight:700}},v),
           h("div",{style:{fontSize:10,color:"var(--mu)",marginTop:3,textTransform:"uppercase",letterSpacing:1}},lb)
@@ -561,7 +570,7 @@ function OzetDashboard({stokPartiler,mkArsiv,tumK,personeller}){
     ),
     trendV.length>0&&h("div",{style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:14}},
       h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
-        h("div",{style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:600}},"📈 Günlük Satış Trendi"),
+        h("div",{style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:600}},"📈 Günlük Ürün Satış Trendi"),
         h("div",{style:{fontSize:11,color:"var(--mu)"}},trendV.length+" gün")
       ),
       h("svg",{viewBox:"0 0 600 180",style:{width:"100%",height:160,display:"block"}},
@@ -607,36 +616,7 @@ function OzetDashboard({stokPartiler,mkArsiv,tumK,personeller}){
         )
       )
     ),
-    persListe.length>0&&h("div",{style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:14}},
-      h("div",{style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:600,marginBottom:12}},"👥 Personel Performansı"),
-      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:10}},
-        persListe.map((p,i)=>
-          h("div",{key:p.ad,style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,padding:11}},
-            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
-              h("div",{style:{display:"flex",alignItems:"center",gap:7}},
-                h("div",{style:{width:26,height:26,borderRadius:"50%",background:i===0?"rgba(218,179,128,.2)":"var(--bg2)",color:i===0?"var(--g)":"var(--mu)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700}},i+1),
-                h("div",{style:{fontSize:13,color:"var(--g)",fontWeight:600}},p.ad)
-              ),
-              h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"var(--g)",fontWeight:700}},fmt(p.toplam))
-            ),
-            h("div",{style:{height:5,background:"var(--bg2)",borderRadius:3,overflow:"hidden",marginBottom:8}},
-              h("div",{style:{height:"100%",width:(p.toplam/enYukPers*100)+"%",background:"linear-gradient(90deg,var(--g),var(--gr))",borderRadius:3}})
-            ),
-            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:10}},
-              h("div",{style:{padding:"5px 7px",background:"var(--bg2)",borderRadius:5}},
-                h("div",{style:{color:"var(--mu)",marginBottom:2}},"Ürün"),
-                h("div",{style:{color:"var(--g)",fontWeight:600}},fmt(p.urunGelir)+" · "+p.urunAdet+"adt")
-              ),
-              h("div",{style:{padding:"5px 7px",background:"var(--bg2)",borderRadius:5}},
-                h("div",{style:{color:"var(--mu)",marginBottom:2}},"Hizmet"),
-                h("div",{style:{color:"var(--g)",fontWeight:600}},fmt(p.hizGelir))
-              )
-            ),
-            h("div",{style:{fontSize:10,color:"var(--di)",marginTop:6,textAlign:"center"}},p.kayitSay+" kayıt")
-          )
-        )
-      )
-    ),
+    persListe.length>0&&h(PersonelPerformansAnalizi,{persListe,enCokSatan,stokOzet,periyotEtiket,toplamUrun,periyotK}),
     azStokta.length>0&&h("div",{style:{background:"rgba(192,80,80,.05)",border:"1px solid rgba(192,80,80,.3)",borderRadius:12,padding:14,marginBottom:14}},
       h("div",{style:{fontSize:12,color:"#c05050",letterSpacing:2,textTransform:"uppercase",fontWeight:600,marginBottom:10}},"⚠️ Az Kalan Ürünler"),
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:7}},
@@ -668,12 +648,112 @@ function OzetDashboard({stokPartiler,mkArsiv,tumK,personeller}){
       h("div",{style:{fontSize:48,marginBottom:10,opacity:0.3}},"📊"),
       h("div",{style:{fontSize:14,marginBottom:5}},"Bu dönemde henüz satış kaydı yok"),
       h("div",{style:{fontSize:11,color:"var(--di)"}},"Farklı bir periyot seçin")
-    ),
-    h(SatisDanismani,{persListe,enCokSatan,stokOzet,periyotEtiket,toplamUrun,toplamHiz,periyotK,stokPartiler})
+    )
   );
 }
 
-// ── AI SATIŞ DANIŞMANI ──────────────────────────────────────────────────────
+// ── PERSONEL PERFORMANSI + SATIŞ ANALİZİ (BİRLEŞİK BİLEŞEN) ──
+function PersonelPerformansAnalizi({persListe,enCokSatan,stokOzet,periyotEtiket,toplamUrun,periyotK}){
+  const [acikId,setAcikId]=React.useState(null);
+  const persDetay=persListe.map(p=>{
+    const urunOrani=(p.urunGelir+p.hizGelir)>0?p.urunGelir/(p.urunGelir+p.hizGelir):0;
+    const musteriBasi=p.kayitSay>0?p.urunGelir/p.kayitSay:0;
+    const hedefDonusum=0.30;
+    const hedefAdet=p.kayitSay>0?Math.ceil(p.kayitSay*hedefDonusum):0;
+    const skor=Math.min(100,Math.round(urunOrani/0.30*100));
+    let durum,renk;
+    if(skor>=80){durum="İyi";renk="var(--gr)";}
+    else if(skor>=40){durum="Geliştirilmeli";renk="#f0a060";}
+    else{durum="Kritik";renk="#c05050";}
+    const kisiselNeden=[];
+    if(urunOrani<0.05) kisiselNeden.push("Müşterilere hiç ürün önerilmiyor");
+    else if(urunOrani<0.15) kisiselNeden.push("Ürün önerisi çok az yapılıyor");
+    if(p.kayitSay>20&&(p.urunAdet||0)<3) kisiselNeden.push("Yoğun müşteri trafiğine rağmen ürün satışı yok");
+    if(musteriBasi<100&&p.kayitSay>5) kisiselNeden.push("Müşteri başı ürün geliri çok düşük");
+    const hizmetBasiGelir=p.kayitSay>0?p.hizGelir/p.kayitSay:0;
+    const stratejiler=[];
+    if(hizmetBasiGelir>300){
+      stratejiler.push("Premium müşteri profilin var — her seansta bakım ürünü mutlaka öner");
+      stratejiler.push("Saç/cilt bakımı sonrası evde kullanım için ürün paketle");
+    }else{
+      stratejiler.push("Orta segment müşterilere en çok satan ürünleri tanıt");
+      stratejiler.push("Fiyatı uygun ürünle başla, güven oluştukça set öner");
+    }
+    if(p.kayitSay>15) stratejiler.push("Düzenli müşterilere 'bir önceki aldığın bitti mi?' diye sor");
+    stratejiler.push("Hizmet sonunda ürünü uygulayarak göster, müşteri görünce satın almak ister");
+    return {...p,urunOrani:Math.round(urunOrani*100),musteriBasi:Math.round(musteriBasi),
+      hedefAdet,skor,durum,renk,kisiselNeden,stratejiler};
+  });
+  return h("div",{style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:14}},
+    h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
+      h("div",{style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:600}},"👥 Personel Performansı & Satış Analizi"),
+      h("div",{style:{fontSize:11,color:"var(--mu)"}},"Detay için tıklayın")
+    ),
+    h("div",{style:{display:"flex",flexDirection:"column",gap:8}},
+      persDetay.map((p,i)=>{
+        const acik=acikId===i;
+        return h("div",{key:i,style:{background:"var(--bg3)",border:"1px solid "+(acik?p.renk:"var(--br)"),borderRadius:11,overflow:"hidden",transition:"border-color .2s"}},
+          h("div",{style:{padding:12,cursor:"pointer",display:"flex",alignItems:"center",gap:10},
+            onClick:()=>setAcikId(acik?null:i)},
+            h("div",{style:{width:28,height:28,borderRadius:"50%",background:i===0?"rgba(218,179,128,.2)":"var(--bg2)",color:i===0?"var(--g)":"var(--mu)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,flexShrink:0}},i+1),
+            h("div",{style:{flex:1,minWidth:0}},
+              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
+                h("div",{style:{fontSize:14,color:"var(--g)",fontWeight:700}},p.ad),
+                h("div",{style:{display:"flex",gap:8,alignItems:"center"}},
+                  h("div",{style:{fontSize:10,color:p.renk,fontWeight:700,background:"rgba(0,0,0,.15)",padding:"2px 7px",borderRadius:5,border:"1px solid "+p.renk}},p.durum),
+                  h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"var(--g)",fontWeight:700}},fmt(p.urunGelir))
+                )
+              ),
+              h("div",{style:{height:5,background:"var(--bg2)",borderRadius:3,overflow:"hidden",marginBottom:6}},
+                h("div",{style:{height:"100%",width:p.skor+"%",
+                  background:p.skor>=80?"linear-gradient(90deg,#2eb85c,#20a050)":p.skor>=40?"linear-gradient(90deg,#f0a060,#e08040)":"linear-gradient(90deg,#c05050,#a03030)",
+                  borderRadius:3,transition:"width .5s"}})
+              ),
+              h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,fontSize:10}},
+                h("div",{style:{padding:"4px 6px",background:"var(--bg2)",borderRadius:5,textAlign:"center"}},
+                  h("div",{style:{color:"var(--mu)",marginBottom:1}},"Müşteri"),
+                  h("div",{style:{color:"var(--g)",fontWeight:600}},p.kayitSay+" kişi")
+                ),
+                h("div",{style:{padding:"4px 6px",background:"var(--bg2)",borderRadius:5,textAlign:"center"}},
+                  h("div",{style:{color:"var(--mu)",marginBottom:1}},"Ürün Adet"),
+                  h("div",{style:{color:"var(--g)",fontWeight:600}},p.urunAdet+" adet")
+                ),
+                h("div",{style:{padding:"4px 6px",background:"var(--bg2)",borderRadius:5,textAlign:"center"}},
+                  h("div",{style:{color:"var(--mu)",marginBottom:1}},"Dönüşüm"),
+                  h("div",{style:{color:"var(--g)",fontWeight:600}},"%"+p.urunOrani)
+                )
+              )
+            ),
+            h("div",{style:{fontSize:14,color:"var(--mu)",flexShrink:0,transform:acik?"rotate(180deg)":"rotate(0)",transition:"transform .2s"}},"▾")
+          ),
+          acik&&h("div",{style:{padding:"0 12px 12px",borderTop:"1px solid var(--br)"}},
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10,marginBottom:10}},
+              h("div",{style:{padding:"8px 10px",background:"rgba(50,140,100,.06)",border:"1px solid rgba(50,140,100,.15)",borderRadius:7}},
+                h("div",{style:{fontSize:10,color:"var(--gr)",letterSpacing:1,textTransform:"uppercase",marginBottom:3}},"🎯 Dönem Hedefi"),
+                h("div",{style:{fontSize:13,color:"var(--gr)",fontWeight:600}},p.hedefAdet+" adet ürün")
+              ),
+              h("div",{style:{padding:"8px 10px",background:"rgba(37,99,168,.06)",border:"1px solid rgba(37,99,168,.15)",borderRadius:7}},
+                h("div",{style:{fontSize:10,color:"var(--bl)",letterSpacing:1,textTransform:"uppercase",marginBottom:3}},"💼 Müşteri Başı"),
+                h("div",{style:{fontSize:13,color:"var(--bl)",fontWeight:600}},fmt(p.musteriBasi))
+              )
+            ),
+            p.kisiselNeden.length>0&&h("div",{style:{marginBottom:10,padding:"8px 10px",background:"rgba(192,80,80,.05)",border:"1px solid rgba(192,80,80,.15)",borderRadius:7}},
+              h("div",{style:{fontSize:10,color:"#c05050",letterSpacing:1,textTransform:"uppercase",marginBottom:5,fontWeight:600}},"⚠ Tespit"),
+              p.kisiselNeden.map((n,j)=>h("div",{key:j,style:{fontSize:12,color:"var(--mu)",display:"flex",gap:5,marginBottom:2,lineHeight:1.4}},
+                h("span",{style:{color:"#c05050",flexShrink:0}},"•"),n))
+            ),
+            h("div",{style:{padding:"8px 10px",background:"rgba(37,99,168,.05)",border:"1px solid rgba(37,99,168,.15)",borderRadius:7}},
+              h("div",{style:{fontSize:10,color:"var(--g)",letterSpacing:1,textTransform:"uppercase",marginBottom:5,fontWeight:600}},"→ Öneriler"),
+              p.stratejiler.map((s,j)=>h("div",{key:j,style:{fontSize:12,color:"var(--tx)",display:"flex",gap:6,lineHeight:1.5,marginBottom:3}},
+                h("span",{style:{color:"var(--g)",flexShrink:0}},"✓"),s))
+            )
+          )
+        );
+      })
+    )
+  );
+}
+
 // ── HİZMET MUHASEBESİ ───────────────────────────────────────────────────────
 function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB}){
   const seciliP = personeller.find(p=>p.id===muhAlt) || null;
@@ -861,101 +941,6 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB})
     )
   );
 }
-
-function SatisDanismani({persListe,enCokSatan,stokOzet,periyotEtiket,toplamUrun,toplamHiz,periyotK}){
-  const sonuc = React.useMemo(()=>{
-    if(!persListe||persListe.length===0) return null;
-    const toplamMusteri = periyotK.length;
-    const genelUrunOrani = (toplamUrun+toplamHiz)>0 ? toplamUrun/(toplamUrun+toplamHiz) : 0;
-
-    const personelHedefler = persListe.map(p=>{
-      const urunOrani = (p.urunGelir+p.hizGelir)>0 ? p.urunGelir/(p.urunGelir+p.hizGelir) : 0;
-      const musteriBasi = p.kayitSay>0 ? p.urunGelir/p.kayitSay : 0;
-      const hedefDonusum = 0.30;
-      const hedefSepet = p.kayitSay>0 ? (p.hizGelir/p.kayitSay)*0.25 : 0;
-      const hedefAdet = p.kayitSay>0 ? Math.ceil(p.kayitSay*hedefDonusum) : 0;
-      const hedefGelir = Math.round(p.kayitSay * hedefDonusum * hedefSepet);
-      const skor = Math.min(100, Math.round(urunOrani/0.30*100));
-      let durum, renk;
-      if(skor>=80){durum="İyi";renk="var(--gr)";}
-      else if(skor>=40){durum="Geliştirilmeli";renk="#f0a060";}
-      else{durum="Kritik";renk="#c05050";}
-      const kisiselNeden = [];
-      if(urunOrani<0.05) kisiselNeden.push("Müşterilere hiç ürün önerilmiyor");
-      else if(urunOrani<0.15) kisiselNeden.push("Ürün önerisi çok az yapılıyor");
-      if(p.kayitSay>20 && (p.urunAdet||0)<3) kisiselNeden.push("Yoğun müşteri trafiğine rağmen ürün satışı yok");
-      if(musteriBasi<100 && p.kayitSay>5) kisiselNeden.push("Müşteri başı ürün geliri çok düşük");
-      const hizmetBasiGelir = p.kayitSay>0 ? p.hizGelir/p.kayitSay : 0;
-      const stratejiler = [];
-      if(hizmetBasiGelir>300){
-        stratejiler.push("Premium müşteri profilin var — her seansta bakım ürünü mutlaka öner");
-        stratejiler.push("Saç/cilt bakımı sonrası evde kullanım için ürün paketle");
-      } else {
-        stratejiler.push("Orta segment müşterilere en çok satan ürünleri tanıt");
-        stratejiler.push("Fiyatı uygun ürünle başla, güven oluştukça set öner");
-      }
-      if(p.kayitSay>15) stratejiler.push("Düzenli müşterilere 'bir önceki aldığın bitti mi?' diye sor — tekrar alım fırsatı yarat");
-      stratejiler.push("Hizmet sonunda ürünü uygulayarak göster, müşteri görünce satın almak ister");
-      return {ad:p.ad,kayitSay:p.kayitSay,urunGelir:p.urunGelir,hizGelir:p.hizGelir,urunAdet:p.urunAdet||0,
-        urunOrani:Math.round(urunOrani*100),skor,durum,renk,hedefAdet,hedefGelir,
-        musteriBasi:Math.round(musteriBasi),kisiselNeden,stratejiler};
-    });
-
-    const nedenler = [];
-    if(genelUrunOrani<0.10) nedenler.push("Ürün satışı hizmet cirosunun %10'unun altında — sektör ortalaması %20-30 civarındadır.");
-    if(enCokSatan.length<3) nedenler.push("Çok az ürün çeşidi satılıyor, müşteriler farklı ihtiyaçlar için seçenek bulamıyor olabilir.");
-    const azStok = Object.values(stokOzet).filter(u=>u.kalan<=2&&u.kalan>0).length;
-    if(azStok>3) nedenler.push("Rafta "+azStok+" üründe stok kritik — müşteri sorunca 'yok' denmesi satışı tamamen keser.");
-    const tukenmis = Object.values(stokOzet).filter(u=>u.kalan===0).length;
-    if(tukenmis>0) nedenler.push(tukenmis+" ürün tamamen tükenmiş. Tükenmiş ürün rafta olmayınca öneri yapılamaz.");
-    if(persListe.every(p=>(p.urunAdet||0)<2)) nedenler.push("Hiçbir personel düzenli ürün satışı yapmıyor — öneri kültürü henüz oluşmamış olabilir.");
-    if(nedenler.length===0) nedenler.push("Satışlar makul seyrediyor, ancak %30 dönüşüm hedefine ulaşmak için kişisel stratejiler uygulanmalı.");
-
-    const enIyi = personelHedefler.reduce((a,b)=>a.skor>b.skor?a:b,personelHedefler[0]);
-    const enDusuk = personelHedefler.reduce((a,b)=>a.skor<b.skor?a:b,personelHedefler[0]);
-    let genelYorum = periyotEtiket+" döneminde "+toplamMusteri+" müşteri ziyareti gerçekleşti. ";
-    genelYorum += "Ürün/hizmet oranı %"+Math.round(genelUrunOrani*100)+" — ";
-    genelYorum += genelUrunOrani>=0.20 ? "sektör ortalamasında, iyi gidiyorsunuz. " : "sektör ortalamasının altında, gelişim alanı var. ";
-    if(persListe.length>1) genelYorum += "En güçlü performans "+enIyi.ad+"'da, en fazla gelişim "+enDusuk.ad+"'da bekleniyor.";
-    return {personelHedefler,nedenler,genelYorum};
-  },[persListe,periyotK,toplamUrun,toplamHiz,enCokSatan,stokOzet,periyotEtiket]);
-
-  if(!sonuc) return h("div",{style:{padding:24,textAlign:"center",color:"var(--mu)",fontSize:13}},"Bu dönemde analiz için yeterli veri yok.");
-
-  return h("div",{style:{marginBottom:14}},
-    h("div",{style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:700,marginBottom:12}},"🎯 SATIŞ ANALİZİ & ÖNERİLER"),
-    h("div",{style:{background:"rgba(37,99,168,.07)",border:"1px solid rgba(37,99,168,.2)",borderRadius:10,padding:12,marginBottom:14,fontSize:13,color:"var(--tx)",lineHeight:1.6}},
-      h("span",{style:{color:"var(--g)",fontWeight:700}},"💬 "),sonuc.genelYorum),
-    h("div",{style:{display:"flex",flexDirection:"column",gap:10,marginBottom:14}},
-      sonuc.personelHedefler.map((p,i)=>
-        h("div",{key:i,style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:11,padding:12}},
-          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
-            h("div",{style:{fontSize:14,color:"var(--g)",fontWeight:700}},p.ad),
-            h("div",{style:{display:"flex",gap:6,alignItems:"center"}},
-              h("div",{style:{fontSize:11,color:p.renk,fontWeight:700,background:"rgba(0,0,0,.15)",padding:"2px 8px",borderRadius:5,border:"1px solid "+p.renk}},p.durum),
-              h("div",{style:{fontSize:11,color:"var(--mu)"}},"%" +p.skor))),
-          h("div",{style:{height:5,background:"var(--bg2)",borderRadius:3,overflow:"hidden",marginBottom:10}},
-            h("div",{style:{height:"100%",width:p.skor+"%",
-              background:p.skor>=80?"linear-gradient(90deg,#2eb85c,#20a050)":p.skor>=40?"linear-gradient(90deg,#f0a060,#e08040)":"linear-gradient(90deg,#c05050,#a03030)",
-              borderRadius:3}})),
-          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:10}},
-            [["Müşteri",p.kayitSay+" kişi","var(--mu)"],["Ürün Satışı",fmt(p.urunGelir)+" · "+p.urunAdet+"adt","var(--g)"],["Dönem Hedefi",p.hedefAdet+" adet","var(--gr)"]].map(([lb,v,c])=>
-              h("div",{key:lb,style:{background:"var(--bg2)",borderRadius:7,padding:"6px 8px",textAlign:"center"}},
-                h("div",{style:{fontSize:11,color:c,fontWeight:600,marginBottom:2}},v),
-                h("div",{style:{fontSize:9,color:"var(--di)",textTransform:"uppercase",letterSpacing:1}},lb)))),
-          p.kisiselNeden.length>0&&h("div",{style:{marginBottom:8}},
-            h("div",{style:{fontSize:10,color:"#c05050",letterSpacing:1,textTransform:"uppercase",marginBottom:4}},"⚠ Tespit"),
-            p.kisiselNeden.map((n,j)=>h("div",{key:j,style:{fontSize:11,color:"var(--mu)",display:"flex",gap:5}},h("span",{style:{color:"#c05050"}},"·"),n))),
-          h("div",null,
-            h("div",{style:{fontSize:10,color:"var(--g)",letterSpacing:1,textTransform:"uppercase",marginBottom:4}},"→ Öneriler"),
-            p.stratejiler.map((s,j)=>h("div",{key:j,style:{fontSize:11,color:"var(--tx)",display:"flex",gap:6,lineHeight:1.5,marginBottom:3}},
-              h("span",{style:{color:"var(--g)",flexShrink:0}},"✓"),s)))))),
-    h("div",{style:{background:"rgba(192,80,80,.05)",border:"1px solid rgba(192,80,80,.2)",borderRadius:10,padding:12}},
-      h("div",{style:{fontSize:11,color:"#c05050",letterSpacing:2,textTransform:"uppercase",fontWeight:700,marginBottom:8}},"❓ Neden Daha Az Satılıyor?"),
-      sonuc.nedenler.map((n,i)=>h("div",{key:i,style:{display:"flex",gap:8,fontSize:12,color:"var(--tx)",lineHeight:1.5,marginBottom:5}},
-        h("span",{style:{color:"#c05050",fontWeight:700,flexShrink:0}},i+1+"."),n))));
-}
- 
 // ── ÜRÜN MUHASEBESİ V4 ──────────────────────────────────────────────────────
 function UrunMuhasebe({
   stokPartiler,setStokPartiler,stokDB,setStokDB,
