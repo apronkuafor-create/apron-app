@@ -754,33 +754,41 @@ function PersonelPerformansAnalizi({persListe,enCokSatan,stokOzet,periyotEtiket,
   );
 }
 
-// ── ÜRÜN SATIŞLARI MUHASEBESİ ──────────────────────────────────────────────
-function UrunSatislariMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar}){
-  const seciliP = personeller.find(p=>p.id===muhAlt) || null;
+// ── ÜRÜN SATIŞLARI TABLOSU (Personel bazlı, HizmetMuhasebe gibi tam sayfa) ──
+function UrunSatislariTablo({tumK, personeller, onKapat}){
+  const [secPersId, setSecPersId] = React.useState("");
   const [filAy, setFilAy] = React.useState("");
   const [filYil, setFilYil] = React.useState(new Date().getFullYear().toString());
-  const [detayTarih, setDetayTarih] = React.useState(null);
+  const [detayTarih, setDetayTarih] = React.useState(null); // {tarih, kayitlar}
 
-  const gelirGrupId = (pGruplar||[]).find(g=>g.ad.toLowerCase().includes("gelire"))?.id;
-  const gelirPersoneller = gelirGrupId
-    ? personeller.filter(p=>p.aktif&&p.rol==="personel"&&p.grup===gelirGrupId)
-    : [];
+  // Pgruplar yerine pozisyon kontrolu - "Manikürist" hariç tüm aktif personel + Manikuristleri de dahil et
+  // Kullanıcı isteği: "Gelire doğrudan katkı sağlayan personelleri çeksin"
+  // Mevcut sistemde grup adı "Gelire" geçen grup gelir grubu
+  const gelirPersoneller = personeller.filter(p=>p.aktif&&p.rol==="personel");
 
+  // Seçilmiş personelin satırları
   const satirlar = React.useMemo(()=>{
+    if(!secPersId) return [];
+    const seciliP = personeller.find(p=>p.id===secPersId);
     if(!seciliP) return [];
+
     const kayitlar = (tumK||[]).filter(r=>{
       if(r.staffId!==seciliP.id && r.staffAd!==seciliP.ad) return false;
       if(!r.tarih) return false;
       if(r.gonderildi===false) return false;
+      // Sadece ürün satışı olanları
       if(!(r.urunler||[]).length) return false;
       if(filYil && !r.tarih.startsWith(filYil)) return false;
       if(filAy && !r.tarih.startsWith(filYil+"-"+filAy.padStart(2,"0"))) return false;
       return true;
     });
+
+    // Tarihe göre grupla
     const gr = {};
     kayitlar.forEach(r=>{
       const t = r.tarih;
       if(!gr[t]) gr[t]={tarih:t,musteriSet:new Set(),urunAdet:0,kk:0,ib:0,nk:0,kayitlar:[]};
+      // Müşteri sayısı = farklı müşteri (ad bazlı)
       gr[t].musteriSet.add((r.musteri||"").trim().toLowerCase()||r.id);
       gr[t].urunAdet += (r.urunler||[]).reduce((s,u)=>s+toN(u.qty||1),0);
       gr[t].kk += toN(r.uKK||0);
@@ -788,11 +796,16 @@ function UrunSatislariMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar})
       gr[t].nk += toN(r.uNK||0);
       gr[t].kayitlar.push(r);
     });
+
     return Object.values(gr).map(g=>({
-      tarih:g.tarih, musteriSay:g.musteriSet.size, urunAdet:g.urunAdet,
-      kk:g.kk, ib:g.ib, nk:g.nk, toplam:g.kk+g.ib+g.nk, kayitlar:g.kayitlar
+      tarih:g.tarih,
+      musteriSay:g.musteriSet.size,
+      urunAdet:g.urunAdet,
+      kk:g.kk, ib:g.ib, nk:g.nk,
+      toplam:g.kk+g.ib+g.nk,
+      kayitlar:g.kayitlar
     })).sort((a,b)=>b.tarih.localeCompare(a.tarih));
-  },[tumK,seciliP,filAy,filYil]);
+  },[tumK,secPersId,filAy,filYil,personeller]);
 
   const topMusteri = satirlar.reduce((s,g)=>s+g.musteriSay,0);
   const topUrun = satirlar.reduce((s,g)=>s+g.urunAdet,0);
@@ -801,32 +814,35 @@ function UrunSatislariMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar})
   const topNK = satirlar.reduce((s,g)=>s+g.nk,0);
   const topTum = topKK+topIB+topNK;
 
-  const thS = (sag,detay)=>({
-    padding:"10px 8px",textAlign:sag?"right":"left",
-    fontSize:11,color:detay?"var(--g)":"var(--mu)",letterSpacing:1.5,
+  const seciliP = personeller.find(p=>p.id===secPersId);
+
+  const thS = (sag)=>({
+    padding:"10px 12px",textAlign:sag?"right":"left",
+    fontSize:11,color:"var(--mu)",letterSpacing:2,
     textTransform:"uppercase",fontWeight:700,
     borderBottom:"2px solid var(--br)",
     background:"var(--bg2)",position:"sticky",top:0,whiteSpace:"nowrap"
   });
   const tdS = (sag,bold,c)=>({
-    padding:"10px 8px",textAlign:sag?"right":"left",
+    padding:"10px 12px",textAlign:sag?"right":"left",
     color:c||"var(--tx)",fontWeight:bold?700:400,
     fontFamily:sag?"Cormorant Garamond,serif":"inherit",
     fontSize:sag?14:13,borderBottom:"1px solid var(--br)",whiteSpace:"nowrap"
   });
 
   // ── DETAY MODAL ──
-  if(detayTarih && seciliP){
+  if(detayTarih){
     const dT = detayTarih.tarih;
     const dK = detayTarih.kayitlar;
     const dToplam = dK.reduce((s,r)=>s+(r.uKK||0)+(r.uIB||0)+(r.uNK||0),0);
     return h("div",{style:{position:"fixed",inset:0,zIndex:903,background:"var(--bg)",
       display:"flex",flexDirection:"column",overflow:"hidden"}},
+      // Başlık
       h("div",{style:{background:"var(--bg2)",borderBottom:"2px solid var(--br)",
         padding:"12px 14px",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}},
         h("div",null,
           h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",fontWeight:700}},
-            "🛒 "+seciliP.ad+" — "+fmtT(dT)+" Detayı"),
+            "🛒 "+seciliP?.ad+" — "+fmtT(dT)+" Detayı"),
           h("div",{style:{fontSize:12,color:"var(--mu)",marginTop:3}},
             dK.length+" satış · "+fmt(dToplam))
         ),
@@ -834,15 +850,16 @@ function UrunSatislariMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar})
           borderRadius:8,color:"#c05050",fontSize:13,cursor:"pointer",padding:"5px 14px"},
           onClick:()=>setDetayTarih(null)},"← Geri")
       ),
+      // İçerik - her kayıt
       h("div",{style:{flex:1,overflowY:"auto",padding:14}},
         dK.map(r=>
           h("div",{key:r.id,style:{background:"var(--bg2)",border:"1px solid var(--br)",
             borderRadius:12,padding:14,marginBottom:10}},
+            // Müşteri başlık
             h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",
               marginBottom:10,paddingBottom:8,borderBottom:"1px solid var(--br)"}},
               h("div",null,
-                h("div",{style:{fontSize:15,color:"var(--tx)",fontWeight:600}},
-                  (r.musteri||"—")+"'a satış yapıldı"),
+                h("div",{style:{fontSize:15,color:"var(--tx)",fontWeight:600}},r.musteri||"—"),
                 h("div",{style:{fontSize:12,color:"var(--mu)",marginTop:2}},
                   (r.saat||"")+(r.tel?" · 📞 "+r.tel:""))
               ),
@@ -850,40 +867,39 @@ function UrunSatislariMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar})
                 color:"var(--g)",fontWeight:700}},
                 fmt((r.uKK||0)+(r.uIB||0)+(r.uNK||0)))
             ),
-            h("div",{style:{fontSize:11,color:"var(--g)",letterSpacing:1,
-              textTransform:"uppercase",marginBottom:8,fontWeight:600}},"📦 Satılan Ürünler"),
-            h("div",{style:{marginBottom:12}},
+            // Ürünler tablosu
+            h("div",{style:{marginBottom:10}},
               (r.urunler||[]).map((u,j)=>
                 h("div",{key:j,style:{display:"flex",justifyContent:"space-between",
-                  alignItems:"center",padding:"8px 10px",
-                  background:"var(--bg3)",borderRadius:7,marginBottom:5}},
+                  alignItems:"center",padding:"7px 0",
+                  borderBottom:j<(r.urunler||[]).length-1?"1px solid rgba(255,255,255,.04)":"none"}},
                   h("div",{style:{flex:1,minWidth:0}},
-                    h("div",{style:{fontSize:13,color:"var(--tx)",fontWeight:500}},u.a||""),
-                    h("div",{style:{fontSize:11,color:"var(--di)",marginTop:2}},
-                      (u.m||"")+(u.ml?" · "+u.ml:"")+" · "+(u.qty||1)+" adet × "+fmt(toN(u.sf||u.sp||0)))
+                    h("div",{style:{fontSize:13,color:"var(--tx)"}},u.a||""),
+                    h("div",{style:{fontSize:11,color:"var(--di)",marginTop:1}},
+                      (u.m||"")+(u.ml?" · "+u.ml:"")+" · x"+(u.qty||1))
                   ),
                   h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:14,
-                    color:"var(--g)",fontWeight:700,flexShrink:0,marginLeft:10}},
+                    color:"var(--g)",fontWeight:600,flexShrink:0,marginLeft:10}},
                     fmt(toN(u.sf||u.sp||0)*toN(u.qty||1)))
                 )
               )
             ),
-            h("div",{style:{fontSize:11,color:"var(--g)",letterSpacing:1,
-              textTransform:"uppercase",marginBottom:6,fontWeight:600}},"💳 Alınan Ödeme"),
+            // Ödeme dağılımı
             h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}},
               [["💳","K.Kartı",r.uKK||0],["🏦","IBAN",r.uIB||0],["💵","Nakit",r.uNK||0]].map(([ic,lb,v])=>
-                h("div",{key:lb,style:{background:"var(--bg3)",borderRadius:7,
-                  padding:"7px 8px",textAlign:"center",opacity:v>0?1:0.4}},
+                v>0&&h("div",{key:lb,style:{background:"var(--bg3)",borderRadius:7,
+                  padding:"6px 8px",textAlign:"center"}},
                   h("div",{style:{fontSize:14,marginBottom:2}},ic),
                   h("div",{style:{fontSize:10,color:"var(--mu)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}},lb),
                   h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:14,
-                    color:v>0?"var(--g)":"var(--di)",fontWeight:700}},v>0?fmt(v):"—")
+                    color:"var(--g)",fontWeight:700}},fmt(v))
                 )
               )
             )
           )
         )
       ),
+      // Alt toplam
       h("div",{style:{background:"var(--bg2)",borderTop:"2px solid var(--br)",
         padding:"11px 14px",flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"center"}},
         h("div",{style:{fontSize:12,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase"}},
@@ -894,29 +910,84 @@ function UrunSatislariMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar})
     );
   }
 
-  if(gelirPersoneller.length===0)
-    return h("div",{style:{padding:40,textAlign:"center",color:"var(--mu)",fontSize:13}},
-      h("div",{style:{fontSize:32,marginBottom:8,opacity:0.3}},"👥"),
-      h("div",null,"Gelire Doğrudan Katkı Sağlayanlar listesi boş."),
-      h("div",{style:{fontSize:11,marginTop:6,color:"var(--di)"}},"Ayarlar > Personel bölümünden personel ekleyin.")
+  // ── PERSONEL SEÇİM EKRANI ──
+  if(!secPersId){
+    return h("div",{style:{position:"fixed",inset:0,zIndex:901,background:"var(--bg)",
+      display:"flex",flexDirection:"column",overflow:"hidden"}},
+      h("div",{style:{background:"var(--bg2)",borderBottom:"2px solid var(--br)",
+        padding:"12px 14px",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}},
+        h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",fontWeight:700}},
+          "🛒 Ürün Satışları"),
+        h("button",{style:{background:"transparent",border:"1px solid #3a1010",
+          borderRadius:8,color:"#c05050",fontSize:13,cursor:"pointer",padding:"5px 14px"},
+          onClick:onKapat},"✕ Kapat")
+      ),
+      h("div",{style:{flex:1,overflowY:"auto",padding:18}},
+        h("div",{style:{fontSize:13,color:"var(--mu)",marginBottom:16,letterSpacing:1}},
+          "Personel seçin — ürün satış detaylarını görmek için tıklayın"),
+        gelirPersoneller.length===0
+          ? h("div",{style:{padding:40,textAlign:"center",color:"var(--mu)"}},
+              h("div",{style:{fontSize:40,marginBottom:10,opacity:0.3}},"👥"),
+              h("div",{style:{fontSize:14}},"Aktif personel bulunamadı"))
+          : h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10}},
+              gelirPersoneller.map(p=>{
+                // Bu personelin toplam ürün satış istatistiği
+                const pK = (tumK||[]).filter(r=>r.staffId===p.id&&r.gonderildi!==false&&(r.urunler||[]).length>0);
+                const pTop = pK.reduce((s,r)=>s+(r.uKK||0)+(r.uIB||0)+(r.uNK||0),0);
+                const pAdet = pK.reduce((s,r)=>s+(r.urunler||[]).reduce((ss,u)=>ss+toN(u.qty||1),0),0);
+                return h("div",{key:p.id,style:{background:"var(--bg2)",
+                  border:"1px solid var(--br)",borderRadius:12,padding:14,
+                  cursor:"pointer",transition:"all .2s"},
+                  onClick:()=>setSecPersId(p.id)},
+                  h("div",{style:{display:"flex",alignItems:"center",gap:11,marginBottom:10}},
+                    h("div",{style:{width:42,height:42,borderRadius:11,background:"var(--bg3)",
+                      border:"1px solid var(--br)",display:"flex",alignItems:"center",justifyContent:"center",
+                      fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",flexShrink:0}},
+                      p.ad[0].toUpperCase()),
+                    h("div",{style:{flex:1,minWidth:0}},
+                      h("div",{style:{fontSize:15,color:"var(--tx)",fontWeight:600}},p.ad),
+                      p.pozisyon&&h("div",{style:{fontSize:12,color:"var(--mu)",marginTop:2}},p.pozisyon)
+                    )
+                  ),
+                  h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}},
+                    h("div",{style:{padding:"7px 10px",background:"var(--bg3)",borderRadius:7,textAlign:"center"}},
+                      h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,
+                        color:"var(--g)",fontWeight:700}},fmt(pTop)),
+                      h("div",{style:{fontSize:10,color:"var(--mu)",letterSpacing:1,
+                        textTransform:"uppercase",marginTop:2}},"Toplam Gelir")
+                    ),
+                    h("div",{style:{padding:"7px 10px",background:"var(--bg3)",borderRadius:7,textAlign:"center"}},
+                      h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,
+                        color:"var(--bl)",fontWeight:700}},pAdet+" adet"),
+                      h("div",{style:{fontSize:10,color:"var(--mu)",letterSpacing:1,
+                        textTransform:"uppercase",marginTop:2}},"Ürün Sayısı")
+                    )
+                  ),
+                  h("div",{style:{fontSize:11,color:"var(--g)",marginTop:8,textAlign:"right"}},"Detay →")
+                );
+              })
+            )
+      )
     );
+  }
 
-  if(!seciliP || !gelirPersoneller.find(p=>p.id===muhAlt))
-    return h("div",{style:{padding:40,textAlign:"center",color:"var(--mu)",fontSize:13}},
-      h("div",{style:{fontSize:32,marginBottom:8,opacity:0.3}},"👈"),
-      h("div",null,"Sol menüden bir personel seçin.")
-    );
-
-  return h("div",{style:{position:"fixed",inset:0,zIndex:901,background:"var(--bg)",
+  // ── PERSONEL TABLO EKRANI ──
+  return h("div",{style:{position:"fixed",inset:0,zIndex:902,background:"var(--bg)",
     display:"flex",flexDirection:"column",overflow:"hidden"}},
+    // Başlık + filtre
     h("div",{style:{background:"var(--bg2)",borderBottom:"2px solid var(--br)",
       padding:"12px 14px",flexShrink:0}},
       h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}},
         h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",fontWeight:700}},
           "🛒 "+seciliP.ad),
-        h("button",{style:{background:"transparent",border:"1px solid #3a1010",
-          borderRadius:8,color:"#c05050",fontSize:13,cursor:"pointer",padding:"5px 14px"},
-          onClick:()=>setMuhAlt("")},"✕ Kapat")
+        h("div",{style:{display:"flex",gap:6}},
+          h("button",{style:{background:"transparent",border:"1px solid var(--br)",
+            borderRadius:8,color:"var(--mu)",fontSize:13,cursor:"pointer",padding:"5px 12px"},
+            onClick:()=>setSecPersId("")},"← Personel Listesi"),
+          h("button",{style:{background:"transparent",border:"1px solid #3a1010",
+            borderRadius:8,color:"#c05050",fontSize:13,cursor:"pointer",padding:"5px 14px"},
+            onClick:onKapat},"✕ Kapat")
+        )
       ),
       h("div",{style:{display:"flex",gap:8}},
         h("select",{className:"fi",style:{flex:1},value:filAy,
@@ -933,18 +1004,20 @@ function UrunSatislariMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar})
         )
       )
     ),
+
+    // Tablo
     h("div",{style:{flex:1,overflowY:"auto",overflowX:"auto"}},
-      h("table",{style:{width:"100%",borderCollapse:"collapse",minWidth:720}},
+      h("table",{style:{width:"100%",borderCollapse:"collapse",minWidth:760}},
         h("thead",null,
           h("tr",null,
             h("th",{style:thS(false)},"Tarih"),
-            h("th",{style:thS(false)},"Müşteri"),
-            h("th",{style:thS(false)},"Ürün"),
+            h("th",{style:thS(false)},"Müşteri Sayısı"),
+            h("th",{style:thS(false)},"Ürün Sayısı"),
             h("th",{style:thS(true)},"K.Kartı"),
             h("th",{style:thS(true)},"IBAN"),
             h("th",{style:thS(true)},"Nakit"),
-            h("th",{style:thS(true)},"Toplam"),
-            h("th",{style:thS(false,true)},"Detay")
+            h("th",{style:{...thS(true),color:"var(--g)"}},"Toplam"),
+            h("th",{style:{...thS(false),textAlign:"center"}},"Detay")
           )
         ),
         h("tbody",null,
@@ -957,30 +1030,31 @@ function UrunSatislariMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar})
             : satirlar.map((s,i)=>
                 h("tr",{key:s.tarih,style:{background:i%2===0?"var(--bg)":"rgba(255,255,255,.02)"}},
                   h("td",{style:tdS(false,true,"var(--g)")},fmtT(s.tarih)),
-                  h("td",{style:tdS(false,false,"var(--tx)")},s.musteriSay),
-                  h("td",{style:tdS(false,false,"var(--bl)")},s.urunAdet),
+                  h("td",{style:tdS(false,false,"var(--tx)")},s.musteriSay+" kişi"),
+                  h("td",{style:tdS(false,false,"var(--bl)")},s.urunAdet+" adet"),
                   h("td",{style:tdS(true,false,s.kk>0?"var(--g)":"var(--di)")},s.kk>0?fmt(s.kk):"—"),
                   h("td",{style:tdS(true,false,s.ib>0?"var(--g)":"var(--di)")},s.ib>0?fmt(s.ib):"—"),
                   h("td",{style:tdS(true,false,s.nk>0?"var(--gr)":"var(--di)")},s.nk>0?fmt(s.nk):"—"),
                   h("td",{style:tdS(true,true,"var(--g)")},fmt(s.toplam)),
-                  h("td",{style:{padding:"8px 6px",textAlign:"center",borderBottom:"1px solid var(--br)"}},
-                    h("button",{style:{background:"rgba(37,99,168,.12)",
-                      border:"1px solid rgba(37,99,168,.4)",borderRadius:7,
-                      color:"var(--g)",fontSize:12,fontWeight:600,padding:"5px 12px",cursor:"pointer"},
+                  h("td",{style:{...tdS(false,false),textAlign:"center"}},
+                    h("button",{style:{background:"rgba(37,99,168,.08)",
+                      border:"1px solid rgba(37,99,168,.25)",borderRadius:7,
+                      color:"var(--g)",fontSize:12,padding:"5px 12px",cursor:"pointer"},
                       onClick:()=>setDetayTarih({tarih:s.tarih,kayitlar:s.kayitlar})},"Detay →")
                   )
                 )
               )
         ),
+        // Genel toplam
         satirlar.length>0&&h("tfoot",null,
           h("tr",{style:{background:"rgba(37,99,168,.1)",borderTop:"2px solid rgba(37,99,168,.4)"}},
             h("td",{style:{...tdS(false,true,"var(--g)"),fontSize:11,letterSpacing:2,textTransform:"uppercase"}},"TOPLAM"),
-            h("td",{style:{...tdS(false,true,"var(--mu)"),fontSize:12}},topMusteri),
-            h("td",{style:{...tdS(false,true,"var(--bl)"),fontSize:12}},topUrun),
+            h("td",{style:{...tdS(false,true,"var(--mu)"),fontSize:12}},topMusteri+" kişi"),
+            h("td",{style:{...tdS(false,true,"var(--bl)"),fontSize:12}},topUrun+" adet"),
             h("td",{style:{...tdS(true,true,"var(--g)"),fontSize:14}},fmt(topKK)),
             h("td",{style:{...tdS(true,true,"var(--g)"),fontSize:14}},fmt(topIB)),
             h("td",{style:{...tdS(true,true,"var(--gr)"),fontSize:14}},fmt(topNK)),
-            h("td",{style:{...tdS(true,true,"var(--g)"),fontSize:16}},fmt(topTum)),
+            h("td",{style:{...tdS(true,true,"var(--g)"),fontSize:16}},"💰 "+fmt(topTum)),
             h("td",null)
           )
         )
@@ -6077,11 +6151,7 @@ function App() {
             muhSek==="hizmetMuhasebe"&&h(HizmetMuhasebe,{
               tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB
             }),
-              
-            muhSek==="urunSatislari"&&h(UrunSatislariMuhasebe,{
-              tumK, personeller, muhAlt, setMuhAlt, pGruplar
-            }), 
-              
+
             muhSek==="urunMuhasebe"&&h(UrunMuhasebe,{
               stokPartiler,setStokPartiler,stokDB,setStokDB,
               stokGirisForm,setStokGirisForm,
