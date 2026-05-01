@@ -1065,6 +1065,143 @@ function UrunSatislariMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar})
 }
   
   // ── HİZMET MUHASEBESİ ───────────────────────────────────────────────────────
+
+function HizmetMuhasebeOzet({tumK, personeller, pGruplar}){
+  const [periyot,setPeriyot]=React.useState("buAy");
+  const periyotBaslangic=React.useMemo(()=>{
+    const d=new Date();
+    if(periyot==="buHafta"){const g=d.getDay()||7;d.setDate(d.getDate()-g+1);}
+    else if(periyot==="buAy"){d.setDate(1);}
+    else if(periyot==="son3Ay"){d.setMonth(d.getMonth()-3);}
+    else if(periyot==="buYil"){d.setMonth(0);d.setDate(1);}
+    d.setHours(0,0,0,0);
+    return d;
+  },[periyot]);
+  const periyotEtiket={buHafta:"Bu Hafta",buAy:"Bu Ay",son3Ay:"Son 3 Ay",buYil:"Bu Yıl"}[periyot];
+  const gelirGrupId=(pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id;
+  const aktifPersoneller=(personeller||[]).filter(p=>p.aktif&&p.rol==="personel"&&(!gelirGrupId||p.grup===gelirGrupId));
+  const periyotK=(tumK||[]).filter(r=>{
+    if(!r.tarih||r.gonderildi===false) return false;
+    if(new Date(r.tarih)<periyotBaslangic) return false;
+    return toN(r.hizKK||0)+toN(r.hizIB||0)+toN(r.hizNK||0)>0 || (r.hizler||[]).length>0;
+  });
+  const toplamHizmet=periyotK.reduce((x,r)=>x+toN(r.hizKK||0)+toN(r.hizIB||0)+toN(r.hizNK||0),0);
+  const toplamKayit=periyotK.length;
+  const toplamHizAdet=periyotK.reduce((x,r)=>x+(r.hizler||[]).length,0);
+  const toplamMusteri=new Set(periyotK.map(r=>((r.musteri||"").trim().toLowerCase()||r.id))).size;
+  const topKK=periyotK.reduce((x,r)=>x+toN(r.hizKK||0),0);
+  const topIB=periyotK.reduce((x,r)=>x+toN(r.hizIB||0),0);
+  const topNK=periyotK.reduce((x,r)=>x+toN(r.hizNK||0),0);
+  const ortIslem=toplamKayit?toplamHizmet/toplamKayit:0;
+  const ortMusteri=toplamMusteri?toplamHizmet/toplamMusteri:0;
+  const hizmetGrup={};
+  periyotK.forEach(r=>(r.hizler||[]).forEach(hz=>{
+    const ad=hz.n||hz||"Hizmet";
+    if(!hizmetGrup[ad]) hizmetGrup[ad]={ad,adet:0,gelir:0};
+    hizmetGrup[ad].adet+=1;
+    hizmetGrup[ad].gelir+=toN(hz.f||0);
+  }));
+  const enCokHizmet=Object.values(hizmetGrup).sort((a,b)=>b.gelir-a.gelir).slice(0,10);
+  const enYuksekHizmet=enCokHizmet[0]?.gelir||1;
+  const persListe=aktifPersoneller.map(p=>{
+    const pk=periyotK.filter(r=>r.staffId===p.id||r.staffAd===p.ad);
+    const gelir=pk.reduce((x,r)=>x+toN(r.hizKK||0)+toN(r.hizIB||0)+toN(r.hizNK||0),0);
+    const adet=pk.reduce((x,r)=>x+(r.hizler||[]).length,0);
+    const musteri=new Set(pk.map(r=>((r.musteri||"").trim().toLowerCase()||r.id))).size;
+    return {ad:p.ad,gelir,adet,musteri,ort:pk.length?gelir/pk.length:0};
+  }).sort((a,b)=>b.gelir-a.gelir);
+  const enYukPers=persListe[0]?.gelir||1;
+  const gunluk={};
+  periyotK.forEach(r=>{gunluk[r.tarih]=(gunluk[r.tarih]||0)+toN(r.hizKK||0)+toN(r.hizIB||0)+toN(r.hizNK||0);});
+  const trendV=Object.entries(gunluk).sort((a,b)=>a[0].localeCompare(b[0])).map(([t,v])=>({tarih:t,deger:v}));
+  const maxTrend=Math.max(...trendV.map(x=>x.deger),1);
+  const kpi=(lb,v,alt,c)=>h("div",{key:lb,style:{borderLeft:"3px solid "+c,paddingLeft:14}},
+    h("div",{style:{fontSize:11,color:"var(--mu)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}},lb),
+    h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:24,color:c,fontWeight:700,marginBottom:3}},v),
+    h("div",{style:{fontSize:11,color:"var(--di)"}},alt)
+  );
+  return h("div",{style:{padding:0}},
+    h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}},
+      h("div",null,
+        h("div",{style:{fontSize:13,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:3,fontWeight:700}},"✂️ Hizmet Muhasebesi Özeti"),
+        h("div",{style:{fontSize:12,color:"var(--mu)"}},periyotEtiket+" · "+toplamKayit+" hizmet kaydı")
+      ),
+      h("div",{style:{display:"flex",gap:5,flexWrap:"wrap"}},
+        [["buHafta","Bu Hafta"],["buAy","Bu Ay"],["son3Ay","Son 3 Ay"],["buYil","Bu Yıl"]].map(([id,lb])=>
+          h("button",{key:id,style:{padding:"6px 11px",borderRadius:7,fontSize:12,cursor:"pointer",background:periyot===id?"rgba(37,99,168,.12)":"var(--bg2)",border:"1px solid "+(periyot===id?"rgba(37,99,168,.4)":"var(--br)"),color:periyot===id?"var(--g)":"var(--mu)",fontWeight:periyot===id?600:400},onClick:()=>setPeriyot(id)},lb)
+        )
+      )
+    ),
+    h("div",{style:{background:"linear-gradient(135deg,var(--bg2),var(--bg3))",border:"1.5px solid var(--br)",borderRadius:14,padding:18,marginBottom:14}},
+      h("div",{style:{fontSize:11,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:700,marginBottom:14}},"💼 Finansal Özet"),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14}},
+        kpi("✂️ Hizmet Geliri",fmt(toplamHizmet),toplamHizAdet+" adet hizmet yapıldı","var(--g)"),
+        kpi("👥 Müşteri Sayısı",String(toplamMusteri),"Tekil müşteri hesabı","var(--gr)"),
+        kpi("📊 Ortalama İşlem",fmt(ortIslem),"Kayıt başına","var(--bl)"),
+        kpi("✨ Müşteri Başı Gelir",fmt(ortMusteri),"Hizmet cirosu / müşteri","#f0a060")
+      )
+    ),
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,marginBottom:14}},
+      [["💳","K.Kartı",topKK,"var(--g)"],["🏦","IBAN",topIB,"var(--bl)"],["💵","Nakit",topNK,"var(--gr)"]].map(([ic,lb,v,c])=>
+        h("div",{key:lb,style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:10,padding:11,textAlign:"center"}},
+          h("div",{style:{fontSize:17,marginBottom:3}},ic),
+          h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:c,fontWeight:700}},fmt(v)),
+          h("div",{style:{fontSize:10,color:"var(--mu)",marginTop:3,textTransform:"uppercase",letterSpacing:1}},lb)
+        )
+      )
+    ),
+    trendV.length>0&&h("div",{style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:14}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+        h("div",{style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:600}},"📈 Günlük Hizmet Gelir Trendi"),
+        h("div",{style:{fontSize:11,color:"var(--mu)"}},trendV.length+" gün")
+      ),
+      h("svg",{viewBox:"0 0 600 180",style:{width:"100%",height:160,display:"block"}},
+        [0,1,2,3,4].map(i=>h("line",{key:"g"+i,x1:0,y1:i*40+10,x2:600,y2:i*40+10,stroke:"var(--br)",strokeWidth:0.5,strokeDasharray:"2,3",opacity:0.5})),
+        trendV.length>1&&h("polyline",{fill:"none",stroke:"var(--g)",strokeWidth:2,points:trendV.map((p,i)=>{const x=(i/(trendV.length-1))*580+10;const y=170-(p.deger/maxTrend)*150;return x+","+y;}).join(" ")}),
+        trendV.map((p,i)=>{const x=trendV.length>1?(i/(trendV.length-1))*580+10:300;const y=170-(p.deger/maxTrend)*150;return h("circle",{key:"d"+i,cx:x,cy:y,r:3,fill:"var(--g)"});})
+      )
+    ),
+    enCokHizmet.length>0&&h("div",{style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:14}},
+      h("div",{style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:600,marginBottom:12}},"🏆 En Çok Gelir Getiren Hizmetler"),
+      h("div",{style:{display:"flex",flexDirection:"column",gap:7}},
+        enCokHizmet.map((u,i)=>h("div",{key:u.ad,style:{display:"flex",alignItems:"center",gap:10,padding:8,background:"var(--bg3)",borderRadius:7,border:"1px solid var(--br)"}},
+          h("div",{style:{width:24,height:24,borderRadius:6,background:i<3?"rgba(218,179,128,.15)":"var(--bg2)",color:i<3?"var(--g)":"var(--mu)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}},i+1),
+          h("div",{style:{flex:1,minWidth:0}},
+            h("div",{style:{fontSize:12,color:"var(--g)",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},u.ad),
+            h("div",{style:{fontSize:10,color:"var(--mu)",marginTop:1}},u.adet+" adet")
+          ),
+          h("div",{style:{flex:1.3,minWidth:80}},
+            h("div",{style:{height:6,background:"var(--bg2)",borderRadius:3,overflow:"hidden"}},
+              h("div",{style:{height:"100%",width:(u.gelir/enYuksekHizmet*100)+"%",background:"linear-gradient(90deg,var(--g),var(--gr))",borderRadius:3}})
+            )
+          ),
+          h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:14,color:"var(--g)",fontWeight:700,minWidth:75,textAlign:"right"}},fmt(u.gelir))
+        ))
+      )
+    ),
+    persListe.length>0&&h("div",{style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:14}},
+      h("div",{style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:600,marginBottom:12}},"👤 Personel Hizmet Performansı"),
+      h("div",{style:{display:"flex",flexDirection:"column",gap:8}},
+        persListe.map((p,i)=>h("div",{key:p.ad,style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:8,padding:10}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",gap:10,marginBottom:6}},
+            h("div",{style:{fontSize:12,color:"var(--tx)",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},(i+1)+". "+p.ad),
+            h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:15,color:"var(--g)",fontWeight:700,flexShrink:0}},fmt(p.gelir))
+          ),
+          h("div",{style:{height:7,background:"var(--bg2)",borderRadius:4,overflow:"hidden",marginBottom:5}},
+            h("div",{style:{height:"100%",width:(p.gelir/enYukPers*100)+"%",background:"linear-gradient(90deg,var(--bl),var(--g))",borderRadius:4}})
+          ),
+          h("div",{style:{fontSize:10,color:"var(--mu)"}},p.adet+" hizmet · "+p.musteri+" müşteri · Ortalama "+fmt(p.ort))
+        ))
+      )
+    ),
+    toplamKayit===0&&h("div",{style:{padding:40,textAlign:"center",color:"var(--mu)",background:"var(--bg2)",borderRadius:12,border:"1px solid var(--br)"}},
+      h("div",{style:{fontSize:48,marginBottom:10,opacity:0.3}},"📊"),
+      h("div",{style:{fontSize:14,marginBottom:5}},"Bu dönemde henüz hizmet kaydı yok"),
+      h("div",{style:{fontSize:11,color:"var(--di)"}},"Farklı bir periyot seçin")
+    )
+  );
+}
+
 function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB}){
   const seciliP = personeller.find(p=>p.id===muhAlt) || null;
   const [filAy, setFilAy] = React.useState("");
@@ -1075,6 +1212,10 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB})
   const gelirPersoneller = gelirGrupId
     ? personeller.filter(p=>p.aktif&&p.rol==="personel"&&p.grup===gelirGrupId)
     : [];
+
+  if(muhAlt==="hizmetOzet"){
+    return h(HizmetMuhasebeOzet,{tumK,personeller,pGruplar});
+  }
 
   // Hizmet kayıtları + devamsızlık satırlarını birleştir
   const satirlar = React.useMemo(()=>{
@@ -6128,12 +6269,17 @@ function App() {
               cursor:"pointer",textAlign:"left"},
               onClick:()=>{
                 if(muhSek==="hizmetMuhasebe"){setMuhSek("");}
-                else{setMuhSek("hizmetMuhasebe");setMuhAlt("");}
+                else{setMuhSek("hizmetMuhasebe");setMuhAlt("hizmetOzet");}
               }},
               div(null,"✂️ HİZMET MUHASEBESİ"),
               h("span",{style:{fontSize:12,color:"var(--di)"}},muhSek==="hizmetMuhasebe"?"\u25be":"\u25b8")
             ),
             muhSek==="hizmetMuhasebe"&&div({style:{background:"var(--bg3)"}},
+              btn({key:"hizmetOzet",style:{width:"100%",padding:"8px 14px 8px 24px",border:"none",
+                borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:12,cursor:"pointer",
+                background:muhAlt==="hizmetOzet"?"rgba(37,99,168,.12)":"transparent",
+                color:muhAlt==="hizmetOzet"?"var(--g)":"#3a6a62"},
+                onClick:()=>setMuhAlt("hizmetOzet")},"📊 Özet"),
               personeller.filter(p=>p.aktif&&p.rol==="personel"&&pGruplar.find(g=>g.id===p.grup&&g.ad.toLowerCase().includes("gelire"))).map(p=>
                 btn({key:p.id,style:{width:"100%",padding:"8px 14px 8px 24px",border:"none",
                   borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:12,cursor:"pointer",
