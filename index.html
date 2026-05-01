@@ -3450,6 +3450,136 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
 
 
 
+// ── VERGİ MUHASEBESİ MODÜLÜ ─────────────────────────────────────────────────
+function VergiMuhasebesiModul({tumK, faturalar}) {
+  const [secAy, setSecAy] = React.useState(new Date().toISOString().slice(0,7));
+  const [kdvOran, setKdvOran] = React.useState(20);
+  const [stopajTutar, setStopajTutar] = React.useState(0);
+  const [secimler, setSecimler] = React.useState({kk:true, ib:true, nk:true});
+
+  const oran = Math.max(0, toN(kdvOran)) / 100;
+  const kdvIcinden = React.useCallback((brut)=>{
+    const n = toN(brut);
+    return oran > 0 ? n - (n / (1 + oran)) : 0;
+  }, [oran]);
+
+  const ayKayitlar = React.useMemo(()=>
+    (tumK||[]).filter(r => (r.tarih||"").startsWith(secAy) && r.gonderildi !== false)
+  ,[tumK, secAy]);
+
+  const hesap = React.useMemo(()=>{
+    const o = {
+      kk:{ad:"Kredi Kartı", ikon:"💳", toplam:0, hizmet:0, urun:0},
+      ib:{ad:"IBAN", ikon:"🏦", toplam:0, hizmet:0, urun:0},
+      nk:{ad:"Nakit", ikon:"💵", toplam:0, hizmet:0, urun:0}
+    };
+
+    ayKayitlar.forEach(r=>{
+      o.kk.hizmet += toN(r.hizKK); o.kk.urun += toN(r.uKK);
+      o.ib.hizmet += toN(r.hizIB); o.ib.urun += toN(r.uIB);
+      o.nk.hizmet += toN(r.hizNK); o.nk.urun += toN(r.uNK);
+    });
+
+    Object.keys(o).forEach(k=>{
+      o[k].toplam = o[k].hizmet + o[k].urun;
+      o[k].vergi = kdvIcinden(o[k].toplam);
+      o[k].net = o[k].toplam - o[k].vergi;
+    });
+
+    const satisKdv = o.kk.vergi + o.ib.vergi + o.nk.vergi;
+    const alisFaturalar = (faturalar||[]).filter(f => (f.tarih||"").startsWith(secAy));
+    const alisToplam = alisFaturalar.reduce((s,f)=>s+toN(f.tutar),0);
+    const alisKdv = kdvIcinden(alisToplam);
+    const seciliSatisKdv = (secimler.kk?o.kk.vergi:0) + (secimler.ib?o.ib.vergi:0) + (secimler.nk?o.nk.vergi:0);
+    const odenecekKdv = Math.max(0, seciliSatisKdv - alisKdv);
+    const toplamVergiYuku = odenecekKdv + toN(stopajTutar);
+
+    return {odeme:o, satisKdv, alisToplam, alisKdv, seciliSatisKdv, odenecekKdv, toplamVergiYuku};
+  }, [ayKayitlar, faturalar, secAy, kdvIcinden, secimler, stopajTutar]);
+
+  const Kart = ({id}) => {
+    const x = hesap.odeme[id];
+    const aktif = !!secimler[id];
+    return div({style:{background:"var(--bg2)",border:"1px solid "+(aktif?"var(--g)":"var(--br)"),borderRadius:14,padding:13,marginBottom:10}},
+      div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}},
+        div(null,
+          div({style:{fontSize:15,color:"var(--tx)",fontWeight:700}},x.ikon+" "+x.ad),
+          div({style:{fontSize:12,color:"var(--mu)",marginTop:4}},"Hizmet: "+fmt(x.hizmet)+" · Ürün: "+fmt(x.urun))
+        ),
+        btn({style:{background:aktif?"rgba(80,184,128,.13)":"rgba(160,40,40,.12)",border:"1px solid "+(aktif?"rgba(80,184,128,.35)":"rgba(160,40,40,.35)"),borderRadius:9,color:aktif?"var(--gr)":"#c05050",fontSize:12,fontWeight:700,padding:"7px 9px",cursor:"pointer",whiteSpace:"nowrap"},
+          onClick:()=>setSecimler(p=>({...p,[id]:!p[id]}))},aktif?"✓ Vergiye Dahil":"✕ Hariç")
+      ),
+      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginTop:12}},
+        div({style:{background:"var(--bg3)",borderRadius:10,padding:10}},
+          div({style:{fontSize:11,color:"var(--di)",letterSpacing:1,textTransform:"uppercase"}},"Tahsilat"),
+          div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"var(--g)",fontWeight:700}},fmt(x.toplam))
+        ),
+        div({style:{background:"var(--bg3)",borderRadius:10,padding:10}},
+          div({style:{fontSize:11,color:"var(--di)",letterSpacing:1,textTransform:"uppercase"}},"KDV Hariç"),
+          div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"var(--tx)",fontWeight:700}},fmt(x.net))
+        ),
+        div({style:{background:"var(--bg3)",borderRadius:10,padding:10}},
+          div({style:{fontSize:11,color:"var(--di)",letterSpacing:1,textTransform:"uppercase"}},"Vergi"),
+          div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:aktif?"var(--g)":"#5a8a82",fontWeight:700}},fmt(aktif?x.vergi:0))
+        )
+      )
+    );
+  };
+
+  return div(null,
+    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:16,marginBottom:12}},
+      div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:12,flexWrap:"wrap"}},
+        div(null,
+          div({style:{fontSize:22,color:"var(--g)",fontFamily:"Cormorant Garamond,serif",fontWeight:700}},"🧾 Vergi Muhasebesi"),
+          div({style:{fontSize:12,color:"var(--mu)",marginTop:3}},"Ödeme türüne göre aylık vergi analizi")
+        ),
+        div({style:{display:"flex",gap:8,alignItems:"center"}},
+          inp({type:"month",className:"fi",style:{width:150},value:secAy,onChange:e=>setSecAy(e.target.value)}),
+          inp({type:"number",className:"fi",style:{width:78},value:kdvOran,onChange:e=>setKdvOran(e.target.value),placeholder:"KDV %"})
+        )
+      ),
+      div({style:{fontSize:12,color:"#f0a060",lineHeight:1.5,background:"rgba(180,90,0,.08)",border:"1px solid rgba(180,90,0,.22)",borderRadius:10,padding:10}},
+        "Not: Bu ekran yönetim ve takip amaçlıdır. Gerçek beyan için muhasebecinin net KDV oranı, istisna ve belge durumunu onaylaması gerekir."
+      )
+    ),
+
+    div({style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:10,marginBottom:12}},
+      div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:13,padding:13}},
+        div({style:{fontSize:11,color:"var(--di)",letterSpacing:1,textTransform:"uppercase"}},"Seçilen Satış KDV"),
+        div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:26,color:"var(--g)",fontWeight:700}},fmt(hesap.seciliSatisKdv))
+      ),
+      div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:13,padding:13}},
+        div({style:{fontSize:11,color:"var(--di)",letterSpacing:1,textTransform:"uppercase"}},"Düşülecek Alış KDV"),
+        div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:26,color:"var(--gr)",fontWeight:700}},fmt(hesap.alisKdv))
+      ),
+      div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:13,padding:13}},
+        div({style:{fontSize:11,color:"var(--di)",letterSpacing:1,textTransform:"uppercase"}},"Ödenecek KDV"),
+        div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:26,color:"#f0a060",fontWeight:700}},fmt(hesap.odenecekKdv))
+      )
+    ),
+
+    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:14,marginBottom:12}},
+      div({style:{fontSize:14,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:700,marginBottom:10}},"💳 Ödeme Türüne Göre Vergi"),
+      h(Kart,{id:"kk"}),
+      h(Kart,{id:"ib"}),
+      h(Kart,{id:"nk"})
+    ),
+
+    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:14}},
+      div({style:{fontSize:14,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:700,marginBottom:10}},"📌 Aylık Vergi Sonucu"),
+      div({style:{display:"grid",gridTemplateColumns:"1fr 130px",gap:8,alignItems:"center",fontSize:13,color:"var(--mu)"}},
+        div(null,"Toplam satış KDV"), div({style:{textAlign:"right",color:"var(--tx)",fontWeight:700}},fmt(hesap.satisKdv)),
+        div(null,"Vergilendirilecek seçili satış KDV"), div({style:{textAlign:"right",color:"var(--g)",fontWeight:700}},fmt(hesap.seciliSatisKdv)),
+        div(null,"Düşülecek alış KDV"), div({style:{textAlign:"right",color:"var(--gr)",fontWeight:700}},"- "+fmt(hesap.alisKdv)),
+        div(null,"Gelir vergisi stopaj"), div(null,inp({type:"number",className:"fi",style:{textAlign:"right",padding:"7px 9px"},value:stopajTutar,onChange:e=>setStopajTutar(e.target.value),placeholder:"0"})),
+        div({style:{borderTop:"1px solid var(--br)",paddingTop:9,color:"var(--tx)",fontWeight:700}},"Toplam vergi yükü"),
+        div({style:{borderTop:"1px solid var(--br)",paddingTop:9,textAlign:"right",fontFamily:"Cormorant Garamond,serif",fontSize:24,color:"#f0a060",fontWeight:700}},fmt(hesap.toplamVergiYuku))
+      )
+    )
+  );
+}
+
+
 // ── HESAP ÖZETİ MODÜLÜ ─────────────────────────────────────────────────────
 function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToast}) {
   const [secTarih, setSecTarih] = React.useState(TODAY());
@@ -6552,12 +6682,7 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
               tumK,showToast,personeller,aktifSekme:muhAlt,onSekmeChange:setMuhAlt
             }),
 
-            muhSek==="vergiMuhasebesi"&&div(null,
-              div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:18,color:"var(--mu)"}},
-                div({style:{fontSize:22,marginBottom:8,color:"var(--g)",fontFamily:"Cormorant Garamond,serif",fontWeight:700}},"🧾 Vergi Muhasebesi"),
-                div({style:{fontSize:13,lineHeight:1.6}},"Bu bölüm vergi, KDV, beyan ve net ciro hesapları için hazırlanacak.")
-              )
-            ),
+            muhSek==="vergiMuhasebesi"&&h(VergiMuhasebesiModul,{tumK,faturalar}),
 
             muhSek==="ozet"&&div(null,
               div({style:{textAlign:"center",padding:"40px 20px",color:"var(--mu)"}},
