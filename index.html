@@ -923,8 +923,9 @@ function MuhasebeDetaySayfasi({baslik, altBaslik, kayitlar, tur, onKapat}){
 }
 
 // ── ÜRÜN SATIŞLARI TABLOSU (Personel bazlı, HizmetMuhasebe gibi tam sayfa) ──
-function UrunSatislariTablo({tumK, personeller, onKapat}){
-  const [secPersId, setSecPersId] = React.useState("");
+function UrunSatislariTablo({tumK, personeller, onKapat, seciliPersonelId=""}){
+  const [secPersId, setSecPersId] = React.useState(seciliPersonelId||"");
+  React.useEffect(()=>{ setSecPersId(seciliPersonelId||""); },[seciliPersonelId]);
   const [filAy, setFilAy] = React.useState("");
   const [filYil, setFilYil] = React.useState(new Date().getFullYear().toString());
   const [detayTarih, setDetayTarih] = React.useState(null); // {tarih, kayitlar}
@@ -1009,63 +1010,12 @@ function UrunSatislariTablo({tumK, personeller, onKapat}){
     });
   }
 
-  // ── PERSONEL SEÇİM EKRANI ──
+  // ── PERSONEL SEÇİLMEDİ: Ürün Satışları altında soldaki personel isimlerinden biri seçilecek ──
   if(!secPersId){
-    return h("div",{style:{position:"fixed",inset:0,zIndex:901,background:"var(--bg)",
-      display:"flex",flexDirection:"column",overflow:"hidden"}},
-      h("div",{style:{background:"var(--bg2)",borderBottom:"2px solid var(--br)",
-        padding:"12px 14px",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}},
-        h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",fontWeight:700}},
-          "🛒 Ürün Satışları"),
-        h("button",{style:{background:"transparent",border:"1px solid #3a1010",
-          borderRadius:8,color:"#c05050",fontSize:13,cursor:"pointer",padding:"5px 14px"},
-          onClick:onKapat},"✕ Kapat")
-      ),
-      h("div",{style:{flex:1,overflowY:"auto",padding:18}},
-        h("div",{style:{fontSize:13,color:"var(--mu)",marginBottom:16,letterSpacing:1}},
-          "Personel seçin — ürün satış detaylarını görmek için tıklayın"),
-        gelirPersoneller.length===0
-          ? h("div",{style:{padding:40,textAlign:"center",color:"var(--mu)"}},
-              h("div",{style:{fontSize:40,marginBottom:10,opacity:0.3}},"👥"),
-              h("div",{style:{fontSize:14}},"Aktif personel bulunamadı"))
-          : h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10}},
-              gelirPersoneller.map(p=>{
-                // Bu personelin toplam ürün satış istatistiği
-                const pK = (tumK||[]).filter(r=>r.staffId===p.id&&r.gonderildi!==false&&(r.urunler||[]).length>0);
-                const pTop = pK.reduce((s,r)=>s+(r.uKK||0)+(r.uIB||0)+(r.uNK||0),0);
-                const pAdet = pK.reduce((s,r)=>s+(r.urunler||[]).reduce((ss,u)=>ss+toN(u.qty||1),0),0);
-                return h("div",{key:p.id,style:{background:"var(--bg2)",
-                  border:"1px solid var(--br)",borderRadius:12,padding:14,
-                  cursor:"pointer",transition:"all .2s"},
-                  onClick:()=>setSecPersId(p.id)},
-                  h("div",{style:{display:"flex",alignItems:"center",gap:11,marginBottom:10}},
-                    h("div",{style:{width:42,height:42,borderRadius:11,background:"var(--bg3)",
-                      border:"1px solid var(--br)",display:"flex",alignItems:"center",justifyContent:"center",
-                      fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",flexShrink:0}},
-                      p.ad[0].toUpperCase()),
-                    h("div",{style:{flex:1,minWidth:0}},
-                      h("div",{style:{fontSize:15,color:"var(--tx)",fontWeight:600}},p.ad),
-                      p.pozisyon&&h("div",{style:{fontSize:12,color:"var(--mu)",marginTop:2}},p.pozisyon)
-                    )
-                  ),
-                  h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}},
-                    h("div",{style:{padding:"7px 10px",background:"var(--bg3)",borderRadius:7,textAlign:"center"}},
-                      h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,
-                        color:"var(--g)",fontWeight:700}},fmt(pTop)),
-                      h("div",{style:{fontSize:10,color:"var(--mu)",letterSpacing:1,
-                        textTransform:"uppercase",marginTop:2}},"Toplam Gelir")
-                    ),
-                    h("div",{style:{padding:"7px 10px",background:"var(--bg3)",borderRadius:7,textAlign:"center"}},
-                      h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,
-                        color:"var(--bl)",fontWeight:700}},pAdet+" adet"),
-                      h("div",{style:{fontSize:10,color:"var(--mu)",letterSpacing:1,
-                        textTransform:"uppercase",marginTop:2}},"Ürün Sayısı")
-                    )
-                  ),
-                  h("div",{style:{fontSize:11,color:"var(--g)",marginTop:8,textAlign:"right"}},"Detay →")
-                );
-              })
-            )
+    return h("div",{style:{height:"60vh",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--mu)",textAlign:"center",padding:20}},
+      h("div",null,
+        h("div",{style:{fontSize:40,marginBottom:14,opacity:.35}},"👉"),
+        h("div",{style:{fontSize:18,lineHeight:1.6}},"Sol menüde Ürün Satışları altından bir personel seçin.")
       )
     );
   }
@@ -1079,14 +1029,9 @@ function UrunSatislariTablo({tumK, personeller, onKapat}){
       h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}},
         h("div",{style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",fontWeight:700}},
           "🛒 "+seciliP.ad),
-        h("div",{style:{display:"flex",gap:6}},
-          h("button",{style:{background:"transparent",border:"1px solid var(--br)",
-            borderRadius:8,color:"var(--mu)",fontSize:13,cursor:"pointer",padding:"5px 12px"},
-            onClick:()=>setSecPersId("")},"← Personel Listesi"),
-          h("button",{style:{background:"transparent",border:"1px solid #3a1010",
-            borderRadius:8,color:"#c05050",fontSize:13,cursor:"pointer",padding:"5px 14px"},
-            onClick:onKapat},"✕ Kapat")
-        )
+        h("button",{style:{background:"transparent",border:"1px solid #3a1010",
+          borderRadius:8,color:"#c05050",fontSize:13,cursor:"pointer",padding:"5px 14px"},
+          onClick:onKapat},"✕ Kapat")
       ),
       h("div",{style:{display:"flex",gap:8}},
         h("select",{className:"fi",style:{flex:1},value:filAy,
@@ -1299,7 +1244,7 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB})
 
     // ── TABLO ──
     h("div",{style:{flex:1,overflowY:"auto",overflowX:"auto"}},
-      h("table",{style:{width:"100%",borderCollapse:"collapse"}},
+      h("table",{style:{width:"100%",borderCollapse:"collapse",minWidth:760}},
 
         h("thead",null,
           h("tr",null,
@@ -1308,7 +1253,8 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB})
             h("th",{style:thS(true)},"K.Kartı"),
             h("th",{style:thS(true)},"İBAN"),
             h("th",{style:thS(true)},"Nakit"),
-            h("th",{style:{...thS(true),color:"var(--g)"}},"Toplam")
+            h("th",{style:{...thS(true),color:"var(--g)"}},"Toplam"),
+            h("th",{style:{...thS(false),textAlign:"center"}},"Detay")
           )
         ),
 
@@ -1485,7 +1431,11 @@ const [umSekLocal, setUmSekLocal] = React.useState("ozet");
     ),
 
     // ═══════════════ ÜRÜN SATIŞLARI (Personel bazlı) ═══════════════
-    umSek==="urunSatislari"&&h(UrunSatislariTablo,{tumK,personeller,onKapat:()=>setUmSek("ozet")}),
+    String(umSek).startsWith("urunSatislari")&&h(UrunSatislariTablo,{
+      tumK,personeller,
+      seciliPersonelId:String(umSek).includes(":")?String(umSek).split(":")[1]:"",
+      onKapat:()=>setUmSek("urunSatislari")
+    }),
 
     // ═══════════════ SİPARİŞ LİSTESİ ═══════════════
     umSek==="siparis"&&div(null,
@@ -6415,20 +6365,36 @@ function App() {
               cursor:"pointer",textAlign:"left"},
               onClick:()=>{
                 if(muhSek==="urunMuhasebe"){setMuhSek("")}
-                else{setMuhSek("urunMuhasebe");setMuhAlt("siparis")}
+                else{setMuhSek("urunMuhasebe");setMuhAlt("urunSatislari")}
               }},
               div(null,"📦 ÜRÜN MUHASEBESİ"),
               h("span",{style:{fontSize:12,color:"var(--di)"}},muhSek==="urunMuhasebe"?"▾":"▸")
             ),
             // Alt başlıklar
             muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
-             [["ozet","📊 Özet"],["urunSatislari","🛒 Ürün Satışları"],["malKabul","📦 Mal Kabul"],["stokDetay","🔍 Stok Detay"],["stokDurum","📊 Stok Durumu"]].map(([id,lb])=>
+              [["ozet","📊 Özet"],["malKabul","📦 Mal Kabul"],["stokDetay","🔍 Stok Detay"],["stokDurum","📊 Stok Durumu"]].map(([id,lb])=>
                 btn({key:id,style:{width:"100%",padding:"8px 14px 8px 24px",border:"none",
                   borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:12,cursor:"pointer",
                   background:muhAlt===id?"rgba(37,99,168,.12)":"transparent",
                   color:muhAlt===id?"var(--g)":"#3a6a62"},
                   onClick:()=>setMuhAlt(id)},lb)
               ),
+
+              // ── ÜRÜN SATIŞLARI: Hizmet Muhasebesi ile aynı personel kırılımı ──
+              btn({key:"urunSatislari",style:{width:"100%",padding:"8px 14px 8px 24px",border:"none",
+                borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:12,cursor:"pointer",
+                background:String(muhAlt).startsWith("urunSatislari")?"rgba(37,99,168,.12)":"transparent",
+                color:String(muhAlt).startsWith("urunSatislari")?"var(--g)":"#3a6a62"},
+                onClick:()=>setMuhAlt("urunSatislari")},"🛒 Ürün Satışları"),
+
+              String(muhAlt).startsWith("urunSatislari")&&personeller
+                .filter(p=>p.aktif&&p.rol==="personel")
+                .map(p=>btn({key:"urunSatislari_"+p.id,style:{width:"100%",padding:"8px 14px 8px 38px",border:"none",
+                  borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:12,cursor:"pointer",
+                  background:muhAlt==="urunSatislari:"+p.id?"rgba(37,99,168,.16)":"transparent",
+                  color:muhAlt==="urunSatislari:"+p.id?"var(--g)":"#3a6a62"},
+                  onClick:()=>setMuhAlt("urunSatislari:"+p.id)},p.ad)),
+
               // ── CARİ alt başlık ──
               btn({key:"cari",style:{width:"100%",padding:"8px 14px 8px 24px",border:"none",
                 borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:12,cursor:"pointer",
