@@ -138,6 +138,15 @@ const dbEkle = (t,r) => DB&&DB.from(t).insert(r).then(()=>{}).catch(console.warn
 const dbGnc  = (t,r,id) => DB&&DB.from(t).update(r).eq("id",id).then(()=>{}).catch(console.warn);
 const dbSil  = (t,id) => DB&&DB.from(t).delete().eq("id",id).then(()=>{}).catch(console.warn);
 const dbUpsert = (t,rows,c) => DB&&DB.from(t).upsert(rows,{onConflict:c}).then(()=>{}).catch(console.warn);
+const dbAyarAl = async (id) => {
+  if(!DB) return null;
+  try {
+    const {data,error} = await DB.from("ayarlar").select("deger").eq("id",id).single();
+    if(error) return null;
+    return data?.deger || null;
+  } catch(e){ return null; }
+};
+const dbAyarKaydet = (id, deger) => DB && DB.from("ayarlar").upsert({id, deger, guncellendi: new Date().toISOString()}, {onConflict:"id"}).then(()=>{}).catch(console.warn);
 const mapR = r => ({
   id:r.id, staffId:r.staff_id, staffAd:r.staff_name,
   musteri:r.musteri, tel:r.telefon||"",
@@ -4870,7 +4879,17 @@ function App() {
         } catch(e){ console.warn("Stok yuklenemedi",e); }
         if(d.length){ const dm={};d.forEach(x=>{dm[x.tarih+"_"+x.staff_id]=x.aciklama;});setDevDB(dm); }
       } catch(e){ console.warn("DB:",e); }
-      setYukleniyor(false);
+      try {
+  const [tmAy, isAy, skAy] = await Promise.all([
+    dbAyarAl("tema"),
+    dbAyarAl("isletme"),
+    dbAyarAl("sekmeler")
+  ]);
+  if(tmAy) setTema(tmAy);
+  if(isAy) setIsletme(isAy);
+  if(skAy) setSekmeler(skAy);
+} catch(e){ console.warn("Ayar yükleme:", e); }
+setYukleniyor(false);
     })();
   },[]);
 
@@ -4891,16 +4910,19 @@ function App() {
     const fonts = {"Jost":"'Jost',system-ui,sans-serif","Inter":"'Inter',system-ui,sans-serif","Playfair":"'Playfair Display',Georgia,serif"};
     document.body.style.fontFamily = fonts[tema.font]||fonts["Jost"];
     localStorage.setItem("apron_tema", JSON.stringify(tema));
+  dbAyarKaydet("tema", tema);  
   }, [tema]);
 
   // İşletme bilgilerini kaydet
   useEffect(()=>{
     localStorage.setItem("apron_isletme", JSON.stringify(isletme));
+  dbAyarKaydet("isletme", isletme);
   }, [isletme]);
 
   // Sekme isimlerini kaydet
   useEffect(()=>{
     localStorage.setItem("apron_sekmeler", JSON.stringify(sekmeler));
+  dbAyarKaydet("sekmeler", sekmeler);
   }, [sekmeler]);
 
   useEffect(()=>{
