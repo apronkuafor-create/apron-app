@@ -6966,6 +6966,40 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
               color:aySek==="isletme"?"var(--g)":"#3a6a62",
               fontSize:12,fontWeight:500,
               cursor:"pointer",textAlign:"left"},
+              btn({style:{width:"100%",padding:"11px 14px",
+              background:"rgba(50,140,100,.08)",
+              border:"none",borderBottom:"1px solid var(--br)",borderLeft:"3px solid transparent",
+              color:"var(--gr)",fontSize:12,fontWeight:700,letterSpacing:1,textTransform:"uppercase",
+              cursor:"pointer",textAlign:"left"},
+              onClick:async()=>{
+                try{
+                  const local=JSON.parse(localStorage.getItem("apron_v3")||"null");
+                  if(!local){showToast("Yerel veri bulunamadı","uy");return;}
+                  showToast("Aktarım başladı, lütfen bekleyin...","uy");
+                  const tumKayitlar=[...(local.records||[]),...(local.bekleyen||[])];
+                  for(const r of tumKayitlar){
+                    await dbEkle("kayitlar",{id:r.id,staff_id:r.staffId,staff_name:r.staffAd,
+                      musteri:r.musteri,telefon:r.tel||"",hizmetler:r.hizler||[],
+                      hiz_kk:r.hizKK||0,hiz_ib:r.hizIB||0,hiz_nk:r.hizNK||0,
+                      urunler:r.urunler||[],urun_kk:r.uKK||0,urun_ib:r.uIB||0,urun_nk:r.uNK||0,
+                      toplam:r.toplam||0,tarih:r.tarih,saat:r.saat,gonderildi:r.gonderildi||false});
+                  }
+                  for(const m of (local.musteriDB||[])){
+                    await dbEkle("musteriler",{id:m.id,ad:m.ad,tel:m.tel||"",
+                      sahip_id:m.sahipId||"",sahip_ad:m.sahipAd||"",ilk_giris:m.ilkGiris||""});
+                  }
+                  const devEntries=Object.entries(local.devDB||{});
+                  for(const [k,aciklama] of devEntries){
+                    const parts=k.split("_");
+                    const staffId=parts[parts.length-1];
+                    const tarih=parts.slice(0,-1).join("_");
+                    if(tarih&&staffId) await dbUpsert("devamsizliklar",[{staff_id:staffId,tarih,aciklama}],"staff_id,tarih");
+                  }
+                  if(local.personeller) await DB.from("ayarlar").upsert({id:"personeller",deger:local.personeller});
+                  if(local.pGruplar) await DB.from("ayarlar").upsert({id:"pGruplar",deger:local.pGruplar});
+                  showToast("✓ "+tumKayitlar.length+" kayıt Supabase'e aktarıldı");
+                }catch(e){showToast("Hata: "+e.message,"uy");}
+              }},"☁️ VERİLERİ SUPABASE'E AKTAR"),   
               onClick:()=>setAySek("isletme")},
               "🏢 İşletme"
             ),
