@@ -4166,8 +4166,10 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
       urunler:temizU,uKK,uIB,uNK,
       hizIbanId: toN(hIB)>0 ? (_isManikurist ? (anaPersonelId||"" ) : (hIbanSec||aktifKullanici?.id||"")) : "",
       hizIbanAd: toN(hIB)>0 ? (_isManikurist ? (aktifP.find(p=>p.id===anaPersonelId)?.ad||"") : (hIbanSec ? aktifP.find(p=>p.id===hIbanSec)?.ad||"" : aktifKullanici?.ad||"")) : "",
-      urunIbanId: toN(uIB)>0 ? (uIbanSec||aktifKullanici?.id||"") : "",
-      urunIbanAd: toN(uIB)>0 ? (uIbanSec ? aktifP.find(p=>p.id===uIbanSec)?.ad||"" : aktifKullanici?.ad||"") : ""
+            urunIbanId: toN(uIB)>0 ? (uIbanSec||aktifKullanici?.id||"") : "",
+      urunIbanAd: toN(uIB)>0 ? (uIbanSec ? aktifP.find(p=>p.id===uIbanSec)?.ad||"" : aktifKullanici?.ad||"") : "",
+      _yonBildirimId: ilk?._yonBildirimId||"",
+      _log: ilk?._log||[]
     });
   };
 
@@ -5043,6 +5045,29 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     const uKK=toN(f.uKK),uIB=toN(f.uIB),uNK=toN(f.uNK);
     const top=(hKK+hIB+hNK)+(uKK+uIB+uNK);
     if(f.id){
+      const eskiKayit = [...records,...bekleyen,...gecmis].find(r=>r.id===f.id) || {};
+      const ilgiliBildirim = f._yonBildirimId
+        ? yonBildirim.find(b=>b.id===f._yonBildirimId)
+        : null;
+
+      const duzenlemeLog = f._yonBildirimId ? {
+        id:uid(),
+        tarih:TODAY(),
+        saat:SAAT(),
+        yapan:kul?.ad||"Personel",
+        neden:ilgiliBildirim?.neden||"Yönetici düzenleme bildirimi",
+        onceki:{
+          musteri:eskiKayit.musteri||"",
+          tel:eskiKayit.tel||"",
+          toplam:eskiKayit.toplam||0
+        },
+        yeni:{
+          musteri:(f.musteri||"").trim(),
+          tel:(f.tel||"").trim(),
+          toplam:top
+        }
+      } : null;
+
       const gn={
         id:f.id, staffId:f.staffId, staffAd:f.staffAd,
         anaPersonelId:f.anaPersonelId||"",
@@ -5051,17 +5076,31 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
         musteri:(f.musteri||"").trim(), tel:(f.tel||"").trim(),
         hizler:f.hizler||[], hizKK:hKK, hizIB:hIB, hizNK:hNK,
         urunler:f.urunler||[], uKK:uKK, uIB:uIB, uNK:uNK,
-        toplam:top, tarih:f.tarih, saat:f.saat, gonderildi:f.gonderildi||false
+        toplam:top, tarih:f.tarih, saat:f.saat, gonderildi:f.gonderildi||false,
+        _log:duzenlemeLog?[...(eskiKayit._log||[]),duzenlemeLog]:(eskiKayit._log||[])
       };
+
       setBekleyen(p=>p.map(r=>r.id===gn.id?gn:r));
       setRecords(p=>p.map(r=>r.id===gn.id?gn:r));
       setGecmis(p=>p.map(r=>r.id===gn.id?gn:r));
+
       dbGnc("kayitlar",{musteri:gn.musteri,telefon:gn.tel,hizmetler:gn.hizler,hiz_kk:hKK,hiz_ib:hIB,hiz_nk:hNK,
         urunler:gn.urunler,urun_kk:uKK,urun_ib:uIB,urun_nk:uNK,toplam:top},gn.id);
-            if(f._yonBildirimId){
-        setYonBildirim(p=>p.map(b=>b.id===f._yonBildirimId
-          ?{...b,durum:"personelDuzeltti",personelYanit:"Personel kaydı kontrol edip geri gönderdi"}:b));
-        showToast("Kayıt düzenlenip geri gönderildi","uy");
+
+      if(f._yonBildirimId){
+        setYonBildirim(p=>{
+          const yeniListe = p.map(b=>b.id===f._yonBildirimId
+            ?{...b,durum:"personelDuzeltti",yonGordu:false}:b);
+
+          try {
+            const eski = JSON.parse(localStorage.getItem("apron_v3")||"{}") || {};
+            localStorage.setItem("apron_v3", JSON.stringify({...eski, yonBildirim:yeniListe}));
+          } catch(e) {}
+
+          return yeniListe;
+        });
+
+        showToast("Kayıt düzenlenip yöneticiye gönderildi","uy");
       } else {
         showToast("Kayıt güncellendi");
       }
@@ -5713,6 +5752,28 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
             )
           ),
 
+                     // Düzenleme geçmişi
+          (detay._log||[]).length>0&&div({style:{background:"rgba(50,140,100,.07)",border:"1px solid rgba(50,140,100,.25)",borderRadius:13,padding:14,marginBottom:14}},
+            div({style:{fontSize:12,color:"var(--gr)",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
+              "📝 Bu Kartta Düzenleme Yapıldı"),
+            (detay._log||[]).map((l,i)=>
+              div({key:l.id||i,style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,padding:"10px 12px",marginBottom:8}},
+                div({style:{fontSize:13,color:"var(--tx)",fontWeight:600,marginBottom:5}},
+                  (l.yapan||"Personel")+" · "+fmtT(l.tarih)+" "+(l.saat||"")),
+                div({style:{fontSize:13,color:"var(--mu)",marginBottom:7,lineHeight:1.5}},
+                  "Neden: "+(l.neden||"Belirtilmedi")),
+                l.onceki&&l.yeni&&div({style:{fontSize:12,color:"var(--di)",lineHeight:1.6}},
+                  l.onceki.musteri!==l.yeni.musteri&&div(null,"Müşteri: "+l.onceki.musteri+" → "+l.yeni.musteri),
+                  l.onceki.tel!==l.yeni.tel&&div(null,"Telefon: "+(l.onceki.tel||"-")+" → "+(l.yeni.tel||"-")),
+                  toN(l.onceki.toplam)!==toN(l.yeni.toplam)&&div(null,"Toplam: "+fmt(l.onceki.toplam)+" → "+fmt(l.yeni.toplam)),
+                  JSON.stringify(l.onceki.hizler||[])!==JSON.stringify(l.yeni.hizler||[])&&div(null,"Hizmetlerde değişiklik yapıldı"),
+                  JSON.stringify(l.onceki.urunler||[])!==JSON.stringify(l.yeni.urunler||[])&&div(null,"Ürünlerde değişiklik yapıldı"),
+                  JSON.stringify(l.onceki.odeme||{})!==JSON.stringify(l.yeni.odeme||{})&&div(null,"Ödeme dağılımında değişiklik yapıldı")
+                )
+              )
+            )
+          ), 
+            
           // Butonlar - salt okunursa sadece kapat
           div({className:"btn-r"},
             btn({className:"btn-i",onClick:()=>setDetay(null)},"Kapat"),
@@ -6906,15 +6967,21 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                 :gosterilecek.map(r=>{
                   const kk=(r.hizKK||0)+(r.uKK||0),ib=(r.hizIB||0)+(r.uIB||0),nk=(r.hizNK||0)+(r.uNK||0);
                   const bildirimDurum = yonBildirim.find(b=>b.kayitId===r.id&&b.durum==="bekliyor");
-                  return div({key:r.id,style:{background:"var(--bg2)",border:"1px solid "+(bildirimDurum?"#6a5010":"var(--bg3)"),
+                  const duzenlemeDurum = (r._log||[]).some(l=>l.tip==="personel_duzenleme");
+                  return div({key:r.id,style:{background:"var(--bg2)",border:"1px solid "+(bildirimDurum?"#6a5010":duzenlemeDurum?"#1e5a48":"var(--bg3)"),
                     borderRadius:13,padding:13,marginBottom:9,cursor:"pointer"},
                     onClick:()=>setDetay(r)},
 
-                    // Bekleyen bildirim badge
+                                        // Bekleyen / düzenlenen bildirim badge
                     bildirimDurum&&div({style:{fontSize:11,color:"var(--g)",padding:"3px 8px",
                       background:"rgba(37,99,168,.1)",borderRadius:5,marginBottom:8,
                       border:"1px solid rgba(37,99,168,.2)",display:"inline-block"}},
                       "⏳ Personel Onayı Bekleniyor"),
+
+                    !bildirimDurum&&duzenlemeDurum&&div({style:{fontSize:11,color:"var(--gr)",padding:"3px 8px",
+                      background:"rgba(50,140,100,.1)",borderRadius:5,marginBottom:8,
+                      border:"1px solid rgba(50,140,100,.25)",display:"inline-block"}},
+                      "✅ Bu Kartta Düzenleme Yapıldı"),
 
                     div({style:{display:"flex",alignItems:"flex-start",gap:9}},
                       div({className:"kikon"},r.hizler?.length>0?"✂️":"🛍️"),
@@ -6927,11 +6994,11 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                           ib>0&&span({className:"kp"},"🏦 "+fmt(ib)),
                           nk>0&&span({className:"kp"},"💵 "+fmt(nk))
                         ),
-                        // Değişiklik geçmişi varsa göster
-                        (r._log||[]).length>0&&div({style:{marginTop:6,fontSize:11,color:"#7a5a2a",
-                          padding:"4px 7px",background:"rgba(37,99,168,.05)",borderRadius:5,
-                          border:"1px solid rgba(37,99,168,.1)"}},
-                          "📝 "+r._log.length+" degisiklik gecmisi")
+                       // Değişiklik geçmişi varsa göster
+                        (r._log||[]).length>0&&div({style:{marginTop:6,fontSize:11,color:"var(--gr)",
+                          padding:"4px 7px",background:"rgba(50,140,100,.08)",borderRadius:5,
+                          border:"1px solid rgba(50,140,100,.2)"}},
+                          "📝 Bu Kartta Düzenleme Yapıldı")
                       ),
                       div({style:{textAlign:"right",flexShrink:0}},
                         div({className:"ktu"},fmt(r.toplam)),
