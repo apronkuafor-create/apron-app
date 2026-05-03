@@ -4166,10 +4166,8 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, onKayde
       urunler:temizU,uKK,uIB,uNK,
       hizIbanId: toN(hIB)>0 ? (_isManikurist ? (anaPersonelId||"" ) : (hIbanSec||aktifKullanici?.id||"")) : "",
       hizIbanAd: toN(hIB)>0 ? (_isManikurist ? (aktifP.find(p=>p.id===anaPersonelId)?.ad||"") : (hIbanSec ? aktifP.find(p=>p.id===hIbanSec)?.ad||"" : aktifKullanici?.ad||"")) : "",
-            urunIbanId: toN(uIB)>0 ? (uIbanSec||aktifKullanici?.id||"") : "",
-      urunIbanAd: toN(uIB)>0 ? (uIbanSec ? aktifP.find(p=>p.id===uIbanSec)?.ad||"" : aktifKullanici?.ad||"") : "",
-      _yonBildirimId: ilk?._yonBildirimId||"",
-      _log: ilk?._log||[]
+      urunIbanId: toN(uIB)>0 ? (uIbanSec||aktifKullanici?.id||"") : "",
+      urunIbanAd: toN(uIB)>0 ? (uIbanSec ? aktifP.find(p=>p.id===uIbanSec)?.ad||"" : aktifKullanici?.ad||"") : ""
     });
   };
 
@@ -5045,31 +5043,6 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     const uKK=toN(f.uKK),uIB=toN(f.uIB),uNK=toN(f.uNK);
     const top=(hKK+hIB+hNK)+(uKK+uIB+uNK);
     if(f.id){
-      const eskiKayit = [...records,...bekleyen,...gecmis].find(r=>r.id===f.id) || {};
-      const ilgiliBildirim = f._yonBildirimId
-        ? yonBildirim.find(b=>b.id===f._yonBildirimId)
-        : null;
-
-      const duzenlemeLog = {
-        id:uid(),
-        tarih:TODAY(),
-        saat:SAAT(),
-        yapan:kul?.ad||"Personel",
-        neden: f._yonBildirimId
-          ? (ilgiliBildirim?.neden||"Yönetici düzenleme bildirimi")
-          : "Manuel düzenleme",
-        onceki:{
-          musteri:eskiKayit.musteri||"",
-          tel:eskiKayit.tel||"",
-          toplam:eskiKayit.toplam||0
-        },
-        yeni:{
-          musteri:(f.musteri||"").trim(),
-          tel:(f.tel||"").trim(),
-          toplam:top
-        }
-      };
-
       const gn={
         id:f.id, staffId:f.staffId, staffAd:f.staffAd,
         anaPersonelId:f.anaPersonelId||"",
@@ -5078,34 +5051,14 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
         musteri:(f.musteri||"").trim(), tel:(f.tel||"").trim(),
         hizler:f.hizler||[], hizKK:hKK, hizIB:hIB, hizNK:hNK,
         urunler:f.urunler||[], uKK:uKK, uIB:uIB, uNK:uNK,
-        toplam:top, tarih:f.tarih, saat:f.saat, gonderildi:f.gonderildi||false,
-        _log:duzenlemeLog?[...(eskiKayit._log||[]),duzenlemeLog]:(eskiKayit._log||[])
+        toplam:top, tarih:f.tarih, saat:f.saat, gonderildi:f.gonderildi||false
       };
-
       setBekleyen(p=>p.map(r=>r.id===gn.id?gn:r));
       setRecords(p=>p.map(r=>r.id===gn.id?gn:r));
       setGecmis(p=>p.map(r=>r.id===gn.id?gn:r));
-
       dbGnc("kayitlar",{musteri:gn.musteri,telefon:gn.tel,hizmetler:gn.hizler,hiz_kk:hKK,hiz_ib:hIB,hiz_nk:hNK,
         urunler:gn.urunler,urun_kk:uKK,urun_ib:uIB,urun_nk:uNK,toplam:top},gn.id);
-
-      if(f._yonBildirimId){
-        setYonBildirim(p=>{
-          const yeniListe = p.map(b=>b.id===f._yonBildirimId
-            ?{...b,durum:"personelDuzeltti",yonGordu:false}:b);
-
-          try {
-            const eski = JSON.parse(localStorage.getItem("apron_v3")||"{}") || {};
-            localStorage.setItem("apron_v3", JSON.stringify({...eski, yonBildirim:yeniListe}));
-          } catch(e) {}
-
-          return yeniListe;
-        });
-
-        showToast("Kayıt düzenlenip yöneticiye gönderildi","uy");
-      } else {
-        showToast("Kayıt güncellendi");
-      }
+      showToast("Kayıt güncellendi");
     } else {
       const y={id:uid(),staffId:kul.id,staffAd:kul.ad,musteri:f.musteri.trim(),tel:(f.tel||"").trim(),
         hizler:f.hizler||[],hizKK:hKK,hizIB:hIB,hizNK:hNK,urunler:f.urunler||[],uKK,uIB,uNK,
@@ -5321,62 +5274,23 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
                 btn({className:"btn-t",disabled:!yonDuzForm.neden.trim(),
                   onClick:()=>{
                     // Personele bildirim gönder
-                    const bid = uid();                    
-                      setYonBildirim(p=>{
-                      const yeniListe = [...p,{
-                        id:bid, staffId:yonDuzForm.kayit.staffId,
-                        kayitId:yonDuzForm.kayit.id,
-                        musteri:yonDuzForm.kayit.musteri,
-                        tarih:yonDuzForm.kayit.tarih,
-                        islem:"sil", neden:yonDuzForm.neden.trim(),
-                        durum:"bekliyor", tarihGonder:TODAY()
-                      }];
-
-                      try {
-                        const eski = JSON.parse(localStorage.getItem("apron_v3")||"{}") || {};
-                        localStorage.setItem("apron_v3", JSON.stringify({...eski, yonBildirim:yeniListe}));
-                      } catch(e) {
-                        console.warn("Bildirim kaydedilemedi", e);
-                      }
-
-                      return yeniListe;
-                    });
+                    const bid = uid();
+                    setYonBildirim(p=>[...p,{
+                      id:bid, staffId:yonDuzForm.kayit.staffId,
+                      kayitId:yonDuzForm.kayit.id,
+                      musteri:yonDuzForm.kayit.musteri,
+                      tarih:yonDuzForm.kayit.tarih,
+                      islem:"sil", neden:yonDuzForm.neden.trim(),
+                      durum:"bekliyor", tarihGonder:TODAY()
+                    }]);
                     setYonDuzForm(null);
                     showToast("Bildirim personele gönderildi","uy");
                   }},"Gonder ve Personel Onayina Gonder")
               )
               :div({className:"btn-r"},
                 btn({className:"btn-i",onClick:()=>setYonDuzForm(null)},"İptal"),
-                                btn({className:"btn-k",disabled:!yonDuzForm.neden.trim(),
-                  onClick:()=>{
-                                        const bid = uid();
-                    setYonBildirim(p=>{
-                      const yeniListe = [...p,{
-                        id:bid,
-                        staffId:yonDuzForm.kayit.staffId,
-                        kayitId:yonDuzForm.kayit.id,
-                        musteri:yonDuzForm.kayit.musteri,
-                        tarih:yonDuzForm.kayit.tarih,
-                        islem:"duzenle",
-                        neden:yonDuzForm.neden.trim(),
-                        durum:"bekliyor",
-                        tarihGonder:TODAY(),
-                        yonGordu:false
-                      }];
-
-                      try {
-                        const eski = JSON.parse(localStorage.getItem("apron_v3")||"{}") || {};
-                        localStorage.setItem("apron_v3", JSON.stringify({...eski, yonBildirim:yeniListe}));
-                      } catch(e) {
-                        console.warn("Düzenleme bildirimi kaydedilemedi", e);
-                      }
-
-                      return yeniListe;
-                    });
-
-                    setYonDuzForm(null);
-                    showToast("Düzenleme bildirimi personele gönderildi","uy");
-                  }},"Gonder ve Personel Onayina Gonder")
+                btn({className:"btn-k",disabled:!yonDuzForm.neden.trim(),
+                  onClick:()=>setYonDuzForm(p=>({...p,adim:"duzenle"}))},"Devam — Duzenle")
               )
           ),
 
@@ -5401,25 +5315,14 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
                 }]
               };
               const bid=uid();
-                            setYonBildirim(p=>{
-                const yeniListe = [...p,{
-                  id:bid, staffId:yonDuzForm.kayit.staffId,
-                  kayitId:yonDuzForm.kayit.id,
-                  musteri:yonDuzForm.kayit.musteri,
-                  tarih:yonDuzForm.kayit.tarih,
-                  islem:"duzenle", neden:yonDuzForm.neden.trim(),
-                  yeniKayit, durum:"bekliyor", tarihGonder:TODAY()
-                }];
-
-                try {
-                  const eski = JSON.parse(localStorage.getItem("apron_v3")||"{}") || {};
-                  localStorage.setItem("apron_v3", JSON.stringify({...eski, yonBildirim:yeniListe}));
-                } catch(e) {
-                  console.warn("Bildirim kaydedilemedi", e);
-                }
-
-                return yeniListe;
-              });
+              setYonBildirim(p=>[...p,{
+                id:bid, staffId:yonDuzForm.kayit.staffId,
+                kayitId:yonDuzForm.kayit.id,
+                musteri:yonDuzForm.kayit.musteri,
+                tarih:yonDuzForm.kayit.tarih,
+                islem:"duzenle", neden:yonDuzForm.neden.trim(),
+                yeniKayit, durum:"bekliyor", tarihGonder:TODAY()
+              }]);
               // Hemen kayıta notu ekle (onay bekleniyor)
               const logluKayit={...yonDuzForm.kayit,_bekleyenDegisiklik:yeniKayit,_bildirimId:bid};
               setRecords(p=>p.map(r=>r.id===logluKayit.id?logluKayit:r));
@@ -5661,6 +5564,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       )
     ),
 
+    // Detay modal
     detay&&div({className:"ov",style:{zIndex:600}},
       div({className:"mod"},
         div({className:"mhd"},
@@ -5732,25 +5636,6 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
             )
           ),
 
-          // Düzenleme geçmişi
-          (detay._log||[]).length>0&&div({style:{background:"rgba(50,140,100,.07)",border:"1px solid rgba(50,140,100,.25)",borderRadius:13,padding:14,marginBottom:12}},
-            div({style:{fontSize:12,color:"var(--gr)",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
-              "📝 Bu Kartta Düzenleme Yapıldı"),
-            (detay._log||[]).map((l,i)=>
-              div({key:l.id||i,style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,padding:"10px 12px",marginBottom:8}},
-                div({style:{fontSize:13,color:"var(--tx)",fontWeight:600,marginBottom:5}},
-                  (l.yapan||"Personel")+" · "+fmtT(l.tarih)+" "+(l.saat||"")),
-                div({style:{fontSize:13,color:"var(--mu)",marginBottom:7,lineHeight:1.5}},
-                  "Neden: "+(l.neden||"Belirtilmedi")),
-                l.onceki&&l.yeni&&div({style:{fontSize:12,color:"var(--di)",lineHeight:1.6}},
-                  l.onceki.musteri!==l.yeni.musteri&&div(null,"Müşteri: "+(l.onceki.musteri||"-")+" → "+(l.yeni.musteri||"-")),
-                  l.onceki.tel!==l.yeni.tel&&div(null,"Telefon: "+(l.onceki.tel||"-")+" → "+(l.yeni.tel||"-")),
-                  toN(l.onceki.toplam)!==toN(l.yeni.toplam)&&div(null,"Toplam: "+fmt(l.onceki.toplam)+" → "+fmt(l.yeni.toplam))
-                )
-              )
-            )
-          ),
-            
           // Genel toplam
           div({style:{background:"var(--bg2)",border:"1.5px solid var(--br)",borderRadius:13,padding:14,marginBottom:14}},
             div({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:9}},"Ödeme Özeti"),
@@ -5772,34 +5657,16 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
             )
           ),
 
-                     // Düzenleme geçmişi
-          (detay._log||[]).length>0&&div({style:{background:"rgba(50,140,100,.07)",border:"1px solid rgba(50,140,100,.25)",borderRadius:13,padding:14,marginBottom:14}},
-            div({style:{fontSize:12,color:"var(--gr)",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
-              "📝 Bu Kartta Düzenleme Yapıldı"),
-            (detay._log||[]).map((l,i)=>
-              div({key:l.id||i,style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,padding:"10px 12px",marginBottom:8}},
-                div({style:{fontSize:13,color:"var(--tx)",fontWeight:600,marginBottom:5}},
-                  (l.yapan||"Personel")+" · "+fmtT(l.tarih)+" "+(l.saat||"")),
-                div({style:{fontSize:13,color:"var(--mu)",marginBottom:7,lineHeight:1.5}},
-                  "Neden: "+(l.neden||"Belirtilmedi")),
-                l.onceki&&l.yeni&&div({style:{fontSize:12,color:"var(--di)",lineHeight:1.6}},
-                  l.onceki.musteri!==l.yeni.musteri&&div(null,"Müşteri: "+l.onceki.musteri+" → "+l.yeni.musteri),
-                  l.onceki.tel!==l.yeni.tel&&div(null,"Telefon: "+(l.onceki.tel||"-")+" → "+(l.yeni.tel||"-")),
-                  toN(l.onceki.toplam)!==toN(l.yeni.toplam)&&div(null,"Toplam: "+fmt(l.onceki.toplam)+" → "+fmt(l.yeni.toplam)),
-                  JSON.stringify(l.onceki.hizler||[])!==JSON.stringify(l.yeni.hizler||[])&&div(null,"Hizmetlerde değişiklik yapıldı"),
-                  JSON.stringify(l.onceki.urunler||[])!==JSON.stringify(l.yeni.urunler||[])&&div(null,"Ürünlerde değişiklik yapıldı"),
-                  JSON.stringify(l.onceki.odeme||{})!==JSON.stringify(l.yeni.odeme||{})&&div(null,"Ödeme dağılımında değişiklik yapıldı")
-                )
-              )
-            )
-          ), 
-
-          // Detay içinde işlem yok — sadece kapat
-div({className:"btn-r"},
-  btn({className:"btn-k",onClick:()=>setDetay(null)},"Kapat")
-)
+          // Butonlar - salt okunursa sadece kapat
+          div({className:"btn-r"},
+            btn({className:"btn-i",onClick:()=>setDetay(null)},"Kapat"),
+            !detay._saltOkunur&&btn({className:"btn-i",style:{color:"#c05050",borderColor:"#1e3a3a"},onClick:()=>{setSilOnay(detay.id);setDetay(null);}},"Sil"),
+            !detay._saltOkunur&&btn({className:"btn-k",onClick:()=>{setKayitForm(detay);setDetay(null);}},"Düzenle")
+          )
+        )
       )
     ),
+
     // Kayit formu
     kayitForm&&h(KayitForm,{ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,hizListeleri,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null),hatirlatmalar,setHatirlatmalar}),
 
@@ -6116,28 +5983,14 @@ div({className:"btn-r"},
                 b.islem==="sil"?"🗑 Kayit silinmek isteniyor":"✏ Kayit degistirilmek isteniyor"),
               div({style:{fontSize:13,color:"var(--mu)",marginBottom:4}},
                 h("strong",{style:{color:"var(--g)"}},b.musteri)," · ",fmtT(b.tarih)),
-              div({style:{fontSize:13,color:"var(--mu)",marginBottom:10,padding:"7px 9px",background:"var(--bg3)",borderRadius:6,lineHeight:1.5}},
-                b.islem==="duzenle"
-                  ?"Yönetici bu kaydı yanlış veya eksik yaptığınızı düşünüyor. Lütfen kontrol ederek geri gönderiniz."
-                  :"Neden: "+b.neden),
-                            b.islem==="duzenle"
-                ?div({style:{display:"flex",gap:8}},
-                  btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #1e5a48",background:"rgba(50,140,100,.1)",color:"var(--gr)",fontSize:13,cursor:"pointer"},
-                    onClick:()=>{
-                      const kayit = [...records,...bekleyen,...gecmis].find(r=>r.id===b.kayitId);
-                      if(!kayit){
-                        showToast("Kayıt bulunamadı","ha");
-                        return;
-                      }
-                      setKayitForm({...kayit,_yonBildirimId:b.id});
-                    }},"Kontrol Et ve Düzenle")
-                )
-                :div({style:{display:"flex",gap:8}},
-                  btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #1e5a48",background:"rgba(50,140,100,1)",color:"var(--gr)",fontSize:13,cursor:"pointer"},
-                    onClick:()=>setYonDetay({...b,adim:"onay"})},"✓ Onayla"),
-                  btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #6a2020",background:"rgba(160,40,40,1)",color:"#c05050",fontSize:13,cursor:"pointer"},
-                    onClick:()=>setYonDetay({...b,adim:"ret",aciklama:""})},"✕ Reddet")
-                )
+              div({style:{fontSize:13,color:"var(--mu)",marginBottom:10,padding:"7px 9px",background:"var(--bg3)",borderRadius:6}},
+                "Neden: ",b.neden),
+              div({style:{display:"flex",gap:8}},
+                btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #1e5a48",background:"rgba(50,140,100,.1)",color:"var(--gr)",fontSize:13,cursor:"pointer"},
+                  onClick:()=>setYonDetay({...b,adim:"onay"})},"✓ Onayla"),
+                btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #6a2020",background:"rgba(160,40,40,.1)",color:"#c05050",fontSize:13,cursor:"pointer"},
+                  onClick:()=>setYonDetay({...b,adim:"ret",aciklama:""})},"✕ Reddet")
+              )
             )
           )
         ),
@@ -6983,21 +6836,15 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                 :gosterilecek.map(r=>{
                   const kk=(r.hizKK||0)+(r.uKK||0),ib=(r.hizIB||0)+(r.uIB||0),nk=(r.hizNK||0)+(r.uNK||0);
                   const bildirimDurum = yonBildirim.find(b=>b.kayitId===r.id&&b.durum==="bekliyor");
-                  const duzenlemeDurum = (r._log||[]).some(l=>l.tip==="personel_duzenleme");
-                  return div({key:r.id,style:{background:"var(--bg2)",border:"1px solid "+(bildirimDurum?"#6a5010":duzenlemeDurum?"#1e5a48":"var(--bg3)"),
+                  return div({key:r.id,style:{background:"var(--bg2)",border:"1px solid "+(bildirimDurum?"#6a5010":"var(--bg3)"),
                     borderRadius:13,padding:13,marginBottom:9,cursor:"pointer"},
                     onClick:()=>setDetay(r)},
 
-                                        // Bekleyen / düzenlenen bildirim badge
+                    // Bekleyen bildirim badge
                     bildirimDurum&&div({style:{fontSize:11,color:"var(--g)",padding:"3px 8px",
                       background:"rgba(37,99,168,.1)",borderRadius:5,marginBottom:8,
                       border:"1px solid rgba(37,99,168,.2)",display:"inline-block"}},
                       "⏳ Personel Onayı Bekleniyor"),
-
-                    !bildirimDurum&&duzenlemeDurum&&div({style:{fontSize:11,color:"var(--gr)",padding:"3px 8px",
-                      background:"rgba(50,140,100,.1)",borderRadius:5,marginBottom:8,
-                      border:"1px solid rgba(50,140,100,.25)",display:"inline-block"}},
-                      "✅ Bu Kartta Düzenleme Yapıldı"),
 
                     div({style:{display:"flex",alignItems:"flex-start",gap:9}},
                       div({className:"kikon"},r.hizler?.length>0?"✂️":"🛍️"),
@@ -7010,11 +6857,11 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                           ib>0&&span({className:"kp"},"🏦 "+fmt(ib)),
                           nk>0&&span({className:"kp"},"💵 "+fmt(nk))
                         ),
-                       // Değişiklik geçmişi varsa göster
-                        (r._log||[]).length>0&&div({style:{marginTop:6,fontSize:11,color:"var(--gr)",
-                          padding:"4px 7px",background:"rgba(50,140,100,.08)",borderRadius:5,
-                          border:"1px solid rgba(50,140,100,.2)"}},
-                          "📝 Bu Kartta Düzenleme Yapıldı")
+                        // Değişiklik geçmişi varsa göster
+                        (r._log||[]).length>0&&div({style:{marginTop:6,fontSize:11,color:"#7a5a2a",
+                          padding:"4px 7px",background:"rgba(37,99,168,.05)",borderRadius:5,
+                          border:"1px solid rgba(37,99,168,.1)"}},
+                          "📝 "+r._log.length+" degisiklik gecmisi")
                       ),
                       div({style:{textAlign:"right",flexShrink:0}},
                         div({className:"ktu"},fmt(r.toplam)),
