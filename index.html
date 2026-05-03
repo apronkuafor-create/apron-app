@@ -5300,8 +5300,36 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
               )
               :div({className:"btn-r"},
                 btn({className:"btn-i",onClick:()=>setYonDuzForm(null)},"İptal"),
-                btn({className:"btn-k",disabled:!yonDuzForm.neden.trim(),
-                  onClick:()=>setYonDuzForm(p=>({...p,adim:"duzenle"}))},"Devam — Duzenle")
+                                btn({className:"btn-k",disabled:!yonDuzForm.neden.trim(),
+                  onClick:()=>{
+                    // Personele düzenleme onay bildirimi gönder
+                    const bid = uid();
+                    setYonBildirim(p=>{
+                      const yeniListe = [...p,{
+                        id:bid,
+                        staffId:yonDuzForm.kayit.staffId,
+                        kayitId:yonDuzForm.kayit.id,
+                        musteri:yonDuzForm.kayit.musteri,
+                        tarih:yonDuzForm.kayit.tarih,
+                        islem:"duzenle",
+                        neden:yonDuzForm.neden.trim(),
+                        durum:"bekliyor",
+                        tarihGonder:TODAY()
+                      }];
+
+                      try {
+                        const eski = JSON.parse(localStorage.getItem("apron_v3")||"{}") || {};
+                        localStorage.setItem("apron_v3", JSON.stringify({...eski, yonBildirim:yeniListe}));
+                      } catch(e) {
+                        console.warn("Düzenleme bildirimi kaydedilemedi", e);
+                      }
+
+                      return yeniListe;
+                    });
+
+                    setYonDuzForm(null);
+                    showToast("Düzenleme bildirimi personele gönderildi","uy");
+                  }},"Gonder ve Personel Onayina Gonder")
               )
           ),
 
