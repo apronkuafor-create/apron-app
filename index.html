@@ -143,7 +143,13 @@ const mapR = r => ({
   musteri:r.musteri, tel:r.telefon||"",
   hizler:r.hizmetler||[], hizKK:r.hiz_kk||0, hizIB:r.hiz_ib||0, hizNK:r.hiz_nk||0,
   urunler:r.urunler||[], uKK:r.urun_kk||0, uIB:r.urun_ib||0, uNK:r.urun_nk||0,
-  toplam:r.toplam||0, tarih:r.tarih, saat:r.saat, gonderildi:r.gonderildi
+  toplam:r.toplam||0, tarih:r.tarih, saat:r.saat, gonderildi:r.gonderildi,
+  anaPersonelId:r.ana_personel_id||"",
+  anaPersonelAd:r.ana_personel_ad||"",
+  hizIbanId:r.hiz_iban_id||"",
+  hizIbanAd:r.hiz_iban_ad||"",
+  urunIbanId:r.urun_iban_id||"",
+  urunIbanAd:r.urun_iban_ad||""
 });
 
 // ── CSS ───────────────────────────────────────────────────────────────
@@ -4853,8 +4859,9 @@ function App() {
           dbAl("devamsizliklar"),
         ]);
         if(k.length){
-          setRecords(k.filter(r=>r.gonderildi).map(mapR));
-          setBekleyen(k.filter(r=>!r.gonderildi).map(mapR));
+          const tumKayitlar = k.map(mapR);
+setRecords(tumKayitlar.filter(r=>r.gonderildi===true));
+setBekleyen(tumKayitlar.filter(r=>r.gonderildi===false||r.gonderildi===null||r.gonderildi===undefined));
         }
         if(m.length) setMusteriDB(m.map(x=>({id:x.id,ad:x.ad,tel:x.tel||"",sahipId:x.sahip_id||"",sahipAd:x.sahip_ad||"",ilkGiris:x.ilk_giris||"",dogumTarihi:x.dogum_tarihi||"",cinsiyet:x.cinsiyet||"",adres:x.adres||"",notlar:x.notlar||""})));
         // Stok yükle
@@ -5153,9 +5160,15 @@ function App() {
         "staff_id,tarih");
     }
     setGsOnay(false);
-    if(ids.length>0&&DB) DB.from("kayitlar").update({gonderildi:true}).in("id",ids).then(()=>{}).catch(()=>{});
-    showToast("Veriler yoneticiye gonderildi!");
-  };
+    if(ids.length>0&&DB) DB.from("kayitlar")
+  .update({gonderildi:true})
+  .in("id",ids)
+  .then(({error})=>{
+    if(error) showToast("Supabase hatasi: "+error.message,"ha");
+    else showToast("✓ "+ids.length+" kayit yoneticiye gonderildi!");
+  })
+  .catch(e=>console.error("gunSonu catch:",e));
+     };
 
   const pEkleKaydet = () => {
     setPHata("");
