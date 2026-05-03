@@ -5058,7 +5058,13 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       setGecmis(p=>p.map(r=>r.id===gn.id?gn:r));
       dbGnc("kayitlar",{musteri:gn.musteri,telefon:gn.tel,hizmetler:gn.hizler,hiz_kk:hKK,hiz_ib:hIB,hiz_nk:hNK,
         urunler:gn.urunler,urun_kk:uKK,urun_ib:uIB,urun_nk:uNK,toplam:top},gn.id);
-      showToast("Kayıt güncellendi");
+            if(f._yonBildirimId){
+        setYonBildirim(p=>p.map(b=>b.id===f._yonBildirimId
+          ?{...b,durum:"personelDuzeltti",personelYanit:"Personel kaydı kontrol edip geri gönderdi"}:b));
+        showToast("Kayıt düzenlenip geri gönderildi","uy");
+      } else {
+        showToast("Kayıt güncellendi");
+      }
     } else {
       const y={id:uid(),staffId:kul.id,staffAd:kul.ad,musteri:f.musteri.trim(),tel:(f.tel||"").trim(),
         hizler:f.hizler||[],hizKK:hKK,hizIB:hIB,hizNK:hNK,urunler:f.urunler||[],uKK,uIB,uNK,
@@ -6033,14 +6039,28 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
                 b.islem==="sil"?"🗑 Kayit silinmek isteniyor":"✏ Kayit degistirilmek isteniyor"),
               div({style:{fontSize:13,color:"var(--mu)",marginBottom:4}},
                 h("strong",{style:{color:"var(--g)"}},b.musteri)," · ",fmtT(b.tarih)),
-              div({style:{fontSize:13,color:"var(--mu)",marginBottom:10,padding:"7px 9px",background:"var(--bg3)",borderRadius:6}},
-                "Neden: ",b.neden),
-              div({style:{display:"flex",gap:8}},
-                btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #1e5a48",background:"rgba(50,140,100,.1)",color:"var(--gr)",fontSize:13,cursor:"pointer"},
-                  onClick:()=>setYonDetay({...b,adim:"onay"})},"✓ Onayla"),
-                btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #6a2020",background:"rgba(160,40,40,.1)",color:"#c05050",fontSize:13,cursor:"pointer"},
-                  onClick:()=>setYonDetay({...b,adim:"ret",aciklama:""})},"✕ Reddet")
-              )
+              div({style:{fontSize:13,color:"var(--mu)",marginBottom:10,padding:"7px 9px",background:"var(--bg3)",borderRadius:6,lineHeight:1.5}},
+                b.islem==="duzenle"
+                  ?"Yönetici bu kaydı yanlış veya eksik yaptığınızı düşünüyor. Lütfen kontrol ederek geri gönderiniz."
+                  :"Neden: "+b.neden),
+                            b.islem==="duzenle"
+                ?div({style:{display:"flex",gap:8}},
+                  btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #1e5a48",background:"rgba(50,140,100,.1)",color:"var(--gr)",fontSize:13,cursor:"pointer"},
+                    onClick:()=>{
+                      const kayit = [...records,...bekleyen,...gecmis].find(r=>r.id===b.kayitId);
+                      if(!kayit){
+                        showToast("Kayıt bulunamadı","ha");
+                        return;
+                      }
+                      setKayitForm({...kayit,_yonBildirimId:b.id});
+                    }},"Kontrol Et ve Düzenle")
+                )
+                :div({style:{display:"flex",gap:8}},
+                  btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #1e5a48",background:"rgba(50,140,100,1)",color:"var(--gr)",fontSize:13,cursor:"pointer"},
+                    onClick:()=>setYonDetay({...b,adim:"onay"})},"✓ Onayla"),
+                  btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #6a2020",background:"rgba(160,40,40,1)",color:"#c05050",fontSize:13,cursor:"pointer"},
+                    onClick:()=>setYonDetay({...b,adim:"ret",aciklama:""})},"✕ Reddet")
+                )
             )
           )
         ),
