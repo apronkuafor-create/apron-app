@@ -4067,8 +4067,8 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [hatirlatmaUyari, setHatirlatmaUyari] = useState(false);
   const [hizler,   setHizler]   = useState(
     ilk?.hizler?.length
-      ? ilk.hizler.map(h=>({...h,listef:h.listef||HIZ_LISTE_FIYAT[h.n]||0}))
-      : [{id:uid(),n:"",f:"",listef:0,pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""}]
+      ? ilk.hizler.map(h=>({...h,listef:h.listef||HIZ_LISTE_FIYAT[h.n]||0,odeme:h.odeme||""}))
+      : [{id:uid(),n:"",f:"",listef:0,odeme:"",pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""}]
   );
   const [urunler,  setUrunler]  = useState(ilk?.urunler||[]);
   const [hKK,setHKK] = useState(String(ilk?.hizKK||""));
@@ -4132,7 +4132,20 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
       }) || null;
   };
 
-  const bosHizmet = () => ({id:uid(),n:"",f:"",listef:0,pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""});
+  const bosHizmet = () => ({id:uid(),n:"",f:"",listef:0,odeme:"",pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""});
+
+  const hizmetOdemeToplamlariniYaz = next => {
+    // Her hizmet satırındaki seçili ödeme tipine göre hizmet ödeme toplamlarını otomatik yaz.
+    const t = {kk:0, ib:0, nk:0};
+    (next||[]).forEach(x=>{
+      const tutar = toN(x.f);
+      if(x.n && tutar>0 && t.hasOwnProperty(x.odeme)) t[x.odeme] += tutar;
+    });
+    setHKK(t.kk>0 ? String(t.kk) : "");
+    setHIB(t.ib>0 ? String(t.ib) : "");
+    setHNK(t.nk>0 ? String(t.nk) : "");
+    if(t.ib<=0) setHIbanSec("");
+  };
 
   const ibanPersonelSec = (tip, pId, pAd) => {
     if(pId === aktifKullanici?.id) return;
@@ -4153,17 +4166,20 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
 
   const hSil = id => setHizler(p=>{
     const k=p.filter(x=>x.id!==id);
-    return k.length?(k.some(x=>!x.n)?k:[...k,bosHizmet()]):[bosHizmet()];
+    const next = k.length?(k.some(x=>!x.n)?k:[...k,bosHizmet()]):[bosHizmet()];
+    hizmetOdemeToplamlariniYaz(next);
+    return next;
   });
 
   const hSet = (id,alan,val) => setHizler(p=>{
     let next = p.map(x=>{
       if(x.id!==id) return x;
       if(alan==="pId"){const pp=aktifP.find(a=>a.id===val);return {...x,pId:val,pAd:pp?.ad||""};}
-      if(alan==="n"){const lf=HIZ_LISTE_FIYAT[val]||0;return {...x,n:val,f:String(lf),listef:lf};}
+      if(alan==="n"){const lf=HIZ_LISTE_FIYAT[val]||0;return {...x,n:val,f:String(lf),listef:lf,odeme:x.odeme||""};}
       return {...x,[alan]:val};
     });
     if(alan==="n"&&val&&!next.some(x=>!x.n)) next=[...next,bosHizmet()];
+    if(["n","f","odeme"].includes(alan)) hizmetOdemeToplamlariniYaz(next);
     return next;
   });
 
@@ -4455,31 +4471,46 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
         }}, musteriKaydetUyari),
 
         // Hizmetler
-        div({className:"sc sc-h"},
+        div({className:"sc sc-h",style:{border:"2px solid rgba(37,99,168,.55)",boxShadow:"0 0 0 1px rgba(37,99,168,.12) inset"}},
           div({className:"sc-hd"},
             div({className:"sc-n",style:{background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)"}},"✂"),
             div({className:"sc-t",style:{color:"var(--g)"}},"Hizmetler")
           ),
-          div({style:{border:"1px solid rgba(37,99,168,.22)",borderRadius:14,overflow:"hidden"}},
+          div({style:{border:"2px solid rgba(37,99,168,.38)",borderRadius:14,overflow:"hidden"}},
             hizler.map((h,i) =>
-              div({key:h.id,style:{display:"flex",alignItems:"center",gap:8,padding:"9px 11px",borderBottom:i===hizler.length-1?"none":"1px solid rgba(37,99,168,.10)"}},
-                div({style:{flex:1.8,minWidth:0}},
-                  sel({className:"fi",value:h.n,onChange:e=>hSet(h.id,"n",e.target.value),style:{margin:0}},
+              div({key:h.id,style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 82px 44px",alignItems:"stretch",gap:7,padding:"9px 9px",borderBottom:i===hizler.length-1?"none":"1.5px solid rgba(37,99,168,.18)"}},
+                div({style:{minWidth:0,background:"var(--bg3)",border:"1.5px solid rgba(37,99,168,.25)",borderRadius:10,overflow:"hidden"}},
+                  sel({className:"fi",value:h.n,onChange:e=>hSet(h.id,"n",e.target.value),style:{margin:0,border:"none",borderRadius:0,background:"transparent",padding:"10px 11px",fontSize:13.5}},
                     opt("","Hizmet seç"),
                     _hizListesi.map(x=>opt(x))
+                  ),
+                  h.n&&div({style:{borderTop:"1px solid rgba(37,99,168,.16)",padding:"5px 11px 6px",fontSize:11,color:"var(--mu)",display:"flex",justifyContent:"space-between",gap:6}},
+                    span(null,"Liste fiyatı"),
+                    span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:14,color:"var(--g)",fontWeight:700}},h.listef?fmt(h.listef):"—")
                   )
                 ),
-                h.n&&div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:16,color:"var(--g)",fontWeight:700,flexShrink:0,minWidth:60,textAlign:"right"}},
-                  h.listef?fmt(h.listef):"—"
+                h.n&&div({style:{display:"flex",flexDirection:"column",gap:5,justifyContent:"space-between"}},
+                  inp({type:"number",inputMode:"numeric",className:"fi",value:h.f,
+                    onChange:e=>hSet(h.id,"f",e.target.value),
+                    style:{height:42,textAlign:"center",fontFamily:"Cormorant Garamond,serif",fontSize:17,color:"var(--g)",fontWeight:700,padding:"7px 6px"}}),
+                  btn({style:{background:"transparent",border:"1px solid #3a2010",borderRadius:7,color:"var(--mu)",fontSize:12,padding:"5px 4px",cursor:"pointer"},onClick:()=>hSil(h.id)},"Sil")
                 ),
-                h.n?btn({style:{background:"transparent",border:"1px solid #3a2010",borderRadius:6,color:"var(--mu)",fontSize:13,padding:"8px 8px",cursor:"pointer",flexShrink:0},onClick:()=>hSil(h.id)},"Sil"):null
+                h.n&&div({style:{display:"flex",flexDirection:"column",gap:4}},
+                  [["kk","K.K"],["ib","Iban"],["nk","Nakit"]].map(([kod,ad])=>
+                    btn({key:kod,type:"button",style:{flex:1,minHeight:26,background:h.odeme===kod?"linear-gradient(135deg,var(--g),var(--gd))":"var(--bg3)",border:"1.5px solid "+(h.odeme===kod?"var(--g)":"var(--br)"),borderRadius:7,color:h.odeme===kod?"var(--bg)":"var(--mu)",fontSize:10.5,fontWeight:h.odeme===kod?800:500,padding:"3px 2px",cursor:"pointer",boxShadow:h.odeme===kod?"0 4px 12px rgba(37,99,168,.28)":"none",transform:h.odeme===kod?"scale(1.03)":"scale(1)"},
+                      onClick:()=>hSet(h.id,"odeme",kod)},ad)
+                  )
+                )
               )
             )
           ),
-          hizTop>0 && div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
-            padding:"8px 11px",background:"rgba(37,99,168,.06)",borderRadius:8,marginTop:6,marginBottom:2}},
-            span({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase"}},"Hizmet Toplami"),
-            span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"var(--g)",fontWeight:700}},fmt(hizTop))
+          hizTop>0 && div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginTop:7,marginBottom:2}},
+            [["K.Karti",toN(hKK)],["IBAN",toN(hIB)],["Nakit",toN(hNK)]].map(([lb,v])=>
+              div({key:lb,style:{background:"rgba(37,99,168,.06)",border:"1px solid rgba(37,99,168,.16)",borderRadius:8,padding:"8px 7px",textAlign:"center"}},
+                div({style:{fontSize:10,color:"var(--mu)",letterSpacing:1,textTransform:"uppercase",marginBottom:3}},lb),
+                div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:v>0?"var(--g)":"var(--br)",fontWeight:700}},fmt(v))
+              )
+            )
           ),
           h(OdemeGir,{renk:"var(--g)",label:"Odeme Toplami",kk:hKK,ib:hIB,nk:hNK,
             beklenen:hizTop, onSil:true,
