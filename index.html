@@ -398,6 +398,29 @@ const OdemeGir = React.memo(function OdemeGir({renk, kk, ib, nk, onChange, label
 });
 
 // ── KayitForm ─────────────────────────────────────────────────────────
+// Bölüm bazlı renklendirme hedefleri
+const SECTION_STYLE_TARGETS = {
+  "staff.today.newRecord.services": {
+    label: "Personel Paneli / Bugün / Yeni Kayıt Ekle / Hizmetler",
+    defaultStyle: {
+      backgroundColor: "transparent",
+      borderColor: "rgba(37,99,168,.55)",
+      borderWidth: 2,
+      titleColor: "var(--g)",
+      textColor: "var(--tx)",
+      iconBackground: "linear-gradient(135deg,var(--g),var(--gd))",
+      iconColor: "var(--bg)",
+      fontFamily: "Jost",
+      borderRadius: 16
+    }
+  }
+};
+const SECTION_STYLE_KEY_HIZMETLER = "staff.today.newRecord.services";
+const getSectionStyle = (styles, key) => ({
+  ...(SECTION_STYLE_TARGETS[key]?.defaultStyle || {}),
+  ...((styles && styles[key]) || {})
+});
+
 // ── ÜRÜN ARAMA BİLEŞENİ (top-level — klavye kapanmasını önler) ──
 function UrunAramaBilesen({aramaVal,setAramaVal,onEkle,placeholder}) {
   const q = (aramaVal||"").trim();
@@ -4060,7 +4083,7 @@ function BarkodTarayici({onOku, onKapat}) {
 }
 
 
-function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonText, onKaydet, onIptal, hizListeleri, hatirlatmalar, setHatirlatmalar}) {
+function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonText, onKaydet, onIptal, hizListeleri, hatirlatmalar, setHatirlatmalar, bolumStilleri}) {
   const aktifP = personeller.filter(p=>p.rol==="personel"&&p.aktif);
   const _poz = aktifKullanici?.pozisyon||"";
   const _isManikurist = _poz==="Manikurist"||_poz==="Pedikürist"||_poz==="Pedikurist";
@@ -4095,6 +4118,10 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [musteriKaydetUyari, setMusteriKaydetUyari] = useState("");
   const [hizmetOdemeUyariId, setHizmetOdemeUyariId] = useState("");
   const [urunOdemeUyariId, setUrunOdemeUyariId] = useState("");
+
+  const hizmetBolumStili = getSectionStyle(bolumStilleri, SECTION_STYLE_KEY_HIZMETLER);
+  const hizmetFontMap = {Jost:"'Jost',system-ui,sans-serif", Inter:"'Inter',system-ui,sans-serif", Playfair:"'Playfair Display',Georgia,serif", Sistem:"system-ui,sans-serif"};
+  const hizmetFont = hizmetFontMap[hizmetBolumStili.fontFamily] || hizmetFontMap.Jost;
 
   const odemesizIlkHizmet = (liste=hizler) => (liste||[]).find(x=>x.n && !x.odeme);
   const hizmetOdemeUyarisiGoster = (hedefId) => {
@@ -4537,10 +4564,17 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
         }}, musteriKaydetUyari),
 
         // Hizmetler
-        div({className:"sc sc-h",style:{border:"2px solid rgba(37,99,168,.55)",boxShadow:"0 0 0 1px rgba(37,99,168,.12) inset"}},
+        div({className:"sc sc-h",style:{
+          background:hizmetBolumStili.backgroundColor||"transparent",
+          border:(Number(hizmetBolumStili.borderWidth)||2)+"px solid "+(hizmetBolumStili.borderColor||"rgba(37,99,168,.55)"),
+          borderRadius:(Number(hizmetBolumStili.borderRadius)||16)+"px",
+          boxShadow:"0 0 0 1px rgba(37,99,168,.12) inset",
+          color:hizmetBolumStili.textColor||"var(--tx)",
+          fontFamily:hizmetFont
+        }},
           div({className:"sc-hd"},
-            div({className:"sc-n",style:{background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)"}},"✂"),
-            div({className:"sc-t",style:{color:"var(--g)"}},"Hizmetler")
+            div({className:"sc-n",style:{background:hizmetBolumStili.iconBackground||"linear-gradient(135deg,var(--g),var(--gd))",color:hizmetBolumStili.iconColor||"var(--bg)"}},"✂"),
+            div({className:"sc-t",style:{color:hizmetBolumStili.titleColor||"var(--g)",fontFamily:hizmetFont}},"Hizmetler")
           ),
           div({style:{border:"2px solid rgba(37,99,168,.38)",borderRadius:14,overflow:"hidden"}},
             hizler.map((h,i) =>
@@ -5180,6 +5214,12 @@ function App() {
       y_ozet:"Özet",y_kayitlar:"Kayıtlar",y_urunler:"Ürünler",y_ayarlar:"Ayarlar"
     }; }
   });
+  const [bolumStilleri, setBolumStilleri] = useState(()=>{
+    try {
+      const kayitli = JSON.parse(localStorage.getItem("apron_bolum_stilleri")||"null");
+      return kayitli || {};
+    } catch(e) { return {}; }
+  });
   const [gecmisMusteriFil, setGecmisMusteriFil] = useState("");
   const [gecmisAyFil, setGecmisAyFil]           = useState(String(new Date().getMonth()+1));
   const [gecmisTarihFil, setGecmisTarihFil]     = useState("");
@@ -5246,6 +5286,7 @@ ayarlarRaw.forEach(a=>{
   if(a.id==="hizListeleri") setHizListeleri(a.deger);
   if(a.id==="bankalar") setBankalar(a.deger);
   if(a.id==="yonBildirim") setYonBildirim(Array.isArray(a.deger)?a.deger:[]);
+  if(a.id==="bolumStilleri") setBolumStilleri(a.deger||{});
 });
         const [k,m,d] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
@@ -5304,6 +5345,11 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
   useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"hizListeleri",deger:hizListeleri}).then(()=>{}).catch(console.warn); },[hizListeleri]);
   useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"bankalar",deger:bankalar}).then(()=>{}).catch(console.warn); },[bankalar]);
   useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"yonBildirim",deger:yonBildirim}).then(()=>{}).catch(console.warn); },[yonBildirim]);
+  useEffect(()=>{
+    if(yukleniyor) return;
+    localStorage.setItem("apron_bolum_stilleri", JSON.stringify(bolumStilleri||{}));
+    if(DB) DB.from("ayarlar").upsert({id:"bolumStilleri",deger:bolumStilleri||{}}).then(()=>{}).catch(console.warn);
+  },[bolumStilleri,yukleniyor]);
 
   // Sekme isimlerini kaydet
 
@@ -5708,7 +5754,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     devUnuttum&&kul&&(()=>{
       const ds = eksikGunTarih || (()=>{ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; })();
       const dl = new Date(ds+"T12:00:00").toLocaleDateString("tr-TR",{day:"2-digit",month:"long",year:"numeric"});
-      return h(KayitForm,{ilk:{tarih:ds},musteriDB,personeller,aktifKullanici:kul,
+      return h(KayitForm,{bolumStilleri,ilk:{tarih:ds},musteriDB,personeller,aktifKullanici:kul,
         baslik:dl+" Tarihli Kayit",
         onKaydet:devUnuttumKaydet,
         onIptal:()=>{setDevUnuttum(false);setEksikGunTarih("");}});
@@ -5794,7 +5840,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
           ),
 
           // Adım: düzenleme formu
-          yonDuzForm.adim==="duzenle"&&h(KayitForm,{
+          yonDuzForm.adim==="duzenle"&&h(KayitForm,{bolumStilleri,
             ilk:yonDuzForm.kayit,
             musteriDB, personeller, aktifKullanici:kul,
             baslik:"Kayıt Düzenle (Yönetici)",
@@ -6153,7 +6199,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     ),
 
     // Kayit formu
-    kayitForm&&h(KayitForm,{ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,hizListeleri,buttonText:kayitForm._yonBildirimId?"Güncelle ve Gönder":undefined,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null),hatirlatmalar,setHatirlatmalar}),
+    kayitForm&&h(KayitForm,{bolumStilleri,ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,hizListeleri,buttonText:kayitForm._yonBildirimId?"Güncelle ve Gönder":undefined,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null),hatirlatmalar,setHatirlatmalar}),
 
     // Personel ekle modal
     pEkle&&h(PersonelFormModal,{title:"Yeni Personel",data:yeniP,setData:setYeniP,hata:pHata,gruplar:pGruplar,onKaydet:pEkleKaydet,onIptal:()=>{setPEkle(false);setPHata("");},showDurum:false}),
@@ -8483,6 +8529,49 @@ const turet=(zemin,vurgu,yazi)=>({
               div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8}},"🎨 Renklendirme"),
               div({style:{fontSize:13,color:"var(--mu)",marginBottom:18,lineHeight:1.6}},
                 "3 ana renk seçin, tüm uygulama otomatik uyum sağlar."),
+              (()=>{
+                const key = SECTION_STYLE_KEY_HIZMETLER;
+                const hedef = SECTION_STYLE_TARGETS[key];
+                const st = getSectionStyle(bolumStilleri, key);
+                const guncelle = (alan,deger)=>setBolumStilleri(p=>({...p,[key]:{...getSectionStyle(p,key),[alan]:deger}}));
+                const renkSatiri = (etiket,alan,deger)=>div({style:{marginBottom:10}},
+                  lbl({className:"fl"},etiket),
+                  div({style:{display:"flex",gap:8,alignItems:"center"}},
+                    inp({type:"color",value:String(deger||"#000000").startsWith("#")?deger:"#2563a8",
+                      style:{width:48,height:42,border:"1px solid var(--br)",borderRadius:9,background:"transparent",padding:0,cursor:"pointer"},
+                      onChange:e=>guncelle(alan,e.target.value)}),
+                    inp({className:"fi",style:{flex:1,margin:0},value:deger||"",onChange:e=>guncelle(alan,e.target.value)})
+                  )
+                );
+                return div({style:{background:"var(--bg2)",border:"1.5px solid var(--br)",borderRadius:14,padding:14,marginBottom:18}},
+                  div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8}},"BÖLÜM BAZLI RENKLENDİRME"),
+                  div({style:{fontSize:13,color:"var(--mu)",lineHeight:1.5,marginBottom:12}},"Konum: "+hedef.label),
+                  div({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:10,padding:10,marginBottom:12,fontSize:12,color:"var(--tx)",wordBreak:"break-word"}},key),
+                  renkSatiri("Arka Plan Rengi","backgroundColor",st.backgroundColor),
+                  renkSatiri("Başlık Rengi","titleColor",st.titleColor),
+                  renkSatiri("Çerçeve Rengi","borderColor",st.borderColor),
+                  renkSatiri("Yazı Rengi","textColor",st.textColor),
+                  div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+                    div(null,lbl({className:"fl"},"Çerçeve Kalınlığı"),inp({className:"fi",type:"number",min:1,max:8,value:st.borderWidth,onChange:e=>guncelle("borderWidth",e.target.value)})),
+                    div(null,lbl({className:"fl"},"Köşe Yuvarlaklığı"),inp({className:"fi",type:"number",min:0,max:30,value:st.borderRadius,onChange:e=>guncelle("borderRadius",e.target.value)}))
+                  ),
+                  div({style:{marginBottom:12}},
+                    lbl({className:"fl"},"Yazı Tipi"),
+                    sel({className:"fi",value:st.fontFamily||"Jost",onChange:e=>guncelle("fontFamily",e.target.value)},
+                      opt("Jost","Jost"),opt("Inter","Inter"),opt("Playfair","Playfair"),opt("Sistem","Sistem")
+                    )
+                  ),
+                  div({style:{background:st.backgroundColor,border:(Number(st.borderWidth)||2)+"px solid "+st.borderColor,borderRadius:(Number(st.borderRadius)||16)+"px",padding:13,marginBottom:12,color:st.textColor,fontFamily:st.fontFamily==="Playfair"?"'Playfair Display',Georgia,serif":(st.fontFamily==="Inter"?"'Inter',system-ui,sans-serif":(st.fontFamily==="Sistem"?"system-ui,sans-serif":"'Jost',system-ui,sans-serif"))}},
+                    div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:10}},
+                      div({style:{width:28,height:28,borderRadius:999,background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)",display:"flex",alignItems:"center",justifyContent:"center"}},"✂"),
+                      div({style:{fontSize:18,color:st.titleColor,fontWeight:800,letterSpacing:3,textTransform:"uppercase"}},"Hizmetler")
+                    ),
+                    div({style:{fontSize:13,lineHeight:1.45}},"Bu önizleme sadece Personel Paneli / Bugün / Yeni Kayıt Ekle / Hizmetler bölümüne uygulanır.")
+                  ),
+                  btn({style:{width:"100%",padding:"10px",borderRadius:9,border:"1px dashed rgba(192,80,80,.3)",background:"transparent",color:"#c05050",fontSize:13,cursor:"pointer"},
+                    onClick:()=>setBolumStilleri(p=>{const n={...p};delete n[key];return n;})},"Bu Bölümü Varsayılana Döndür")
+                );
+              })(),
               satir("Zemin Rengi","🎨","Arka plan, kartlar, inputlar ve kenarlıklar",z,n=>setTema(turet(n,v,y))),
               satir("Vurgu Rengi","💎","Butonlar, başlıklar ve aktif elemanlar",v,n=>setTema(turet(z,n,y))),
               satir("Yazı Rengi","✏","Ana metin, soluk yazılar ve etiketler",y,n=>setTema(turet(z,v,n))),
