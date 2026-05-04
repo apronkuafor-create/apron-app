@@ -4061,7 +4061,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [musteri,  setMusteri]  = useState(ilk?.musteri||"");
   const [tel,      setTel]      = useState(ilk?.tel||"");
   const [formTarih, setFormTarih] = useState(ilk?.tarih || TODAY());
-  const [musteriKaydet, setMusteriKaydet] = useState(false);
+  const [musteriKaydet, setMusteriKaydet] = useState(!!ilk?.musteriKaydet);
   const [hatirlatmaSec, setHatirlatmaSec] = useState(false);
   const [mevcutHatirlatma, setMevcutHatirlatma] = useState(null);
   const [hatirlatmaUyari, setHatirlatmaUyari] = useState(false);
@@ -4197,7 +4197,9 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
       // Yönetici tarafından personele gönderilen düzenleme bildirimini kaybetmemek için taşınır.
       _yonBildirimId: ilk?._yonBildirimId || "",
       _yonBildirimNeden: ilk?._yonBildirimNeden || "",
-      _yonOncekiKayit: ilk?._yonOncekiKayit || null
+      _yonOncekiKayit: ilk?._yonOncekiKayit || null,
+      // Müşteri sistem kaydı tercihi: burada sadece işaret tutulur; gerçek müşteri kaydı gün sonunda yapılır.
+      musteriKaydet: !!musteriKaydet
     });
   };
 
@@ -4347,7 +4349,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
               "Müşteriyi sisteme kaydet"),
             div({style:{fontSize:12,color:"var(--di)",marginTop:2}},
               musteriKaydet
-                ?"Ad ve telefon kaydedilecek — bir dahaki ziyarette otomatik bulunacak"
+                ?"Gün sonunda yöneticiye gönderilince müşteri sistemine kaydedilecek"
                 :"Sadece bu işlem kaydedilecek — müşteri bilgileri saklanmayacak")
           )
         ),
@@ -5059,6 +5061,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       hizler:f.hizler||[],hizKK,hizIB:hIB,hizNK,
       urunler:f.urunler||[],uKK,uIB,uNK,
       toplam:top,tarih:ds,saat:f.saat||"23:59",gonderildi:false,
+      musteriKaydet: !!f.musteriKaydet,
       anaPersonelId:f.anaPersonelId||"",
       hizIbanId:f.hizIbanId||"", hizIbanAd:f.hizIbanAd||"",
       urunIbanId:f.urunIbanId||"", urunIbanAd:f.urunIbanAd||""};
@@ -5070,18 +5073,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       toplam:y.toplam,tarih:y.tarih,saat:y.saat,gonderildi:false});
     // O tarih için "çalıştı" işareti (mazeret değil, sadece kayıt verildi)
     setDevDB(p=>({...p,[ds+"_"+kul.id]:"Calistim - sonradan girildi"}));
-    // Müşteriyi de kaydet
-    if(f.musteriKaydet!==false && f.musteri && f.musteri.trim()){
-      const vm=musteriDB.find(m=>m.ad.toLowerCase()===f.musteri.trim().toLowerCase()||
-        (f.tel&&f.tel.trim()&&m.tel===f.tel.trim()));
-      if(!vm){
-        const ym={id:uid(),ad:f.musteri.trim(),tel:(f.tel||"").trim(),
-          sahipId:kul.id,sahipAd:kul.ad,ilkGiris:ds};
-        setMusteriDB(p=>[...p,ym]);
-        dbEkle("musteriler",{id:ym.id,ad:ym.ad,tel:ym.tel,
-          sahip_id:ym.sahipId,sahip_ad:ym.sahipAd,ilk_giris:ym.ilkGiris});
-      }
-    }
+    // Müşteri sistem kaydı burada yapılmaz. İşaretli kayıtlar gün sonunda yöneticiye gönderilirken müşteri havuzuna eklenir.
     // Formu kapat ama ekran personelde kalsın
     setDevUnuttum(false); setDevUyari(false); setEksikGunTarih("");
     setEkran("personel");
@@ -5105,7 +5097,8 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
         musteri:(f.musteri||"").trim(), tel:(f.tel||"").trim(),
         hizler:f.hizler||[], hizKK:hKK, hizIB:hIB, hizNK:hNK,
         urunler:f.urunler||[], uKK:uKK, uIB:uIB, uNK:uNK,
-        toplam:top, tarih:f.tarih, saat:f.saat, gonderildi:f.gonderildi||false
+        toplam:top, tarih:f.tarih, saat:f.saat, gonderildi:f.gonderildi||false,
+        musteriKaydet: !!f.musteriKaydet
       };
       if(bildirimliDuzenleme){
         const duzenlemeLog = {
@@ -5156,6 +5149,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       const y={id:uid(),staffId:kul.id,staffAd:kul.ad,musteri:f.musteri.trim(),tel:(f.tel||"").trim(),
         hizler:f.hizler||[],hizKK:hKK,hizIB:hIB,hizNK:hNK,urunler:f.urunler||[],uKK,uIB,uNK,
         toplam:top,tarih:f.tarih||TODAY(),saat:SAAT(),gonderildi:false,
+        musteriKaydet: !!f.musteriKaydet,
         anaPersonelId:f.anaPersonelId||"",
         hizIbanId:f.hizIbanId||"", hizIbanAd:f.hizIbanAd||"",
         urunIbanId:f.urunIbanId||"", urunIbanAd:f.urunIbanAd||""};
@@ -5179,20 +5173,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
             adet,tarih:y.tarih,staff_id:y.staffId,staff_name:y.staffAd,kayit_id:y.id});
         });
       }
-      if(f.musteriKaydet!==false){
-        const vm=musteriDB.find(m=>m.ad.toLowerCase()===f.musteri.trim().toLowerCase()||
-          (f.tel&&f.tel.trim()&&m.tel===f.tel.trim()));
-        if(!vm){
-          const ym={id:uid(),ad:f.musteri.trim(),tel:(f.tel||"").trim(),
-            sahipId:kul.id,sahipAd:kul.ad,ilkGiris:TODAY()};
-          setMusteriDB(p=>[...p,ym]);
-          dbEkle("musteriler",{id:ym.id,ad:ym.ad,tel:ym.tel,
-            sahip_id:ym.sahipId,sahip_ad:ym.sahipAd,ilk_giris:ym.ilkGiris});
-        } else if(vm.tel!==(f.tel||"").trim()&&f.tel&&f.tel.trim()){
-        // Telefon güncellenmiş olabilir
-          setMusteriDB(p=>p.map(m=>m.id===vm.id?{...m,tel:f.tel.trim()}:m));
-        }
-      } // musteriKaydet if sonu
+      // Müşteri sistem kaydı burada yapılmaz. Kullanıcının seçimi kaydın içinde tutulur ve gün sonunda işlenir.
       showToast("Kayıt eklendi!");
     }
     setKayitForm(null);
@@ -5205,7 +5186,27 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     showToast("Kayıt silindi","uy");
   };
 
+  const musteriHavuzunaEkle = (kayit) => {
+    // Sadece personelin işaretlediği ve ad/telefon bilgisi olan kayıtlar müşteri sistemine alınır.
+    if(!kayit?.musteriKaydet || !kayit?.musteri || !String(kayit.musteri).trim()) return;
+    const ad = String(kayit.musteri||"").trim();
+    const telNo = String(kayit.tel||"").trim();
+    const mevcut = musteriDB.find(m =>
+      normText(m.ad) === normText(ad) || (telNo && String(m.tel||"").trim() === telNo)
+    );
+    if(!mevcut){
+      const ym = {id:uid(), ad, tel:telNo, sahipId:kayit.staffId||kul.id, sahipAd:kayit.staffAd||kul.ad, ilkGiris:kayit.tarih||TODAY()};
+      setMusteriDB(p=>[...p, ym]);
+      dbEkle("musteriler", {id:ym.id, ad:ym.ad, tel:ym.tel, sahip_id:ym.sahipId, sahip_ad:ym.sahipAd, ilk_giris:ym.ilkGiris});
+    } else if(telNo && String(mevcut.tel||"").trim() !== telNo){
+      setMusteriDB(p=>p.map(m=>m.id===mevcut.id ? {...m, tel:telNo} : m));
+      dbGnc("musteriler", {tel:telNo}, mevcut.id);
+    }
+  };
+
   const gunSonu = () => {
+    // Müşteri havuzuna kayıt sadece gün sonu yöneticiye gönderme anında yapılır.
+    myBekleyen.forEach(musteriHavuzunaEkle);
     const ids=myBekleyen.map(r=>r.id);
     // IBAN bildirimi oluştur - toplu olarak tek seferde
     const yeniBildirimler = myBekleyen
