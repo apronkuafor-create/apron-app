@@ -4093,6 +4093,15 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [telOneri, setTelOneri] = useState([]);
   const [silIkonuAlani, setSilIkonuAlani] = useState(ilk?.tel ? "tel" : (ilk?.musteri ? "musteri" : ""));
   const [musteriKaydetUyari, setMusteriKaydetUyari] = useState("");
+  const [hizmetOdemeUyariId, setHizmetOdemeUyariId] = useState("");
+
+  const odemesizIlkHizmet = (liste=hizler) => (liste||[]).find(x=>x.n && !x.odeme);
+  const hizmetOdemeUyarisiGoster = (hedefId) => {
+    // Kritik uyarı: Yeni hizmete geçmeden önce önceki hizmetin ödeme tipi seçilmelidir.
+    const hedef = hedefId || odemesizIlkHizmet()?.id || "";
+    setHizmetOdemeUyariId(hedef);
+    setTimeout(()=>setHizmetOdemeUyariId(cur=>cur===hedef?"":cur), 1800);
+  };
 
   const temizTelefonRakam = v => String(v||"").replace(/\D/g,"");
   const musteriSistemdeVar = () => {
@@ -4179,6 +4188,13 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   });
 
   const hSet = (id,alan,val) => setHizler(p=>{
+    if(alan==="n" && val) {
+      const odemesiz = p.find(x=>x.id!==id && x.n && !x.odeme);
+      if(odemesiz) {
+        hizmetOdemeUyarisiGoster(odemesiz.id);
+        return p;
+      }
+    }
     let next = p.map(x=>{
       if(x.id!==id) return x;
       if(alan==="pId"){const pp=aktifP.find(a=>a.id===val);return {...x,pId:val,pAd:pp?.ad||""};}
@@ -4187,6 +4203,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
     });
     if(alan==="n"&&val&&!next.some(x=>!x.n)) next=[...next,bosHizmet()];
     if(["n","f","odeme"].includes(alan)) hizmetOdemeToplamlariniYaz(next);
+    if(alan==="odeme" && val) setHizmetOdemeUyariId(cur=>cur===id?"":cur);
     return next;
   });
 
@@ -4487,7 +4504,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
             hizler.map((h,i) =>
               div({key:h.id,style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 82px 44px",alignItems:"stretch",gap:7,padding:"9px 9px",borderBottom:i===hizler.length-1?"none":(h.n?"3px solid rgba(37,99,168,.48)":"1.5px solid rgba(37,99,168,.18)")}},
                 div({style:{minWidth:0,background:"var(--bg3)",border:"1.5px solid rgba(37,99,168,.25)",borderRadius:10,overflow:"hidden"}},
-                  sel({className:"fi",value:h.n,onChange:e=>hSet(h.id,"n",e.target.value),style:{margin:0,border:"none",borderRadius:0,background:"transparent",padding:"10px 11px",fontSize:13.5}},
+                  sel({className:"fi",value:h.n,onFocus:()=>{if(!h.n){const odemesiz=odemesizIlkHizmet();if(odemesiz) hizmetOdemeUyarisiGoster(odemesiz.id);}},onClick:()=>{if(!h.n){const odemesiz=odemesizIlkHizmet();if(odemesiz) hizmetOdemeUyarisiGoster(odemesiz.id);}},onChange:e=>hSet(h.id,"n",e.target.value),style:{margin:0,border:"none",borderRadius:0,background:"transparent",padding:"10px 11px",fontSize:13.5}},
                     opt("","Hizmet seç"),
                     _hizListesi.map(x=>opt(x))
                   ),
@@ -4529,11 +4546,12 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                   ),
                   btn({style:{background:"transparent",border:"1px solid #3a2010",borderRadius:7,color:"var(--mu)",fontSize:12,padding:"5px 4px",cursor:"pointer"},onClick:()=>hSil(h.id)},"Sil")
                 ),
-                h.n&&div({style:{display:"flex",flexDirection:"column",gap:4}},
+                h.n&&div({style:{display:"flex",flexDirection:"column",gap:4,padding:hizmetOdemeUyariId===h.id?3:0,border:hizmetOdemeUyariId===h.id?"2px solid #e02020":"2px solid transparent",borderRadius:10,boxShadow:hizmetOdemeUyariId===h.id?"0 0 0 4px rgba(224,32,32,.12)":"none",transition:".18s"}},
                   [["kk","K.K"],["ib","Iban"],["nk","Nakit"]].map(([kod,ad])=>
                     btn({key:kod,type:"button",style:{flex:1,minHeight:26,background:h.odeme===kod?"linear-gradient(135deg,var(--g),var(--gd))":"var(--bg3)",border:"1.5px solid "+(h.odeme===kod?"var(--g)":"var(--br)"),borderRadius:7,color:h.odeme===kod?"var(--bg)":"var(--mu)",fontSize:10.5,fontWeight:h.odeme===kod?800:500,padding:"3px 2px",cursor:"pointer",boxShadow:h.odeme===kod?"0 4px 12px rgba(37,99,168,.28)":"none",transform:h.odeme===kod?"scale(1.03)":"scale(1)"},
                       onClick:()=>hSet(h.id,"odeme",h.odeme===kod?"":kod)},ad)
-                  )
+                  ),
+                  hizmetOdemeUyariId===h.id&&div({style:{fontSize:9.5,lineHeight:1.15,color:"#e02020",fontWeight:800,textAlign:"center"}},"Ödeme seç")
                 )
               )
             )
@@ -4543,7 +4561,26 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
             ibanPersoneller:aktifP.filter(p=>p.id!==aktifKullanici?.id),
             ibanSecili:hIbanSec,
             onIbanSec:(pId,pAd)=>ibanPersonelSec("hiz",pId,pAd),
-            onChange:(k,v)=>{if(k==="kk")setHKK(v);else if(k==="ib"){setHIB(v);if(!v)setHIbanSec("");}else setHNK(v);}})
+            onChange:(k,v)=>{if(k==="kk")setHKK(v);else if(k==="ib"){setHIB(v);if(!v)setHIbanSec("");}else setHNK(v);}}),
+          (()=>{
+            const satirlar = hizler.filter(x=>x.n && toN(x.listef)>0 && toN(x.f)>0).map(x=>{
+              const liste = toN(x.listef);
+              const gercek = toN(x.f);
+              const fark = gercek - liste;
+              const yuzde = liste>0 ? Math.round((fark/liste)*100) : 0;
+              return {ad:x.n, fark, yuzde};
+            });
+            if(!satirlar.length) return null;
+            return div({style:{marginTop:7,padding:"8px 10px",background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9}},
+              satirlar.map((s,i)=>{
+                const renk = s.fark<0 ? "#50b880" : (s.fark>0 ? "#f0a060" : "var(--mu)");
+                const metin = s.fark<0
+                  ? s.ad+": "+fmt(Math.abs(s.fark))+" indirim (%"+Math.abs(s.yuzde)+")"
+                  : (s.fark>0 ? s.ad+": "+fmt(s.fark)+" fazla alındı (%"+s.yuzde+")" : s.ad+": Liste fiyatı ile aynı");
+                return div({key:i,style:{fontSize:12.5,color:renk,lineHeight:1.45,marginBottom:i<satirlar.length-1?4:0,fontWeight:600}},metin);
+              })
+            );
+          })()
         ),
         // Urunler
         div({className:"sc sc-u"},
