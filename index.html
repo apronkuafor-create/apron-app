@@ -4644,6 +4644,54 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
 
 function KayitKarti({r, onDetay, onDuzenle, onSil}) {
   const kk=(r.hizKK||0)+(r.uKK||0), ib=(r.hizIB||0)+(r.uIB||0), nk=(r.hizNK||0)+(r.uNK||0);
+
+  const yoneticiTalepAktif = (kayitId) => yonBildirim.find(b =>
+    b.kaynak === "personelTalep" && b.kayitId === kayitId && b.durum === "bekliyor"
+  );
+
+  const yoneticiTalepGonder = (kayit, islem) => {
+    if(!kayit || !islem) return;
+    const mevcut = yoneticiTalepAktif(kayit.id);
+    if(mevcut){
+      setGecmisDuzeltOnay(null);
+      showToast("Bu kayıt zaten Onay'a gönderildi, yönetici onayı bekleniyor","uy");
+      return;
+    }
+    const talep = {
+      id:uid(), kaynak:"personelTalep", staffId:kayit.staffId || kul.id, staffAd:kayit.staffAd || kul.ad,
+      kayitId:kayit.id, musteri:kayit.musteri || "", tarih:kayit.tarih || TODAY(), saat:kayit.saat || "",
+      islem, durum:"bekliyor", tarihGonder:TODAY(), saatGonder:SAAT(),
+      mesaj:islem === "sil" ? "Kayıt silinmek üzere Onay'a gönderildi" : "Kayıt düzenlenmek üzere Onay'a gönderildi"
+    };
+    setYonBildirim(p=>[talep,...p]);
+    setGecmisDuzeltOnay(null);
+    showToast("Talep Onay'a gönderildi. Yönetici onayı bekleniyor.","uy");
+  };
+
+  const yoneticiTalepOnayla = (talep) => {
+    if(!talep) return;
+    setYonBildirim(p=>p.map(b=>b.id===talep.id ? {...b,durum:"onaylandi",yonGordu:true,onayTarih:TODAY(),onaySaat:SAAT()} : b));
+    if(talep.islem === "duzenle"){
+      const kayit = records.find(r=>r.id===talep.kayitId) || bekleyen.find(r=>r.id===talep.kayitId) || gecmis.find(r=>r.id===talep.kayitId);
+      if(kayit) setKayitForm({...kayit,_gecmisDuzenle:true});
+      showToast("Düzenleme talebi onaylandı","ba");
+      return;
+    }
+    if(talep.islem === "sil"){
+      setRecords(p=>p.filter(r=>r.id!==talep.kayitId));
+      setGecmis(p=>p.filter(r=>r.id!==talep.kayitId));
+      setBekleyen(p=>p.filter(r=>r.id!==talep.kayitId));
+      dbSil("kayitlar",talep.kayitId);
+      showToast("Silme talebi onaylandı ve kayıt silindi","uy");
+    }
+  };
+
+  const yoneticiTalepIptal = (talep) => {
+    if(!talep) return;
+    setYonBildirim(p=>p.map(b=>b.id===talep.id ? {...b,durum:"iptal",yonGordu:true,iptalTarih:TODAY(),iptalSaat:SAAT()} : b));
+    showToast("Talep iptal edildi","uy");
+  };
+
   const riIcon = r => (r.hizler?.length>0&&r.urunler?.length>0)?"✂️":r.hizler?.length>0?"✂️":"🛍️";
   return div({className:`kk${!r.gonderildi?" bk2":""}`},
     div({className:"kku",onClick:()=>onDetay(r)},
@@ -5357,6 +5405,54 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     showToast("Personel guncellendi");
   };
 
+
+  const yoneticiTalepAktif = (kayitId) => yonBildirim.find(b =>
+    b.kaynak === "personelTalep" && b.kayitId === kayitId && b.durum === "bekliyor"
+  );
+
+  const yoneticiTalepGonder = (kayit, islem) => {
+    if(!kayit || !islem) return;
+    const mevcut = yoneticiTalepAktif(kayit.id);
+    if(mevcut){
+      setGecmisDuzeltOnay(null);
+      showToast("Bu kayıt zaten Onay'a gönderildi, yönetici onayı bekleniyor","uy");
+      return;
+    }
+    const talep = {
+      id:uid(), kaynak:"personelTalep", staffId:kayit.staffId || kul.id, staffAd:kayit.staffAd || kul.ad,
+      kayitId:kayit.id, musteri:kayit.musteri || "", tarih:kayit.tarih || TODAY(), saat:kayit.saat || "",
+      islem, durum:"bekliyor", tarihGonder:TODAY(), saatGonder:SAAT(),
+      mesaj:islem === "sil" ? "Kayıt silinmek üzere Onay'a gönderildi" : "Kayıt düzenlenmek üzere Onay'a gönderildi"
+    };
+    setYonBildirim(p=>[talep,...p]);
+    setGecmisDuzeltOnay(null);
+    showToast("Talep Onay'a gönderildi. Yönetici onayı bekleniyor.","uy");
+  };
+
+  const yoneticiTalepOnayla = (talep) => {
+    if(!talep) return;
+    setYonBildirim(p=>p.map(b=>b.id===talep.id ? {...b,durum:"onaylandi",yonGordu:true,onayTarih:TODAY(),onaySaat:SAAT()} : b));
+    if(talep.islem === "duzenle"){
+      const kayit = records.find(r=>r.id===talep.kayitId) || bekleyen.find(r=>r.id===talep.kayitId) || gecmis.find(r=>r.id===talep.kayitId);
+      if(kayit) setKayitForm({...kayit,_gecmisDuzenle:true});
+      showToast("Düzenleme talebi onaylandı","ba");
+      return;
+    }
+    if(talep.islem === "sil"){
+      setRecords(p=>p.filter(r=>r.id!==talep.kayitId));
+      setGecmis(p=>p.filter(r=>r.id!==talep.kayitId));
+      setBekleyen(p=>p.filter(r=>r.id!==talep.kayitId));
+      dbSil("kayitlar",talep.kayitId);
+      showToast("Silme talebi onaylandı ve kayıt silindi","uy");
+    }
+  };
+
+  const yoneticiTalepIptal = (talep) => {
+    if(!talep) return;
+    setYonBildirim(p=>p.map(b=>b.id===talep.id ? {...b,durum:"iptal",yonGordu:true,iptalTarih:TODAY(),iptalSaat:SAAT()} : b));
+    showToast("Talep iptal edildi","uy");
+  };
+
   const riIcon = r => (r.hizler?.length>0&&r.urunler?.length>0)?"✂️":r.hizler?.length>0?"✂️":"🛍️";
 
   // Kayıt kartı
@@ -5568,65 +5664,25 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
 
         gecmisDuzeltOnay.adim==="secim"&&div(null,
           div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:19,color:"var(--g)",marginBottom:8,textAlign:"center"}},"Yönetici Onaylı İşlem"),
-          div({style:{fontSize:14,color:"var(--mu)",marginBottom:18,textAlign:"center",lineHeight:1.6}},
+          div({style:{fontSize:14,color:"var(--mu)",marginBottom:14,textAlign:"center",lineHeight:1.6}},
             h("strong",{style:{color:"var(--tx)"}},gecmisDuzeltOnay.kayit.musteri),
             div({style:{fontSize:12,color:"var(--di)",marginTop:4}},fmtT(gecmisDuzeltOnay.kayit.tarih)+" · "+fmt(gecmisDuzeltOnay.kayit.toplam))
           ),
-          div({style:{fontSize:13,color:"#9a6a4a",marginBottom:14,padding:"9px 12px",background:"rgba(180,60,0,.1)",borderRadius:8}},"⚠ Bu islem yonetici PIN onayı gerektirir."),
-          div({style:{display:"flex",flexDirection:"column",gap:8}},
-            btn({style:{padding:13,borderRadius:10,border:"1px solid var(--br)",background:"rgba(37,99,168,.08)",color:"var(--g)",fontSize:15,cursor:"pointer"},
-              onClick:()=>setGecmisDuzeltOnay(p=>({...p,adim:"pin",islem:"duzenle"}))},"✏ Kaydi Duzenle"),
-            btn({style:{padding:13,borderRadius:10,border:"1px solid #1e3a3a",background:"rgba(160,40,40,.08)",color:"#c05050",fontSize:15,cursor:"pointer"},
-              onClick:()=>setGecmisDuzeltOnay(p=>({...p,adim:"pin",islem:"sil"}))},"🗑 Kaydi Sil"),
-            btn({style:{padding:11,borderRadius:10,border:"1px solid var(--br)",background:"transparent",color:"var(--mu)",fontSize:14,cursor:"pointer"},
-              onClick:()=>setGecmisDuzeltOnay(null)},"İptal")
-          )
-        ),
-
-        gecmisDuzeltOnay.adim==="pin"&&div(null,
-          div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:19,color:"var(--g)",marginBottom:8,textAlign:"center"}},"Yönetici PIN"),
-          div({style:{fontSize:13,color:"var(--mu)",marginBottom:16,textAlign:"center"}},"Islemi onaylamak icin Yonetici PIN kodunu girin:"),
-          div({style:{display:"flex",gap:11,justifyContent:"center",marginBottom:14}},
-            [0,1,2,3].map(i=>div({key:i,style:{width:12,height:12,borderRadius:"50%",
-              background:(gecmisDuzeltOnay.pin||"").length>i?"var(--g)":"transparent",
-              border:"1.5px solid "+((gecmisDuzeltOnay.pin||"").length>i?"var(--g)":"var(--br)"),
-              transition:"all .2s"}}))
+          div({style:{fontSize:13,color:"#9a6a4a",marginBottom:9,padding:"9px 12px",background:"rgba(180,60,0,.1)",borderRadius:8,lineHeight:1.45}},
+            "⚠ Bu İşlem Yönetici Onayı Gerektirir"),
+          div({style:{fontSize:13,color:"var(--mu)",marginBottom:14,padding:"9px 12px",background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:8,lineHeight:1.45}},
+            "Lütfen yapmak istediğiniz işlemi seçin ve Onay'a Gönder butonuna tıklayın."),
+          div({style:{display:"flex",flexDirection:"column",gap:8,marginBottom:14}},
+            btn({style:{padding:13,borderRadius:10,border:"1px solid "+(gecmisDuzeltOnay.islem==="duzenle"?"var(--g)":"var(--br)"),background:gecmisDuzeltOnay.islem==="duzenle"?"rgba(37,99,168,.16)":"rgba(37,99,168,.08)",color:"var(--g)",fontSize:15,cursor:"pointer",fontWeight:gecmisDuzeltOnay.islem==="duzenle"?700:500},
+              onClick:()=>setGecmisDuzeltOnay(p=>({...p,islem:"duzenle"}))},"✏ Kaydı Düzenle"),
+            btn({style:{padding:13,borderRadius:10,border:"1px solid "+(gecmisDuzeltOnay.islem==="sil"?"#c05050":"#1e3a3a"),background:gecmisDuzeltOnay.islem==="sil"?"rgba(160,40,40,.16)":"rgba(160,40,40,.08)",color:"#c05050",fontSize:15,cursor:"pointer",fontWeight:gecmisDuzeltOnay.islem==="sil"?700:500},
+              onClick:()=>setGecmisDuzeltOnay(p=>({...p,islem:"sil"}))},"🗑 Kaydı Sil")
           ),
-          (()=>{
-            const giris = d => {
-              const y=(gecmisDuzeltOnay.pin||"")+d;
-              if(y.length>4) return;
-              setGecmisDuzeltOnay(p=>({...p,pin:y,pinHata:""}));
-              if(y.length===4) setTimeout(()=>{
-                const yon=personeller.find(p=>p.rol==="yonetici"&&p.aktif);
-                if(yon&&yon.pin===y){
-                  if(gecmisDuzeltOnay.islem==="sil"){
-                    setGecmis(p=>p.filter(r=>r.id!==gecmisDuzeltOnay.kayit.id));
-                    setRecords(p=>p.filter(r=>r.id!==gecmisDuzeltOnay.kayit.id));
-                    dbSil("kayitlar",gecmisDuzeltOnay.kayit.id);
-                    setGecmisDuzeltOnay(null);
-                    showToast("Kayıt silindi","uy");
-                  } else {
-                    setKayitForm({...gecmisDuzeltOnay.kayit,_gecmisDuzenle:true});
-                    setGecmisDuzeltOnay(null);
-                  }
-                } else {
-                  setGecmisDuzeltOnay(p=>({...p,pin:"",pinHata:"Yanlış PIN"}));
-                }
-              },120);
-            };
-            return div(null,
-              div({style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:8}},
-                [1,2,3,4,5,6,7,8,9].map(d=>btn({key:d,style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,color:"var(--tx)",fontSize:18,padding:11,cursor:"pointer"},onClick:()=>giris(String(d))},String(d))),
-                div(null),
-                btn({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,color:"var(--tx)",fontSize:18,padding:11,cursor:"pointer"},onClick:()=>giris("0")},"0"),
-                btn({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,color:"var(--mu)",fontSize:14,padding:11,cursor:"pointer"},onClick:()=>setGecmisDuzeltOnay(p=>({...p,pin:(p.pin||"").slice(0,-1),pinHata:""}))},"⌫")
-              ),
-              gecmisDuzeltOnay.pinHata&&div({style:{color:"#c05050",fontSize:13,textAlign:"center",marginBottom:8}},gecmisDuzeltOnay.pinHata),
-              btn({style:{width:"100%",padding:11,borderRadius:9,border:"1px solid var(--br)",background:"transparent",color:"var(--mu)",fontSize:14,cursor:"pointer"},
-                onClick:()=>setGecmisDuzeltOnay(p=>({...p,adim:"secim",pin:"",pinHata:""}))},"Geri")
-            );
-          })()
+          div({className:"btn-r"},
+            btn({className:"btn-i",onClick:()=>{setGecmisDuzeltOnay(null);showToast("Onay'a gönderme işleminden vazgeçildi","uy");}},"İptal"),
+            btn({className:"btn-k",disabled:!gecmisDuzeltOnay.islem,
+              onClick:()=>yoneticiTalepGonder(gecmisDuzeltOnay.kayit,gecmisDuzeltOnay.islem)},"Onay'a Gönder")
+          )
         )
       )
     ),
@@ -6607,9 +6663,13 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
                     ),
                     gk.map(r=>{
                       const kk=(r.hizKK||0)+(r.uKK||0),ib=(r.hizIB||0)+(r.uIB||0),nk=(r.hizNK||0)+(r.uNK||0);
+                      const bekleyenYoneticiTalep = yoneticiTalepAktif(r.id);
                       return div({key:r.id,
                         style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:11,padding:"11px 12px",marginBottom:7,cursor:"pointer"},
                         onClick:()=>setDetay({...r,_saltOkunur:true})},
+                        bekleyenYoneticiTalep&&div({style:{fontSize:11,color:"var(--g)",padding:"6px 9px",background:"rgba(37,99,168,.10)",border:"1px solid rgba(37,99,168,.25)",borderRadius:7,marginBottom:8,lineHeight:1.45,fontWeight:700}},
+                          (bekleyenYoneticiTalep.islem==="sil"?"Silinmek":"Düzenlemek")+" üzere Onay'a gönderildi. Onay verilmesi bekleniyor."
+                        ),
                         div({style:{display:"flex",justifyContent:"space-between",marginBottom:5}},
                           div(null,
                             div({style:{fontSize:14,color:"var(--tx)",fontWeight:500}},r.musteri),
@@ -6618,10 +6678,10 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
                           div({style:{textAlign:"right"}},
                             div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:17,color:"var(--g)",fontWeight:700}},fmt(r.toplam)),
                             // Yönetici onaylı işlem butonu
-                            btn({style:{fontSize:11,color:"var(--mu)",background:"transparent",border:"1px solid var(--br)",
-                              borderRadius:5,padding:"2px 7px",cursor:"pointer",marginTop:4},
-                              onClick:ev=>{ev.stopPropagation();setGecmisDuzeltOnay({kayit:r,adim:"secim"});}},
-                              "✏ Yön. Onaylı")
+                            btn({style:{fontSize:11,color:bekleyenYoneticiTalep?"var(--g)":"var(--mu)",background:bekleyenYoneticiTalep?"rgba(37,99,168,.10)":"transparent",border:"1px solid "+(bekleyenYoneticiTalep?"rgba(37,99,168,.30)":"var(--br)"),
+                              borderRadius:5,padding:"2px 7px",cursor:bekleyenYoneticiTalep?"default":"pointer",marginTop:4},
+                              onClick:ev=>{ev.stopPropagation(); if(!bekleyenYoneticiTalep) setGecmisDuzeltOnay({kayit:r,adim:"secim"});}},
+                              bekleyenYoneticiTalep?"⏳ Onay Bekliyor":"✏ Yön. Onaylı")
                           )
                         ),
                         div({style:{display:"flex",flexWrap:"wrap",gap:3}},
@@ -7007,6 +7067,28 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
             )
           ),
 
+          // Personelden gelen düzenleme/silme onay talepleri - yönetici müdahale edene kadar kalır
+          yonBildirim.filter(b=>b.kaynak==="personelTalep"&&b.durum==="bekliyor").length>0&&div({
+            style:{background:"rgba(37,99,168,.08)",border:"1.5px solid rgba(37,99,168,.30)",borderRadius:12,padding:14,marginBottom:14}},
+            div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},"📋 Personel Onay Talepleri"),
+            yonBildirim.filter(b=>b.kaynak==="personelTalep"&&b.durum==="bekliyor").map(b=>
+              div({key:b.id,style:{background:"var(--bg3)",borderRadius:9,padding:"10px 12px",marginBottom:8,border:"1px solid var(--br)"}},
+                div({style:{fontSize:14,color:"var(--tx)",fontWeight:700,marginBottom:4}},
+                  (b.islem==="sil"?"🗑 Silme talebi":"✏ Düzenleme talebi")),
+                div({style:{fontSize:13,color:"var(--mu)",marginBottom:4}},
+                  h("strong",{style:{color:"var(--g)"}},b.staffAd||"Personel")," · ",h("strong",{style:{color:"var(--tx)"}},b.musteri||"Kayıt")," · ",fmtT(b.tarih)),
+                div({style:{fontSize:13,color:"var(--g)",marginBottom:10,padding:"8px 10px",background:"rgba(37,99,168,.10)",border:"1px solid rgba(37,99,168,.20)",borderRadius:7,lineHeight:1.45}},
+                  "Bu kayıt "+(b.islem==="sil"?"silinmek":"düzenlenmek")+" üzere Onay'a gönderildi. Yönetici onayı bekleniyor."),
+                div({style:{display:"flex",gap:8}},
+                  btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #1e5a48",background:"rgba(50,140,100,.12)",color:"var(--gr)",fontSize:13,fontWeight:700,cursor:"pointer"},
+                    onClick:()=>yoneticiTalepOnayla(b)},"✓ Onay Ver"),
+                  btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #6a2020",background:"rgba(160,40,40,.10)",color:"#c05050",fontSize:13,fontWeight:700,cursor:"pointer"},
+                    onClick:()=>yoneticiTalepIptal(b)},"✕ İptal Et")
+                )
+              )
+            )
+          ),
+
           // Ret bildirimleri - yöneticiye
           yonBildirim.filter(b=>b.durum==="reddedildi"&&!b.yonGordu).length>0&&div({
             style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(200,60,60,.3)",borderRadius:12,padding:14,marginBottom:14}},
@@ -7054,6 +7136,7 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                 :gosterilecek.map(r=>{
                   const kk=(r.hizKK||0)+(r.uKK||0),ib=(r.hizIB||0)+(r.uIB||0),nk=(r.hizNK||0)+(r.uNK||0);
                   const bildirimDurum = yonBildirim.find(b=>b.kayitId===r.id&&b.durum==="bekliyor");
+                  const personelTalepDurum = yonBildirim.find(b=>b.kaynak==="personelTalep"&&b.kayitId===r.id&&b.durum==="bekliyor");
                   const duzenlendiBildirim = yonBildirim.find(b=>b.kayitId===r.id&&b.durum==="duzenlendi"&&b.yeniKayit);
                   const kartDuzenlendi = r._duzenlemeYapildi || !!duzenlendiBildirim;
                   const dznKayit = duzenlendiBildirim?.yeniKayit || r;
@@ -7076,7 +7159,7 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                     !kartDuzenlendi&&bildirimDurum&&div({style:{fontSize:11,color:"var(--g)",padding:"3px 8px",
                       background:"rgba(37,99,168,.1)",borderRadius:5,marginBottom:8,
                       border:"1px solid rgba(37,99,168,.2)",display:"inline-block"}},
-                      "⏳ Personel Onayı Bekleniyor"),
+                      personelTalepDurum?"⏳ Yönetici Onayı Bekleniyor":"⏳ Personel Onayı Bekleniyor"),
 
                     div({style:{display:"flex",alignItems:"flex-start",gap:9}},
                       div({className:"kikon"},r.hizler?.length>0?"✂️":"🛍️"),
