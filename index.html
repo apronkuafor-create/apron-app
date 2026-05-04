@@ -4084,6 +4084,27 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [anaPersonelId, setAnaPersonelId] = useState(ilk?.anaPersonelId||"");
   const [moneri, setMoneri] = useState([]);
   const [telOneri, setTelOneri] = useState([]);
+  const [silIkonuAlani, setSilIkonuAlani] = useState(ilk?.tel ? "tel" : (ilk?.musteri ? "musteri" : ""));
+
+  const temizTelefonRakam = v => String(v||"").replace(/\D/g,"");
+  const formMusteriTemizle = () => {
+    // Tek X butonu iki alanı birlikte temizler.
+    setMusteri("");
+    setTel("");
+    setMoneri([]);
+    setTelOneri([]);
+    setSilIkonuAlani("");
+  };
+
+  const musteriBulTelefonla = telefon => {
+    const r = temizTelefonRakam(telefon);
+    if(!r) return null;
+    return musteriDB.find(m=>temizTelefonRakam(m.tel)===r)
+      || musteriDB.find(m=>{
+        const mt=temizTelefonRakam(m.tel);
+        return mt && (mt.endsWith(r) || r.endsWith(mt));
+      }) || null;
+  };
 
   const bosHizmet = () => ({id:uid(),n:"",f:"",listef:0,pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""});
 
@@ -4148,9 +4169,13 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
       const secilenAd = secilen && secilen.name && secilen.name[0] ? secilen.name[0] : "";
 
       if(secilenTel) {
-        // Rehberden seçilen kişinin adı ve telefonu form alanlarına aktarılır.
-        setTel(String(secilenTel).replace(/[\s\-\(\)]/g,""));
-        if(secilenAd) setMusteri(secilenAd);
+        // Rehberden gelen telefon, önce sistemdeki müşteri havuzunda aranır.
+        // Kayıtlı müşteri varsa rehberdeki isim yerine sistemdeki isim kullanılır.
+        const temizTel = String(secilenTel).replace(/[\s\-\(\)]/g,"");
+        const sistemMusterisi = musteriBulTelefonla(temizTel);
+        setTel(temizTel);
+        setMusteri(sistemMusterisi?.ad || secilenAd || "");
+        setSilIkonuAlani("tel");
         setMoneri([]);
         setTelOneri([]);
       } else {
@@ -4279,29 +4304,30 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
             onChange:e=>setFormTarih(e.target.value||TODAY())})
         ),
         // Musteri
-        div({className:"r2",style:{gridTemplateColumns:"minmax(0,.82fr) minmax(0,1.18fr)",gap:8}},
+        div({className:"r2",style:{gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:8}},
           div({style:{position:"relative"}},
             lbl({className:"fl"},"Ad Soyad *"),
             div({style:{position:"relative"}},
               inp({className:"fi",placeholder:"Ali Yilmaz",value:musteri,
-                style:{paddingRight:musteri?38:13},
+                style:{paddingRight:(silIkonuAlani==="musteri"&&(musteri||tel))?38:13,fontSize:13,letterSpacing:"-.2px"},
                 onChange:e=>{
                   const val=e.target.value;
                   setMusteri(val);
+                  setSilIkonuAlani(val||tel?"musteri":"");
                   const q=normText(val);
                   setMoneri(q.length>=2?musteriDB.filter(m=>normText(m.ad).includes(q)||String(m.tel||"").includes(val)).slice(0,5):[]);
                 },
                 onBlur:()=>setTimeout(()=>setMoneri([]),200)
               }),
-              musteri&&btn({type:"button","aria-label":"Müşteri adını temizle",
+              (silIkonuAlani==="musteri"&&(musteri||tel))&&btn({type:"button","aria-label":"Müşteri ve telefonu temizle",
                 style:{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",width:24,height:24,
                   border:"none",background:"transparent",color:"#7b0b0b",fontSize:22,fontWeight:700,
                   lineHeight:"22px",cursor:"pointer",padding:0},
-                onMouseDown:e=>{e.preventDefault();e.stopPropagation();setMusteri("");setMoneri([]);}},"×")
+                onMouseDown:e=>{e.preventDefault();e.stopPropagation();formMusteriTemizle();}},"×")
             ),
             moneri.length>0&&div({className:"mus-on"},
               moneri.map(m=>div({key:m.id,className:"mus-oi",
-                onMouseDown:()=>{setMusteri(m.ad);setTel(m.tel);setMoneri([]);setTelOneri([]);}},
+                onMouseDown:()=>{setMusteri(m.ad);setTel(m.tel);setSilIkonuAlani("musteri");setMoneri([]);setTelOneri([]);}},
                 div({style:{fontSize:15,color:"var(--tx)"}},m.ad),
                 m.tel&&div({style:{fontSize:12,color:"var(--mu)"}},"📞 "+m.tel)
               ))
@@ -4312,29 +4338,31 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
             div({style:{display:"flex",gap:8,alignItems:"stretch"}},
               div({style:{position:"relative",flex:1,minWidth:0}},
                 inp({className:"fi",type:"tel",inputMode:"tel",placeholder:"05XX...",value:tel,
-                  style:{width:"100%",paddingRight:tel?34:11,fontSize:13,letterSpacing:"-.2px"},
+                  maxLength:15,
+                  style:{width:"100%",paddingRight:(silIkonuAlani==="tel"&&(musteri||tel))?34:11,fontSize:12.5,letterSpacing:"-.4px"},
                   onChange:e=>{
                     const val=e.target.value;
                     setTel(val);
-                    const rakam=String(val||"").replace(/\D/g,"");
-                    setTelOneri(rakam.length>=2?musteriDB.filter(m=>String(m.tel||"").replace(/\D/g,"").includes(rakam)).slice(0,5):[]);
+                    setSilIkonuAlani(val||musteri?"tel":"");
+                    const rakam=temizTelefonRakam(val);
+                    setTelOneri(rakam.length>=2?musteriDB.filter(m=>temizTelefonRakam(m.tel).includes(rakam)).slice(0,5):[]);
                   },
                   onFocus:e=>{
-                    const rakam=String(e.target.value||"").replace(/\D/g,"");
-                    setTelOneri(rakam.length>=2?musteriDB.filter(m=>String(m.tel||"").replace(/\D/g,"").includes(rakam)).slice(0,5):[]);
+                    const rakam=temizTelefonRakam(e.target.value);
+                    setTelOneri(rakam.length>=2?musteriDB.filter(m=>temizTelefonRakam(m.tel).includes(rakam)).slice(0,5):[]);
                   },
                   onBlur:()=>setTimeout(()=>setTelOneri([]),200)
                 }),
-                tel&&btn({type:"button","aria-label":"Telefon numarasını temizle",
+                (silIkonuAlani==="tel"&&(musteri||tel))&&btn({type:"button","aria-label":"Müşteri ve telefonu temizle",
                   style:{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",width:24,height:24,
                     border:"none",background:"transparent",color:"#7b0b0b",fontSize:22,fontWeight:700,
                     lineHeight:"22px",cursor:"pointer",padding:0},
-                  onMouseDown:e=>{e.preventDefault();e.stopPropagation();setTel("");setTelOneri([]);}},"×")
+                  onMouseDown:e=>{e.preventDefault();e.stopPropagation();formMusteriTemizle();}},"×")
               ),
               btn({type:"button",
                 title:"Rehberden telefon seç",
                 "aria-label":"Rehberden telefon seç",
-                style:{width:48,flexShrink:0,background:"linear-gradient(135deg,rgba(37,99,168,.18),rgba(37,99,168,.06))",border:"1.5px solid rgba(37,99,168,.45)",
+                style:{width:44,flexShrink:0,background:"linear-gradient(135deg,rgba(37,99,168,.18),rgba(37,99,168,.06))",border:"1.5px solid rgba(37,99,168,.45)",
                   borderRadius:12,color:"var(--g)",cursor:"pointer",
                   display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 14px rgba(37,99,168,.12)"},
                 onClick:rehberdenTelefonSec},
@@ -4348,7 +4376,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
             ),
             telOneri.length>0&&div({className:"mus-on",style:{right:56}},
               telOneri.map(m=>div({key:m.id,className:"mus-oi",
-                onMouseDown:()=>{setMusteri(m.ad);setTel(m.tel);setTelOneri([]);setMoneri([]);}},
+                onMouseDown:()=>{setMusteri(m.ad);setTel(m.tel);setSilIkonuAlani("tel");setTelOneri([]);setMoneri([]);}},
                 m.tel&&div({style:{fontSize:15,color:"var(--tx)",fontWeight:500}},"📞 "+m.tel),
                 div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},m.ad)
               ))
