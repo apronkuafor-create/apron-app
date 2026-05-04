@@ -4085,8 +4085,34 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [moneri, setMoneri] = useState([]);
   const [telOneri, setTelOneri] = useState([]);
   const [silIkonuAlani, setSilIkonuAlani] = useState(ilk?.tel ? "tel" : (ilk?.musteri ? "musteri" : ""));
+  const [musteriKaydetUyari, setMusteriKaydetUyari] = useState("");
 
   const temizTelefonRakam = v => String(v||"").replace(/\D/g,"");
+  const musteriSistemdeVar = () => {
+    // Kritik kontrol: isim veya telefon sistemde varsa tekrar müşteri kaydı işaretlenemez.
+    const ad = normText(musteri);
+    const telNo = temizTelefonRakam(tel);
+    if(!ad && !telNo) return false;
+    return (musteriDB||[]).some(m => {
+      const kayitliAd = normText(m.ad);
+      const kayitliTel = temizTelefonRakam(m.tel);
+      return (ad && kayitliAd === ad) || (telNo && kayitliTel === telNo);
+    });
+  };
+  const musteriKaydetTikla = () => {
+    if(musteriKaydet){
+      setMusteriKaydet(false);
+      setMusteriKaydetUyari("");
+      return;
+    }
+    if(musteriSistemdeVar()){
+      setMusteriKaydet(false);
+      setMusteriKaydetUyari("Sisteme kaydedilmeye çalışılan bilgiler daha önce sisteme kaydedilmiş.");
+      return;
+    }
+    setMusteriKaydetUyari("");
+    setMusteriKaydet(true);
+  };
   const formMusteriTemizle = () => {
     // Tek X butonu iki alanı birlikte temizler.
     setMusteri("");
@@ -4404,7 +4430,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
           borderRadius:10,border:"1px solid",
           borderColor:musteriKaydet?"rgba(37,99,168,.3)":"var(--bg3)",
           cursor:"pointer",transition:"all .2s"},
-          onClick:()=>setMusteriKaydet(p=>!p)},
+          onClick:musteriKaydetTikla},
           div({style:{width:20,height:20,borderRadius:6,border:"1.5px solid",flexShrink:0,
             display:"flex",alignItems:"center",justifyContent:"center",
             borderColor:musteriKaydet?"var(--g)":"var(--di)",
@@ -4421,6 +4447,11 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                 :"Sadece bu işlem kaydedilecek — müşteri bilgileri saklanmayacak")
           )
         ),
+        musteriKaydetUyari&&div({style:{
+          margin:"7px 0 10px",padding:"9px 11px",borderRadius:9,
+          background:"rgba(180,60,0,.15)",border:"1px solid rgba(200,80,0,.3)",
+          color:"#f0a060",fontSize:13,lineHeight:1.45
+        }}, musteriKaydetUyari),
 
         // Hizmetler
         div({className:"sc sc-h"},
