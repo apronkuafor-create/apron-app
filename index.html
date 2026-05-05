@@ -5278,21 +5278,32 @@ function StokGiris({stokDB, setStokDB, stokHar, setStokHar, kul, showToast, akti
 
 
 
-function ApronVisualEditor({showToast}) {
+function ApronVisualEditor({showToast, personeller}) {
   const [aktif, setAktif] = React.useState(true);
   const [secili, setSecili] = React.useState(null);
+  const [seciliScope, setSeciliScope] = React.useState("main");
   const [form, setForm] = React.useState({});
+  const [previewAcik, setPreviewAcik] = React.useState(false);
+  const [previewMode, setPreviewMode] = React.useState("personel");
+  const [previewStaff, setPreviewStaff] = React.useState("");
   const [kayitlar, setKayitlar] = React.useState(()=>{
     try { return JSON.parse(localStorage.getItem("apron_visual_editor_changes")||"[]") || []; }
     catch(e){ return []; }
   });
   const panelRef = React.useRef(null);
+  const iframeRef = React.useRef(null);
 
-  const elementYolu = React.useCallback((node)=>{
+  React.useEffect(()=>{
+    const ilk=(personeller||[]).find(p=>p.aktif&&p.rol==="personel");
+    if(ilk && !previewStaff) setPreviewStaff(ilk.id);
+  },[personeller,previewStaff]);
+
+  const elementYolu = React.useCallback((node, rootDoc)=>{
     if(!node || !node.tagName) return "";
+    const doc = rootDoc || document;
     const parcalar=[];
     let el=node;
-    while(el && el.nodeType===1 && el!==document.body && parcalar.length<7){
+    while(el && el.nodeType===1 && el!==doc.body && parcalar.length<8){
       let s=el.tagName.toLowerCase();
       if(el.id){ s += "#"+el.id; parcalar.unshift(s); break; }
       const parent=el.parentElement;
@@ -5311,6 +5322,18 @@ function ApronVisualEditor({showToast}) {
     return el.dataset.apronVeId;
   },[]);
 
+  const temizSecim = React.useCallback(()=>{
+    const docs=[document];
+    try { if(iframeRef.current?.contentDocument) docs.push(iframeRef.current.contentDocument); } catch(e){}
+    docs.forEach(doc=>{
+      doc.querySelectorAll("[data-apron-ve-selected='1']").forEach(x=>{
+        x.removeAttribute("data-apron-ve-selected");
+        x.style.outline = x.dataset.apronOldOutline || "";
+        delete x.dataset.apronOldOutline;
+      });
+    });
+  },[]);
+
   const oku = React.useCallback((el)=>({
     text: el.childElementCount===0 ? (el.textContent||"") : "",
     color: el.style.color || "",
@@ -5323,19 +5346,16 @@ function ApronVisualEditor({showToast}) {
     padding: (el.style.padding||"").replace("px","") || ""
   }),[]);
 
-  const sec = React.useCallback((el)=>{
-    document.querySelectorAll("[data-apron-ve-selected='1']").forEach(x=>{
-      x.removeAttribute("data-apron-ve-selected");
-      x.style.outline = x.dataset.apronOldOutline || "";
-      delete x.dataset.apronOldOutline;
-    });
+  const sec = React.useCallback((el, scope="main", rootDoc=document)=>{
+    temizSecim();
     idVer(el);
     el.dataset.apronOldOutline = el.style.outline || "";
     el.dataset.apronVeSelected = "1";
     el.style.outline = "2px solid #50b880";
     setSecili(el);
-    setForm({...oku(el), tag:el.tagName.toLowerCase(), path:elementYolu(el), id:el.dataset.apronVeId});
-  },[elementYolu,idVer,oku]);
+    setSeciliScope(scope);
+    setForm({...oku(el), tag:el.tagName.toLowerCase(), path:elementYolu(el,rootDoc), id:el.dataset.apronVeId, scope});
+  },[elementYolu,idVer,oku,temizSecim]);
 
   const uygula = React.useCallback((alan,deger)=>{
     setForm(p=>({...p,[alan]:deger}));
@@ -5345,30 +5365,69 @@ function ApronVisualEditor({showToast}) {
     if(["fontSize","borderWidth","borderRadius","padding"].includes(alan)) secili.style[alan]=deger===""?"":(Number(deger)||0)+"px";
   },[secili]);
 
-  React.useEffect(()=>{
-    const onClick = ev => {
-      if(!aktif) return;
-      if(panelRef.current && panelRef.current.contains(ev.target)) return;
-      const el = ev.target.closest("button,input,select,textarea,a,[data-apron-ve-ignore='1'],div,span,label,section,article,header,main,footer,img");
-      if(!el || el===document.body || el===document.documentElement) return;
-      ev.preventDefault(); ev.stopPropagation();
-      sec(el);
-    };
-    document.addEventListener("click", onClick, true);
-    return ()=>document.removeEventListener("click", onClick, true);
-  },[aktif,sec]);
+  const hedefBul = React.useCallback((k)=>{
+    const docs=[];
+    if(!k.scope || k.scope==="main") docs.push(document);
+    if(!k.scope || k.scope==="preview") {
+      try { if(iframeRef.current?.contentDocument) docs.push(iframeRef.current.contentDocument); } catch(e){}
+    }
+    for(const doc of docs){
+      const el = doc.querySelector(`[data-apron-ve-id="${k.id}"]`) || (k.path ? doc.querySelector(k.path) : null);
+      if(el) return el;
+    }
+    return null;
+  },[]);
 
-  React.useEffect(()=>{
+  const kayitlariUygula = React.useCallback(()=>{
     (kayitlar||[]).forEach(k=>{
-      const el = document.querySelector(`[data-apron-ve-id="${k.id}"]`) || (k.path ? document.querySelector(k.path) : null);
+      const el=hedefBul(k);
       if(!el) return;
       if(k.text && el.childElementCount===0) el.textContent=k.text;
       Object.entries(k.styles||{}).forEach(([a,v])=>{ if(v!==undefined && v!==null && v!=="") el.style[a]=v; });
     });
-  },[]);
+  },[kayitlar,hedefBul]);
+
+  React.useEffect(()=>{ kayitlariUygula(); },[kayitlariUygula]);
+
+  const tiklamaBagla = React.useCallback((doc, scope)=>{
+    if(!doc || doc.__apronVeBound) return;
+    const onClick = ev => {
+      if(!aktif) return;
+      if(scope==="main" && panelRef.current && panelRef.current.contains(ev.target)) return;
+      const el = ev.target.closest("button,input,select,textarea,a,[data-apron-ve-ignore='1'],div,span,label,section,article,header,main,footer,img");
+      if(!el || el===doc.body || el===doc.documentElement) return;
+      ev.preventDefault(); ev.stopPropagation();
+      sec(el, scope, doc);
+    };
+    doc.addEventListener("click", onClick, true);
+    doc.__apronVeBound = true;
+    doc.__apronVeOff = ()=>doc.removeEventListener("click", onClick, true);
+  },[aktif,sec]);
+
+  React.useEffect(()=>{
+    tiklamaBagla(document,"main");
+    return ()=>{};
+  },[tiklamaBagla]);
+
+  const iframeYuklendi = ()=>{
+    try {
+      const doc=iframeRef.current.contentDocument;
+      tiklamaBagla(doc,"preview");
+      setTimeout(kayitlariUygula,350);
+      showToast&&showToast("Personel önizleme hazır", "ba");
+    } catch(e) {
+      showToast&&showToast("Önizleme aynı alan adında açılmalı", "uy");
+    }
+  };
+
+  const previewUrl = React.useMemo(()=>{
+    const base = window.location.href.split("#")[0].split("?")[0];
+    const staff = previewStaff || ((personeller||[]).find(p=>p.aktif&&p.rol==="personel")?.id||"");
+    return base+"?apronPreview="+encodeURIComponent(previewMode)+"&staff="+encodeURIComponent(staff)+"&t="+Date.now();
+  },[previewMode,previewStaff,personeller]);
 
   const kaydet = async()=>{
-    if(!secili){ showToast&&showToast("Önce sayfadan bir öğe seç", "uy"); return; }
+    if(!secili){ showToast&&showToast("Önce ana ekrandan veya personel önizlemeden bir öğe seç", "uy"); return; }
     const stiller = {
       color: secili.style.color || "",
       backgroundColor: secili.style.backgroundColor || "",
@@ -5379,8 +5438,9 @@ function ApronVisualEditor({showToast}) {
       borderRadius: secili.style.borderRadius || "",
       padding: secili.style.padding || ""
     };
-    const kayit = {id:secili.dataset.apronVeId, path:elementYolu(secili), tag:secili.tagName.toLowerCase(), text:secili.childElementCount===0?secili.textContent:"", styles:stiller, updatedAt:new Date().toISOString()};
-    const yeni = [...(kayitlar||[]).filter(x=>x.id!==kayit.id), kayit];
+    const rootDoc = seciliScope==="preview" ? iframeRef.current?.contentDocument : document;
+    const kayit = {id:secili.dataset.apronVeId, scope:seciliScope, path:elementYolu(secili,rootDoc), tag:secili.tagName.toLowerCase(), text:secili.childElementCount===0?secili.textContent:"", styles:stiller, updatedAt:new Date().toISOString()};
+    const yeni = [...(kayitlar||[]).filter(x=>!(x.id===kayit.id && x.scope===kayit.scope)), kayit];
     setKayitlar(yeni);
     localStorage.setItem("apron_visual_editor_changes", JSON.stringify(yeni));
     try {
@@ -5398,18 +5458,30 @@ function ApronVisualEditor({showToast}) {
     setForm(oku(secili));
   };
 
+  const personelSecenekleri=(personeller||[]).filter(p=>p.aktif&&p.rol==="personel");
+
   return div({style:{display:"grid",gridTemplateColumns:"1fr",gap:12,minHeight:"auto",width:"100%",maxWidth:"100%",overflow:"hidden"}},
     div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:16,padding:12,minHeight:"auto",width:"100%",maxWidth:"100%",overflow:"hidden"}},
       div({style:{fontSize:13,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:800,marginBottom:10}},"PROFESYONEL VISUAL EDITOR"),
       div({style:{fontSize:13,color:"var(--mu)",lineHeight:1.55,marginBottom:14}},
-        "Bu makine açıkken uygulamadaki herhangi bir öğeye tıkla. Sağ panelden metin, renk, font, çerçeve ve boşluk ayarlarını değiştir; sonuç ana ekranda anlık görünür. Yönetici panelinde kalırken uygulama alanını aynı anda düzenleyebilirsin."
+        "Yönetici panelinden çıkmadan personel panelini canlı önizleme olarak açabilirsin. Ana ekran veya önizleme içindeki öğeye dokun, ayar panelinden düzenle, kaydet."
       ),
       div({style:{display:"grid",gridTemplateColumns:"1fr",gap:8,marginBottom:14}},
         btn({style:{padding:12,borderRadius:11,border:"1px solid "+(aktif?"var(--g)":"var(--br)"),background:aktif?"rgba(37,99,168,.12)":"transparent",color:aktif?"var(--g)":"var(--mu)",fontWeight:800,cursor:"pointer"},onClick:()=>setAktif(!aktif)},aktif?"✓ Seçim Modu Açık":"Seçim Modunu Aç"),
+        btn({style:{padding:12,borderRadius:11,border:"1px solid var(--br)",background:"transparent",color:"var(--mu)",fontWeight:700,cursor:"pointer"},onClick:()=>setPreviewAcik(!previewAcik)},previewAcik?"Personel Önizlemeyi Kapat":"Personel Önizlemeyi Aç"),
         btn({style:{padding:12,borderRadius:11,border:"1px solid var(--br)",background:"transparent",color:"var(--mu)",fontWeight:700,cursor:"pointer"},onClick:()=>{localStorage.removeItem("apron_visual_editor_changes");setKayitlar([]);showToast&&showToast("Visual Editor yerel kayıtları temizlendi","uy");}},"Yerel Kayıtları Temizle")
       ),
+      previewAcik&&div({"data-apron-ve-ignore":"1",style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:14,padding:10,marginBottom:12}},
+        div({style:{display:"grid",gridTemplateColumns:"1fr",gap:8,marginBottom:10}},
+          div(null,lbl({className:"fl"},"Önizleme Paneli"),sel({className:"fi",value:previewMode,onChange:e=>setPreviewMode(e.target.value)},opt("personel","Personel Paneli"),opt("yonetici","Yönetici Paneli"))),
+          previewMode==="personel"&&div(null,lbl({className:"fl"},"Personel"),sel({className:"fi",value:previewStaff,onChange:e=>setPreviewStaff(e.target.value)},personelSecenekleri.map(p=>opt(p.id,p.ad))))
+        ),
+        div({style:{height:520,border:"1px solid var(--br)",borderRadius:14,overflow:"hidden",background:"#081a1c"}},
+          h("iframe",{ref:iframeRef,key:previewUrl,src:previewUrl,onLoad:iframeYuklendi,style:{width:"100%",height:"100%",border:"0",display:"block"},title:"APRON BUSINESS Önizleme"})
+        )
+      ),
       div({style:{background:"var(--bg3)",border:"1px dashed var(--br)",borderRadius:14,padding:14,color:"var(--di)",fontSize:13,lineHeight:1.55}},
-        "Seçili öğe: ", form.path ? span({style:{color:"var(--tx)",wordBreak:"break-word"}},form.path) : "Henüz öğe seçilmedi"
+        "Seçili öğe: ", form.path ? span({style:{color:"var(--tx)",wordBreak:"break-word"}},(form.scope==="preview"?"[Personel Önizleme] ":"[Ana Panel] ")+form.path) : "Henüz öğe seçilmedi"
       ),
       div({style:{marginTop:14,fontSize:12,color:"var(--di)"}},"Kayıt sayısı: "+(kayitlar||[]).length)
     ),
@@ -5421,7 +5493,7 @@ function ApronVisualEditor({showToast}) {
         ),
         btn({style:{border:"1px solid var(--br)",background:"transparent",color:"var(--mu)",borderRadius:9,padding:"7px 9px",cursor:"pointer"},onClick:()=>setAktif(!aktif)},aktif?"Kilitle":"Aç")
       ),
-      !secili ? div({style:{fontSize:13,color:"var(--mu)",lineHeight:1.5,padding:"20px 4px"}},"Soldaki/arkadaki uygulama ekranında düzenlemek istediğin yazı, kutu veya butona tıkla.") : div(null,
+      !secili ? div({style:{fontSize:13,color:"var(--mu)",lineHeight:1.5,padding:"20px 4px"}},"Ana panelden veya Personel Önizleme içinden düzenlemek istediğin yazı, kutu veya butona tıkla.") : div(null,
         form.text!==undefined&&div({style:{marginBottom:10}},lbl({className:"fl"},"Metin"),h("textarea",{className:"fi",style:{minWidth:0},rows:3,value:form.text||"",onChange:e=>uygula("text",e.target.value)})),
         [["color","Yazı Rengi"],["backgroundColor","Arka Plan"],["borderColor","Çerçeve Rengi"]].map(([a,l])=>div({key:a,style:{marginBottom:10}},lbl({className:"fl"},l),div({style:{display:"grid",gridTemplateColumns:"54px minmax(0,1fr)",gap:8,width:"100%"}},inp({type:"color",value:(form[a]&&String(form[a]).startsWith("#"))?form[a]:"#2563a8",onChange:e=>uygula(a,e.target.value),style:{width:54,height:42,borderRadius:9,background:"var(--bg3)"}}),inp({className:"fi",style:{minWidth:0},value:form[a]||"",placeholder:"#2563a8",onChange:e=>uygula(a,e.target.value)})))) ,
         div({style:{display:"grid",gridTemplateColumns:"1fr",gap:8}},
@@ -5763,6 +5835,24 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
   };
 
   const cikis = () => { setCikisSecenek(false); setKul(null); setEkran("login"); setKayitForm(null); setDetay(null); };
+
+
+  // Visual Editor önizleme modu: yönetici çıkış yapmadan iframe içinde personel/yönetici panelini açar.
+  useEffect(()=>{
+    if(yukleniyor) return;
+    const prm = new URLSearchParams(window.location.search||"");
+    const mode = prm.get("apronPreview");
+    if(!mode) return;
+    if(mode==="personel"){
+      const sid = prm.get("staff");
+      const p = personeller.find(x=>x.aktif&&x.rol==="personel"&&x.id===sid) || personeller.find(x=>x.aktif&&x.rol==="personel");
+      if(p){ setKul(p); setEkran("personel"); setPsek("bugun"); }
+    }
+    if(mode==="yonetici"){
+      const yon = personeller.find(x=>x.rol==="yonetici") || YONETICI;
+      setKul(yon); setEkran("yonetici"); setAsek("ozet");
+    }
+  },[yukleniyor,personeller]);
 
   const devKaydet = () => {
     if(!devSec) return;
@@ -8803,7 +8893,7 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
 
 
           // ── RENKLENDİRME ──
-          aySek==="renklendirme"&&h(ApronVisualEditor,{showToast}),
+          aySek==="renklendirme"&&h(ApronVisualEditor,{showToast,personeller}),
 
           // ── İŞLETME ──
           aySek==="isletme"&&div({style:{padding:"4px 0"}},
