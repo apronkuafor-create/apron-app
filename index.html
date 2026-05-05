@@ -398,6 +398,8 @@ const OdemeGir = React.memo(function OdemeGir({renk, kk, ib, nk, onChange, label
 const SECTION_STYLE_TARGETS = {
   "staff.today.newRecord.services": {
     label: "Personel Paneli / Bugün / Yeni Kayıt Ekle / Hizmetler",
+    title: "Hizmetler",
+    icon: "✂",
     defaultStyle: {
       backgroundColor: "transparent",
       borderColor: "rgba(37,99,168,.55)",
@@ -409,9 +411,26 @@ const SECTION_STYLE_TARGETS = {
       fontFamily: "Jost",
       borderRadius: 16
     }
+  },
+  "staff.today.newRecord.products": {
+    label: "Personel Paneli / Bugün / Yeni Kayıt Ekle / Ürün Satışı",
+    title: "Ürün Satışı",
+    icon: "🛍",
+    defaultStyle: {
+      backgroundColor: "var(--bg2)",
+      borderColor: "var(--br)",
+      borderWidth: 1,
+      titleColor: "var(--g)",
+      textColor: "var(--tx)",
+      iconBackground: "linear-gradient(135deg,var(--g),var(--gd))",
+      iconColor: "var(--bg)",
+      fontFamily: "Jost",
+      borderRadius: 14
+    }
   }
 };
 const SECTION_STYLE_KEY_HIZMETLER = "staff.today.newRecord.services";
+const SECTION_STYLE_KEY_URUN_SATISI = "staff.today.newRecord.products";
 const getSectionStyle = (styles, key) => ({
   ...(SECTION_STYLE_TARGETS[key]?.defaultStyle || {}),
   ...((styles && styles[key]) || {})
@@ -4118,8 +4137,10 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const urunBolumRef = useRef(null);
 
   const hizmetBolumStili = getSectionStyle(bolumStilleri, SECTION_STYLE_KEY_HIZMETLER);
+  const urunBolumStili = getSectionStyle(bolumStilleri, SECTION_STYLE_KEY_URUN_SATISI);
   const hizmetFontMap = {Jost:"'Jost',system-ui,sans-serif", Inter:"'Inter',system-ui,sans-serif", Playfair:"'Playfair Display',Georgia,serif", Sistem:"system-ui,sans-serif"};
   const hizmetFont = hizmetFontMap[hizmetBolumStili.fontFamily] || hizmetFontMap.Jost;
+  const urunFont = hizmetFontMap[urunBolumStili.fontFamily] || hizmetFontMap.Jost;
 
   const odemesizIlkHizmet = (liste=hizler) => (liste||[]).find(x=>x.n && !x.odeme);
   const hizmetOdemeUyarisiGoster = (hedefId) => {
@@ -4708,10 +4729,16 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
           })()
         ),
         // Urunler
-        div({className:"sc sc-u",ref:urunBolumRef},
+        div({className:"sc sc-u",ref:urunBolumRef,style:{
+          background:urunBolumStili.backgroundColor||"var(--bg2)",
+          border:(Number(urunBolumStili.borderWidth)||1)+"px solid "+(urunBolumStili.borderColor||"var(--br)"),
+          borderRadius:(Number(urunBolumStili.borderRadius)||14)+"px",
+          color:urunBolumStili.textColor||"var(--tx)",
+          fontFamily:urunFont
+        }},
           div({className:"sc-hd"},
-            div({className:"sc-n",style:{background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)"}},"🛍"),
-            div({className:"sc-t",style:{color:"var(--g)"}},"Ürün Satışı")
+            div({className:"sc-n",style:{background:urunBolumStili.iconBackground||"linear-gradient(135deg,var(--g),var(--gd))",color:urunBolumStili.iconColor||"var(--bg)"}},"🛍"),
+            div({className:"sc-t",style:{color:urunBolumStili.titleColor||"var(--g)",fontFamily:urunFont}},"Ürün Satışı")
           ),
           h(UrunAramaBilesen,{aramaVal:urunArama,setAramaVal:setUrunArama,
             onEkle:sEkle,placeholder:"Barkod veya ürün adı ara..."}),
@@ -8564,11 +8591,8 @@ const turet=(zemin,vurgu,yazi)=>({
               div({style:{fontSize:13,color:"var(--mu)",marginBottom:18,lineHeight:1.6}},
                 "3 ana renk seçin, tüm uygulama otomatik uyum sağlar."),
               (()=>{
-                const key = SECTION_STYLE_KEY_HIZMETLER;
-                const hedef = SECTION_STYLE_TARGETS[key];
-                const st = getSectionStyle(bolumStilleri, key);
-                const guncelle = (alan,deger)=>setBolumStilleri(p=>({...p,[key]:{...getSectionStyle(p,key),[alan]:deger}}));
-                const renkSatiri = (etiket,alan,deger)=>div({style:{marginBottom:10}},
+                const fontDegeri = st => st.fontFamily==="Playfair"?"'Playfair Display',Georgia,serif":(st.fontFamily==="Inter"?"'Inter',system-ui,sans-serif":(st.fontFamily==="Sistem"?"system-ui,sans-serif":"'Jost',system-ui,sans-serif"));
+                const renkSatiri = (key,etiket,alan,deger,guncelle)=>div({style:{marginBottom:10}},
                   lbl({className:"fl"},etiket),
                   div({style:{display:"flex",gap:8,alignItems:"center"}},
                     inp({type:"color",value:String(deger||"#000000").startsWith("#")?deger:"#2563a8",
@@ -8577,33 +8601,42 @@ const turet=(zemin,vurgu,yazi)=>({
                     inp({className:"fi",style:{flex:1,margin:0},value:deger||"",onChange:e=>guncelle(alan,e.target.value)})
                   )
                 );
-                return div({style:{background:"var(--bg2)",border:"1.5px solid var(--br)",borderRadius:14,padding:14,marginBottom:18}},
-                  div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8}},"BÖLÜM BAZLI RENKLENDİRME"),
-                  div({style:{fontSize:13,color:"var(--mu)",lineHeight:1.5,marginBottom:12}},"Konum: "+hedef.label),
-                  div({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:10,padding:10,marginBottom:12,fontSize:12,color:"var(--tx)",wordBreak:"break-word"}},key),
-                  renkSatiri("Arka Plan Rengi","backgroundColor",st.backgroundColor),
-                  renkSatiri("Başlık Rengi","titleColor",st.titleColor),
-                  renkSatiri("Çerçeve Rengi","borderColor",st.borderColor),
-                  renkSatiri("Yazı Rengi","textColor",st.textColor),
-                  div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
-                    div(null,lbl({className:"fl"},"Çerçeve Kalınlığı"),inp({className:"fi",type:"number",min:1,max:8,value:st.borderWidth,onChange:e=>guncelle("borderWidth",e.target.value)})),
-                    div(null,lbl({className:"fl"},"Köşe Yuvarlaklığı"),inp({className:"fi",type:"number",min:0,max:30,value:st.borderRadius,onChange:e=>guncelle("borderRadius",e.target.value)}))
-                  ),
-                  div({style:{marginBottom:12}},
-                    lbl({className:"fl"},"Yazı Tipi"),
-                    sel({className:"fi",value:st.fontFamily||"Jost",onChange:e=>guncelle("fontFamily",e.target.value)},
-                      opt("Jost","Jost"),opt("Inter","Inter"),opt("Playfair","Playfair"),opt("Sistem","Sistem")
-                    )
-                  ),
-                  div({style:{background:st.backgroundColor,border:(Number(st.borderWidth)||2)+"px solid "+st.borderColor,borderRadius:(Number(st.borderRadius)||16)+"px",padding:13,marginBottom:12,color:st.textColor,fontFamily:st.fontFamily==="Playfair"?"'Playfair Display',Georgia,serif":(st.fontFamily==="Inter"?"'Inter',system-ui,sans-serif":(st.fontFamily==="Sistem"?"system-ui,sans-serif":"'Jost',system-ui,sans-serif"))}},
-                    div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:10}},
-                      div({style:{width:28,height:28,borderRadius:999,background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)",display:"flex",alignItems:"center",justifyContent:"center"}},"✂"),
-                      div({style:{fontSize:18,color:st.titleColor,fontWeight:800,letterSpacing:3,textTransform:"uppercase"}},"Hizmetler")
+                const bolumKarti = key => {
+                  const hedef = SECTION_STYLE_TARGETS[key];
+                  const st = getSectionStyle(bolumStilleri, key);
+                  const guncelle = (alan,deger)=>setBolumStilleri(p=>({...p,[key]:{...getSectionStyle(p,key),[alan]:deger}}));
+                  return div({key,style:{background:"var(--bg2)",border:"1.5px solid var(--br)",borderRadius:14,padding:14,marginBottom:18}},
+                    div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8}},"BÖLÜM BAZLI RENKLENDİRME"),
+                    div({style:{fontSize:13,color:"var(--mu)",lineHeight:1.5,marginBottom:12}},"Konum: "+hedef.label),
+                    div({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:10,padding:10,marginBottom:12,fontSize:12,color:"var(--tx)",wordBreak:"break-word"}},key),
+                    renkSatiri(key,"Arka Plan Rengi","backgroundColor",st.backgroundColor,guncelle),
+                    renkSatiri(key,"Başlık Rengi","titleColor",st.titleColor,guncelle),
+                    renkSatiri(key,"Çerçeve Rengi","borderColor",st.borderColor,guncelle),
+                    renkSatiri(key,"Yazı Rengi","textColor",st.textColor,guncelle),
+                    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+                      div(null,lbl({className:"fl"},"Çerçeve Kalınlığı"),inp({className:"fi",type:"number",min:1,max:8,value:st.borderWidth,onChange:e=>guncelle("borderWidth",e.target.value)})),
+                      div(null,lbl({className:"fl"},"Köşe Yuvarlaklığı"),inp({className:"fi",type:"number",min:0,max:30,value:st.borderRadius,onChange:e=>guncelle("borderRadius",e.target.value)}))
                     ),
-                    div({style:{fontSize:13,lineHeight:1.45}},"Bu önizleme sadece Personel Paneli / Bugün / Yeni Kayıt Ekle / Hizmetler bölümüne uygulanır.")
-                  ),
-                  btn({style:{width:"100%",padding:"10px",borderRadius:9,border:"1px dashed rgba(192,80,80,.3)",background:"transparent",color:"#c05050",fontSize:13,cursor:"pointer"},
-                    onClick:()=>setBolumStilleri(p=>{const n={...p};delete n[key];return n;})},"Bu Bölümü Varsayılana Döndür")
+                    div({style:{marginBottom:12}},
+                      lbl({className:"fl"},"Yazı Tipi"),
+                      sel({className:"fi",value:st.fontFamily||"Jost",onChange:e=>guncelle("fontFamily",e.target.value)},
+                        opt("Jost","Jost"),opt("Inter","Inter"),opt("Playfair","Playfair"),opt("Sistem","Sistem")
+                      )
+                    ),
+                    div({style:{background:st.backgroundColor,border:(Number(st.borderWidth)||2)+"px solid "+st.borderColor,borderRadius:(Number(st.borderRadius)||16)+"px",padding:13,marginBottom:12,color:st.textColor,fontFamily:fontDegeri(st)}},
+                      div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:10}},
+                        div({style:{width:28,height:28,borderRadius:999,background:st.iconBackground||"linear-gradient(135deg,var(--g),var(--gd))",color:st.iconColor||"var(--bg)",display:"flex",alignItems:"center",justifyContent:"center"}},hedef.icon),
+                        div({style:{fontSize:18,color:st.titleColor,fontWeight:800,letterSpacing:3,textTransform:"uppercase"}},hedef.title)
+                      ),
+                      div({style:{fontSize:13,lineHeight:1.45}},"Bu önizleme sadece "+hedef.label+" bölümüne uygulanır.")
+                    ),
+                    btn({style:{width:"100%",padding:"10px",borderRadius:9,border:"1px dashed rgba(192,80,80,.3)",background:"transparent",color:"#c05050",fontSize:13,cursor:"pointer"},
+                      onClick:()=>setBolumStilleri(p=>{const n={...p};delete n[key];return n;})},"Bu Bölümü Varsayılana Döndür")
+                  );
+                };
+                return div(null,
+                  bolumKarti(SECTION_STYLE_KEY_HIZMETLER),
+                  bolumKarti(SECTION_STYLE_KEY_URUN_SATISI)
                 );
               })(),
               satir("Zemin Rengi","🎨","Arka plan, kartlar, inputlar ve kenarlıklar",z,n=>setTema(turet(n,v,y))),
