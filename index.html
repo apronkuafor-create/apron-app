@@ -3,7 +3,7 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="1777387837">
+  <meta name="version" content="apron-design-v4-professional">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -8979,304 +8979,434 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
 </script>
 
 
-<!-- APRON BUSINESS Akıllı Tasarım Makinesi V3 - Doğru Mimari -->
+
+<!-- APRON BUSINESS Üst Düzey Profesyonel Tasarım Motoru V4 -->
 <script>
 (function(){
   'use strict';
-  if(window.__APRON_DESIGN_ENGINE_V3__) return;
-  window.__APRON_DESIGN_ENGINE_V3__ = true;
+  if(window.__APRON_DESIGN_ENGINE_V4__) return;
+  window.__APRON_DESIGN_ENGINE_V4__ = true;
 
-  const STORAGE_KEY = 'apron_design_engine_v3_styles';
-  const PANEL_ID = 'ab-design-engine-v3-panel';
-  const STYLE_ID = 'ab-design-engine-v3-style';
-  const OUTLINE_STYLE_ID = 'ab-design-engine-v3-outline-style';
+  const PANEL_ID = 'ab-pro-design-v4-panel';
+  const STYLE_ID = 'ab-pro-design-v4-css';
+  const OUTLINE_ID = 'ab-pro-design-v4-outline-css';
+  const STORAGE_KEY = 'apron_pro_design_v4_store';
+  const MODE_KEY = 'apron_pro_design_v4_mode';
+  const ID_ATTR = 'data-ab-design-id';
+  const LOCK_ATTR = 'data-ab-design-lock';
+
   const PROPS = [
     ['color','Yazı Rengi','color'],
-    ['fontSize','Yazı Boyutu','text'],
-    ['fontWeight','Yazı Kalınlığı','selectWeight'],
-    ['fontFamily','Font','text'],
-    ['background','Arka Plan','color'],
-    ['borderColor','Kenarlık Rengi','color'],
-    ['borderWidth','Kenarlık Kalınlığı','text'],
-    ['borderStyle','Kenarlık Tipi','selectBorder'],
-    ['borderRadius','Köşe Yuvarlaklığı','text'],
-    ['padding','İç Boşluk','text'],
-    ['margin','Dış Boşluk','text'],
-    ['width','Genişlik','text'],
-    ['height','Yükseklik','text'],
-    ['boxShadow','Gölge','text'],
-    ['opacity','Şeffaflık','text'],
-    ['letterSpacing','Harf Aralığı','text'],
+    ['backgroundColor','Arka Plan','color'],
+    ['fontSize','Yazı Boyutu','unit'],
+    ['fontWeight','Yazı Kalınlığı','weight'],
+    ['fontFamily','Font','font'],
+    ['textAlign','Yazı Hizası','align'],
     ['lineHeight','Satır Yüksekliği','text'],
-    ['textAlign','Yazı Hizası','selectAlign']
+    ['letterSpacing','Harf Aralığı','unit'],
+    ['borderColor','Kenarlık Rengi','color'],
+    ['borderWidth','Kenarlık Kalınlığı','unit'],
+    ['borderStyle','Kenarlık Tipi','border'],
+    ['borderRadius','Köşe Yuvarlaklığı','unit'],
+    ['padding','İç Boşluk','box'],
+    ['margin','Dış Boşluk','box'],
+    ['width','Genişlik','size'],
+    ['height','Yükseklik','size'],
+    ['minHeight','Min Yükseklik','size'],
+    ['boxShadow','Gölge','shadow'],
+    ['opacity','Şeffaflık','opacity'],
+    ['transform','Transform','text']
   ];
 
-  let mode = 'browse';
-  let selected = [];
+  const DEFAULT_STORE = { version: 4, styles: {}, names: {}, updatedAt: null };
   let store = loadStore();
-  let lastHover = null;
+  let mode = localStorage.getItem(MODE_KEY) || 'browse';
+  let selectedIds = [];
+  let lastHoverId = null;
+  let lastClickedId = null;
+  let suppressClickUntil = 0;
 
   function loadStore(){
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {}; }
-    catch(e){ return {}; }
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return JSON.parse(JSON.stringify(DEFAULT_STORE));
+      const parsed = JSON.parse(raw);
+      return { ...DEFAULT_STORE, ...parsed, styles: parsed.styles || {}, names: parsed.names || {} };
+    }catch(e){ return JSON.parse(JSON.stringify(DEFAULT_STORE)); }
   }
-  function saveStore(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); }
+  function persistLocal(){
+    store.updatedAt = new Date().toISOString();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+  }
+  function trySupabaseSave(){
+    try{
+      const sb = window.supabaseClient || window.supabase || window.sb;
+      if(!sb || !sb.from) return;
+      sb.from('ayarlar').upsert({ anahtar:'apron_pro_design_v4_store', deger: store, updated_at:new Date().toISOString() }).then(()=>{}).catch(()=>{});
+    }catch(e){}
+  }
   function cssEscape(v){
     if(window.CSS && CSS.escape) return CSS.escape(String(v));
-    return String(v).replace(/[^a-zA-Z0-9_-]/g, function(ch){ return '\\' + ch; });
+    return String(v).replace(/[^a-zA-Z0-9_-]/g, ch=>'\\'+ch);
   }
-  function quoteCss(v){ return String(v).replace(/\\/g,'\\\\').replace(/"/g,'\\"'); }
-  function isPanel(el){ return !!(el && el.closest && el.closest('#'+PANEL_ID)); }
-  function rootEl(){ return document.querySelector('#root') || document.querySelector('#app') || document.body; }
-  function isVisible(el){
+  function shortHash(str){
+    let h = 2166136261;
+    str = String(str||'');
+    for(let i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h += (h<<1)+(h<<4)+(h<<7)+(h<<8)+(h<<24); }
+    return (h>>>0).toString(36);
+  }
+  function cleanText(el){
+    if(!el) return '';
+    let t = '';
+    try{ t = (el.innerText || el.textContent || '').replace(/\s+/g,' ').trim(); }catch(e){}
+    if(t.length > 60) t = t.slice(0,60);
+    return t;
+  }
+  function visible(el){
     if(!el || el.nodeType !== 1) return false;
+    if(isEngine(el)) return false;
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
   }
-  function nthOfType(el){
-    let n = 1, p = el;
-    while((p = p.previousElementSibling)){
-      if(p.tagName === el.tagName) n++;
-    }
+  function isEngine(el){ return !!(el && el.closest && el.closest('#'+PANEL_ID)); }
+  function root(){ return document.querySelector('#root') || document.querySelector('#app') || document.body; }
+  function nth(el){
+    let n=1,p=el;
+    while((p=p.previousElementSibling)){ if(p.tagName===el.tagName) n++; }
     return n;
   }
-  function classesFor(el){
-    return Array.from(el.classList || []).filter(c => !c.startsWith('abde-') && c.length < 40).slice(0,2).map(c=>'.'+cssEscape(c)).join('');
+  function roleOf(el){
+    if(!el || el.nodeType !== 1) return 'alan';
+    const tag = el.tagName.toLowerCase();
+    if(tag==='input' || tag==='select' || tag==='textarea') return 'form';
+    if(tag==='button') return 'buton';
+    if(['span','label','b','strong','em','small'].includes(tag)) return 'yazi';
+    if(['h1','h2','h3','h4','h5'].includes(tag)) return 'baslik';
+    if(tag==='img' || tag==='svg') return 'gorsel';
+    const txt = cleanText(el);
+    const children = Array.from(el.children||[]).filter(visible).length;
+    if(txt && children < 2) return /[0-9₺]/.test(txt) ? 'rakam-yazi' : 'yazi';
+    return 'kutu';
   }
-  function selectorFor(el){
-    if(!el || el.nodeType !== 1) return '';
-    if(el.dataset && el.dataset.abdeSelector) return '[data-abde-selector="'+quoteCss(el.dataset.abdeSelector)+'"]';
-    if(el.id && !/^ab-design-engine/.test(el.id)) return '#'+cssEscape(el.id);
-    const root = rootEl();
+  function classHint(el){
+    return Array.from(el.classList||[])
+      .filter(c=>!/^ab-|^selected|^hover/.test(c))
+      .slice(0,3).join('.');
+  }
+  function pathFingerprint(el){
+    const r = root();
     const parts=[];
-    let cur = el;
-    while(cur && cur.nodeType === 1 && cur !== document.body && cur !== document.documentElement && cur !== root){
-      let part = cur.tagName.toLowerCase() + classesFor(cur) + ':nth-of-type(' + nthOfType(cur) + ')';
-      parts.unshift(part);
+    let cur=el;
+    while(cur && cur.nodeType===1 && cur!==document.body && cur!==document.documentElement && cur!==r){
+      const tag = cur.tagName.toLowerCase();
+      const cls = classHint(cur);
+      const txt = cleanText(cur);
+      parts.unshift(tag + (cls?'.'+cls:'') + '#' + nth(cur) + (txt ? ':'+txt.slice(0,18) : ''));
       cur = cur.parentElement;
-      if(parts.length > 8) break;
+      if(parts.length > 7) break;
     }
-    let prefix = root.id ? '#'+cssEscape(root.id) : (root === document.body ? 'body' : root.tagName.toLowerCase()+':nth-of-type('+nthOfType(root)+')');
-    return prefix + ' > ' + parts.join(' > ');
+    return parts.join('>');
+  }
+  function makeId(el){
+    if(!el || el.nodeType!==1) return '';
+    if(el.getAttribute(ID_ATTR)) return el.getAttribute(ID_ATTR);
+    const txt = cleanText(el);
+    const key = [roleOf(el), el.tagName.toLowerCase(), classHint(el), pathFingerprint(el), txt].join('|');
+    return 'abid_' + shortHash(key);
   }
   function labelFor(el){
-    if(!el) return '';
-    const txt = (el.innerText || el.value || el.getAttribute('placeholder') || el.getAttribute('aria-label') || '').trim().replace(/\s+/g,' ');
-    const tag = el.tagName.toLowerCase();
-    const cls = Array.from(el.classList||[]).filter(c=>!c.startsWith('abde-')).slice(0,2).join('.');
-    return (txt ? txt.slice(0,42) : tag) + '  ‹' + tag + (cls?'.'+cls:'') + '›';
+    const txt = cleanText(el);
+    const role = roleOf(el);
+    const tag = el.tagName ? el.tagName.toLowerCase() : 'el';
+    const cls = classHint(el);
+    const base = txt ? txt.slice(0,42) : (cls || tag);
+    return role + ' • ' + base;
   }
+  function tagElement(el){
+    if(!visible(el)) return;
+    if(el.hasAttribute(LOCK_ATTR)) return;
+    const id = makeId(el);
+    if(!id) return;
+    el.setAttribute(ID_ATTR,id);
+    if(!store.names[id]) store.names[id] = labelFor(el);
+  }
+  function tagAll(){
+    const base = root();
+    if(!base) return;
+    const all = base.querySelectorAll('div,span,label,input,select,textarea,button,h1,h2,h3,h4,h5,p,section,article,ul,li,table,tr,td,th');
+    all.forEach(tagElement);
+  }
+  function selector(id){ return '['+ID_ATTR+'="'+cssEscape(id)+'"]'; }
+  function elementsById(id){ return Array.from(document.querySelectorAll(selector(id))).filter(visible); }
+  function firstEl(id){ return elementsById(id)[0] || null; }
   function normalizeValue(prop, value){
-    value = String(value || '').trim();
+    if(value == null) return '';
+    value = String(value).trim();
     if(!value) return '';
-    if(['fontSize','borderWidth','borderRadius','padding','margin','width','height','letterSpacing'].includes(prop)){
-      if(/^[-+]?\d+(\.\d+)?$/.test(value)) return value + 'px';
-    }
+    if(['fontSize','borderWidth','borderRadius','letterSpacing'].includes(prop) && /^\d+(\.\d+)?$/.test(value)) return value+'px';
+    if(['width','height','minHeight'].includes(prop) && /^\d+(\.\d+)?$/.test(value)) return value+'px';
     return value;
   }
-  function styleText(styles){
-    return Object.entries(styles||{}).filter(([,v])=>String(v||'').trim()).map(([k,v])=>{
-      const cssName = k.replace(/[A-Z]/g, m=>'-'+m.toLowerCase());
-      return cssName + ':' + v + ' !important';
-    }).join(';');
+  function cssTextFor(styleObj){
+    return Object.entries(styleObj||{})
+      .filter(([k,v])=>v!=='' && v!=null)
+      .map(([k,v])=>`${camelToKebab(k)}:${String(v).replace(/;/g,'')} !important;`)
+      .join('');
   }
-  function rebuildCss(){
+  function camelToKebab(s){ return s.replace(/[A-Z]/g,m=>'-'+m.toLowerCase()); }
+  function applyCss(){
     let st = document.getElementById(STYLE_ID);
     if(!st){ st = document.createElement('style'); st.id = STYLE_ID; document.head.appendChild(st); }
     let css = '';
-    Object.values(store).forEach(item=>{
-      if(item && item.selector && item.styles){ css += item.selector + '{' + styleText(item.styles) + '}\n'; }
+    Object.entries(store.styles||{}).forEach(([id,obj])=>{
+      const tx = cssTextFor(obj);
+      if(tx) css += `${selector(id)}{${tx}}\n`;
     });
     st.textContent = css;
   }
-  function applyInlineToMatches(){
-    Object.values(store).forEach(item=>{
-      if(!item || !item.selector || !item.styles) return;
-      try{
-        document.querySelectorAll(item.selector).forEach(el=>{
-          Object.entries(item.styles).forEach(([k,v])=>{ if(v) el.style.setProperty(k.replace(/[A-Z]/g,m=>'-'+m.toLowerCase()), v, 'important'); });
-        });
-      }catch(e){}
-    });
-    markSelectedOutlines();
-  }
-  function applyAll(){ rebuildCss(); requestAnimationFrame(applyInlineToMatches); }
-  function keyForSelector(selector){
-    let h = 0;
-    for(let i=0;i<selector.length;i++) h = ((h<<5)-h + selector.charCodeAt(i)) | 0;
-    return 'k' + Math.abs(h);
-  }
-  function clearVisualSelection(){
-    document.querySelectorAll('.abde-selected').forEach(el=>el.classList.remove('abde-selected'));
-  }
-  function markSelectedOutlines(){
-    let st = document.getElementById(OUTLINE_STYLE_ID);
-    if(!st){ st = document.createElement('style'); st.id = OUTLINE_STYLE_ID; document.head.appendChild(st); }
-    st.textContent = '.abde-selected{outline:2px solid #38bdf8 !important; outline-offset:2px !important;} .abde-hover{outline:2px dashed #f59e0b !important; outline-offset:2px !important;}';
-    clearVisualSelection();
-    selected.forEach(s=>{ try{ document.querySelectorAll(s.selector).forEach(el=>el.classList.add('abde-selected')); }catch(e){} });
-  }
-  function addSelection(el, multi){
-    if(!el || isPanel(el) || !isVisible(el)) return;
-    const selector = selectorFor(el);
-    if(!selector) return;
-    if(!multi) selected = [];
-    const key = keyForSelector(selector);
-    if(selected.find(x=>x.key===key)) selected = selected.filter(x=>x.key!==key);
-    else selected.push({key, selector, label: labelFor(el)});
-    markSelectedOutlines();
-    renderSelectionList();
-    renderCurrentValues();
-  }
-  function currentStoreItem(sel){
-    const key = keyForSelector(sel.selector);
-    if(!store[key]) store[key] = {selector: sel.selector, label: sel.label, styles:{}};
-    store[key].selector = sel.selector;
-    store[key].label = sel.label;
-    return store[key];
-  }
-  function applyProp(prop, rawValue){
-    const value = normalizeValue(prop, rawValue);
-    selected.forEach(sel=>{
-      const item = currentStoreItem(sel);
-      if(value === '') delete item.styles[prop]; else item.styles[prop] = value;
-    });
-    applyAll();
-    renderCurrentValues();
-  }
-  function getFirstValue(prop){
-    if(!selected.length) return '';
-    const vals = selected.map(sel=>((store[keyForSelector(sel.selector)]||{}).styles||{})[prop]||'');
-    return vals.every(v=>v===vals[0]) ? vals[0] : '';
-  }
-  function el(tag, attrs, ...children){
-    const n = document.createElement(tag);
-    Object.entries(attrs||{}).forEach(([k,v])=>{
-      if(k==='style') Object.assign(n.style,v);
-      else if(k==='className') n.className = v;
-      else if(k.startsWith('on')) n.addEventListener(k.slice(2).toLowerCase(),v);
-      else n.setAttribute(k,v);
-    });
-    children.flat().forEach(c=> n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c));
-    return n;
-  }
-  function renderPanel(){
-    if(document.getElementById(PANEL_ID)) return;
-    const panel = el('div',{id:PANEL_ID,style:{position:'fixed',right:'14px',bottom:'14px',zIndex:2147483647,width:'330px',maxHeight:'88vh',overflow:'auto',background:'#0f172a',color:'#e5e7eb',border:'1px solid rgba(255,255,255,.16)',borderRadius:'16px',boxShadow:'0 20px 60px rgba(0,0,0,.35)',fontFamily:'Arial, sans-serif',fontSize:'12px',padding:'12px'}});
-    panel.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">
-        <div style="font-weight:800;font-size:14px">Akıllı Tasarım Makinesi V3</div>
-        <button data-abde-close style="background:#334155;color:#fff;border:0;border-radius:8px;padding:6px 8px">−</button>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px">
-        <button data-mode="browse" class="abde-btn">Gezin</button>
-        <button data-mode="single" class="abde-btn">Tek Seç</button>
-        <button data-mode="multi" class="abde-btn">Çoklu Seç</button>
-      </div>
-      <div style="font-size:11px;color:#cbd5e1;margin-bottom:8px">Gezin modunda uygulamayı normal kullan. Düzenleyeceğin yere gelince Tek Seç veya Çoklu Seç aç. Çoklu seçimde Shift şart değil; her tık seçim ekler/çıkarır.</div>
-      <div data-abde-selected style="background:rgba(255,255,255,.06);border-radius:10px;padding:8px;margin-bottom:10px;min-height:34px"></div>
-      <div data-abde-controls></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px">
-        <button data-save class="abde-btn-main">Kaydet</button>
-        <button data-clear-selected class="abde-btn">Seçimi Temizle</button>
-        <button data-export class="abde-btn">Dışa Aktar</button>
-        <button data-import class="abde-btn">İçe Aktar</button>
-        <button data-reset class="abde-btn-danger" style="grid-column:1/3">Tüm Tasarımı Sıfırla</button>
-      </div>
-      <textarea data-import-box placeholder="İçe aktarılacak JSON'u buraya yapıştır" style="display:none;margin-top:8px;width:100%;height:80px;background:#020617;color:#e5e7eb;border:1px solid #334155;border-radius:8px;padding:8px"></textarea>
+  function ensureOutlineCss(){
+    let st = document.getElementById(OUTLINE_ID);
+    if(st) return;
+    st=document.createElement('style'); st.id=OUTLINE_ID;
+    st.textContent = `
+      [data-ab-hover="1"]{outline:2px dashed #f59e0b !important; outline-offset:2px !important; cursor:crosshair !important;}
+      [data-ab-selected="1"]{outline:3px solid #38bdf8 !important; outline-offset:3px !important;}
+      [data-ab-selected="1"]::selection{background:#38bdf8;color:#001018;}
     `;
-    document.body.appendChild(panel);
-    const style = el('style',{},`#${PANEL_ID} button{cursor:pointer} #${PANEL_ID} .abde-btn{background:#1e293b;color:#e5e7eb;border:1px solid #334155;border-radius:9px;padding:7px 6px;font-size:12px} #${PANEL_ID} .abde-btn-main{background:#16a34a;color:#fff;border:0;border-radius:9px;padding:7px 6px;font-size:12px;font-weight:800} #${PANEL_ID} .abde-btn-danger{background:#7f1d1d;color:#fff;border:1px solid #991b1b;border-radius:9px;padding:7px 6px;font-size:12px} #${PANEL_ID} input,#${PANEL_ID} select{width:100%;box-sizing:border-box;background:#020617;color:#e5e7eb;border:1px solid #334155;border-radius:8px;padding:6px;font-size:12px}`);
-    document.head.appendChild(style);
-    panel.querySelector('[data-abde-close]').onclick = ()=>{ panel.style.width = panel.style.width==='52px'?'330px':'52px'; panel.querySelectorAll(':scope > *:not(:first-child)').forEach(x=>x.style.display=panel.style.width==='52px'?'none':''); };
-    panel.querySelectorAll('[data-mode]').forEach(b=> b.onclick=()=>setMode(b.getAttribute('data-mode')));
-    panel.querySelector('[data-save]').onclick = ()=>{ saveStore(); toast('Kaydedildi'); };
-    panel.querySelector('[data-clear-selected]').onclick = ()=>{ selected=[]; markSelectedOutlines(); renderSelectionList(); renderCurrentValues(); };
-    panel.querySelector('[data-export]').onclick = exportStore;
-    panel.querySelector('[data-import]').onclick = importStore;
-    panel.querySelector('[data-reset]').onclick = ()=>{ if(confirm('Tüm tasarım kayıtları silinsin mi?')){ store={}; saveStore(); selected=[]; applyAll(); renderSelectionList(); renderCurrentValues(); }};
-    renderControls(); renderSelectionList(); setMode('browse');
+    document.head.appendChild(st);
+  }
+  function clearVisuals(){
+    document.querySelectorAll('[data-ab-hover="1"]').forEach(e=>e.removeAttribute('data-ab-hover'));
+    document.querySelectorAll('[data-ab-selected="1"]').forEach(e=>e.removeAttribute('data-ab-selected'));
+  }
+  function paintSelection(){
+    clearVisuals();
+    selectedIds.forEach(id=>elementsById(id).forEach(el=>el.setAttribute('data-ab-selected','1')));
+    if(lastHoverId && !selectedIds.includes(lastHoverId)) elementsById(lastHoverId).forEach(el=>el.setAttribute('data-ab-hover','1'));
+    updateSelectedInfo();
   }
   function setMode(m){
-    mode=m;
-    const p=document.getElementById(PANEL_ID); if(!p) return;
-    p.querySelectorAll('[data-mode]').forEach(b=>{ b.style.background = b.getAttribute('data-mode')===mode ? '#2563eb' : '#1e293b'; });
-    if(mode==='browse') document.body.style.cursor=''; else document.body.style.cursor='crosshair';
+    mode = m; localStorage.setItem(MODE_KEY,m); renderMode(); paintSelection();
   }
-  function renderSelectionList(){
-    const box=document.querySelector('#'+PANEL_ID+' [data-abde-selected]'); if(!box) return;
-    box.innerHTML = selected.length ? selected.map((s,i)=>`<div style="display:flex;gap:6px;align-items:center;margin:3px 0"><span style="color:#38bdf8;font-weight:800">${i+1}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.label)}</span></div>`).join('') : '<span style="color:#94a3b8">Seçili alan yok</span>';
+  function selectEl(el, multi){
+    tagElement(el);
+    const id = el.getAttribute(ID_ATTR);
+    if(!id) return;
+    lastClickedId = id;
+    if(!multi) selectedIds = [];
+    if(selectedIds.includes(id)){
+      if(multi) selectedIds = selectedIds.filter(x=>x!==id);
+    }else selectedIds.push(id);
+    paintSelection(); updateControls();
   }
-  function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-  function renderControls(){
-    const c=document.querySelector('#'+PANEL_ID+' [data-abde-controls]'); if(!c) return;
-    c.innerHTML = '';
-    PROPS.forEach(([prop,label,type])=>{
-      const row = el('div',{style:{display:'grid',gridTemplateColumns:'105px 1fr',gap:'7px',alignItems:'center',marginBottom:'7px'}}, el('label',{style:{color:'#cbd5e1'}},label));
-      let input;
-      if(type==='color') input = el('input',{type:'color','data-prop':prop});
-      else if(type==='selectWeight'){
-        input = el('select',{'data-prop':prop}, ...['','300','400','500','600','700','800','900'].map(v=>el('option',{value:v},v||'Boş')));
-      } else if(type==='selectBorder'){
-        input = el('select',{'data-prop':prop}, ...['','solid','dashed','dotted','none'].map(v=>el('option',{value:v},v||'Boş')));
-      } else if(type==='selectAlign'){
-        input = el('select',{'data-prop':prop}, ...['','left','center','right','justify'].map(v=>el('option',{value:v},v||'Boş')));
-      } else input = el('input',{type:'text','data-prop':prop,placeholder:'örn: 20px'});
-      input.addEventListener('input', e=>applyProp(prop,e.target.value));
-      input.addEventListener('change', e=>applyProp(prop,e.target.value));
-      row.appendChild(input); c.appendChild(row);
+  function moveSelection(dir){
+    if(!lastClickedId && selectedIds.length) lastClickedId = selectedIds[selectedIds.length-1];
+    const current = firstEl(lastClickedId);
+    if(!current) return;
+    let target = current;
+    if(dir==='parent') target = current.parentElement && !isEngine(current.parentElement) ? current.parentElement : current;
+    if(dir==='child') target = Array.from(current.children||[]).find(visible) || current;
+    if(dir==='next') target = current.nextElementSibling || current;
+    if(dir==='prev') target = current.previousElementSibling || current;
+    selectEl(target, false);
+  }
+  function commonValue(prop){
+    if(!selectedIds.length) return '';
+    const vals = selectedIds.map(id => (store.styles[id]||{})[prop] || '').filter(Boolean);
+    if(vals.length === 0) return '';
+    return vals.every(v=>v===vals[0]) ? vals[0] : '';
+  }
+  function setProp(prop,value){
+    const v = normalizeValue(prop,value);
+    selectedIds.forEach(id=>{
+      if(!store.styles[id]) store.styles[id] = {};
+      if(v==='') delete store.styles[id][prop]; else store.styles[id][prop] = v;
+      if(Object.keys(store.styles[id]).length===0) delete store.styles[id];
     });
+    applyCss(); paintSelection();
   }
-  function renderCurrentValues(){
-    const p=document.getElementById(PANEL_ID); if(!p) return;
-    p.querySelectorAll('[data-prop]').forEach(input=>{
-      const prop=input.getAttribute('data-prop'); let v=getFirstValue(prop);
-      if(input.type==='color'){
-        if(/^#[0-9a-fA-F]{6}$/.test(v)) input.value=v;
-      } else input.value=v;
-    });
+  function saveAll(){ persistLocal(); trySupabaseSave(); toast('Tasarım kaydedildi'); }
+  function exportAll(){
+    persistLocal();
+    const blob = new Blob([JSON.stringify(store,null,2)],{type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'apron-tasarim-yedek-v4.json'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  }
+  function importAll(){
+    const inp = document.createElement('input'); inp.type='file'; inp.accept='application/json';
+    inp.onchange = () => {
+      const file = inp.files && inp.files[0]; if(!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try{
+          const data = JSON.parse(reader.result);
+          store = { ...DEFAULT_STORE, ...data, styles:data.styles||{}, names:data.names||{} };
+          persistLocal(); applyCss(); tagAll(); paintSelection(); updateControls(); toast('Tasarım içe aktarıldı');
+        }catch(e){ alert('JSON okunamadı'); }
+      };
+      reader.readAsText(file);
+    };
+    inp.click();
+  }
+  function resetAll(){
+    if(!confirm('Tüm tasarım kayıtları silinsin mi?')) return;
+    store = JSON.parse(JSON.stringify(DEFAULT_STORE)); selectedIds=[]; lastClickedId=null;
+    persistLocal(); applyCss(); paintSelection(); updateControls(); toast('Tüm tasarım sıfırlandı');
+  }
+  function resetSelected(){
+    selectedIds.forEach(id=>delete store.styles[id]);
+    persistLocal(); applyCss(); paintSelection(); updateControls(); toast('Seçili alanların tasarımı sıfırlandı');
   }
   function toast(msg){
-    const t=el('div',{style:{position:'fixed',right:'18px',bottom:'calc(14px + 88vh)',zIndex:2147483647,background:'#16a34a',color:'#fff',padding:'8px 10px',borderRadius:'9px',fontFamily:'Arial',fontSize:'12px'}},msg);
-    document.body.appendChild(t); setTimeout(()=>t.remove(),1400);
+    let t = document.getElementById('ab-pro-design-toast');
+    if(!t){ t=document.createElement('div'); t.id='ab-pro-design-toast'; document.body.appendChild(t); }
+    t.textContent=msg;
+    Object.assign(t.style,{position:'fixed',left:'50%',bottom:'24px',transform:'translateX(-50%)',zIndex:2147483647,background:'#0f172a',color:'#e5e7eb',border:'1px solid #334155',borderRadius:'12px',padding:'10px 14px',font:'700 13px system-ui',boxShadow:'0 14px 40px rgba(0,0,0,.35)'});
+    clearTimeout(t._tm); t._tm=setTimeout(()=>t.remove(),1800);
   }
-  function exportStore(){
-    saveStore();
-    const data = JSON.stringify(store,null,2);
-    const blob = new Blob([data],{type:'application/json'});
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='apron-tasarim-yedek.json'; a.click(); URL.revokeObjectURL(a.href);
+
+  function inputFor(prop,label,type){
+    const v = commonValue(prop);
+    if(type==='color'){
+      const safe = /^#[0-9a-f]{6}$/i.test(v) ? v : '#2563a8';
+      return `<label class="ab-row"><span>${label}</span><div class="ab-color-line"><input data-prop="${prop}" type="color" value="${safe}"><input data-prop-text="${prop}" value="${escapeHtml(v)}" placeholder="#2563a8 / var(--g)"></div></label>`;
+    }
+    if(type==='weight') return `<label class="ab-row"><span>${label}</span><select data-prop="${prop}">${['','300','400','500','600','700','800','900'].map(x=>`<option value="${x}" ${v===x?'selected':''}>${x||'Boş'}</option>`).join('')}</select></label>`;
+    if(type==='align') return `<label class="ab-row"><span>${label}</span><select data-prop="${prop}">${['','left','center','right','justify'].map(x=>`<option value="${x}" ${v===x?'selected':''}>${x||'Boş'}</option>`).join('')}</select></label>`;
+    if(type==='border') return `<label class="ab-row"><span>${label}</span><select data-prop="${prop}">${['','solid','dashed','dotted','none'].map(x=>`<option value="${x}" ${v===x?'selected':''}>${x||'Boş'}</option>`).join('')}</select></label>`;
+    if(type==='font') return `<label class="ab-row"><span>${label}</span><select data-prop="${prop}">${['','Inter, system-ui, sans-serif','Cormorant Garamond, serif','Arial, sans-serif','Georgia, serif','Verdana, sans-serif'].map(x=>`<option value="${escapeHtml(x)}" ${v===x?'selected':''}>${x||'Boş'}</option>`).join('')}</select></label>`;
+    if(type==='shadow') return `<label class="ab-row"><span>${label}</span><select data-prop="${prop}">
+      ${['','0 8px 22px rgba(0,0,0,.18)','0 14px 35px rgba(0,0,0,.28)','inset 0 0 0 1px rgba(255,255,255,.12)','none'].map(x=>`<option value="${escapeHtml(x)}" ${v===x?'selected':''}>${x||'Boş'}</option>`).join('')}
+    </select></label>`;
+    if(type==='opacity') return `<label class="ab-row"><span>${label}</span><input data-prop="${prop}" type="number" step="0.05" min="0" max="1" value="${escapeHtml(v)}" placeholder="0.9"></label>`;
+    return `<label class="ab-row"><span>${label}</span><input data-prop="${prop}" value="${escapeHtml(v)}" placeholder="örn: 20px / 100% / auto"></label>`;
   }
-  function importStore(){
-    const box=document.querySelector('#'+PANEL_ID+' [data-import-box]');
-    if(!box) return;
-    if(box.style.display==='none'){ box.style.display='block'; box.focus(); return; }
-    try{ const incoming=JSON.parse(box.value||'{}'); store=incoming; saveStore(); applyAll(); toast('İçe aktarıldı'); box.value=''; box.style.display='none'; }
-    catch(e){ alert('JSON okunamadı'); }
+  function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+  function renderPanel(){
+    let panel = document.getElementById(PANEL_ID);
+    if(panel) return;
+    panel = document.createElement('div'); panel.id=PANEL_ID; panel.setAttribute(LOCK_ATTR,'1');
+    panel.innerHTML = `
+      <div class="ab-head">
+        <div><b>APRON Profesyonel Tasarım Makinesi V4</b><small>Gezin • Seç • Çoklu seç • Kaydet</small></div>
+        <button data-min>−</button>
+      </div>
+      <div class="ab-body">
+        <div class="ab-mode">
+          <button data-mode="browse">Gezin</button>
+          <button data-mode="single">Tek Seç</button>
+          <button data-mode="multi">Çoklu Seç</button>
+        </div>
+        <div class="ab-help">Gezin modunda sayfalarda dolaş. Düzenlenecek yere gelince Tek Seç veya Çoklu Seç aç. Çoklu seçimde <b>Shift + tık</b> da çalışır.</div>
+        <div class="ab-tools4">
+          <button data-move="parent">Dış Kutu</button>
+          <button data-move="child">İç Eleman</button>
+          <button data-move="prev">Önceki</button>
+          <button data-move="next">Sonraki</button>
+        </div>
+        <div data-selected-box class="ab-selected"></div>
+        <div data-controls class="ab-controls"></div>
+        <div class="ab-actions">
+          <button data-save class="main">Kaydet</button>
+          <button data-reset-selected>Seçileni Sıfırla</button>
+          <button data-export>Dışa Aktar</button>
+          <button data-import>İçe Aktar</button>
+          <button data-clear>Seçimi Temizle</button>
+          <button data-reset class="danger">Tümünü Sıfırla</button>
+        </div>
+      </div>`;
+    const css = document.createElement('style'); css.setAttribute(LOCK_ATTR,'1');
+    css.textContent = `
+      #${PANEL_ID}{position:fixed;right:14px;top:14px;width:360px;max-height:calc(100vh - 28px);z-index:2147483646;background:#020617;color:#e5e7eb;border:1px solid #334155;border-radius:16px;box-shadow:0 20px 70px rgba(0,0,0,.45);font-family:Inter,system-ui,sans-serif;overflow:hidden}
+      #${PANEL_ID}.min{width:54px;height:48px;overflow:hidden}
+      #${PANEL_ID} .ab-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:linear-gradient(135deg,#0f172a,#111827);border-bottom:1px solid #334155}
+      #${PANEL_ID} .ab-head b{display:block;font-size:13px} #${PANEL_ID} .ab-head small{display:block;color:#94a3b8;font-size:10px;margin-top:2px}
+      #${PANEL_ID} button{cursor:pointer;border:1px solid #334155;background:#1e293b;color:#e5e7eb;border-radius:9px;padding:7px 8px;font-size:12px;font-weight:700}
+      #${PANEL_ID} button.active{background:#38bdf8;color:#001018;border-color:#7dd3fc}
+      #${PANEL_ID} .ab-body{padding:10px;overflow:auto;max-height:calc(100vh - 78px)}
+      #${PANEL_ID} .ab-mode,#${PANEL_ID} .ab-actions,#${PANEL_ID} .ab-tools4{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px}
+      #${PANEL_ID} .ab-tools4{grid-template-columns:repeat(4,1fr)}
+      #${PANEL_ID} .ab-help{background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.2);border-radius:10px;padding:8px;color:#cbd5e1;font-size:11px;line-height:1.35;margin-bottom:8px}
+      #${PANEL_ID} .ab-selected{background:rgba(255,255,255,.06);border:1px solid #1f2937;border-radius:10px;padding:8px;min-height:42px;margin-bottom:8px;font-size:11px;color:#cbd5e1;line-height:1.35}
+      #${PANEL_ID} .ab-selected .chip{display:inline-flex;max-width:100%;margin:2px;padding:4px 6px;border-radius:999px;background:#0f172a;border:1px solid #334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      #${PANEL_ID} .ab-row{display:grid;grid-template-columns:110px 1fr;gap:8px;align-items:center;margin-bottom:7px;font-size:11px;color:#cbd5e1}
+      #${PANEL_ID} input,#${PANEL_ID} select{width:100%;box-sizing:border-box;background:#020617;color:#e5e7eb;border:1px solid #334155;border-radius:8px;padding:6px;font-size:12px}
+      #${PANEL_ID} input[type=color]{height:32px;padding:2px} #${PANEL_ID} .ab-color-line{display:grid;grid-template-columns:42px 1fr;gap:6px}
+      #${PANEL_ID} .main{background:#16a34a;color:#fff;border-color:#22c55e} #${PANEL_ID} .danger{background:#7f1d1d;color:#fff;border-color:#991b1b;grid-column:2/4}
+    `;
+    document.head.appendChild(css);
+    document.body.appendChild(panel);
+
+    panel.querySelector('[data-min]').onclick = ()=> panel.classList.toggle('min');
+    panel.querySelectorAll('[data-mode]').forEach(btn=>btn.onclick=()=>setMode(btn.dataset.mode));
+    panel.querySelectorAll('[data-move]').forEach(btn=>btn.onclick=()=>moveSelection(btn.dataset.move));
+    panel.querySelector('[data-save]').onclick=saveAll;
+    panel.querySelector('[data-export]').onclick=exportAll;
+    panel.querySelector('[data-import]').onclick=importAll;
+    panel.querySelector('[data-reset]').onclick=resetAll;
+    panel.querySelector('[data-reset-selected]').onclick=resetSelected;
+    panel.querySelector('[data-clear]').onclick=()=>{ selectedIds=[]; paintSelection(); updateControls(); };
+    panel.addEventListener('input', handleControl, true);
+    panel.addEventListener('change', handleControl, true);
+    renderMode(); updateControls();
+  }
+  function renderMode(){
+    const panel=document.getElementById(PANEL_ID); if(!panel) return;
+    panel.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active', b.dataset.mode===mode));
+  }
+  function updateSelectedInfo(){
+    const box = document.querySelector('#'+PANEL_ID+' [data-selected-box]'); if(!box) return;
+    if(!selectedIds.length){ box.innerHTML = 'Seçili alan yok. <b>Tek Seç</b> veya <b>Çoklu Seç</b> açıp ekrandan alan tıkla.'; return; }
+    box.innerHTML = `<b>${selectedIds.length} alan seçildi</b><br>` + selectedIds.map(id=>`<span class="chip" title="${escapeHtml(id)}">${escapeHtml(store.names[id]||id)}</span>`).join('');
+  }
+  function updateControls(){
+    const c = document.querySelector('#'+PANEL_ID+' [data-controls]'); if(!c) return;
+    if(!selectedIds.length){ c.innerHTML=''; updateSelectedInfo(); return; }
+    c.innerHTML = PROPS.map(p=>inputFor(p[0],p[1],p[2])).join('');
+    updateSelectedInfo();
+  }
+  function handleControl(e){
+    const t=e.target;
+    if(!t) return;
+    if(t.dataset.prop) setProp(t.dataset.prop,t.value);
+    if(t.dataset.propText) setProp(t.dataset.propText,t.value);
   }
 
   document.addEventListener('mouseover', function(e){
-    if(mode==='browse' || isPanel(e.target)) return;
-    if(lastHover && lastHover.classList) lastHover.classList.remove('abde-hover');
-    lastHover = e.target;
-    if(lastHover && lastHover.classList) lastHover.classList.add('abde-hover');
+    if(mode==='browse' || isEngine(e.target)) return;
+    tagElement(e.target);
+    lastHoverId = e.target.getAttribute(ID_ATTR);
+    paintSelection();
   }, true);
   document.addEventListener('mouseout', function(e){
-    if(e.target && e.target.classList) e.target.classList.remove('abde-hover');
+    if(mode==='browse' || isEngine(e.target)) return;
+    if(e.target && e.target.getAttribute && e.target.getAttribute(ID_ATTR)===lastHoverId){ lastHoverId=null; paintSelection(); }
   }, true);
   document.addEventListener('click', function(e){
-    if(mode==='browse' || isPanel(e.target)) return;
+    if(mode==='browse' || isEngine(e.target)) return;
+    if(Date.now() < suppressClickUntil) return;
     e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-    addSelection(e.target, mode==='multi' || e.shiftKey);
+    selectEl(e.target, mode==='multi' || e.shiftKey);
+    suppressClickUntil = Date.now()+80;
+  }, true);
+  document.addEventListener('keydown', function(e){
+    if(e.key==='Escape'){ setMode('browse'); }
+    if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='s'){ e.preventDefault(); saveAll(); }
   }, true);
 
-  const obs = new MutationObserver(()=>{ applyAll(); });
+  let moTimer=null;
+  const mo = new MutationObserver(()=>{
+    clearTimeout(moTimer);
+    moTimer=setTimeout(()=>{ tagAll(); applyCss(); paintSelection(); }, 80);
+  });
   function boot(){
-    renderPanel(); applyAll();
-    try{ obs.observe(document.body,{childList:true,subtree:true}); }catch(e){}
+    ensureOutlineCss(); renderPanel(); tagAll(); applyCss(); paintSelection();
+    try{ mo.observe(document.body,{childList:true,subtree:true}); }catch(e){}
   }
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
 })();
-
 </script>
+
 </body>
 </html>
