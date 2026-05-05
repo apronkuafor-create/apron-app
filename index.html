@@ -5485,6 +5485,7 @@ ayarlarRaw.forEach(a=>{
   if(a.id==="bankalar") setBankalar(a.deger);
   if(a.id==="yonBildirim") setYonBildirim(Array.isArray(a.deger)?a.deger:[]);
   if(a.id==="bolumStilleri") setBolumStilleri(a.deger||{});
+  if(a.id==="akilliTasarimStilleri") setAkilliTasarimStilleri(a.deger||{});
 });
         const [k,m,d] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
@@ -5725,6 +5726,46 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       return n;
     });
     const hedefSil = (hdf=hedef)=>setAkilliTasarimStilleri(p=>{const n={...(p||{})};delete n[hdf];return n;});
+    const akilliTasarimKaydet = async () => {
+      const veri = akilliTasarimStilleri || {};
+      try{ localStorage.setItem("apron_akilli_tasarim_stilleri", JSON.stringify(veri)); }catch(e){}
+      try{ if(DB) await DB.from("ayarlar").upsert({id:"akilliTasarimStilleri",deger:veri}); }catch(e){ console.warn(e); }
+      showToast("Tasarım ayarları kalıcı olarak kaydedildi.");
+    };
+    const akilliTasarimDisaAktar = () => {
+      const paket = {v:1, tip:"APRON_AKILLI_TASARIM", tarih:new Date().toISOString(), styles:akilliTasarimStilleri||{}};
+      const txt = JSON.stringify(paket,null,2);
+      try{
+        const blob = new Blob([txt],{type:"application/json"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = "apron-akilli-tasarim.json"; a.click();
+        setTimeout(()=>URL.revokeObjectURL(url),500);
+        showToast("Tasarım dosyası dışa aktarıldı.");
+      }catch(e){
+        try{ navigator.clipboard.writeText(txt); showToast("Dışa aktarım panoya kopyalandı."); }catch(err){ showToast("Dışa aktarım yapılamadı.","hata"); }
+      }
+    };
+    const akilliTasarimIceAktar = () => {
+      const txt = prompt("İçe aktarılacak APRON tasarım JSON kodunu yapıştır:");
+      if(!txt) return;
+      try{
+        const gelen = JSON.parse(txt);
+        const styles = gelen.styles || gelen;
+        if(!styles || typeof styles !== "object" || Array.isArray(styles)) throw new Error("Geçersiz veri");
+        setAkilliTasarimStilleri(styles);
+        try{ localStorage.setItem("apron_akilli_tasarim_stilleri", JSON.stringify(styles)); }catch(e){}
+        if(DB) DB.from("ayarlar").upsert({id:"akilliTasarimStilleri",deger:styles}).then(()=>{}).catch(console.warn);
+        showToast("Tasarım ayarları içe aktarıldı ve kaydedildi.");
+      }catch(e){ showToast("JSON okunamadı. Geçerli tasarım yedeği yapıştır.","hata"); }
+    };
+    const akilliTasarimTumunuSifirla = () => {
+      if(!confirm("Tüm Akıllı Tasarım kayıtları silinsin mi?")) return;
+      setAkilliTasarimStilleri({}); setAkilliTasarimSecilenler([]); setAkilliTasarimHedef("body");
+      try{ localStorage.removeItem("apron_akilli_tasarim_stilleri"); }catch(e){}
+      if(DB) DB.from("ayarlar").upsert({id:"akilliTasarimStilleri",deger:{}}).then(()=>{}).catch(console.warn);
+      showToast("Tüm tasarım kayıtları sıfırlandı.");
+    };
     const satir = (baslik,k,type="text",ek={}) => div({style:{marginBottom:10}},
       lbl({className:"fl"},baslik),
       div({style:{display:"flex",gap:8,alignItems:"center"}},
@@ -5786,8 +5827,14 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
             btn({className:"btn-i",style:{width:"100%"},onClick:()=>{setAkilliTasarimSecim(false);setAkilliTasarimCokluSecim(false);showToast("Gezinme modu açıldı. Artık sayfalarda normal tıklayabilirsiniz.");}},"Gezinme Modu"),
             btn({className:"btn-i",style:{width:"100%"},onClick:()=>{setAkilliTasarimSecilenler([]);setAkilliTasarimHedef("body");setAkilliTasarimSecim(false);}},"Seçimi Temizle")
           ),
-          div({style:{display:"grid",gridTemplateColumns:"1fr",gap:8,marginBottom:12}},
+          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}},
+            btn({className:"btn-k",style:{width:"100%"},onClick:akilliTasarimKaydet},"Kaydet"),
             btn({className:"btn-i",style:{width:"100%"},onClick:()=>hedefSil()},"Bu Alanı Sıfırla")
+          ),
+          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}},
+            btn({className:"btn-i",style:{width:"100%"},onClick:akilliTasarimDisaAktar},"Dışa Aktar"),
+            btn({className:"btn-i",style:{width:"100%"},onClick:akilliTasarimIceAktar},"İçe Aktar"),
+            btn({className:"btn-t",style:{width:"100%"},onClick:akilliTasarimTumunuSifirla},"Tümünü Sıfırla")
           ),
           kul&&kul.rol==="yonetici"&&div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}},
             btn({className:"btn-i",style:{width:"100%"},onClick:()=>{setAkilliTasarimSecim(false);setAkilliTasarimCokluSecim(false);setEkran("personel");showToast("Personel önizleme açıldı. Önce sayfada gezinin, sonra Tek Seç veya Çoklu Seç ile alan seçin.");}},"Personel Önizleme"),
