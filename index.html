@@ -4114,6 +4114,8 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [musteriKaydetUyari, setMusteriKaydetUyari] = useState("");
   const [hizmetOdemeUyariId, setHizmetOdemeUyariId] = useState("");
   const [urunOdemeUyariId, setUrunOdemeUyariId] = useState("");
+  const hizmetBolumRef = useRef(null);
+  const urunBolumRef = useRef(null);
 
   const hizmetBolumStili = getSectionStyle(bolumStilleri, SECTION_STYLE_KEY_HIZMETLER);
   const hizmetFontMap = {Jost:"'Jost',system-ui,sans-serif", Inter:"'Inter',system-ui,sans-serif", Playfair:"'Playfair Display',Georgia,serif", Sistem:"system-ui,sans-serif"};
@@ -4152,6 +4154,11 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
       setMusteriKaydetUyari("");
       return;
     }
+    if(!musteri.trim() && !temizTelefonRakam(tel)){
+      setMusteriKaydet(false);
+      setMusteriKaydetUyari("Lütfen önce müşteri ismi veya telefon numarası alanlarından birini doldurun.");
+      return;
+    }
     if(musteriSistemdeVar()){
       setMusteriKaydet(false);
       setMusteriKaydetUyari("Sisteme kaydedilmeye çalışılan bilgiler daha önce sisteme kaydedilmiş.");
@@ -4167,6 +4174,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
     setMoneri([]);
     setTelOneri([]);
     setSilIkonuAlani("");
+    setMusteriKaydetUyari("");
   };
 
   const musteriBulTelefonla = telefon => {
@@ -4309,17 +4317,27 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
         setSilIkonuAlani("tel");
         setMoneri([]);
         setTelOneri([]);
-      } else {
-        alert("Rehberden telefon numarası seçilmedi.");
       }
     } catch(e) {
-      // Kullanıcı izin vermezse veya seçimden vazgeçerse form kapanmaz.
+      // Kullanıcı izin vermezse veya seçimden vazgeçerse form kapanmaz; ek bildirim gösterilmez.
       console.warn("Rehberden telefon seçilemedi:", e);
-      alert("Rehber seçimi tamamlanmadı. Telefon numarasını elle yazabilirsiniz.");
     }
   };
 
   const kaydet = () => {
+    // Kaydetmeden önce hizmet/ürün satırlarında ödeme tipi seçimi zorunludur.
+    const odemesizHizmet = odemesizIlkHizmet();
+    if(odemesizHizmet){
+      hizmetOdemeUyarisiGoster(odemesizHizmet.id);
+      setTimeout(()=>hizmetBolumRef.current?.scrollIntoView({behavior:"smooth",block:"center"}), 50);
+      return;
+    }
+    const odemesizUrun = odemesizIlkUrun();
+    if(odemesizUrun){
+      urunOdemeUyarisiGoster(odemesizUrun.id);
+      setTimeout(()=>urunBolumRef.current?.scrollIntoView({behavior:"smooth",block:"center"}), 50);
+      return;
+    }
     // Manikürist için personel seçimi zorunlu - disabled ile kontrol edildi
     const temizH = hizler.filter(h=>h.n&&toN(h.f)>0);
     const temizU = urunler.filter(u=>u.a&&toN(u.sf)>0&&toN(u.qty)>0);
@@ -4444,6 +4462,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                 onChange:e=>{
                   const val=e.target.value;
                   setMusteri(val);
+                  if((val||tel).trim()) setMusteriKaydetUyari("");
                   setSilIkonuAlani(val||tel?"musteri":"");
                   const q=normText(val);
                   setMoneri(q.length>=2?musteriDB.filter(m=>normText(m.ad).includes(q)||String(m.tel||"").includes(val)).slice(0,5):[]);
@@ -4474,6 +4493,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                   onChange:e=>{
                     const val=e.target.value;
                     setTel(val);
+                    if(musteri.trim()||temizTelefonRakam(val)) setMusteriKaydetUyari("");
                     setSilIkonuAlani(val||musteri?"tel":"");
                     const rakam=temizTelefonRakam(val);
                     setTelOneri(rakam.length>=2?musteriDB.filter(m=>temizTelefonRakam(m.tel).includes(rakam)).slice(0,5):[]);
@@ -4560,7 +4580,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
         }}, musteriKaydetUyari),
 
         // Hizmetler
-        div({className:"sc sc-h",style:{
+        div({className:"sc sc-h",ref:hizmetBolumRef,style:{
           background:hizmetBolumStili.backgroundColor||"transparent",
           border:(Number(hizmetBolumStili.borderWidth)||2)+"px solid "+(hizmetBolumStili.borderColor||"rgba(37,99,168,.55)"),
           borderRadius:(Number(hizmetBolumStili.borderRadius)||16)+"px",
@@ -4648,7 +4668,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
             )
           ),
           hizTop>0 && div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
-            padding:"8px 11px",background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:8,marginTop:6,marginBottom:2}},
+            padding:"8px 11px",background:"rgba(37,99,168,.06)",borderRadius:8,marginTop:6,marginBottom:2}},
             span({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase"}},"Hizmet Toplami"),
             span({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"var(--g)",fontWeight:700}},fmt(hizTop))
           ),
@@ -4679,7 +4699,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
           })()
         ),
         // Urunler
-        div({className:"sc sc-u"},
+        div({className:"sc sc-u",ref:urunBolumRef},
           div({className:"sc-hd"},
             div({className:"sc-n",style:{background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)"}},"🛍"),
             div({className:"sc-t",style:{color:"var(--g)"}},"Ürün Satışı")
@@ -4892,7 +4912,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
         div({className:"btn-r"},
           btn({className:"btn-i",onClick:onIptal},"İptal"),
           btn({className:"btn-k",
-            disabled:!musteri.trim()||(hizler.filter(h=>h.n).length===0&&urunler.filter(u=>u.a).length===0)||(aktifKullanici?.pozisyon==="Manikurist"&&!anaPersonelId),
+            disabled:(!musteri.trim()&&!temizTelefonRakam(tel))||(hizler.filter(h=>h.n).length===0&&urunler.filter(u=>u.a).length===0)||(aktifKullanici?.pozisyon==="Manikurist"&&!anaPersonelId),
             onClick:()=>kaydet()
           },buttonText||(ilk?.id?"Guncelle":"Kaydet"))
         )
