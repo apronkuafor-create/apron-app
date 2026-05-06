@@ -315,7 +315,7 @@ function lbl(props, ...kids) { return el('label', props, ...kids); }
 // ── Toast ─────────────────────────────────────────────────────────────
 function Toast({toast}) {
   if(!toast.g) return null;
-  return div({className:`toast ${toast.t}`}, toast.m);
+  return div({className:`toast ${toast.t}`,"data-gorsel-yonetim":"1"}, toast.m);
 }
 
 // ── OdemeGir ──────────────────────────────────────────────────────────
@@ -5558,8 +5558,13 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
 
   // ── GÖRSEL DÜZENLEME: Kayıtlı değerleri DOM'a uygula ──
   useEffect(()=>{
-    const els = document.querySelectorAll("[data-edit-key]");
-    els.forEach(el=>{
+    if(yukleniyor) return;
+    // Hem manuel data-edit-key olanlar hem de otomatik üretilen key'ler
+    const tumKayitliKeys = Object.keys(gorselDuzen||{});
+    if(tumKayitliKeys.length===0) return;
+
+    // 1) Manuel işaretli olanlar (önceden eklenmiş data-edit-key'ler)
+    document.querySelectorAll("[data-edit-key]").forEach(el=>{
       const key = el.getAttribute("data-edit-key");
       const k = gorselDuzen[key];
       if(!k) return;
@@ -5568,43 +5573,256 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       if(k.bgColor) el.style.backgroundColor = k.bgColor;
       if(k.imageUrl && el.tagName === "IMG") el.src = k.imageUrl;
     });
+
+    // 2) Otomatik üretilen key'ler (auto:...) için DOM tarayıcı
+    const autoKeys = tumKayitliKeys.filter(k=>k.startsWith("auto:"));
+    if(autoKeys.length===0) return;
+
+    // Her auto key için elementi bul ve uygula (her render sonrası tekrar lazım)
+    const uygula = ()=>{
+      autoKeys.forEach(key=>{
+        const el = window.__gorselFindByKey ? window.__gorselFindByKey(key) : null;
+        if(!el) return;
+        const k = gorselDuzen[key];
+        if(!k) return;
+        if(k.text !== undefined && k.text !== null && el.tagName !== "IMG") el.textContent = k.text;
+        if(k.color) el.style.color = k.color;
+        if(k.bgColor) el.style.backgroundColor = k.bgColor;
+        if(k.imageUrl && el.tagName === "IMG") el.src = k.imageUrl;
+      });
+    };
+    uygula();
+    // React render'larından sonra tekrar uygula (kısa bir gecikme ile)
+    const t1 = setTimeout(uygula, 100);
+    const t2 = setTimeout(uygula, 500);
+    const t3 = setTimeout(uygula, 1500);
+    return ()=>{ clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   },[gorselDuzen,yukleniyor]);
 
-  // ── GÖRSEL DÜZENLEME: Hover/tıklama event handler'ları ──
+  // ── GÖRSEL DÜZENLEME: MutationObserver ile sürekli uygulama (sayfa değişince yeni gelen DOM'a da uygula) ──
+  useEffect(()=>{
+    if(yukleniyor) return;
+    const tumKayitliKeys = Object.keys(gorselDuzen||{});
+    if(tumKayitliKeys.length===0) return;
+    const autoKeys = tumKayitliKeys.filter(k=>k.startsWith("auto:"));
+    if(autoKeys.length===0) return;
+
+    let zaman;
+    const obs = new MutationObserver(()=>{
+      clearTimeout(zaman);
+      zaman = setTimeout(()=>{
+        autoKeys.forEach(key=>{
+          const el = window.__gorselFindByKey ? window.__gorselFindByKey(key) : null;
+          if(!el) return;
+          const k = gorselDuzen[key];
+          if(!k) return;
+          if(k.text !== undefined && k.text !== null && el.tagName !== "IMG"){
+            if(el.textContent !== k.text) el.textContent = k.text;
+          }
+          if(k.color && el.style.color !== k.color) el.style.color = k.color;
+          if(k.bgColor && el.style.backgroundColor !== k.bgColor) el.style.backgroundColor = k.bgColor;
+          if(k.imageUrl && el.tagName === "IMG" && el.src !== k.imageUrl) el.src = k.imageUrl;
+        });
+      }, 80);
+    });
+    obs.observe(document.body, {childList:true, subtree:true, characterData:true});
+    return ()=>{ obs.disconnect(); clearTimeout(zaman); };
+  },[gorselDuzen,yukleniyor]);
+
+  // ── GÖRSEL DÜZENLEME: AKILLI OTOMATİK TARAMA + HOVER/TIKLAMA ──
   useEffect(()=>{
     if(!gorselDuzenModu) return;
+
+    // Bir element için kararlı kimlik üret (içerik + DOM yolu)
+    // Kimlik formatı: auto:<tag>:<dom-yolu>:<içerik-hash>
+    const elKimlik = (el)=>{
+      // Manuel data-edit-key varsa onu kullan
+      const manuel = el.getAttribute("data-edit-key");
+      if(manuel) return manuel;
+      // DOM yolunu çıkar (root'a kadar tag+index)
+      const yol = [];
+      let cur = el;
+      let derinlik = 0;
+      while(cur && cur !== document.body && derinlik < 12){
+        const par = cur.parentElement;
+        if(!par) break;
+        const tag = cur.tagName.toLowerCase();
+        // Aynı tag'li kardeşler arasındaki indeks
+        let idx = 0;
+        for(let i=0;i<par.children.length;i++){
+          if(par.children[i] === cur) break;
+          if(par.children[i].tagName === cur.tagName) idx++;
+        }
+        yol.unshift(tag+idx);
+        cur = par;
+        derinlik++;
+      }
+      // İçerik hash'i (resim için src, diğerleri için ilk 30 karakter)
+      let icerik;
+      if(el.tagName === "IMG"){
+        icerik = (el.getAttribute("src")||"").slice(-40);
+      } else {
+        // Sadece kendi text node'larından içerik (alt elementlerinkini sayma)
+        let kendiText = "";
+        for(const n of el.childNodes){
+          if(n.nodeType === 3) kendiText += n.textContent;
+        }
+        kendiText = kendiText.trim();
+        if(!kendiText) kendiText = (el.textContent||"").trim().slice(0,30);
+        icerik = kendiText.slice(0,30);
+      }
+      // Basit hash
+      let hash = 0;
+      const s = icerik;
+      for(let i=0;i<s.length;i++){ hash = ((hash<<5)-hash)+s.charCodeAt(i); hash|=0; }
+      return "auto:"+el.tagName.toLowerCase()+":"+yol.join(">")+":"+Math.abs(hash).toString(36);
+    };
+
+    // Bir kimliğe karşılık gelen elementi bul (DOM'da ara)
+    window.__gorselFindByKey = (key)=>{
+      if(!key.startsWith("auto:")) {
+        return document.querySelector('[data-edit-key="'+key+'"]');
+      }
+      // auto:<tag>:<yol>:<hash>
+      const parcalar = key.split(":");
+      if(parcalar.length < 4) return null;
+      const tag = parcalar[1];
+      const adaylar = document.querySelectorAll(tag);
+      for(const aday of adaylar){
+        // gorselDuzen-content veya ekran-dışı alanları atla
+        if(aday.closest('.ov')) {
+          // modal içindeyse atla (gorselSeciliEl modal'ı)
+          const mod = aday.closest('.ov');
+          if(mod && mod.querySelector('[data-gorsel-modal]')) continue;
+        }
+        try {
+          if(elKimlik(aday) === key) return aday;
+        } catch(e){}
+      }
+      return null;
+    };
+
+    // AKILLI FİLTRE: Bu element düzenlenebilir mi?
+    const duzenlenebilirMi = (el)=>{
+      if(!el || !el.tagName) return false;
+      const tag = el.tagName;
+
+      // 1) Düzenleme makinesinin kendi elementlerini hariç tut
+      if(el.closest("[data-gorsel-yonetim]")) return false;
+      // 2) Modal'ın kendisini hariç tut
+      if(el.closest("[data-gorsel-modal]")) return false;
+      // 3) Yüzen kalem butonunu hariç tut
+      if(el.closest("[data-gorsel-kalem]")) return false;
+      // 4) Üst bilgi şeridini hariç tut
+      if(el.closest("[data-gorsel-serit]")) return false;
+
+      // 5) Form öğeleri HARİÇ
+      if(["INPUT","SELECT","TEXTAREA","OPTION"].includes(tag)) return false;
+
+      // 6) Resim ise → düzenlenebilir
+      if(tag === "IMG") return true;
+
+      // 7) İnteraktif olmayan, içinde alt element olanlar (container) → hariç
+      // Sadece kendi text node'u olan elementler
+      let kendiTextVar = false;
+      let altElementVar = false;
+      for(const n of el.childNodes){
+        if(n.nodeType === 3 && n.textContent.trim().length > 0) kendiTextVar = true;
+        if(n.nodeType === 1) altElementVar = true;
+      }
+
+      // 8) Eğer içinde sadece text yoksa ve alt element varsa → container → hariç
+      // (renk değişikliği için container'lar da seçilebilir olmalı, ama text düzenleme için değil)
+      // Şimdilik: sadece direkt metin içeren leaf-element'ler düzenlenebilir
+      if(!kendiTextVar && !altElementVar) return false; // boş element
+      if(!kendiTextVar && altElementVar) return false; // sadece container, alt elementlere bırak
+
+      // 9) Çok uzun metinler (muhtemelen dinamik içerik) ihtiyatla
+      const txt = (el.textContent||"").trim();
+      if(txt.length > 500) return false;
+
+      // 10) Sadece sayı içeren metinler (fiyat, sayaç vb. dinamik) hariç
+      if(/^[\d.,\s₺€$%+\-]+$/.test(txt) && txt.length < 30) return false;
+
+      // 11) Tarih formatları hariç (örn: 12.05.2025, 2025-05-12)
+      if(/^\d{1,4}[./\-]\d{1,2}[./\-]\d{1,4}$/.test(txt)) return false;
+
+      // 12) Saat formatları hariç (12:30, 09:45)
+      if(/^\d{1,2}:\d{2}(\s*-\s*\d{1,2}:\d{2})?$/.test(txt)) return false;
+
+      // 13) Telefon numaraları hariç
+      if(/^[\s+()]*[\d\s+()\-]{7,}$/.test(txt)) return false;
+
+      return true;
+    };
+
+    let sonHover = null;
+
     const onOver = (e)=>{
-      const t = e.target.closest("[data-edit-key]");
-      if(!t) return;
+      // Önce manuel data-edit-key'i ara
+      let t = e.target.closest("[data-edit-key]");
+      if(!t){
+        // Yoksa akıllı filtre uygula
+        t = e.target;
+        if(!duzenlenebilirMi(t)) return;
+      }
+      if(sonHover === t) return;
+      // Önceki hover'ı temizle
+      if(sonHover){
+        sonHover.style.outline = "";
+        sonHover.style.outlineOffset = "";
+        sonHover.style.cursor = "";
+        sonHover.style.boxShadow = "";
+      }
       t.style.outline = "2px dashed #2563a8";
       t.style.outlineOffset = "2px";
       t.style.cursor = "pointer";
+      t.style.boxShadow = "0 0 0 4px rgba(37,99,168,.15)";
+      sonHover = t;
     };
+
     const onOut = (e)=>{
-      const t = e.target.closest("[data-edit-key]");
-      if(!t) return;
-      t.style.outline = "";
-      t.style.outlineOffset = "";
-      t.style.cursor = "";
+      if(sonHover && !sonHover.contains(e.relatedTarget)){
+        sonHover.style.outline = "";
+        sonHover.style.outlineOffset = "";
+        sonHover.style.cursor = "";
+        sonHover.style.boxShadow = "";
+        sonHover = null;
+      }
     };
+
     const onClick = (e)=>{
-      const t = e.target.closest("[data-edit-key]");
-      if(!t) return;
+      // Manuel data-edit-key öncelikli
+      let t = e.target.closest("[data-edit-key]");
+      let manuelKey = null;
+      if(t){
+        manuelKey = t.getAttribute("data-edit-key");
+      } else {
+        t = e.target;
+        if(!duzenlenebilirMi(t)) return;
+      }
       e.preventDefault();
       e.stopPropagation();
-      const key = t.getAttribute("data-edit-key");
-      const type = t.getAttribute("data-edit-type") || "text";
+      const key = manuelKey || elKimlik(t);
       const cs = window.getComputedStyle(t);
+      // Sadece kendi text node'u
+      let kendiText = "";
+      for(const n of t.childNodes){
+        if(n.nodeType === 3) kendiText += n.textContent;
+      }
+      kendiText = kendiText || t.textContent || "";
+
       setGorselSeciliEl({
         key,
-        type,
-        currentText: t.textContent || "",
+        type: "text",
+        currentText: kendiText,
         currentColor: cs.color || "#ffffff",
         currentBg: cs.backgroundColor || "",
         currentImageUrl: t.tagName === "IMG" ? t.src : "",
         tagName: t.tagName
       });
     };
+
     document.addEventListener("mouseover", onOver, true);
     document.addEventListener("mouseout", onOut, true);
     document.addEventListener("click", onClick, true);
@@ -5612,11 +5830,18 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       document.removeEventListener("mouseover", onOver, true);
       document.removeEventListener("mouseout", onOut, true);
       document.removeEventListener("click", onClick, true);
-      // çıkışta tüm outline'ları temizle
+      // Tüm hover stillerini temizle
+      if(sonHover){
+        sonHover.style.outline = "";
+        sonHover.style.outlineOffset = "";
+        sonHover.style.cursor = "";
+        sonHover.style.boxShadow = "";
+      }
       document.querySelectorAll("[data-edit-key]").forEach(el=>{
         el.style.outline = "";
         el.style.outlineOffset = "";
         el.style.cursor = "";
+        el.style.boxShadow = "";
       });
     };
   },[gorselDuzenModu]);
@@ -8789,7 +9014,7 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
 
 
           // ── GÖRSEL DÜZENLEME ──
-          aySek==="renklendirme"&&div({style:{padding:"4px 0",minHeight:"calc(100vh - 130px)"}},
+          aySek==="renklendirme"&&div({"data-gorsel-yonetim":"1",style:{padding:"4px 0",minHeight:"calc(100vh - 130px)"}},
             div({style:{background:"var(--bg2)",border:"1.5px solid var(--br)",borderRadius:18,padding:20,marginBottom:14}},
               div({style:{display:"flex",alignItems:"center",gap:12,marginBottom:14}},
                 div({style:{width:50,height:50,borderRadius:14,background:"var(--bg3)",border:"1px solid var(--br)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0}},"✏️"),
@@ -8801,10 +9026,14 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
               div({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:10,padding:12,marginBottom:14,fontSize:12.5,color:"var(--tx)",lineHeight:1.6}},
                 div({style:{fontWeight:700,marginBottom:6,color:"var(--g)"}},"📖 Nasıl Kullanılır?"),
                 "1. Aşağıdaki ",h("b",null,"\"Düzenleme Modunu Başlat\"")," butonuna basın.",h("br",null),
-                "2. Sağ alt köşede beliren ",h("b",null,"✏️ kalem ikonu")," düzenleme modunun aktif olduğunu gösterir.",h("br",null),
-                "3. Uygulamada gezinin — düzenlenebilir alanların üzerine geldiğinizde ",h("b",null,"mavi çerçeve")," çıkar.",h("br",null),
-                "4. Bir alana tıkladığınızda küçük bir pencere açılır; metni veya rengi değiştirebilirsiniz.",h("br",null),
-                "5. ",h("b",null,"\"Güncelle\"")," dediğinizde değişiklik anında kaydedilir."
+                "2. Sağ alt köşede ",h("b",null,"✏️ kalem ikonu")," çıkar, üstte mavi şerit görünür.",h("br",null),
+                "3. Uygulamanın ",h("b",null,"her yerinde")," (Personel Paneli, Yönetici Paneli, modal'lar dahil) gezinebilirsiniz.",h("br",null),
+                "4. Düzenlenebilir alanların üzerine geldiğinizde ",h("b",null,"mavi çerçeve")," çıkar.",h("br",null),
+                "5. Tıkladığınızda küçük bir pencere açılır; metni veya rengini değiştirebilirsiniz.",h("br",null),
+                "6. ",h("b",null,"\"Güncelle\"")," dediğinizde değişiklik kalıcı olarak kaydedilir."
+              ),
+              div({style:{background:"rgba(80,184,128,.08)",border:"1px solid rgba(80,184,128,.3)",borderRadius:10,padding:10,marginBottom:14,fontSize:11.5,color:"var(--gr)",lineHeight:1.5}},
+                h("b",null,"🛡 Akıllı Koruma:")," Müşteri isimleri, fiyatlar, tarihler, telefon numaraları gibi ",h("b",null,"dinamik veriler otomatik olarak korunur"),", yanlışlıkla değiştirilemez. Sadece sabit metinler, başlıklar, butonlar ve etiketler düzenlenebilir."
               ),
               btn({style:{width:"100%",padding:"14px",borderRadius:12,border:"none",fontSize:14,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",
                 background:gorselDuzenModu?"linear-gradient(135deg,#c0392b,#922b21)":"linear-gradient(135deg,var(--g),var(--gd))",
@@ -8915,6 +9144,7 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
 
     // ── GÖRSEL DÜZENLEME: Yüzen Kalem Butonu (sadece yönetici) ──
     !yukleniyor&&ekran==="yonetici"&&kul&&div({
+      "data-gorsel-kalem":"1",
       style:{
         position:"fixed",bottom:80,right:16,zIndex:9998,
         width:48,height:48,borderRadius:"50%",
@@ -8933,6 +9163,7 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
 
     // ── GÖRSEL DÜZENLEME: Modu açıkken üst bilgi şeridi ──
     !yukleniyor&&ekran==="yonetici"&&kul&&gorselDuzenModu&&div({
+      "data-gorsel-serit":"1",
       style:{
         position:"fixed",top:0,left:0,right:0,zIndex:9997,
         background:"linear-gradient(135deg,#2563a8,#1a4a80)",
@@ -8944,10 +9175,12 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
 
     // ── GÖRSEL DÜZENLEME: Düzenleme penceresi (modal) ──
     gorselSeciliEl&&div({
+      "data-gorsel-modal":"1",
       style:{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16},
       onClick:()=>setGorselSeciliEl(null)
     },
       div({
+        "data-gorsel-modal-icerik":"1",
         style:{background:"var(--bg2)",border:"1.5px solid var(--g)",borderRadius:16,padding:18,width:"100%",maxWidth:380,boxShadow:"0 20px 60px rgba(0,0,0,.7)"},
         onClick:e=>e.stopPropagation()
       },
