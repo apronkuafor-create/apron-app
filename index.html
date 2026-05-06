@@ -5565,6 +5565,66 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     const tumKayitliKeys = Object.keys(gorselDuzen||{});
     if(tumKayitliKeys.length===0) return;
 
+    // ── KARARLI KİMLİK ÜRETECİ (her zaman aktif) ──
+    const elKimlik = (el)=>{
+      const manuel = el.getAttribute && el.getAttribute("data-edit-key");
+      if(manuel) return manuel;
+      const yol = [];
+      let cur = el;
+      let derinlik = 0;
+      while(cur && cur !== document.body && derinlik < 12){
+        const par = cur.parentElement;
+        if(!par) break;
+        const tag = cur.tagName.toLowerCase();
+        let idx = 0;
+        for(let i=0;i<par.children.length;i++){
+          if(par.children[i] === cur) break;
+          if(par.children[i].tagName === cur.tagName) idx++;
+        }
+        yol.unshift(tag+idx);
+        cur = par;
+        derinlik++;
+      }
+      let icerik;
+      if(el.tagName === "IMG"){
+        icerik = (el.getAttribute("src")||"").slice(-40);
+      } else {
+        let kendiText = "";
+        for(const n of el.childNodes){
+          if(n.nodeType === 3) kendiText += n.textContent;
+        }
+        kendiText = kendiText.trim();
+        if(!kendiText) kendiText = (el.textContent||"").trim().slice(0,30);
+        icerik = kendiText.slice(0,30);
+      }
+      let hash = 0;
+      const s = icerik;
+      for(let i=0;i<s.length;i++){ hash = ((hash<<5)-hash)+s.charCodeAt(i); hash|=0; }
+      return "auto:"+el.tagName.toLowerCase()+":"+yol.join(">")+":"+Math.abs(hash).toString(36);
+    };
+
+    // FindByKey: kayıtlı key'in bu sayfada hangi elementte olduğunu bul
+    window.__gorselFindByKey = (key)=>{
+      if(!key.startsWith("auto:")) {
+        return document.querySelector('[data-edit-key="'+key+'"]');
+      }
+      const parcalar = key.split(":");
+      if(parcalar.length < 4) return null;
+      const tag = parcalar[1];
+      const adaylar = document.querySelectorAll(tag);
+      for(const aday of adaylar){
+        // Editor'ün kendi UI'larını atla
+        if(aday.closest("[data-gorsel-yonetim]")) continue;
+        if(aday.closest("[data-gorsel-modal]")) continue;
+        if(aday.closest("[data-gorsel-kalem]")) continue;
+        if(aday.closest("[data-gorsel-serit]")) continue;
+        try {
+          if(elKimlik(aday) === key) return aday;
+        } catch(e){}
+      }
+      return null;
+    };
+
     // Tek elemente kayıt değerlerini uygula
     const elemUygula = (el, k)=>{
       if(!el || !k) return;
@@ -5728,8 +5788,8 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       return "auto:"+el.tagName.toLowerCase()+":"+yol.join(">")+":"+Math.abs(hash).toString(36);
     };
 
-    // Bir kimliğe karşılık gelen elementi bul (DOM'da ara)
-    window.__gorselFindByKey = (key)=>{
+    // Bir kimliğe karşılık gelen elementi bul (DOM'da ara) - yerel kullanım için
+    const yerelFindByKey = (key)=>{
       if(!key.startsWith("auto:")) {
         return document.querySelector('[data-edit-key="'+key+'"]');
       }
@@ -5739,12 +5799,10 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       const tag = parcalar[1];
       const adaylar = document.querySelectorAll(tag);
       for(const aday of adaylar){
-        // gorselDuzen-content veya ekran-dışı alanları atla
-        if(aday.closest('.ov')) {
-          // modal içindeyse atla (gorselSeciliEl modal'ı)
-          const mod = aday.closest('.ov');
-          if(mod && mod.querySelector('[data-gorsel-modal]')) continue;
-        }
+        if(aday.closest("[data-gorsel-yonetim]")) continue;
+        if(aday.closest("[data-gorsel-modal]")) continue;
+        if(aday.closest("[data-gorsel-kalem]")) continue;
+        if(aday.closest("[data-gorsel-serit]")) continue;
         try {
           if(elKimlik(aday) === key) return aday;
         } catch(e){}
