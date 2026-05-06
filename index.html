@@ -5638,6 +5638,14 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     // Yoksa kullanıcı uygulamayı normal kullanabilsin.
     if(!gorselSecimAktif) return;
 
+    // ALAN SEÇ butonuna tıklandığı an event listener hemen kurulursa,
+    // o tıklama event'i bubble ile bize gelir ve butonu seçmeye çalışır.
+    // Bu yüzden listener'ları küçük bir gecikme ile kuruyoruz.
+    let baglandi = false;
+    let temizleyiciler = [];
+    const baglantiZaman = setTimeout(()=>{
+      baglandi = true;
+
     // Bir element için kararlı kimlik üret (içerik + DOM yolu)
     // Kimlik formatı: auto:<tag>:<dom-yolu>:<içerik-hash>
     const elKimlik = (el)=>{
@@ -5762,21 +5770,28 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     };
 
     let sonHover = null;
-    // Seçili anahtarları DOM elementine bağlayan helper (closure içindeki state'i okumak için ref)
-    const seciliKeyVarMi = (key)=>{
-      // Reactive değil ama her tıklamada okuyacağımız için DOM kontrolü yeterli
-      const el = document.querySelector('[data-gorsel-secili-key="'+key.replace(/"/g,'\\"')+'"]');
-      return !!el;
+
+    // Tıklama/hover hedefini bul: önce manuel key, sonra e.target, reddedilirse 3 seviye parent dene
+    const tiklamaHedefiBul = (target)=>{
+      if(!target || !target.tagName) return null;
+      // Önce manuel data-edit-key
+      const m = target.closest && target.closest("[data-edit-key]");
+      if(m) return {el: m, manuelKey: m.getAttribute("data-edit-key")};
+      // Sonra hedefin kendisi
+      let cur = target;
+      let derinlik = 0;
+      while(cur && derinlik < 4){
+        if(duzenlenebilirMi(cur)) return {el: cur, manuelKey: null};
+        cur = cur.parentElement;
+        derinlik++;
+      }
+      return null;
     };
 
     const onOver = (e)=>{
-      // Önce manuel data-edit-key'i ara
-      let t = e.target.closest("[data-edit-key]");
-      if(!t){
-        // Yoksa akıllı filtre uygula
-        t = e.target;
-        if(!duzenlenebilirMi(t)) return;
-      }
+      const hedef = tiklamaHedefiBul(e.target);
+      if(!hedef) return;
+      const t = hedef.el;
       if(sonHover === t) return;
       // Önceki hover'ı temizle (eğer seçili değilse)
       if(sonHover && !sonHover.hasAttribute("data-gorsel-secili-key")){
@@ -5813,18 +5828,22 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       }
     };
 
-    const onClick = (e)=>{
-      // Manuel data-edit-key öncelikli
-      let t = e.target.closest("[data-edit-key]");
-      let manuelKey = null;
-      if(t){
-        manuelKey = t.getAttribute("data-edit-key");
-      } else {
-        t = e.target;
-        if(!duzenlenebilirMi(t)) return;
-      }
+    const onPointerDown = (e)=>{
+      const hedef = tiklamaHedefiBul(e.target);
+      if(!hedef) return;
       e.preventDefault();
       e.stopPropagation();
+      if(e.stopImmediatePropagation) e.stopImmediatePropagation();
+    };
+
+    const onClick = (e)=>{
+      const hedef = tiklamaHedefiBul(e.target);
+      if(!hedef) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if(e.stopImmediatePropagation) e.stopImmediatePropagation();
+      const t = hedef.el;
+      const manuelKey = hedef.manuelKey;
       const key = manuelKey || elKimlik(t);
       const cs = window.getComputedStyle(t);
       // Sadece kendi text node'u
@@ -5868,16 +5887,28 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     document.addEventListener("mouseover", onOver, true);
     document.addEventListener("mouseout", onOut, true);
     document.addEventListener("click", onClick, true);
-    return ()=>{
+    document.addEventListener("pointerdown", onPointerDown, true);
+    temizleyiciler.push(()=>{
       document.removeEventListener("mouseover", onOver, true);
       document.removeEventListener("mouseout", onOut, true);
       document.removeEventListener("click", onClick, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    });
+    },50); // setTimeout sonu
+
+    return ()=>{
+      clearTimeout(baglantiZaman);
+      if(baglandi){
+        temizleyiciler.forEach(fn=>fn());
+      }
       // Hover stillerini temizle
-      if(sonHover && !sonHover.hasAttribute("data-gorsel-secili-key")){
-        sonHover.style.outline = "";
-        sonHover.style.outlineOffset = "";
-        sonHover.style.cursor = "";
-        sonHover.style.boxShadow = "";
+      const hov = document.querySelector("[data-gorsel-hover-aktif]");
+      if(hov){
+        hov.style.outline = "";
+        hov.style.outlineOffset = "";
+        hov.style.cursor = "";
+        hov.style.boxShadow = "";
+        hov.removeAttribute("data-gorsel-hover-aktif");
       }
     };
   },[gorselDuzenModu,gorselSecimAktif]);
