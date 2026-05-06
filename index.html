@@ -5932,6 +5932,9 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       }
     };
 
+    let sonTiklamaZaman = 0;
+    let sonTiklamaKey = null;
+
     const onPointerDown = (e)=>{
       const hedef = tiklamaHedefiBul(e.target);
       if(!hedef) return;
@@ -5940,28 +5943,25 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       if(e.stopImmediatePropagation) e.stopImmediatePropagation();
     };
 
-    // DEBUG: Tıklamanın ulaştığını doğrulamak için window'a bir flag koy
     const onClick = (e)=>{
-      // DEBUG göstergesi (sağ üstte küçük bir kutu)
-      let debugBox = document.getElementById("__gorselDebug");
-      if(!debugBox){
-        debugBox = document.createElement("div");
-        debugBox.id = "__gorselDebug";
-        debugBox.style.cssText = "position:fixed;bottom:140px;right:10px;background:#000;color:#0f0;padding:6px 10px;font-size:10px;z-index:99999;font-family:monospace;border-radius:6px;max-width:200px;pointer-events:none;";
-        document.body.appendChild(debugBox);
-      }
       const hedef = tiklamaHedefiBul(e.target);
-      if(!hedef){
-        debugBox.textContent = "❌ "+(e.target.tagName||"?")+" - reddedildi";
-        return;
-      }
-      debugBox.textContent = "✓ "+hedef.el.tagName+" seçildi";
+      if(!hedef) return;
       e.preventDefault();
       e.stopPropagation();
       if(e.stopImmediatePropagation) e.stopImmediatePropagation();
       const t = hedef.el;
       const manuelKey = hedef.manuelKey;
       const key = manuelKey || elKimlik(t);
+
+      // DEBOUNCE: Aynı key'e 300ms içinde gelen ikinci tıklamayı YOK SAY
+      // (React/browser çoklu olay tetiklemesini engellemek için)
+      const simdi = Date.now();
+      if(sonTiklamaKey === key && (simdi - sonTiklamaZaman) < 300){
+        return;
+      }
+      sonTiklamaKey = key;
+      sonTiklamaZaman = simdi;
+
       const cs = window.getComputedStyle(t);
       // Sadece kendi text node'u
       let kendiText = "";
@@ -9259,8 +9259,12 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
     ),
 
     // ── GÖRSEL DÜZENLEME: Yüzen Kalem Butonu ──
-    // Yönetici giriş yapmışsa kalemi göster. Düzenleme modu açıkken Personel Paneli'nde de aktif kalır.
-    !yukleniyor&&kul&&kul.rol==="yonetici"&&(ekran==="yonetici"||(gorselDuzenModu&&ekran==="personel"))&&div({
+    // Açma: sadece Yönetici > Ayarlar > Dizayn sekmesindeyken kalem görünür.
+    // Açıkken: her yerde görünür (kapatmak ve panel değiştirmek için).
+    !yukleniyor&&kul&&kul.rol==="yonetici"&&(
+      gorselDuzenModu ||
+      (ekran==="yonetici" && asek==="ayarlar" && aySek==="renklendirme")
+    )&&div({
       "data-gorsel-kalem":"1",
       style:{
         position:"fixed",bottom:80,right:16,zIndex:9998,
@@ -9710,16 +9714,6 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                   // Önce eski stilleri sıfırla, sonra yeniyi uygula
                   window.__gorselElemUygula(elimiz, yeni);
                 }
-                // Debug: kayıt edildi mi göster
-                console.log("GÖRSEL DÜZENLEME KAYIT:", {key: gorselSeciliEl.key, yeni, el: elimiz});
-                let dbg2 = document.getElementById("__gorselDebug");
-                if(!dbg2){
-                  dbg2 = document.createElement("div");
-                  dbg2.id = "__gorselDebug";
-                  dbg2.style.cssText = "position:fixed;bottom:140px;right:10px;background:#000;color:#0f0;padding:6px 10px;font-size:10px;z-index:99999;font-family:monospace;border-radius:6px;max-width:240px;pointer-events:none;";
-                  document.body.appendChild(dbg2);
-                }
-                dbg2.textContent = "💾 Kayıt: "+gorselSeciliEl.key.slice(0,40)+"... → "+JSON.stringify(yeni).slice(0,80);
 
                 // Seçimi temizle
                 document.querySelectorAll("[data-gorsel-secili-key]").forEach(el=>{
