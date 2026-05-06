@@ -5565,43 +5565,87 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     const tumKayitliKeys = Object.keys(gorselDuzen||{});
     if(tumKayitliKeys.length===0) return;
 
+    // Tek elemente kayıt değerlerini uygula
+    const elemUygula = (el, k)=>{
+      if(!el || !k) return;
+      // Metin (sadece eski tek-text desteği için)
+      if(k.text !== undefined && k.text !== null && el.tagName !== "IMG"){
+        if(el.textContent !== k.text) el.textContent = k.text;
+      }
+      // Renkler
+      if(k.color) el.style.color = k.color;
+      if(k.bgColor) el.style.backgroundColor = k.bgColor;
+      // Çerçeve
+      if(k.borderColor) el.style.borderColor = k.borderColor;
+      if(k.borderWidth !== undefined && k.borderWidth !== null) el.style.borderWidth = k.borderWidth+"px";
+      if(k.borderRadius !== undefined && k.borderRadius !== null) el.style.borderRadius = k.borderRadius+"px";
+      if(k.borderStyle) el.style.borderStyle = k.borderStyle;
+      // Boyut
+      if(k.width !== undefined && k.width !== null && k.width !== "") el.style.width = k.width;
+      if(k.height !== undefined && k.height !== null && k.height !== "") el.style.height = k.height;
+      if(k.minHeight) el.style.minHeight = k.minHeight;
+      // Yazı tipi
+      if(k.fontSize !== undefined && k.fontSize !== null) el.style.fontSize = k.fontSize+"px";
+      if(k.fontWeight) el.style.fontWeight = k.fontWeight;
+      // Padding
+      if(k.padding) el.style.padding = k.padding;
+      // Resim
+      if(k.imageUrl && el.tagName === "IMG"){
+        if(el.src !== k.imageUrl) el.src = k.imageUrl;
+      }
+      // İçindeki text node'ları (k.altYazilar = [{index, yeniText}])
+      if(k.altYazilar && Array.isArray(k.altYazilar)){
+        // Tüm text node'larını sırayla bul (recursive)
+        const allTextNodes = [];
+        const tara = (parent, derinlik=0)=>{
+          if(derinlik > 5) return;
+          for(const n of parent.childNodes){
+            if(n.nodeType === 3){
+              if(n.textContent.trim().length > 0) allTextNodes.push(n);
+            } else if(n.nodeType === 1 && !["INPUT","SELECT","TEXTAREA"].includes(n.tagName)){
+              tara(n, derinlik+1);
+            }
+          }
+        };
+        tara(el);
+        k.altYazilar.forEach(item=>{
+          if(item && typeof item.idx === "number" && allTextNodes[item.idx]){
+            if(allTextNodes[item.idx].textContent !== item.yeniText){
+              allTextNodes[item.idx].textContent = item.yeniText;
+            }
+          }
+        });
+      }
+    };
+
     // 1) Manuel işaretli olanlar (önceden eklenmiş data-edit-key'ler)
     document.querySelectorAll("[data-edit-key]").forEach(el=>{
       const key = el.getAttribute("data-edit-key");
-      const k = gorselDuzen[key];
-      if(!k) return;
-      if(k.text !== undefined && k.text !== null) el.textContent = k.text;
-      if(k.color) el.style.color = k.color;
-      if(k.bgColor) el.style.backgroundColor = k.bgColor;
-      if(k.imageUrl && el.tagName === "IMG") el.src = k.imageUrl;
+      elemUygula(el, gorselDuzen[key]);
     });
 
     // 2) Otomatik üretilen key'ler (auto:...) için DOM tarayıcı
     const autoKeys = tumKayitliKeys.filter(k=>k.startsWith("auto:"));
     if(autoKeys.length===0) return;
 
-    // Her auto key için elementi bul ve uygula (her render sonrası tekrar lazım)
+    // Global helper: dış useEffect'lerden de erişilebilsin (MutationObserver kullanacak)
+    window.__gorselElemUygula = elemUygula;
+
     const uygula = ()=>{
       autoKeys.forEach(key=>{
         const el = window.__gorselFindByKey ? window.__gorselFindByKey(key) : null;
         if(!el) return;
-        const k = gorselDuzen[key];
-        if(!k) return;
-        if(k.text !== undefined && k.text !== null && el.tagName !== "IMG") el.textContent = k.text;
-        if(k.color) el.style.color = k.color;
-        if(k.bgColor) el.style.backgroundColor = k.bgColor;
-        if(k.imageUrl && el.tagName === "IMG") el.src = k.imageUrl;
+        elemUygula(el, gorselDuzen[key]);
       });
     };
     uygula();
-    // React render'larından sonra tekrar uygula (kısa bir gecikme ile)
     const t1 = setTimeout(uygula, 100);
     const t2 = setTimeout(uygula, 500);
     const t3 = setTimeout(uygula, 1500);
     return ()=>{ clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   },[gorselDuzen,yukleniyor]);
 
-  // ── GÖRSEL DÜZENLEME: MutationObserver ile sürekli uygulama (sayfa değişince yeni gelen DOM'a da uygula) ──
+  // ── GÖRSEL DÜZENLEME: MutationObserver ile sürekli uygulama ──
   useEffect(()=>{
     if(yukleniyor) return;
     const tumKayitliKeys = Object.keys(gorselDuzen||{});
@@ -5616,14 +5660,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
         autoKeys.forEach(key=>{
           const el = window.__gorselFindByKey ? window.__gorselFindByKey(key) : null;
           if(!el) return;
-          const k = gorselDuzen[key];
-          if(!k) return;
-          if(k.text !== undefined && k.text !== null && el.tagName !== "IMG"){
-            if(el.textContent !== k.text) el.textContent = k.text;
-          }
-          if(k.color && el.style.color !== k.color) el.style.color = k.color;
-          if(k.bgColor && el.style.backgroundColor !== k.bgColor) el.style.backgroundColor = k.bgColor;
-          if(k.imageUrl && el.tagName === "IMG" && el.src !== k.imageUrl) el.src = k.imageUrl;
+          if(window.__gorselElemUygula) window.__gorselElemUygula(el, gorselDuzen[key]);
         });
       }, 80);
     });
@@ -9246,12 +9283,71 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
               border:"none",borderRadius:6,padding:"6px 12px",fontSize:11,fontWeight:800,cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap"
             },
             onClick:()=>{
-              // Toplu düzenleme modal'ını aç
-              setGorselSeciliEl({
-                _coklu: true,
-                count: gorselSeciliKeys.length,
-                items: gorselSeciliKeys
-              });
+              if(gorselSeciliKeys.length === 1){
+                // TEK ALAN: Detaylı analiz et, parçalarını çıkar
+                const tek = gorselSeciliKeys[0];
+                const el = document.querySelector('[data-gorsel-secili-key="'+tek.key.replace(/"/g,'\\"')+'"]');
+                if(!el){
+                  showToast("Element bulunamadı","uy");
+                  return;
+                }
+                // Element analizi: parçalarını çıkar
+                const cs = window.getComputedStyle(el);
+                // İçindeki tüm text node'larını + alt text içeren elementleri bul
+                const altYazilar = [];
+                const taraYazilar = (parent, derinlik=0)=>{
+                  if(derinlik > 5) return;
+                  for(const n of parent.childNodes){
+                    if(n.nodeType === 3){ // text node
+                      const txt = n.textContent.trim();
+                      if(txt.length > 0){
+                        altYazilar.push({
+                          node: n,
+                          parent: parent,
+                          text: txt,
+                          tag: parent.tagName,
+                          parentColor: window.getComputedStyle(parent).color
+                        });
+                      }
+                    } else if(n.nodeType === 1){
+                      // input/textarea hariç
+                      if(!["INPUT","SELECT","TEXTAREA"].includes(n.tagName)){
+                        taraYazilar(n, derinlik+1);
+                      }
+                    }
+                  }
+                };
+                taraYazilar(el);
+                // İçindeki resim varsa
+                const altResimler = Array.from(el.querySelectorAll("img"));
+                setGorselSeciliEl({
+                  _detayli: true,
+                  key: tek.key,
+                  el: el,
+                  tagName: el.tagName,
+                  // Kutu özellikleri
+                  bgColor: cs.backgroundColor,
+                  borderColor: cs.borderTopColor,
+                  borderWidth: parseInt(cs.borderTopWidth)||0,
+                  borderRadius: parseInt(cs.borderTopLeftRadius)||0,
+                  padding: cs.paddingTop,
+                  width: el.offsetWidth,
+                  height: el.offsetHeight,
+                  textColor: cs.color,
+                  fontSize: parseInt(cs.fontSize)||14,
+                  // İçerikler
+                  altYazilar: altYazilar,
+                  altResimler: altResimler,
+                  altYaziSayisi: altYazilar.length
+                });
+              } else {
+                // ÇOKLU MOD: Sadece toplu renk
+                setGorselSeciliEl({
+                  _coklu: true,
+                  count: gorselSeciliKeys.length,
+                  items: gorselSeciliKeys
+                });
+              }
             }
           },"✏️ DÜZENLE ("+gorselSeciliKeys.length+")"),
           gorselSecimAktif&&btn({
@@ -9278,169 +9374,267 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
     // ── GÖRSEL DÜZENLEME: Düzenleme penceresi (modal) ──
     gorselSeciliEl&&div({
       "data-gorsel-modal":"1",
-      style:{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16},
+      style:{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:8},
       onClick:()=>setGorselSeciliEl(null)
     },
       div({
         "data-gorsel-modal-icerik":"1",
-        style:{background:"var(--bg2)",border:"1.5px solid var(--g)",borderRadius:16,padding:18,width:"100%",maxWidth:380,boxShadow:"0 20px 60px rgba(0,0,0,.7)",maxHeight:"90vh",overflowY:"auto"},
+        style:{background:"var(--bg2)",border:"1.5px solid var(--g)",borderRadius:16,padding:14,width:"100%",maxWidth:420,boxShadow:"0 20px 60px rgba(0,0,0,.7)",maxHeight:"95vh",overflowY:"auto"},
         onClick:e=>e.stopPropagation()
       },
         // BAŞLIK
-        div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,paddingBottom:10,borderBottom:"1px solid var(--br)"}},
+        div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,paddingBottom:8,borderBottom:"1px solid var(--br)"}},
           div({style:{flex:1,minWidth:0}},
-            div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",fontWeight:700}},
-              gorselSeciliEl._coklu?("Toplu Düzenleme ("+gorselSeciliEl.count+" alan)"):"Alanı Düzenle"
+            div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:17,color:"var(--g)",fontWeight:700}},
+              gorselSeciliEl._coklu?("Toplu Düzenleme ("+gorselSeciliEl.count+" alan)"):
+              gorselSeciliEl._detayli?"Detaylı Alan Düzenleme":"Alanı Düzenle"
             ),
-            !gorselSeciliEl._coklu&&div({style:{fontSize:10,color:"var(--mu)",marginTop:2,wordBreak:"break-all"}},"ID: "+(gorselSeciliEl.key||"")),
-            gorselSeciliEl._coklu&&div({style:{fontSize:11,color:"var(--mu)",marginTop:3}},"Yapılan değişiklikler tüm seçili alanlara uygulanır")
+            gorselSeciliEl._detayli&&div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},
+              "<"+gorselSeciliEl.tagName.toLowerCase()+"> · "+gorselSeciliEl.altYaziSayisi+" yazı, "+(gorselSeciliEl.altResimler?gorselSeciliEl.altResimler.length:0)+" resim"
+            ),
+            gorselSeciliEl._coklu&&div({style:{fontSize:11,color:"var(--mu)",marginTop:3}},"Değişiklikler tüm seçili alanlara uygulanır")
           ),
           btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:8,color:"var(--mu)",fontSize:16,width:30,height:30,cursor:"pointer",flexShrink:0,marginLeft:8},
             onClick:()=>setGorselSeciliEl(null)},"✕")
         ),
 
-        // ÇOKLU MOD: Sadece renk seçimleri
-        gorselSeciliEl._coklu?div(null,
+        // ── DETAYLI MOD (TEK ALAN) ──
+        gorselSeciliEl._detayli&&(()=>{
+          const k = gorselDuzen[gorselSeciliEl.key] || {};
+          return div(null,
+            // KUTU ÖZELLİKLERİ
+            div({style:{marginBottom:12,padding:10,background:"var(--bg3)",borderRadius:10,border:"1px solid var(--br)"}},
+              div({style:{fontSize:11,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8,fontWeight:800}},"📦 Kutu / Çerçeve"),
+              // Zemin rengi
+              div({style:{marginBottom:8}},
+                div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Zemin Rengi"),
+                div({style:{display:"flex",gap:6,alignItems:"center"}},
+                  h("input",{type:"color",id:"d_bgColor",
+                    defaultValue:k.bgColor||"#0e2628",
+                    style:{width:42,height:32,border:"1px solid var(--br)",borderRadius:6,cursor:"pointer"},
+                    onInput:e=>{const t=document.getElementById("d_bgColor_t");if(t)t.value=e.target.value;}}),
+                  h("input",{type:"text",className:"fi",id:"d_bgColor_t",
+                    defaultValue:k.bgColor||"",
+                    placeholder:"Boş = değiştirme",
+                    style:{flex:1,fontSize:11,padding:6},
+                    onInput:e=>{if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){const c=document.getElementById("d_bgColor");if(c)c.value=e.target.value;}}})
+                )
+              ),
+              // Çerçeve rengi
+              div({style:{marginBottom:8}},
+                div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Çerçeve Rengi"),
+                div({style:{display:"flex",gap:6,alignItems:"center"}},
+                  h("input",{type:"color",id:"d_borderColor",
+                    defaultValue:k.borderColor||"#2563a8",
+                    style:{width:42,height:32,border:"1px solid var(--br)",borderRadius:6,cursor:"pointer"},
+                    onInput:e=>{const t=document.getElementById("d_borderColor_t");if(t)t.value=e.target.value;}}),
+                  h("input",{type:"text",className:"fi",id:"d_borderColor_t",
+                    defaultValue:k.borderColor||"",
+                    placeholder:"Boş = değiştirme",
+                    style:{flex:1,fontSize:11,padding:6},
+                    onInput:e=>{if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){const c=document.getElementById("d_borderColor");if(c)c.value=e.target.value;}}})
+                )
+              ),
+              // Çerçeve kalınlığı + Köşe yuvarlama
+              div({style:{display:"flex",gap:8,marginBottom:8}},
+                div({style:{flex:1}},
+                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Çerçeve Kalınlığı (px)"),
+                  h("input",{type:"number",className:"fi",id:"d_borderWidth",min:0,max:20,
+                    defaultValue:k.borderWidth!==undefined?k.borderWidth:gorselSeciliEl.borderWidth,
+                    style:{fontSize:11,padding:6}})
+                ),
+                div({style:{flex:1}},
+                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Köşe Yuvarlama (px)"),
+                  h("input",{type:"number",className:"fi",id:"d_borderRadius",min:0,max:60,
+                    defaultValue:k.borderRadius!==undefined?k.borderRadius:gorselSeciliEl.borderRadius,
+                    style:{fontSize:11,padding:6}})
+                )
+              ),
+              // Yükseklik + Genişlik
+              div({style:{display:"flex",gap:8}},
+                div({style:{flex:1}},
+                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Genişlik (örn: 100%, 300px)"),
+                  h("input",{type:"text",className:"fi",id:"d_width",
+                    defaultValue:k.width||"",
+                    placeholder:"Boş = otomatik",
+                    style:{fontSize:11,padding:6}})
+                ),
+                div({style:{flex:1}},
+                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yükseklik (örn: 200px)"),
+                  h("input",{type:"text",className:"fi",id:"d_height",
+                    defaultValue:k.height||"",
+                    placeholder:"Boş = otomatik",
+                    style:{fontSize:11,padding:6}})
+                )
+              )
+            ),
+
+            // YAZI RENGİ + BOYUT
+            div({style:{marginBottom:12,padding:10,background:"var(--bg3)",borderRadius:10,border:"1px solid var(--br)"}},
+              div({style:{fontSize:11,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8,fontWeight:800}},"🎨 Yazı Stili"),
+              div({style:{marginBottom:8}},
+                div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yazı Rengi (kutudaki tüm yazılar)"),
+                div({style:{display:"flex",gap:6,alignItems:"center"}},
+                  h("input",{type:"color",id:"d_color",
+                    defaultValue:k.color||"#e2ecea",
+                    style:{width:42,height:32,border:"1px solid var(--br)",borderRadius:6,cursor:"pointer"},
+                    onInput:e=>{const t=document.getElementById("d_color_t");if(t)t.value=e.target.value;}}),
+                  h("input",{type:"text",className:"fi",id:"d_color_t",
+                    defaultValue:k.color||"",
+                    placeholder:"Boş = değiştirme",
+                    style:{flex:1,fontSize:11,padding:6},
+                    onInput:e=>{if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){const c=document.getElementById("d_color");if(c)c.value=e.target.value;}}})
+                )
+              ),
+              div(null,
+                div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yazı Boyutu (px)"),
+                h("input",{type:"number",className:"fi",id:"d_fontSize",min:8,max:60,
+                  defaultValue:k.fontSize!==undefined?k.fontSize:gorselSeciliEl.fontSize,
+                  style:{fontSize:11,padding:6}})
+              )
+            ),
+
+            // İÇİNDEKİ YAZILAR (TEK TEK)
+            gorselSeciliEl.altYazilar && gorselSeciliEl.altYazilar.length > 0 && div({style:{marginBottom:12,padding:10,background:"var(--bg3)",borderRadius:10,border:"1px solid var(--br)"}},
+              div({style:{fontSize:11,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8,fontWeight:800}},
+                "📝 İçindeki Yazılar ("+gorselSeciliEl.altYazilar.length+")"),
+              gorselSeciliEl.altYazilar.map((y,idx)=>{
+                // Mevcut kayıtlı altYazi (varsa)
+                const kayitliAltYazi = (k.altYazilar||[]).find(x=>x.idx===idx);
+                const mevcutDeger = kayitliAltYazi ? kayitliAltYazi.yeniText : y.text;
+                return div({key:idx,style:{marginBottom:8,paddingBottom:8,borderBottom:idx<gorselSeciliEl.altYazilar.length-1?"1px solid var(--br)":"none"}},
+                  div({style:{fontSize:9,color:"var(--mu)",marginBottom:3}},"Yazı #"+(idx+1)+" ("+y.tag.toLowerCase()+")"),
+                  h("textarea",{
+                    className:"fi",
+                    "data-d-yazi-idx":idx,
+                    defaultValue:mevcutDeger,
+                    rows:Math.min(3,Math.max(1,Math.ceil(mevcutDeger.length/40))),
+                    style:{fontSize:11,padding:6,resize:"vertical",fontFamily:"inherit"}
+                  })
+                );
+              })
+            ),
+
+            // RESİMLER (varsa)
+            gorselSeciliEl.altResimler && gorselSeciliEl.altResimler.length > 0 && div({style:{marginBottom:12,padding:10,background:"var(--bg3)",borderRadius:10,border:"1px solid var(--br)"}},
+              div({style:{fontSize:11,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8,fontWeight:800}},
+                "🖼 İçindeki Resimler ("+gorselSeciliEl.altResimler.length+")"),
+              div({style:{fontSize:10,color:"var(--mu)",fontStyle:"italic"}},
+                "Resimleri tek tek düzenlemek için sayfada o resme ayrı ayrı tıklayın."
+              )
+            ),
+
+            // Mevcut kaydı sıfırlama
+            gorselDuzen[gorselSeciliEl.key] && btn({
+              style:{width:"100%",marginBottom:8,background:"transparent",border:"1px solid #c0392b",borderRadius:8,color:"#c0392b",fontSize:11,padding:8,cursor:"pointer"},
+              onClick:()=>{
+                if(!confirm("Bu alandaki tüm değişiklikler silinecek. Emin misiniz?")) return;
+                setGorselDuzen(p=>{const n={...p};delete n[gorselSeciliEl.key];return n;});
+                setGorselSeciliEl(null);
+                document.querySelectorAll("[data-gorsel-secili-key]").forEach(el=>{
+                  el.style.outline = ""; el.style.outlineOffset = ""; el.style.boxShadow = "";
+                  el.removeAttribute("data-gorsel-secili-key");
+                });
+                setGorselSeciliKeys([]);
+                setGorselSecimAktif(false);
+                setTimeout(()=>location.reload(),200);
+              }
+            },"🗑 Bu Alandaki Tüm Değişiklikleri Sıfırla")
+          );
+        })(),
+
+        // ── ÇOKLU MOD: Sadece renk seçimleri ──
+        gorselSeciliEl._coklu&&div(null,
           div({style:{background:"rgba(80,184,128,.08)",border:"1px solid rgba(80,184,128,.25)",borderRadius:10,padding:10,marginBottom:14,fontSize:11.5,color:"var(--gr)",lineHeight:1.5}},
-            h("b",null,"💡 Toplu Mod:")," Bu modda sadece ",h("b",null,"renk")," ve ",h("b",null,"arka plan")," ayarlanabilir. Metin değişikliği için alanları tek tek seçmeniz gerekir."
+            h("b",null,"💡 Toplu Mod:")," Bu modda sadece ",h("b",null,"renk")," ve ",h("b",null,"arka plan")," ayarlanabilir. Tek alan detaylı düzenleme için 1 alan seçin."
           ),
           // Yazı rengi
           div({style:{marginBottom:12}},
             div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Yazı Rengi"),
             div({style:{display:"flex",gap:8,alignItems:"center"}},
-              h("input",{
-                type:"color",defaultValue:"#e2ecea",id:"gorsel_color_inp",
+              h("input",{type:"color",defaultValue:"#e2ecea",id:"gorsel_color_inp",
                 style:{width:50,height:38,border:"1px solid var(--br)",borderRadius:8,background:"var(--bg3)",cursor:"pointer"},
-                onInput:e=>{
-                  const txt=document.getElementById("gorsel_color_txt"); if(txt) txt.value=e.target.value;
-                }
-              }),
-              h("input",{
-                type:"text",className:"fi",defaultValue:"#e2ecea",id:"gorsel_color_txt",
+                onInput:e=>{const txt=document.getElementById("gorsel_color_txt"); if(txt) txt.value=e.target.value;}}),
+              h("input",{type:"text",className:"fi",defaultValue:"#e2ecea",id:"gorsel_color_txt",
                 style:{flex:1},
-                onInput:e=>{
-                  if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){
-                    const cl=document.getElementById("gorsel_color_inp"); if(cl) cl.value=e.target.value;
-                  }
-                }
-              })
+                onInput:e=>{if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){const cl=document.getElementById("gorsel_color_inp"); if(cl) cl.value=e.target.value;}}})
             )
           ),
           // Arka plan
           div({style:{marginBottom:12}},
             div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Arka Plan Rengi (opsiyonel)"),
             div({style:{display:"flex",gap:8,alignItems:"center"}},
-              h("input",{
-                type:"color",defaultValue:"#0e2628",id:"gorsel_bg_inp",
+              h("input",{type:"color",defaultValue:"#0e2628",id:"gorsel_bg_inp",
                 style:{width:50,height:38,border:"1px solid var(--br)",borderRadius:8,background:"var(--bg3)",cursor:"pointer"},
-                onInput:e=>{
-                  const txt=document.getElementById("gorsel_bg_txt"); if(txt) txt.value=e.target.value;
-                }
-              }),
-              h("input",{
-                type:"text",className:"fi",defaultValue:"",id:"gorsel_bg_txt",
+                onInput:e=>{const txt=document.getElementById("gorsel_bg_txt"); if(txt) txt.value=e.target.value;}}),
+              h("input",{type:"text",className:"fi",defaultValue:"",id:"gorsel_bg_txt",
                 style:{flex:1},placeholder:"Boş bırak = değiştirme",
-                onInput:e=>{
-                  if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){
-                    const cl=document.getElementById("gorsel_bg_inp"); if(cl) cl.value=e.target.value;
-                  }
-                }
-              })
-            )
-          ),
-          div({style:{fontSize:10,color:"var(--mu)",marginTop:4,marginBottom:8,fontStyle:"italic"}},
-            "İpucu: Yazı rengi mutlaka uygulanır. Arka plan boş bırakılırsa değişmez."
-          )
-        ):div(null,
-          // TEK SEÇİM MODU
-          gorselSeciliEl.tagName==="IMG"?div(null,
-            div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Resim URL"),
-            h("input",{
-              type:"text",className:"fi",
-              defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].imageUrl)||gorselSeciliEl.currentImageUrl||"",
-              id:"gorsel_imageUrl_inp",
-              placeholder:"https://..."
-            })
-          ):div(null,
-            // Metin alanı
-            gorselSeciliEl.type!=="color-only"&&div({style:{marginBottom:14}},
-              div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Metin"),
-              h("textarea",{
-                className:"fi",
-                defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].text!==undefined)?gorselDuzen[gorselSeciliEl.key].text:gorselSeciliEl.currentText,
-                id:"gorsel_text_inp",
-                rows:3,
-                style:{resize:"vertical",fontFamily:"inherit"}
-              })
-            ),
-            // Yazı rengi
-            div({style:{marginBottom:12}},
-              div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Yazı Rengi"),
-              div({style:{display:"flex",gap:8,alignItems:"center"}},
-                h("input",{
-                  type:"color",
-                  defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].color)||"#e2ecea",
-                  id:"gorsel_color_inp",
-                  style:{width:50,height:38,border:"1px solid var(--br)",borderRadius:8,background:"var(--bg3)",cursor:"pointer"},
-                  onInput:e=>{
-                    const txt=document.getElementById("gorsel_color_txt"); if(txt) txt.value=e.target.value;
-                  }
-                }),
-                h("input",{
-                  type:"text",className:"fi",
-                  defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].color)||"#e2ecea",
-                  id:"gorsel_color_txt",
-                  style:{flex:1},
-                  onInput:e=>{
-                    if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){
-                      const cl=document.getElementById("gorsel_color_inp"); if(cl) cl.value=e.target.value;
-                    }
-                  }
-                })
-              )
-            ),
-            // Arka plan rengi
-            div({style:{marginBottom:12}},
-              div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Arka Plan Rengi (opsiyonel)"),
-              div({style:{display:"flex",gap:8,alignItems:"center"}},
-                h("input",{
-                  type:"color",
-                  defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].bgColor)||"#0e2628",
-                  id:"gorsel_bg_inp",
-                  style:{width:50,height:38,border:"1px solid var(--br)",borderRadius:8,background:"var(--bg3)",cursor:"pointer"},
-                  onInput:e=>{
-                    const txt=document.getElementById("gorsel_bg_txt"); if(txt) txt.value=e.target.value;
-                  }
-                }),
-                h("input",{
-                  type:"text",className:"fi",
-                  defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].bgColor)||"",
-                  id:"gorsel_bg_txt",
-                  style:{flex:1},
-                  placeholder:"Boş bırak = değiştirme",
-                  onInput:e=>{
-                    if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){
-                      const cl=document.getElementById("gorsel_bg_inp"); if(cl) cl.value=e.target.value;
-                    }
-                  }
-                })
-              )
+                onInput:e=>{if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){const cl=document.getElementById("gorsel_bg_inp"); if(cl) cl.value=e.target.value;}}})
             )
           )
         ),
 
         // BUTONLAR
         div({style:{display:"flex",gap:9,marginTop:14,paddingTop:12,borderTop:"1px solid var(--br)"}},
-          btn({style:{flex:1,background:"transparent",border:"1px solid var(--br)",borderRadius:10,color:"var(--mu)",fontSize:13,padding:12,cursor:"pointer"},
+          btn({style:{flex:1,background:"transparent",border:"1px solid var(--br)",borderRadius:10,color:"var(--mu)",fontSize:13,padding:11,cursor:"pointer"},
             onClick:()=>setGorselSeciliEl(null)
           },"İptal"),
-          btn({style:{flex:2,background:"linear-gradient(135deg,var(--g),var(--gd))",border:"none",borderRadius:10,color:"#fff",fontSize:14,fontWeight:700,letterSpacing:1.5,padding:12,cursor:"pointer"},
+          btn({style:{flex:2,background:"linear-gradient(135deg,var(--g),var(--gd))",border:"none",borderRadius:10,color:"#fff",fontSize:13,fontWeight:700,letterSpacing:1.2,padding:11,cursor:"pointer"},
             onClick:()=>{
-              if(gorselSeciliEl._coklu){
-                // ÇOKLU MOD: tüm seçili alanlara aynı renkleri uygula
+              if(gorselSeciliEl._detayli){
+                // DETAYLI MOD: tüm alanları topla
+                const yeni = {...(gorselDuzen[gorselSeciliEl.key]||{})};
+                // Renkler
+                const bgT = document.getElementById("d_bgColor_t");
+                const bdT = document.getElementById("d_borderColor_t");
+                const cT = document.getElementById("d_color_t");
+                if(bgT && bgT.value && /^#[0-9a-fA-F]{6}$/.test(bgT.value)) yeni.bgColor = bgT.value;
+                else if(bgT && bgT.value === "") delete yeni.bgColor;
+                if(bdT && bdT.value && /^#[0-9a-fA-F]{6}$/.test(bdT.value)) yeni.borderColor = bdT.value;
+                else if(bdT && bdT.value === "") delete yeni.borderColor;
+                if(cT && cT.value && /^#[0-9a-fA-F]{6}$/.test(cT.value)) yeni.color = cT.value;
+                else if(cT && cT.value === "") delete yeni.color;
+                // Sayılar
+                const bw = document.getElementById("d_borderWidth");
+                const br = document.getElementById("d_borderRadius");
+                const fs = document.getElementById("d_fontSize");
+                if(bw && bw.value !== "") yeni.borderWidth = parseInt(bw.value);
+                if(br && br.value !== "") yeni.borderRadius = parseInt(br.value);
+                if(fs && fs.value !== "") yeni.fontSize = parseInt(fs.value);
+                // Boyut
+                const w = document.getElementById("d_width");
+                const hh = document.getElementById("d_height");
+                if(w){ if(w.value) yeni.width = w.value; else delete yeni.width; }
+                if(hh){ if(hh.value) yeni.height = hh.value; else delete yeni.height; }
+                // İçindeki yazılar
+                if(gorselSeciliEl.altYazilar && gorselSeciliEl.altYazilar.length > 0){
+                  const altYaziUpd = [];
+                  document.querySelectorAll("[data-d-yazi-idx]").forEach(ta=>{
+                    const idx = parseInt(ta.getAttribute("data-d-yazi-idx"));
+                    const orj = gorselSeciliEl.altYazilar[idx];
+                    if(orj && ta.value !== orj.text){
+                      altYaziUpd.push({idx, yeniText: ta.value});
+                    }
+                  });
+                  if(altYaziUpd.length > 0) yeni.altYazilar = altYaziUpd;
+                  else delete yeni.altYazilar;
+                }
+                setGorselDuzen(p=>({...p,[gorselSeciliEl.key]:yeni}));
+                // Seçimi temizle
+                document.querySelectorAll("[data-gorsel-secili-key]").forEach(el=>{
+                  el.style.outline=""; el.style.outlineOffset=""; el.style.boxShadow="";
+                  el.removeAttribute("data-gorsel-secili-key");
+                });
+                setGorselSeciliKeys([]);
+                setGorselSecimAktif(false);
+                setGorselSeciliEl(null);
+                showToast("Alan güncellendi","ok");
+              } else if(gorselSeciliEl._coklu){
+                // ÇOKLU
                 const c=document.getElementById("gorsel_color_inp");
+                const cTxt=document.getElementById("gorsel_color_txt");
                 const b=document.getElementById("gorsel_bg_txt");
-                const renk = c?c.value:null;
+                const renk = (cTxt && cTxt.value && /^#[0-9a-fA-F]{6}$/.test(cTxt.value)) ? cTxt.value : (c?c.value:null);
                 const bg = (b&&b.value&&/^#[0-9a-fA-F]{6}$/.test(b.value))?b.value:null;
                 setGorselDuzen(p=>{
                   const yeni={...p};
@@ -9453,56 +9647,17 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                   });
                   return yeni;
                 });
-                // Seçimi temizle ve gezinti moduna dön
                 document.querySelectorAll("[data-gorsel-secili-key]").forEach(el=>{
-                  el.style.outline = "";
-                  el.style.outlineOffset = "";
-                  el.style.boxShadow = "";
+                  el.style.outline=""; el.style.outlineOffset=""; el.style.boxShadow="";
                   el.removeAttribute("data-gorsel-secili-key");
                 });
                 setGorselSeciliKeys([]);
                 setGorselSecimAktif(false);
                 setGorselSeciliEl(null);
                 showToast(gorselSeciliEl.count+" alan güncellendi","ok");
-              } else {
-                // TEK MOD
-                const yeni={};
-                if(gorselSeciliEl.tagName==="IMG"){
-                  const u=document.getElementById("gorsel_imageUrl_inp");
-                  if(u&&u.value) yeni.imageUrl=u.value;
-                } else {
-                  const t=document.getElementById("gorsel_text_inp");
-                  const c=document.getElementById("gorsel_color_inp");
-                  const b=document.getElementById("gorsel_bg_txt");
-                  if(t) yeni.text=t.value;
-                  if(c) yeni.color=c.value;
-                  if(b&&b.value&&/^#[0-9a-fA-F]{6}$/.test(b.value)) yeni.bgColor=b.value;
-                }
-                setGorselDuzen(p=>({...p,[gorselSeciliEl.key]:yeni}));
-                // Seçimi temizle
-                document.querySelectorAll("[data-gorsel-secili-key]").forEach(el=>{
-                  el.style.outline = "";
-                  el.style.outlineOffset = "";
-                  el.style.boxShadow = "";
-                  el.removeAttribute("data-gorsel-secili-key");
-                });
-                setGorselSeciliKeys([]);
-                setGorselSecimAktif(false);
-                setGorselSeciliEl(null);
-                showToast("Güncellendi","ok");
               }
             }},"✓ Güncelle")
-        ),
-        // Sıfırla (sadece tek mod ve daha önce kayıtlıysa)
-        !gorselSeciliEl._coklu&&gorselDuzen[gorselSeciliEl.key]&&btn({
-          style:{width:"100%",marginTop:8,background:"transparent",border:"1px solid #c0392b",borderRadius:10,color:"#c0392b",fontSize:12,padding:10,cursor:"pointer"},
-          onClick:()=>{
-            if(!confirm("Bu alan varsayılana dönecek. Emin misiniz?")) return;
-            setGorselDuzen(p=>{const n={...p};delete n[gorselSeciliEl.key];return n;});
-            setGorselSeciliEl(null);
-            setTimeout(()=>location.reload(),200);
-          }
-        },"🗑 Bu Alanı Varsayılana Döndür")
+        )
       )
     )
   );
