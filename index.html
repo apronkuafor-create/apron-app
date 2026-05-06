@@ -5757,23 +5757,22 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       if(!el || !el.tagName) return false;
       const tag = el.tagName;
 
-      // 1) Düzenleme makinesinin kendi elementlerini hariç tut
+      // 1) Editör'ün kendi UI'ı
       if(el.closest("[data-gorsel-yonetim]")) return false;
-      // 2) Modal'ın kendisini hariç tut
       if(el.closest("[data-gorsel-modal]")) return false;
-      // 3) Yüzen kalem butonunu hariç tut
       if(el.closest("[data-gorsel-kalem]")) return false;
-      // 4) Üst bilgi şeridini hariç tut
       if(el.closest("[data-gorsel-serit]")) return false;
 
-      // 5) Form öğeleri HARİÇ
+      // 2) Kök elementler
+      if(tag === "HTML" || tag === "BODY") return false;
+
+      // 3) Form öğeleri kendi başına seçilemez (parent'ı seçilir)
       if(["INPUT","SELECT","TEXTAREA","OPTION"].includes(tag)) return false;
 
-      // 6) Resim ise → düzenlenebilir
+      // 4) Resim → her zaman seçilebilir
       if(tag === "IMG") return true;
 
-      // 7) İnteraktif olmayan, içinde alt element olanlar (container) → hariç
-      // Sadece kendi text node'u olan elementler
+      // 5) Element'in kendi childNode analizi
       let kendiTextVar = false;
       let altElementVar = false;
       for(const n of el.childNodes){
@@ -5781,28 +5780,20 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
         if(n.nodeType === 1) altElementVar = true;
       }
 
-      // 8) Eğer içinde sadece text yoksa ve alt element varsa → container → hariç
-      // (renk değişikliği için container'lar da seçilebilir olmalı, ama text düzenleme için değil)
-      // Şimdilik: sadece direkt metin içeren leaf-element'ler düzenlenebilir
-      if(!kendiTextVar && !altElementVar) return false; // boş element
-      if(!kendiTextVar && altElementVar) return false; // sadece container, alt elementlere bırak
+      // 6) Tamamen boş element → reddet
+      if(!kendiTextVar && !altElementVar) return false;
 
-      // 9) Çok uzun metinler (muhtemelen dinamik içerik) ihtiyatla
-      const txt = (el.textContent||"").trim();
-      if(txt.length > 500) return false;
+      // 7) Sadece TEXT içeren leaf elementler için dinamik içerik filtresi
+      if(kendiTextVar && !altElementVar){
+        const txt = (el.textContent||"").trim();
+        if(txt.length > 500) return false; // çok uzun = dinamik
+        if(txt.length > 0 && /^[\d.,\s₺€$%+\-]+$/.test(txt) && txt.length < 30) return false; // sayı
+        if(/^\d{1,4}[./\-]\d{1,2}[./\-]\d{1,4}$/.test(txt)) return false; // tarih
+        if(/^\d{1,2}:\d{2}(\s*-\s*\d{1,2}:\d{2})?$/.test(txt)) return false; // saat
+        if(/^[\s+()]*[\d\s+()\-]{7,}$/.test(txt)) return false; // telefon
+      }
 
-      // 10) Sadece sayı içeren metinler (fiyat, sayaç vb. dinamik) hariç
-      if(/^[\d.,\s₺€$%+\-]+$/.test(txt) && txt.length < 30) return false;
-
-      // 11) Tarih formatları hariç (örn: 12.05.2025, 2025-05-12)
-      if(/^\d{1,4}[./\-]\d{1,2}[./\-]\d{1,4}$/.test(txt)) return false;
-
-      // 12) Saat formatları hariç (12:30, 09:45)
-      if(/^\d{1,2}:\d{2}(\s*-\s*\d{1,2}:\d{2})?$/.test(txt)) return false;
-
-      // 13) Telefon numaraları hariç
-      if(/^[\s+()]*[\d\s+()\-]{7,}$/.test(txt)) return false;
-
+      // 8) Container elementler ve mixed content elementler → seçilebilir
       return true;
     };
 
@@ -5873,9 +5864,22 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       if(e.stopImmediatePropagation) e.stopImmediatePropagation();
     };
 
+    // DEBUG: Tıklamanın ulaştığını doğrulamak için window'a bir flag koy
     const onClick = (e)=>{
+      // DEBUG göstergesi (sağ üstte küçük bir kutu)
+      let debugBox = document.getElementById("__gorselDebug");
+      if(!debugBox){
+        debugBox = document.createElement("div");
+        debugBox.id = "__gorselDebug";
+        debugBox.style.cssText = "position:fixed;bottom:140px;right:10px;background:#000;color:#0f0;padding:6px 10px;font-size:10px;z-index:99999;font-family:monospace;border-radius:6px;max-width:200px;pointer-events:none;";
+        document.body.appendChild(debugBox);
+      }
       const hedef = tiklamaHedefiBul(e.target);
-      if(!hedef) return;
+      if(!hedef){
+        debugBox.textContent = "❌ "+(e.target.tagName||"?")+" - reddedildi";
+        return;
+      }
+      debugBox.textContent = "✓ "+hedef.el.tagName+" seçildi";
       e.preventDefault();
       e.stopPropagation();
       if(e.stopImmediatePropagation) e.stopImmediatePropagation();
@@ -5938,6 +5942,9 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       if(baglandi){
         temizleyiciler.forEach(fn=>fn());
       }
+      // Debug box'ı kaldır
+      const dbg = document.getElementById("__gorselDebug");
+      if(dbg) dbg.remove();
       // Hover stillerini temizle
       const hov = document.querySelector("[data-gorsel-hover-aktif]");
       if(hov){
