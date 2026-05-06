@@ -5561,9 +5561,6 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
   // ── GÖRSEL DÜZENLEME: Kayıtlı değerleri DOM'a uygula ──
   useEffect(()=>{
     if(yukleniyor) return;
-    // Hem manuel data-edit-key olanlar hem de otomatik üretilen key'ler
-    const tumKayitliKeys = Object.keys(gorselDuzen||{});
-    if(tumKayitliKeys.length===0) return;
 
     // ── KARARLI KİMLİK ÜRETECİ (her zaman aktif) ──
     const elKimlik = (el)=>{
@@ -5613,7 +5610,6 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       const tag = parcalar[1];
       const adaylar = document.querySelectorAll(tag);
       for(const aday of adaylar){
-        // Editor'ün kendi UI'larını atla
         if(aday.closest("[data-gorsel-yonetim]")) continue;
         if(aday.closest("[data-gorsel-modal]")) continue;
         if(aday.closest("[data-gorsel-kalem]")) continue;
@@ -5653,9 +5649,8 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       if(k.imageUrl && el.tagName === "IMG"){
         if(el.src !== k.imageUrl) el.src = k.imageUrl;
       }
-      // İçindeki text node'ları (k.altYazilar = [{index, yeniText}])
+      // İçindeki text node'ları (k.altYazilar = [{idx, yeniText}])
       if(k.altYazilar && Array.isArray(k.altYazilar)){
-        // Tüm text node'larını sırayla bul (recursive)
         const allTextNodes = [];
         const tara = (parent, derinlik=0)=>{
           if(derinlik > 5) return;
@@ -5678,6 +5673,13 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       }
     };
 
+    // GLOBAL helper'ları HEMEN ata - henüz hiç kayıt yokken bile mevcut olsun
+    window.__gorselElemUygula = elemUygula;
+
+    // Hem manuel data-edit-key olanlar hem de otomatik üretilen key'ler
+    const tumKayitliKeys = Object.keys(gorselDuzen||{});
+    if(tumKayitliKeys.length===0) return;
+
     // 1) Manuel işaretli olanlar (önceden eklenmiş data-edit-key'ler)
     document.querySelectorAll("[data-edit-key]").forEach(el=>{
       const key = el.getAttribute("data-edit-key");
@@ -5687,9 +5689,6 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     // 2) Otomatik üretilen key'ler (auto:...) için DOM tarayıcı
     const autoKeys = tumKayitliKeys.filter(k=>k.startsWith("auto:"));
     if(autoKeys.length===0) return;
-
-    // Global helper: dış useEffect'lerden de erişilebilsin (MutationObserver kullanacak)
-    window.__gorselElemUygula = elemUygula;
 
     const uygula = ()=>{
       autoKeys.forEach(key=>{
@@ -9685,6 +9684,24 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                   else delete yeni.altYazilar;
                 }
                 setGorselDuzen(p=>({...p,[gorselSeciliEl.key]:yeni}));
+
+                // ANINDA DOM'a uygula (state güncelemesini beklemeden)
+                const elimiz = gorselSeciliEl.el;
+                if(elimiz && window.__gorselElemUygula){
+                  // Önce eski stilleri sıfırla, sonra yeniyi uygula
+                  window.__gorselElemUygula(elimiz, yeni);
+                }
+                // Debug: kayıt edildi mi göster
+                console.log("GÖRSEL DÜZENLEME KAYIT:", {key: gorselSeciliEl.key, yeni, el: elimiz});
+                let dbg2 = document.getElementById("__gorselDebug");
+                if(!dbg2){
+                  dbg2 = document.createElement("div");
+                  dbg2.id = "__gorselDebug";
+                  dbg2.style.cssText = "position:fixed;bottom:140px;right:10px;background:#000;color:#0f0;padding:6px 10px;font-size:10px;z-index:99999;font-family:monospace;border-radius:6px;max-width:240px;pointer-events:none;";
+                  document.body.appendChild(dbg2);
+                }
+                dbg2.textContent = "💾 Kayıt: "+gorselSeciliEl.key.slice(0,40)+"... → "+JSON.stringify(yeni).slice(0,80);
+
                 // Seçimi temizle
                 document.querySelectorAll("[data-gorsel-secili-key]").forEach(el=>{
                   el.style.outline=""; el.style.outlineOffset=""; el.style.boxShadow="";
