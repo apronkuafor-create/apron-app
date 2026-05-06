@@ -5417,6 +5417,8 @@ function App() {
   });
   const [gorselDuzenModu, setGorselDuzenModu] = useState(false); // düzenleme modu açık/kapalı
   const [gorselSeciliEl, setGorselSeciliEl] = useState(null); // {key, type, currentText, currentColor, rect}
+  const [gorselSecimAktif, setGorselSecimAktif] = useState(false); // ALAN SEÇ butonu aktif mi?
+  const [gorselSeciliKeys, setGorselSeciliKeys] = useState([]); // çoklu seçili alanlar [{key,tagName,currentText,...}]
   const [gecmisMusteriFil, setGecmisMusteriFil] = useState("");
   const [gecmisAyFil, setGecmisAyFil]           = useState(String(new Date().getMonth()+1));
   const [gecmisTarihFil, setGecmisTarihFil]     = useState("");
@@ -5632,6 +5634,9 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
   // ── GÖRSEL DÜZENLEME: AKILLI OTOMATİK TARAMA + HOVER/TIKLAMA ──
   useEffect(()=>{
     if(!gorselDuzenModu) return;
+    // ÖNEMLİ: Sadece "Alan Seç" butonu basıldığında tıklamaları yakala.
+    // Yoksa kullanıcı uygulamayı normal kullanabilsin.
+    if(!gorselSecimAktif) return;
 
     // Bir element için kararlı kimlik üret (içerik + DOM yolu)
     // Kimlik formatı: auto:<tag>:<dom-yolu>:<içerik-hash>
@@ -5757,6 +5762,12 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     };
 
     let sonHover = null;
+    // Seçili anahtarları DOM elementine bağlayan helper (closure içindeki state'i okumak için ref)
+    const seciliKeyVarMi = (key)=>{
+      // Reactive değil ama her tıklamada okuyacağımız için DOM kontrolü yeterli
+      const el = document.querySelector('[data-gorsel-secili-key="'+key.replace(/"/g,'\\"')+'"]');
+      return !!el;
+    };
 
     const onOver = (e)=>{
       // Önce manuel data-edit-key'i ara
@@ -5767,26 +5778,37 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
         if(!duzenlenebilirMi(t)) return;
       }
       if(sonHover === t) return;
-      // Önceki hover'ı temizle
-      if(sonHover){
+      // Önceki hover'ı temizle (eğer seçili değilse)
+      if(sonHover && !sonHover.hasAttribute("data-gorsel-secili-key")){
         sonHover.style.outline = "";
         sonHover.style.outlineOffset = "";
         sonHover.style.cursor = "";
         sonHover.style.boxShadow = "";
       }
-      t.style.outline = "2px dashed #2563a8";
-      t.style.outlineOffset = "2px";
-      t.style.cursor = "pointer";
-      t.style.boxShadow = "0 0 0 4px rgba(37,99,168,.15)";
+      // Hedef seçili ise hover stilini ekleme (yeşili boz)
+      if(!t.hasAttribute("data-gorsel-secili-key")){
+        t.style.outline = "2px dashed #2563a8";
+        t.style.outlineOffset = "2px";
+        t.style.cursor = "pointer";
+        t.style.boxShadow = "0 0 0 4px rgba(37,99,168,.15)";
+      } else {
+        t.style.cursor = "pointer";
+      }
       sonHover = t;
     };
 
     const onOut = (e)=>{
       if(sonHover && !sonHover.contains(e.relatedTarget)){
-        sonHover.style.outline = "";
-        sonHover.style.outlineOffset = "";
-        sonHover.style.cursor = "";
-        sonHover.style.boxShadow = "";
+        // Seçili değilse stilleri temizle
+        if(!sonHover.hasAttribute("data-gorsel-secili-key")){
+          sonHover.style.outline = "";
+          sonHover.style.outlineOffset = "";
+          sonHover.style.cursor = "";
+          sonHover.style.boxShadow = "";
+        } else {
+          // Seçili olanın cursor'ını koru ama yeşili koru
+          sonHover.style.cursor = "pointer";
+        }
         sonHover = null;
       }
     };
@@ -5812,14 +5834,34 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       }
       kendiText = kendiText || t.textContent || "";
 
-      setGorselSeciliEl({
-        key,
-        type: "text",
-        currentText: kendiText,
-        currentColor: cs.color || "#ffffff",
-        currentBg: cs.backgroundColor || "",
-        currentImageUrl: t.tagName === "IMG" ? t.src : "",
-        tagName: t.tagName
+      // ÇOKLU SEÇİM: aynı alana tekrar tıklanırsa seçimden çıkar (toggle)
+      setGorselSeciliKeys(prev=>{
+        const mevcut = prev.find(x=>x.key===key);
+        if(mevcut){
+          // Seçimden çıkar
+          if(t && t.style){
+            t.style.outline = "";
+            t.style.outlineOffset = "";
+            t.style.boxShadow = "";
+            t.removeAttribute("data-gorsel-secili-key");
+          }
+          return prev.filter(x=>x.key!==key);
+        }
+        // Seçime ekle
+        if(t && t.style){
+          t.style.outline = "2.5px solid #50b880";
+          t.style.outlineOffset = "2px";
+          t.style.boxShadow = "0 0 0 5px rgba(80,184,128,.2)";
+          t.setAttribute("data-gorsel-secili-key", key);
+        }
+        return [...prev,{
+          key,
+          tagName: t.tagName,
+          currentText: kendiText,
+          currentColor: cs.color || "#e2ecea",
+          currentBg: cs.backgroundColor || "",
+          currentImageUrl: t.tagName === "IMG" ? t.src : ""
+        }];
       });
     };
 
@@ -5830,21 +5872,15 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       document.removeEventListener("mouseover", onOver, true);
       document.removeEventListener("mouseout", onOut, true);
       document.removeEventListener("click", onClick, true);
-      // Tüm hover stillerini temizle
-      if(sonHover){
+      // Hover stillerini temizle
+      if(sonHover && !sonHover.hasAttribute("data-gorsel-secili-key")){
         sonHover.style.outline = "";
         sonHover.style.outlineOffset = "";
         sonHover.style.cursor = "";
         sonHover.style.boxShadow = "";
       }
-      document.querySelectorAll("[data-edit-key]").forEach(el=>{
-        el.style.outline = "";
-        el.style.outlineOffset = "";
-        el.style.cursor = "";
-        el.style.boxShadow = "";
-      });
     };
-  },[gorselDuzenModu]);
+  },[gorselDuzenModu,gorselSecimAktif]);
 
   // Sekme isimlerini kaydet
 
@@ -9099,49 +9135,113 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
       onMouseOut:e=>e.currentTarget.style.opacity=gorselDuzenModu?1:.55
     },gorselDuzenModu?"⏹":"✏️"),
 
-    // ── GÖRSEL DÜZENLEME: Modu açıkken üst kontrol şeridi (Panel değiştirici dahil) ──
+    // ── GÖRSEL DÜZENLEME: Modu açıkken üst kontrol şeridi (Panel değiştirici + Alan Seç dahil) ──
     !yukleniyor&&kul&&kul.rol==="yonetici"&&gorselDuzenModu&&div({
       "data-gorsel-serit":"1",
       style:{
         position:"fixed",top:0,left:0,right:0,zIndex:9997,
-        background:"linear-gradient(135deg,#2563a8,#1a4a80)",
-        color:"#fff",padding:"6px 10px",fontSize:11,fontWeight:600,
+        background:gorselSecimAktif?"linear-gradient(135deg,#3a7a55,#2a5a3e)":"linear-gradient(135deg,#2563a8,#1a4a80)",
+        color:"#fff",fontSize:11,fontWeight:600,
         boxShadow:"0 2px 12px rgba(0,0,0,.4)",
-        display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"
+        transition:"background .25s"
       }
     },
-      div({style:{display:"flex",alignItems:"center",gap:6,flexShrink:0}},
-        span({style:{fontSize:14}},"✏️"),
-        span({style:{letterSpacing:.5,whiteSpace:"nowrap"}},"DÜZENLEME MODU")
-      ),
-      div({style:{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"center"}},
+      // 1. SATIR: Mod + Panel değiştirici + Kapat
+      div({style:{padding:"6px 10px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}},
+        div({style:{display:"flex",alignItems:"center",gap:6,flexShrink:0}},
+          span({style:{fontSize:14}},gorselSecimAktif?"👆":"✏️"),
+          span({style:{letterSpacing:.5,whiteSpace:"nowrap"}},gorselSecimAktif?"ALAN SEÇİM MODU":"GEZİNTİ MODU")
+        ),
+        div({style:{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"center"}},
+          btn({
+            style:{
+              background:ekran==="yonetici"?"rgba(255,255,255,.95)":"rgba(255,255,255,.15)",
+              color:ekran==="yonetici"?"#1a4a80":"#fff",
+              border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap"
+            },
+            onClick:()=>setEkran("yonetici")
+          },"👔 Yönetici"),
+          btn({
+            style:{
+              background:ekran==="personel"?"rgba(255,255,255,.95)":"rgba(255,255,255,.15)",
+              color:ekran==="personel"?"#1a4a80":"#fff",
+              border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap"
+            },
+            onClick:()=>setEkran("personel")
+          },"👤 Personel")
+        ),
         btn({
           style:{
-            background:ekran==="yonetici"?"rgba(255,255,255,.95)":"rgba(255,255,255,.15)",
-            color:ekran==="yonetici"?"#1a4a80":"#fff",
-            border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap"
+            background:"rgba(192,57,43,.85)",border:"none",borderRadius:6,padding:"5px 10px",
+            fontSize:11,fontWeight:700,color:"#fff",cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap",flexShrink:0
           },
-          onClick:()=>setEkran("yonetici")
-        },"👔 Yönetici"),
-        btn({
-          style:{
-            background:ekran==="personel"?"rgba(255,255,255,.95)":"rgba(255,255,255,.15)",
-            color:ekran==="personel"?"#1a4a80":"#fff",
-            border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap"
-          },
-          onClick:()=>setEkran("personel")
-        },"👤 Personel")
+          onClick:()=>{
+            // Seçili stilleri temizle
+            document.querySelectorAll("[data-gorsel-secili-key]").forEach(el=>{
+              el.style.outline = "";
+              el.style.outlineOffset = "";
+              el.style.boxShadow = "";
+              el.removeAttribute("data-gorsel-secili-key");
+            });
+            setGorselSeciliKeys([]);
+            setGorselSecimAktif(false);
+            setGorselDuzenModu(false);
+            if(ekran==="personel") setEkran("yonetici");
+          }
+        },"⏹ Kapat")
       ),
-      btn({
-        style:{
-          background:"rgba(192,57,43,.85)",border:"none",borderRadius:6,padding:"5px 10px",
-          fontSize:11,fontWeight:700,color:"#fff",cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap",flexShrink:0
-        },
-        onClick:()=>{
-          setGorselDuzenModu(false);
-          if(ekran==="personel") setEkran("yonetici");
-        }
-      },"⏹ Kapat")
+      // 2. SATIR: Alan Seç + Seçilen sayısı + Düzenle + Temizle
+      div({style:{padding:"5px 10px 7px",borderTop:"1px solid rgba(255,255,255,.15)",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",justifyContent:"space-between"}},
+        !gorselSecimAktif&&div({style:{flex:1,fontSize:10.5,color:"rgba(255,255,255,.85)",lineHeight:1.3}},
+          "Uygulamayı normal kullanın. Düzenlemek istediğiniz alan(lar)ı seçmek için sağdaki butona basın."
+        ),
+        gorselSecimAktif&&div({style:{flex:1,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},
+          span({style:{background:"rgba(255,255,255,.2)",padding:"3px 9px",borderRadius:12,fontSize:11,fontWeight:700}},
+            gorselSeciliKeys.length+" seçili"
+          ),
+          span({style:{fontSize:10.5,color:"rgba(255,255,255,.85)"}},"Düzenlemek istediğiniz alan(lar)a tıklayın")
+        ),
+        div({style:{display:"flex",gap:5,flexWrap:"wrap"}},
+          !gorselSecimAktif&&btn({
+            style:{
+              background:"rgba(255,255,255,.95)",color:"#1a4a80",
+              border:"none",borderRadius:6,padding:"6px 12px",fontSize:11,fontWeight:800,cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap"
+            },
+            onClick:()=>setGorselSecimAktif(true)
+          },"👆 ALAN SEÇ"),
+          gorselSecimAktif&&gorselSeciliKeys.length>0&&btn({
+            style:{
+              background:"#fff",color:"#2a5a3e",
+              border:"none",borderRadius:6,padding:"6px 12px",fontSize:11,fontWeight:800,cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap"
+            },
+            onClick:()=>{
+              // Toplu düzenleme modal'ını aç
+              setGorselSeciliEl({
+                _coklu: true,
+                count: gorselSeciliKeys.length,
+                items: gorselSeciliKeys
+              });
+            }
+          },"✏️ DÜZENLE ("+gorselSeciliKeys.length+")"),
+          gorselSecimAktif&&btn({
+            style:{
+              background:"rgba(192,57,43,.85)",color:"#fff",
+              border:"none",borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap"
+            },
+            onClick:()=>{
+              // Seçili stilleri temizle
+              document.querySelectorAll("[data-gorsel-secili-key]").forEach(el=>{
+                el.style.outline = "";
+                el.style.outlineOffset = "";
+                el.style.boxShadow = "";
+                el.removeAttribute("data-gorsel-secili-key");
+              });
+              setGorselSeciliKeys([]);
+              setGorselSecimAktif(false);
+            }
+          },"✕ İptal")
+        )
+      )
     ),
 
     // ── GÖRSEL DÜZENLEME: Düzenleme penceresi (modal) ──
@@ -9152,146 +9252,218 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
     },
       div({
         "data-gorsel-modal-icerik":"1",
-        style:{background:"var(--bg2)",border:"1.5px solid var(--g)",borderRadius:16,padding:18,width:"100%",maxWidth:380,boxShadow:"0 20px 60px rgba(0,0,0,.7)"},
+        style:{background:"var(--bg2)",border:"1.5px solid var(--g)",borderRadius:16,padding:18,width:"100%",maxWidth:380,boxShadow:"0 20px 60px rgba(0,0,0,.7)",maxHeight:"90vh",overflowY:"auto"},
         onClick:e=>e.stopPropagation()
       },
+        // BAŞLIK
         div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,paddingBottom:10,borderBottom:"1px solid var(--br)"}},
-          div(null,
-            div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",fontWeight:700}},"Alanı Düzenle"),
-            div({style:{fontSize:10,color:"var(--mu)",marginTop:2,wordBreak:"break-all"}},"ID: "+gorselSeciliEl.key)
+          div({style:{flex:1,minWidth:0}},
+            div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",fontWeight:700}},
+              gorselSeciliEl._coklu?("Toplu Düzenleme ("+gorselSeciliEl.count+" alan)"):"Alanı Düzenle"
+            ),
+            !gorselSeciliEl._coklu&&div({style:{fontSize:10,color:"var(--mu)",marginTop:2,wordBreak:"break-all"}},"ID: "+(gorselSeciliEl.key||"")),
+            gorselSeciliEl._coklu&&div({style:{fontSize:11,color:"var(--mu)",marginTop:3}},"Yapılan değişiklikler tüm seçili alanlara uygulanır")
           ),
-          btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:8,color:"var(--mu)",fontSize:16,width:30,height:30,cursor:"pointer",flexShrink:0},
+          btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:8,color:"var(--mu)",fontSize:16,width:30,height:30,cursor:"pointer",flexShrink:0,marginLeft:8},
             onClick:()=>setGorselSeciliEl(null)},"✕")
         ),
-        // Resim ise URL alanı
-        gorselSeciliEl.tagName==="IMG"?div(null,
-          div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Resim URL"),
-          h("input",{
-            type:"text",className:"fi",
-            defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].imageUrl)||gorselSeciliEl.currentImageUrl||"",
-            id:"gorsel_imageUrl_inp",
-            placeholder:"https://..."
-          })
-        ):div(null,
-          // Metin alanı
-          gorselSeciliEl.type!=="color-only"&&div({style:{marginBottom:14}},
-            div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Metin"),
-            h("textarea",{
-              className:"fi",
-              defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].text!==undefined)?gorselDuzen[gorselSeciliEl.key].text:gorselSeciliEl.currentText,
-              id:"gorsel_text_inp",
-              rows:3,
-              style:{resize:"vertical",fontFamily:"inherit"},
-              onInput:e=>{
-                // anlık önizleme
-                const el=document.querySelector('[data-edit-key="'+gorselSeciliEl.key+'"]');
-                if(el) el.textContent=e.target.value;
-              }
-            })
+
+        // ÇOKLU MOD: Sadece renk seçimleri
+        gorselSeciliEl._coklu?div(null,
+          div({style:{background:"rgba(80,184,128,.08)",border:"1px solid rgba(80,184,128,.25)",borderRadius:10,padding:10,marginBottom:14,fontSize:11.5,color:"var(--gr)",lineHeight:1.5}},
+            h("b",null,"💡 Toplu Mod:")," Bu modda sadece ",h("b",null,"renk")," ve ",h("b",null,"arka plan")," ayarlanabilir. Metin değişikliği için alanları tek tek seçmeniz gerekir."
           ),
           // Yazı rengi
           div({style:{marginBottom:12}},
             div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Yazı Rengi"),
             div({style:{display:"flex",gap:8,alignItems:"center"}},
               h("input",{
-                type:"color",
-                defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].color)||"#e2ecea",
-                id:"gorsel_color_inp",
+                type:"color",defaultValue:"#e2ecea",id:"gorsel_color_inp",
                 style:{width:50,height:38,border:"1px solid var(--br)",borderRadius:8,background:"var(--bg3)",cursor:"pointer"},
                 onInput:e=>{
-                  const el=document.querySelector('[data-edit-key="'+gorselSeciliEl.key+'"]');
-                  if(el) el.style.color=e.target.value;
                   const txt=document.getElementById("gorsel_color_txt"); if(txt) txt.value=e.target.value;
                 }
               }),
               h("input",{
-                type:"text",className:"fi",
-                defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].color)||"#e2ecea",
-                id:"gorsel_color_txt",
+                type:"text",className:"fi",defaultValue:"#e2ecea",id:"gorsel_color_txt",
                 style:{flex:1},
                 onInput:e=>{
                   if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){
-                    const el=document.querySelector('[data-edit-key="'+gorselSeciliEl.key+'"]');
-                    if(el) el.style.color=e.target.value;
                     const cl=document.getElementById("gorsel_color_inp"); if(cl) cl.value=e.target.value;
                   }
                 }
               })
             )
           ),
-          // Arka plan rengi (opsiyonel)
+          // Arka plan
           div({style:{marginBottom:12}},
             div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Arka Plan Rengi (opsiyonel)"),
             div({style:{display:"flex",gap:8,alignItems:"center"}},
               h("input",{
-                type:"color",
-                defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].bgColor)||"#0e2628",
-                id:"gorsel_bg_inp",
+                type:"color",defaultValue:"#0e2628",id:"gorsel_bg_inp",
                 style:{width:50,height:38,border:"1px solid var(--br)",borderRadius:8,background:"var(--bg3)",cursor:"pointer"},
                 onInput:e=>{
-                  const el=document.querySelector('[data-edit-key="'+gorselSeciliEl.key+'"]');
-                  if(el) el.style.backgroundColor=e.target.value;
                   const txt=document.getElementById("gorsel_bg_txt"); if(txt) txt.value=e.target.value;
                 }
               }),
               h("input",{
-                type:"text",className:"fi",
-                defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].bgColor)||"",
-                id:"gorsel_bg_txt",
-                style:{flex:1},
-                placeholder:"Boş bırak = değiştirme",
+                type:"text",className:"fi",defaultValue:"",id:"gorsel_bg_txt",
+                style:{flex:1},placeholder:"Boş bırak = değiştirme",
                 onInput:e=>{
                   if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){
-                    const el=document.querySelector('[data-edit-key="'+gorselSeciliEl.key+'"]');
-                    if(el) el.style.backgroundColor=e.target.value;
                     const cl=document.getElementById("gorsel_bg_inp"); if(cl) cl.value=e.target.value;
                   }
                 }
               })
             )
+          ),
+          div({style:{fontSize:10,color:"var(--mu)",marginTop:4,marginBottom:8,fontStyle:"italic"}},
+            "İpucu: Yazı rengi mutlaka uygulanır. Arka plan boş bırakılırsa değişmez."
+          )
+        ):div(null,
+          // TEK SEÇİM MODU
+          gorselSeciliEl.tagName==="IMG"?div(null,
+            div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Resim URL"),
+            h("input",{
+              type:"text",className:"fi",
+              defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].imageUrl)||gorselSeciliEl.currentImageUrl||"",
+              id:"gorsel_imageUrl_inp",
+              placeholder:"https://..."
+            })
+          ):div(null,
+            // Metin alanı
+            gorselSeciliEl.type!=="color-only"&&div({style:{marginBottom:14}},
+              div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Metin"),
+              h("textarea",{
+                className:"fi",
+                defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].text!==undefined)?gorselDuzen[gorselSeciliEl.key].text:gorselSeciliEl.currentText,
+                id:"gorsel_text_inp",
+                rows:3,
+                style:{resize:"vertical",fontFamily:"inherit"}
+              })
+            ),
+            // Yazı rengi
+            div({style:{marginBottom:12}},
+              div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Yazı Rengi"),
+              div({style:{display:"flex",gap:8,alignItems:"center"}},
+                h("input",{
+                  type:"color",
+                  defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].color)||"#e2ecea",
+                  id:"gorsel_color_inp",
+                  style:{width:50,height:38,border:"1px solid var(--br)",borderRadius:8,background:"var(--bg3)",cursor:"pointer"},
+                  onInput:e=>{
+                    const txt=document.getElementById("gorsel_color_txt"); if(txt) txt.value=e.target.value;
+                  }
+                }),
+                h("input",{
+                  type:"text",className:"fi",
+                  defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].color)||"#e2ecea",
+                  id:"gorsel_color_txt",
+                  style:{flex:1},
+                  onInput:e=>{
+                    if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){
+                      const cl=document.getElementById("gorsel_color_inp"); if(cl) cl.value=e.target.value;
+                    }
+                  }
+                })
+              )
+            ),
+            // Arka plan rengi
+            div({style:{marginBottom:12}},
+              div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Arka Plan Rengi (opsiyonel)"),
+              div({style:{display:"flex",gap:8,alignItems:"center"}},
+                h("input",{
+                  type:"color",
+                  defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].bgColor)||"#0e2628",
+                  id:"gorsel_bg_inp",
+                  style:{width:50,height:38,border:"1px solid var(--br)",borderRadius:8,background:"var(--bg3)",cursor:"pointer"},
+                  onInput:e=>{
+                    const txt=document.getElementById("gorsel_bg_txt"); if(txt) txt.value=e.target.value;
+                  }
+                }),
+                h("input",{
+                  type:"text",className:"fi",
+                  defaultValue:(gorselDuzen[gorselSeciliEl.key]&&gorselDuzen[gorselSeciliEl.key].bgColor)||"",
+                  id:"gorsel_bg_txt",
+                  style:{flex:1},
+                  placeholder:"Boş bırak = değiştirme",
+                  onInput:e=>{
+                    if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){
+                      const cl=document.getElementById("gorsel_bg_inp"); if(cl) cl.value=e.target.value;
+                    }
+                  }
+                })
+              )
+            )
           )
         ),
-        // Butonlar
+
+        // BUTONLAR
         div({style:{display:"flex",gap:9,marginTop:14,paddingTop:12,borderTop:"1px solid var(--br)"}},
           btn({style:{flex:1,background:"transparent",border:"1px solid var(--br)",borderRadius:10,color:"var(--mu)",fontSize:13,padding:12,cursor:"pointer"},
-            onClick:()=>{
-              // değişiklikleri geri al (kayıtlıysa kayıtlı değer, değilse orijinal değer)
-              const el=document.querySelector('[data-edit-key="'+gorselSeciliEl.key+'"]');
-              if(el){
-                const k=gorselDuzen[gorselSeciliEl.key];
-                if(k){
-                  if(k.text!==undefined) el.textContent=k.text;
-                  if(k.color) el.style.color=k.color;
-                  if(k.bgColor) el.style.backgroundColor=k.bgColor;
-                } else {
-                  el.textContent=gorselSeciliEl.currentText;
-                  el.style.color="";
-                  el.style.backgroundColor="";
-                }
-              }
-              setGorselSeciliEl(null);
-            }},"İptal"),
+            onClick:()=>setGorselSeciliEl(null)
+          },"İptal"),
           btn({style:{flex:2,background:"linear-gradient(135deg,var(--g),var(--gd))",border:"none",borderRadius:10,color:"#fff",fontSize:14,fontWeight:700,letterSpacing:1.5,padding:12,cursor:"pointer"},
             onClick:()=>{
-              const yeni={};
-              if(gorselSeciliEl.tagName==="IMG"){
-                const u=document.getElementById("gorsel_imageUrl_inp");
-                if(u&&u.value) yeni.imageUrl=u.value;
-              } else {
-                const t=document.getElementById("gorsel_text_inp");
+              if(gorselSeciliEl._coklu){
+                // ÇOKLU MOD: tüm seçili alanlara aynı renkleri uygula
                 const c=document.getElementById("gorsel_color_inp");
                 const b=document.getElementById("gorsel_bg_txt");
-                if(t) yeni.text=t.value;
-                if(c) yeni.color=c.value;
-                if(b&&b.value&&/^#[0-9a-fA-F]{6}$/.test(b.value)) yeni.bgColor=b.value;
+                const renk = c?c.value:null;
+                const bg = (b&&b.value&&/^#[0-9a-fA-F]{6}$/.test(b.value))?b.value:null;
+                setGorselDuzen(p=>{
+                  const yeni={...p};
+                  gorselSeciliEl.items.forEach(item=>{
+                    const mev = yeni[item.key]||{};
+                    const guncel={...mev};
+                    if(renk) guncel.color = renk;
+                    if(bg) guncel.bgColor = bg;
+                    yeni[item.key] = guncel;
+                  });
+                  return yeni;
+                });
+                // Seçimi temizle ve gezinti moduna dön
+                document.querySelectorAll("[data-gorsel-secili-key]").forEach(el=>{
+                  el.style.outline = "";
+                  el.style.outlineOffset = "";
+                  el.style.boxShadow = "";
+                  el.removeAttribute("data-gorsel-secili-key");
+                });
+                setGorselSeciliKeys([]);
+                setGorselSecimAktif(false);
+                setGorselSeciliEl(null);
+                showToast(gorselSeciliEl.count+" alan güncellendi","ok");
+              } else {
+                // TEK MOD
+                const yeni={};
+                if(gorselSeciliEl.tagName==="IMG"){
+                  const u=document.getElementById("gorsel_imageUrl_inp");
+                  if(u&&u.value) yeni.imageUrl=u.value;
+                } else {
+                  const t=document.getElementById("gorsel_text_inp");
+                  const c=document.getElementById("gorsel_color_inp");
+                  const b=document.getElementById("gorsel_bg_txt");
+                  if(t) yeni.text=t.value;
+                  if(c) yeni.color=c.value;
+                  if(b&&b.value&&/^#[0-9a-fA-F]{6}$/.test(b.value)) yeni.bgColor=b.value;
+                }
+                setGorselDuzen(p=>({...p,[gorselSeciliEl.key]:yeni}));
+                // Seçimi temizle
+                document.querySelectorAll("[data-gorsel-secili-key]").forEach(el=>{
+                  el.style.outline = "";
+                  el.style.outlineOffset = "";
+                  el.style.boxShadow = "";
+                  el.removeAttribute("data-gorsel-secili-key");
+                });
+                setGorselSeciliKeys([]);
+                setGorselSecimAktif(false);
+                setGorselSeciliEl(null);
+                showToast("Güncellendi","ok");
               }
-              setGorselDuzen(p=>({...p,[gorselSeciliEl.key]:yeni}));
-              setGorselSeciliEl(null);
-              showToast("Güncellendi","ok");
             }},"✓ Güncelle")
         ),
-        // Sıfırla seçeneği (eğer daha önce kayıtlıysa)
-        gorselDuzen[gorselSeciliEl.key]&&btn({
+        // Sıfırla (sadece tek mod ve daha önce kayıtlıysa)
+        !gorselSeciliEl._coklu&&gorselDuzen[gorselSeciliEl.key]&&btn({
           style:{width:"100%",marginTop:8,background:"transparent",border:"1px solid #c0392b",borderRadius:10,color:"#c0392b",fontSize:12,padding:10,cursor:"pointer"},
           onClick:()=>{
             if(!confirm("Bu alan varsayılana dönecek. Emin misiniz?")) return;
