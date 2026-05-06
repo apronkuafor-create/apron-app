@@ -5659,9 +5659,36 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       if(k.width !== undefined && k.width !== null && k.width !== "") el.style.width = k.width;
       if(k.height !== undefined && k.height !== null && k.height !== "") el.style.height = k.height;
       if(k.minHeight) el.style.minHeight = k.minHeight;
-      // Yazı tipi
-      if(k.fontSize !== undefined && k.fontSize !== null) el.style.fontSize = k.fontSize+"px";
-      if(k.fontWeight) el.style.fontWeight = k.fontWeight;
+      // Yazı tipi (alt elementlere de yansıt - inline override)
+      if(k.fontSize !== undefined && k.fontSize !== null){
+        el.style.fontSize = k.fontSize+"px";
+        try {
+          el.querySelectorAll("*").forEach(child=>{
+            if(["INPUT","SELECT","TEXTAREA","IMG","SVG"].includes(child.tagName)) return;
+            if(child.closest && (child.closest("[data-gorsel-modal]")||child.closest("[data-gorsel-serit]")||child.closest("[data-gorsel-kalem]"))) return;
+            if(child.style && child.style.fontSize){
+              child.style.fontSize = k.fontSize+"px";
+            }
+          });
+        } catch(e){}
+      }
+      if(k.fontWeight){
+        el.style.fontWeight = k.fontWeight;
+        try {
+          el.querySelectorAll("*").forEach(child=>{
+            if(["INPUT","SELECT","TEXTAREA","IMG","SVG"].includes(child.tagName)) return;
+            if(child.closest && (child.closest("[data-gorsel-modal]")||child.closest("[data-gorsel-serit]")||child.closest("[data-gorsel-kalem]"))) return;
+            if(child.style && child.style.fontWeight){
+              child.style.fontWeight = k.fontWeight;
+            }
+          });
+        } catch(e){}
+      }
+      if(k.fontStyle) el.style.fontStyle = k.fontStyle;
+      if(k.fontFamily) el.style.fontFamily = k.fontFamily;
+      if(k.textAlign) el.style.textAlign = k.textAlign;
+      // Gölge
+      if(k.boxShadow) el.style.boxShadow = k.boxShadow === "none" ? "none" : k.boxShadow;
       // Padding
       if(k.padding) el.style.padding = k.padding;
       // Resim
@@ -5859,19 +5886,34 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       // 6) Tamamen boş element → reddet
       if(!kendiTextVar && !altElementVar) return false;
 
-      // 7) Sadece TEXT içeren leaf elementler için dinamik içerik filtresi
-      if(kendiTextVar && !altElementVar){
-        const txt = (el.textContent||"").trim();
-        if(txt.length > 500) return false; // çok uzun = dinamik
-        if(txt.length > 0 && /^[\d.,\s₺€$%+\-]+$/.test(txt) && txt.length < 30) return false; // sayı
-        if(/^\d{1,4}[./\-]\d{1,2}[./\-]\d{1,4}$/.test(txt)) return false; // tarih
-        if(/^\d{1,2}:\d{2}(\s*-\s*\d{1,2}:\d{2})?$/.test(txt)) return false; // saat
-        if(/^[\s+()]*[\d\s+()\-]{7,}$/.test(txt)) return false; // telefon
-      }
-
-      // 8) Container elementler ve mixed content elementler → seçilebilir
+      // 7) Tüm container ve text elementler seçilebilir
+      // (Dinamik içerik kontrolü modal seviyesinde yapılır - sadece "metin değişikliği" engellenir,
+      //  rakamlara/tarihlere stil müdahalesi serbesttir)
       return true;
     };
+
+    // Bu element dinamik içerikli mi? (rakam, tarih, saat, telefon)
+    // Eğer öyleyse modal'da metin alanı gösterilmez ama renk/boyut/çerçeve düzenlenebilir
+    const dinamikIcerikliMi = (el)=>{
+      if(!el || el.tagName === "IMG") return false;
+      let kendiTextVar = false;
+      let altElementVar = false;
+      for(const n of el.childNodes){
+        if(n.nodeType === 3 && n.textContent.trim().length > 0) kendiTextVar = true;
+        if(n.nodeType === 1) altElementVar = true;
+      }
+      if(altElementVar) return false; // container değil
+      const txt = (el.textContent||"").trim();
+      if(txt.length === 0) return false;
+      if(txt.length > 500) return true;
+      if(txt.length < 30 && /^[\d.,\s₺€$%+\-]+$/.test(txt)) return true; // sayı
+      if(/^\d{1,4}[./\-]\d{1,2}[./\-]\d{1,4}$/.test(txt)) return true; // tarih
+      if(/^\d{1,2}:\d{2}(\s*-\s*\d{1,2}:\d{2})?$/.test(txt)) return true; // saat
+      if(/^[\s+()]*[\d\s+()\-]{7,}$/.test(txt)) return true; // telefon
+      return false;
+    };
+    // Global'a aç ki modal kullanabilsin
+    window.__gorselDinamikMi = dinamikIcerikliMi;
 
     let sonHover = null;
 
@@ -9407,8 +9449,11 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                 taraYazilar(el);
                 // İçindeki resim varsa
                 const altResimler = Array.from(el.querySelectorAll("img"));
+                // Dinamik içerikli mi (rakam/tarih/saat/telefon)?
+                const dinamik = window.__gorselDinamikMi ? window.__gorselDinamikMi(el) : false;
                 setGorselSeciliEl({
                   _detayli: true,
+                  _dinamik: dinamik,
                   key: tek.key,
                   el: el,
                   tagName: el.tagName,
@@ -9417,15 +9462,26 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                   borderColor: cs.borderTopColor,
                   borderWidth: parseInt(cs.borderTopWidth)||0,
                   borderRadius: parseInt(cs.borderTopLeftRadius)||0,
+                  borderStyle: cs.borderTopStyle || "solid",
+                  borderTop: parseInt(cs.borderTopWidth)||0,
+                  borderRight: parseInt(cs.borderRightWidth)||0,
+                  borderBottom: parseInt(cs.borderBottomWidth)||0,
+                  borderLeft: parseInt(cs.borderLeftWidth)||0,
+                  boxShadow: cs.boxShadow && cs.boxShadow !== "none" ? cs.boxShadow : "",
                   padding: cs.paddingTop,
                   width: el.offsetWidth,
                   height: el.offsetHeight,
                   textColor: cs.color,
                   fontSize: parseInt(cs.fontSize)||14,
+                  fontWeight: cs.fontWeight || "400",
+                  fontFamily: cs.fontFamily || "",
+                  textAlign: cs.textAlign || "left",
                   // İçerikler
                   altYazilar: altYazilar,
                   altResimler: altResimler,
-                  altYaziSayisi: altYazilar.length
+                  altYaziSayisi: altYazilar.length,
+                  // Dinamik içerik için "etrafındaki rakamı" da almalı (örn: "Liste fiyatı 6.204 ₺" kutusu)
+                  currentText: el.textContent ? el.textContent.trim().slice(0,100) : ""
                 });
               } else {
                 // ÇOKLU MOD: Sadece toplu renk
@@ -9489,6 +9545,11 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
         gorselSeciliEl._detayli&&(()=>{
           const k = gorselDuzen[gorselSeciliEl.key] || {};
           return div(null,
+            // DİNAMİK İÇERİK UYARISI
+            gorselSeciliEl._dinamik && div({style:{background:"rgba(255,180,50,.12)",border:"1px solid rgba(255,180,50,.4)",borderRadius:10,padding:10,marginBottom:12,fontSize:11,color:"#d4924a",lineHeight:1.5}},
+              h("b",null,"⚠ Dinamik Veri:")," Bu alan rakam/tarih/saat gibi otomatik dolan bir veri içeriyor (örn: ",h("b",null,"\""+gorselSeciliEl.currentText.slice(0,30)+"\""),"). Metin değiştirilemez ama ",h("b",null,"renk, yazı tipi, boyut, çerçeve")," ve diğer stiller serbestçe düzenlenebilir."
+            ),
+
             // KUTU ÖZELLİKLERİ
             div({style:{marginBottom:12,padding:10,background:"var(--bg3)",borderRadius:10,border:"1px solid var(--br)"}},
               div({style:{fontSize:11,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8,fontWeight:800}},"📦 Kutu / Çerçeve"),
@@ -9537,30 +9598,60 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                     style:{fontSize:11,padding:6}})
                 )
               ),
+              // Çerçeve çizgi tipi
+              div({style:{marginBottom:8}},
+                div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Çerçeve Çizgi Tipi"),
+                h("select",{className:"fi",id:"d_borderStyle",
+                  defaultValue:k.borderStyle||gorselSeciliEl.borderStyle||"solid",
+                  style:{fontSize:11,padding:6,width:"100%"}},
+                  h("option",{value:""},"-- Değiştirme --"),
+                  h("option",{value:"solid"},"━━ Düz (solid)"),
+                  h("option",{value:"dashed"},"╌╌ Kesikli (dashed)"),
+                  h("option",{value:"dotted"},"⋯ Noktalı (dotted)"),
+                  h("option",{value:"double"},"═ İki çizgi (double)"),
+                  h("option",{value:"none"},"Yok (none)")
+                )
+              ),
+              // Gölge efekti
+              div({style:{marginBottom:8}},
+                div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Gölge Efekti"),
+                h("select",{className:"fi",id:"d_boxShadow",
+                  defaultValue:k.boxShadow||"",
+                  style:{fontSize:11,padding:6,width:"100%"}},
+                  h("option",{value:""},"-- Değiştirme --"),
+                  h("option",{value:"none"},"Gölge Yok"),
+                  h("option",{value:"0 1px 3px rgba(0,0,0,0.12)"},"Hafif Gölge"),
+                  h("option",{value:"0 4px 6px rgba(0,0,0,0.2)"},"Normal Gölge"),
+                  h("option",{value:"0 8px 16px rgba(0,0,0,0.3)"},"Güçlü Gölge"),
+                  h("option",{value:"0 0 0 2px rgba(37,99,168,0.4)"},"Mavi Halka"),
+                  h("option",{value:"0 0 0 2px rgba(192,57,43,0.4)"},"Kırmızı Halka")
+                )
+              ),
               // Yükseklik + Genişlik
               div({style:{display:"flex",gap:8}},
                 div({style:{flex:1}},
-                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Genişlik (örn: 100%, 300px)"),
+                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Genişlik"),
                   h("input",{type:"text",className:"fi",id:"d_width",
                     defaultValue:k.width||"",
-                    placeholder:"Boş = otomatik",
+                    placeholder:"100%, 300px",
                     style:{fontSize:11,padding:6}})
                 ),
                 div({style:{flex:1}},
-                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yükseklik (örn: 200px)"),
+                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yükseklik"),
                   h("input",{type:"text",className:"fi",id:"d_height",
                     defaultValue:k.height||"",
-                    placeholder:"Boş = otomatik",
+                    placeholder:"200px, auto",
                     style:{fontSize:11,padding:6}})
                 )
               )
             ),
 
-            // YAZI RENGİ + BOYUT
+            // YAZI STİLİ - PRO
             div({style:{marginBottom:12,padding:10,background:"var(--bg3)",borderRadius:10,border:"1px solid var(--br)"}},
               div({style:{fontSize:11,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8,fontWeight:800}},"🎨 Yazı Stili"),
+              // Yazı Rengi
               div({style:{marginBottom:8}},
-                div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yazı Rengi (kutudaki tüm yazılar)"),
+                div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yazı Rengi (alt elementlere de yansır)"),
                 div({style:{display:"flex",gap:6,alignItems:"center"}},
                   h("input",{type:"color",id:"d_color",
                     defaultValue:k.color||"#e2ecea",
@@ -9573,31 +9664,85 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                     onInput:e=>{if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){const c=document.getElementById("d_color");if(c)c.value=e.target.value;}}})
                 )
               ),
-              div(null,
-                div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yazı Boyutu (px)"),
-                h("input",{type:"number",className:"fi",id:"d_fontSize",min:8,max:60,
-                  defaultValue:k.fontSize!==undefined?k.fontSize:gorselSeciliEl.fontSize,
-                  style:{fontSize:11,padding:6}})
+              // Yazı Boyutu + Kalınlık
+              div({style:{display:"flex",gap:8,marginBottom:8}},
+                div({style:{flex:1}},
+                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yazı Boyutu (px)"),
+                  h("input",{type:"number",className:"fi",id:"d_fontSize",min:8,max:60,
+                    defaultValue:k.fontSize!==undefined?k.fontSize:gorselSeciliEl.fontSize,
+                    style:{fontSize:11,padding:6}})
+                ),
+                div({style:{flex:1}},
+                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yazı Kalınlığı"),
+                  h("select",{className:"fi",id:"d_fontWeight",
+                    defaultValue:k.fontWeight||"",
+                    style:{fontSize:11,padding:6,width:"100%"}},
+                    h("option",{value:""},"-- Değiştirme --"),
+                    h("option",{value:"300"},"İnce (300)"),
+                    h("option",{value:"400"},"Normal (400)"),
+                    h("option",{value:"600"},"Yarı Kalın (600)"),
+                    h("option",{value:"700"},"Kalın (700)"),
+                    h("option",{value:"800"},"Çok Kalın (800)"),
+                    h("option",{value:"900"},"Ekstra Kalın (900)")
+                  )
+                )
+              ),
+              // Yazı Hizalama + Italik
+              div({style:{display:"flex",gap:8}},
+                div({style:{flex:1}},
+                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yazı Hizalama"),
+                  h("select",{className:"fi",id:"d_textAlign",
+                    defaultValue:k.textAlign||"",
+                    style:{fontSize:11,padding:6,width:"100%"}},
+                    h("option",{value:""},"-- Değiştirme --"),
+                    h("option",{value:"left"},"⬅ Sol"),
+                    h("option",{value:"center"},"⬆ Orta"),
+                    h("option",{value:"right"},"➡ Sağ"),
+                    h("option",{value:"justify"},"≡ Yasla")
+                  )
+                ),
+                div({style:{flex:1}},
+                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yazı Stili"),
+                  h("select",{className:"fi",id:"d_fontStyle",
+                    defaultValue:k.fontStyle||"",
+                    style:{fontSize:11,padding:6,width:"100%"}},
+                    h("option",{value:""},"-- Değiştirme --"),
+                    h("option",{value:"normal"},"Normal"),
+                    h("option",{value:"italic"},"İtalik")
+                  )
+                )
               )
             ),
 
-            // İÇİNDEKİ YAZILAR (TEK TEK)
-            gorselSeciliEl.altYazilar && gorselSeciliEl.altYazilar.length > 0 && div({style:{marginBottom:12,padding:10,background:"var(--bg3)",borderRadius:10,border:"1px solid var(--br)"}},
+            // İÇİNDEKİ YAZILAR (TEK TEK) - sadece dinamik DEĞİLSE
+            !gorselSeciliEl._dinamik && gorselSeciliEl.altYazilar && gorselSeciliEl.altYazilar.length > 0 && div({style:{marginBottom:12,padding:10,background:"var(--bg3)",borderRadius:10,border:"1px solid var(--br)"}},
               div({style:{fontSize:11,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8,fontWeight:800}},
                 "📝 İçindeki Yazılar ("+gorselSeciliEl.altYazilar.length+")"),
               gorselSeciliEl.altYazilar.map((y,idx)=>{
-                // Mevcut kayıtlı altYazi (varsa)
                 const kayitliAltYazi = (k.altYazilar||[]).find(x=>x.idx===idx);
                 const mevcutDeger = kayitliAltYazi ? kayitliAltYazi.yeniText : y.text;
+                // Bu alt yazı dinamik mi (rakam/tarih)? Eğer öyleyse text input'unu gizle
+                const altDinamik = (function(){
+                  const t=mevcutDeger.trim();
+                  if(t.length===0) return false;
+                  if(t.length<30 && /^[\d.,\s₺€$%+\-]+$/.test(t)) return true;
+                  if(/^\d{1,4}[./\-]\d{1,2}[./\-]\d{1,4}$/.test(t)) return true;
+                  if(/^\d{1,2}:\d{2}(\s*-\s*\d{1,2}:\d{2})?$/.test(t)) return true;
+                  return false;
+                })();
                 return div({key:idx,style:{marginBottom:8,paddingBottom:8,borderBottom:idx<gorselSeciliEl.altYazilar.length-1?"1px solid var(--br)":"none"}},
-                  div({style:{fontSize:9,color:"var(--mu)",marginBottom:3}},"Yazı #"+(idx+1)+" ("+y.tag.toLowerCase()+")"),
-                  h("textarea",{
-                    className:"fi",
-                    "data-d-yazi-idx":idx,
-                    defaultValue:mevcutDeger,
-                    rows:Math.min(3,Math.max(1,Math.ceil(mevcutDeger.length/40))),
-                    style:{fontSize:11,padding:6,resize:"vertical",fontFamily:"inherit"}
-                  })
+                  div({style:{fontSize:9,color:altDinamik?"#d4924a":"var(--mu)",marginBottom:3}},
+                    "Yazı #"+(idx+1)+" ("+y.tag.toLowerCase()+")"+(altDinamik?" — dinamik veri (kilitli)":"")
+                  ),
+                  altDinamik
+                    ? div({style:{fontSize:11,padding:6,background:"var(--bg2)",borderRadius:6,color:"var(--mu)",fontStyle:"italic"}},"\""+mevcutDeger+"\" (otomatik dolan)")
+                    : h("textarea",{
+                        className:"fi",
+                        "data-d-yazi-idx":idx,
+                        defaultValue:mevcutDeger,
+                        rows:Math.min(3,Math.max(1,Math.ceil(mevcutDeger.length/40))),
+                        style:{fontSize:11,padding:6,resize:"vertical",fontFamily:"inherit"}
+                      })
                 );
               })
             ),
@@ -9688,6 +9833,21 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                 if(bw && bw.value !== "") yeni.borderWidth = parseInt(bw.value);
                 if(br && br.value !== "") yeni.borderRadius = parseInt(br.value);
                 if(fs && fs.value !== "") yeni.fontSize = parseInt(fs.value);
+                // Çerçeve çizgi tipi
+                const bs = document.getElementById("d_borderStyle");
+                if(bs && bs.value !== "") yeni.borderStyle = bs.value;
+                // Gölge
+                const sh = document.getElementById("d_boxShadow");
+                if(sh && sh.value !== "") yeni.boxShadow = sh.value;
+                // Yazı kalınlığı
+                const fw = document.getElementById("d_fontWeight");
+                if(fw && fw.value !== "") yeni.fontWeight = fw.value;
+                // Yazı hizalama
+                const ta = document.getElementById("d_textAlign");
+                if(ta && ta.value !== "") yeni.textAlign = ta.value;
+                // Yazı stili (italik)
+                const fst = document.getElementById("d_fontStyle");
+                if(fst && fst.value !== "") yeni.fontStyle = fst.value;
                 // Boyut
                 const w = document.getElementById("d_width");
                 const hh = document.getElementById("d_height");
