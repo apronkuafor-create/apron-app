@@ -31,11 +31,11 @@ color: #e2ecea;
 }
 
 /* Hizmet Bölümü Detay Makinesi: sadece .sc-h içindeki yazı/rakam/kutu detaylarını yönetir */
-.sc-h select.fi{color:var(–svc-select-color,var(–tx))!important;font-size:var(–svc-select-size,13.5px)!important;font-family:var(–svc-font-family,‘Jost’,system-ui,sans-serif)!important}
-.sc-h input.fi{color:var(–svc-input-color,var(–g))!important;font-size:var(–svc-input-size,17px)!important;font-family:var(–svc-number-font-family,‘Cormorant Garamond’,serif)!important}
-.sc-h button{color:var(–svc-button-color,var(–mu))!important;font-size:var(–svc-button-size,12px)!important}
-.sc-h button[style*=“linear-gradient”]{color:var(–svc-active-button-color,var(–bg))!important}
-.sc-h .fi::placeholder{color:var(–svc-placeholder-color,var(–br))!important}
+.sc-h select.fi{color:var(--svc-select-color,var(--tx))!important;font-size:var(--svc-select-size,13.5px)!important;font-family:var(--svc-font-family,'Jost',system-ui,sans-serif)!important}
+.sc-h input.fi{color:var(--svc-input-color,var(--g))!important;font-size:var(--svc-input-size,17px)!important;font-family:var(--svc-number-font-family,'Cormorant Garamond',serif)!important}
+.sc-h button{color:var(--svc-button-color,var(--mu))!important;font-size:var(--svc-button-size,12px)!important}
+.sc-h button[style*="linear-gradient"]{color:var(--svc-active-button-color,var(--bg))!important}
+.sc-h .fi::placeholder{color:var(--svc-placeholder-color,var(--br))!important}
 </style>
 
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -315,7 +315,7 @@ function lbl(props, ...kids) { return el('label', props, ...kids); }
 // ── Toast ─────────────────────────────────────────────────────────────
 function Toast({toast}) {
   if(!toast.g) return null;
-  return div({className:`toast ${toast.t}`,"data-gorsel-yonetim":"1"}, toast.m);
+  return div({className:`toast ${toast.t}`}, toast.m);
 }
 
 // ── OdemeGir ──────────────────────────────────────────────────────────
@@ -5408,17 +5408,6 @@ function App() {
       return kayitli || {};
     } catch(e) { return {}; }
   });
-  // ── GÖRSEL DÜZENLEME SİSTEMİ ──
-  const [gorselDuzen, setGorselDuzen] = useState(()=>{
-    try {
-      const k = JSON.parse(localStorage.getItem("apron_gorsel_duzen")||"null");
-      return k || {};
-    } catch(e) { return {}; }
-  });
-  const [gorselDuzenModu, setGorselDuzenModu] = useState(false); // düzenleme modu açık/kapalı
-  const [gorselSeciliEl, setGorselSeciliEl] = useState(null); // {key, type, currentText, currentColor, rect}
-  const [gorselSecimAktif, setGorselSecimAktif] = useState(false); // ALAN SEÇ butonu aktif mi?
-  const [gorselSeciliKeys, setGorselSeciliKeys] = useState([]); // çoklu seçili alanlar [{key,tagName,currentText,...}]
   const [gecmisMusteriFil, setGecmisMusteriFil] = useState("");
   const [gecmisAyFil, setGecmisAyFil]           = useState(String(new Date().getMonth()+1));
   const [gecmisTarihFil, setGecmisTarihFil]     = useState("");
@@ -5486,7 +5475,6 @@ ayarlarRaw.forEach(a=>{
   if(a.id==="bankalar") setBankalar(a.deger);
   if(a.id==="yonBildirim") setYonBildirim(Array.isArray(a.deger)?a.deger:[]);
   if(a.id==="bolumStilleri") setBolumStilleri(a.deger||{});
-  if(a.id==="gorselDuzen") setGorselDuzen(a.deger||{});
 });
         const [k,m,d] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
@@ -5550,530 +5538,6 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     localStorage.setItem("apron_bolum_stilleri", JSON.stringify(bolumStilleri||{}));
     if(DB) DB.from("ayarlar").upsert({id:"bolumStilleri",deger:bolumStilleri||{}}).then(()=>{}).catch(console.warn);
   },[bolumStilleri,yukleniyor]);
-
-  // ── GÖRSEL DÜZENLEME otomatik kaydet ──
-  useEffect(()=>{
-    if(yukleniyor) return;
-    localStorage.setItem("apron_gorsel_duzen", JSON.stringify(gorselDuzen||{}));
-    if(DB) DB.from("ayarlar").upsert({id:"gorselDuzen",deger:gorselDuzen||{}}).then(()=>{}).catch(console.warn);
-  },[gorselDuzen,yukleniyor]);
-
-  // ── GÖRSEL DÜZENLEME: Kayıtlı değerleri DOM'a uygula ──
-  useEffect(()=>{
-    if(yukleniyor) return;
-
-    // ── KARARLI KİMLİK ÜRETECİ (her zaman aktif) ──
-    const elKimlik = (el)=>{
-      const manuel = el.getAttribute && el.getAttribute("data-edit-key");
-      if(manuel) return manuel;
-      const yol = [];
-      let cur = el;
-      let derinlik = 0;
-      while(cur && cur !== document.body && derinlik < 12){
-        const par = cur.parentElement;
-        if(!par) break;
-        const tag = cur.tagName.toLowerCase();
-        let idx = 0;
-        for(let i=0;i<par.children.length;i++){
-          if(par.children[i] === cur) break;
-          if(par.children[i].tagName === cur.tagName) idx++;
-        }
-        yol.unshift(tag+idx);
-        cur = par;
-        derinlik++;
-      }
-      let icerik;
-      if(el.tagName === "IMG"){
-        icerik = (el.getAttribute("src")||"").slice(-40);
-      } else {
-        let kendiText = "";
-        for(const n of el.childNodes){
-          if(n.nodeType === 3) kendiText += n.textContent;
-        }
-        kendiText = kendiText.trim();
-        if(!kendiText) kendiText = (el.textContent||"").trim().slice(0,30);
-        icerik = kendiText.slice(0,30);
-      }
-      let hash = 0;
-      const s = icerik;
-      for(let i=0;i<s.length;i++){ hash = ((hash<<5)-hash)+s.charCodeAt(i); hash|=0; }
-      return "auto:"+el.tagName.toLowerCase()+":"+yol.join(">")+":"+Math.abs(hash).toString(36);
-    };
-
-    // FindByKey: kayıtlı key'in bu sayfada hangi elementte olduğunu bul
-    window.__gorselFindByKey = (key)=>{
-      if(!key.startsWith("auto:")) {
-        return document.querySelector('[data-edit-key="'+key+'"]');
-      }
-      const parcalar = key.split(":");
-      if(parcalar.length < 4) return null;
-      const tag = parcalar[1];
-      const adaylar = document.querySelectorAll(tag);
-      for(const aday of adaylar){
-        if(aday.closest("[data-gorsel-yonetim]")) continue;
-        if(aday.closest("[data-gorsel-modal]")) continue;
-        if(aday.closest("[data-gorsel-kalem]")) continue;
-        if(aday.closest("[data-gorsel-serit]")) continue;
-        try {
-          if(elKimlik(aday) === key) return aday;
-        } catch(e){}
-      }
-      return null;
-    };
-
-    // Tek elemente kayıt değerlerini uygula
-    const elemUygula = (el, k)=>{
-      if(!el || !k) return;
-      // Metin (sadece eski tek-text desteği için)
-      if(k.text !== undefined && k.text !== null && el.tagName !== "IMG"){
-        if(el.textContent !== k.text) el.textContent = k.text;
-      }
-      // Renkler
-      if(k.color){
-        el.style.color = k.color;
-        // Alt elementlerin inline color'larını da geçersiz kıl
-        // (zaman tarihi gibi dinamik metinler kendi rengini taşıyor olabilir)
-        try {
-          el.querySelectorAll("*").forEach(child=>{
-            // Form elementlerine ve resimlere dokunma
-            if(["INPUT","SELECT","TEXTAREA","IMG","SVG"].includes(child.tagName)) return;
-            // Editor UI'larına dokunma
-            if(child.closest && (child.closest("[data-gorsel-modal]")||child.closest("[data-gorsel-serit]")||child.closest("[data-gorsel-kalem]"))) return;
-            // Sadece inline style.color varsa override et
-            if(child.style && child.style.color){
-              child.style.color = k.color;
-            }
-          });
-        } catch(e){}
-      }
-      if(k.bgColor) el.style.backgroundColor = k.bgColor;
-      // Çerçeve
-      if(k.borderColor) el.style.borderColor = k.borderColor;
-      if(k.borderWidth !== undefined && k.borderWidth !== null){
-        el.style.borderWidth = k.borderWidth+"px";
-        if(!el.style.borderStyle) el.style.borderStyle = "solid";
-      }
-      if(k.borderRadius !== undefined && k.borderRadius !== null) el.style.borderRadius = k.borderRadius+"px";
-      if(k.borderStyle) el.style.borderStyle = k.borderStyle;
-      // Boyut
-      if(k.width !== undefined && k.width !== null && k.width !== "") el.style.width = k.width;
-      if(k.height !== undefined && k.height !== null && k.height !== "") el.style.height = k.height;
-      if(k.minHeight) el.style.minHeight = k.minHeight;
-      // Yazı tipi (alt elementlere de yansıt - inline override)
-      if(k.fontSize !== undefined && k.fontSize !== null){
-        el.style.fontSize = k.fontSize+"px";
-        try {
-          el.querySelectorAll("*").forEach(child=>{
-            if(["INPUT","SELECT","TEXTAREA","IMG","SVG"].includes(child.tagName)) return;
-            if(child.closest && (child.closest("[data-gorsel-modal]")||child.closest("[data-gorsel-serit]")||child.closest("[data-gorsel-kalem]"))) return;
-            if(child.style && child.style.fontSize){
-              child.style.fontSize = k.fontSize+"px";
-            }
-          });
-        } catch(e){}
-      }
-      if(k.fontWeight){
-        el.style.fontWeight = k.fontWeight;
-        try {
-          el.querySelectorAll("*").forEach(child=>{
-            if(["INPUT","SELECT","TEXTAREA","IMG","SVG"].includes(child.tagName)) return;
-            if(child.closest && (child.closest("[data-gorsel-modal]")||child.closest("[data-gorsel-serit]")||child.closest("[data-gorsel-kalem]"))) return;
-            if(child.style && child.style.fontWeight){
-              child.style.fontWeight = k.fontWeight;
-            }
-          });
-        } catch(e){}
-      }
-      if(k.fontStyle) el.style.fontStyle = k.fontStyle;
-      if(k.fontFamily) el.style.fontFamily = k.fontFamily;
-      if(k.textAlign) el.style.textAlign = k.textAlign;
-      // Gölge
-      if(k.boxShadow) el.style.boxShadow = k.boxShadow === "none" ? "none" : k.boxShadow;
-      // Padding
-      if(k.padding) el.style.padding = k.padding;
-      // Resim
-      if(k.imageUrl && el.tagName === "IMG"){
-        if(el.src !== k.imageUrl) el.src = k.imageUrl;
-      }
-      // İçindeki text node'ları (k.altYazilar = [{idx, yeniText}])
-      if(k.altYazilar && Array.isArray(k.altYazilar)){
-        const allTextNodes = [];
-        const tara = (parent, derinlik=0)=>{
-          if(derinlik > 5) return;
-          for(const n of parent.childNodes){
-            if(n.nodeType === 3){
-              if(n.textContent.trim().length > 0) allTextNodes.push(n);
-            } else if(n.nodeType === 1 && !["INPUT","SELECT","TEXTAREA"].includes(n.tagName)){
-              tara(n, derinlik+1);
-            }
-          }
-        };
-        tara(el);
-        k.altYazilar.forEach(item=>{
-          if(item && typeof item.idx === "number" && allTextNodes[item.idx]){
-            if(allTextNodes[item.idx].textContent !== item.yeniText){
-              allTextNodes[item.idx].textContent = item.yeniText;
-            }
-          }
-        });
-      }
-    };
-
-    // GLOBAL helper'ları HEMEN ata - henüz hiç kayıt yokken bile mevcut olsun
-    window.__gorselElemUygula = elemUygula;
-
-    // Hem manuel data-edit-key olanlar hem de otomatik üretilen key'ler
-    const tumKayitliKeys = Object.keys(gorselDuzen||{});
-    if(tumKayitliKeys.length===0) return;
-
-    // 1) Manuel işaretli olanlar (önceden eklenmiş data-edit-key'ler)
-    document.querySelectorAll("[data-edit-key]").forEach(el=>{
-      const key = el.getAttribute("data-edit-key");
-      elemUygula(el, gorselDuzen[key]);
-    });
-
-    // 2) Otomatik üretilen key'ler (auto:...) için DOM tarayıcı
-    const autoKeys = tumKayitliKeys.filter(k=>k.startsWith("auto:"));
-    if(autoKeys.length===0) return;
-
-    const uygula = ()=>{
-      autoKeys.forEach(key=>{
-        const el = window.__gorselFindByKey ? window.__gorselFindByKey(key) : null;
-        if(!el) return;
-        elemUygula(el, gorselDuzen[key]);
-      });
-    };
-    uygula();
-    const t1 = setTimeout(uygula, 100);
-    const t2 = setTimeout(uygula, 500);
-    const t3 = setTimeout(uygula, 1500);
-    return ()=>{ clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  },[gorselDuzen,yukleniyor]);
-
-  // ── GÖRSEL DÜZENLEME: MutationObserver ile sürekli uygulama ──
-  useEffect(()=>{
-    if(yukleniyor) return;
-    const tumKayitliKeys = Object.keys(gorselDuzen||{});
-    if(tumKayitliKeys.length===0) return;
-    const autoKeys = tumKayitliKeys.filter(k=>k.startsWith("auto:"));
-    if(autoKeys.length===0) return;
-
-    let zaman;
-    const obs = new MutationObserver(()=>{
-      clearTimeout(zaman);
-      zaman = setTimeout(()=>{
-        autoKeys.forEach(key=>{
-          const el = window.__gorselFindByKey ? window.__gorselFindByKey(key) : null;
-          if(!el) return;
-          if(window.__gorselElemUygula) window.__gorselElemUygula(el, gorselDuzen[key]);
-        });
-      }, 80);
-    });
-    obs.observe(document.body, {childList:true, subtree:true, characterData:true});
-    return ()=>{ obs.disconnect(); clearTimeout(zaman); };
-  },[gorselDuzen,yukleniyor]);
-
-  // ── GÖRSEL DÜZENLEME: AKILLI OTOMATİK TARAMA + HOVER/TIKLAMA ──
-  useEffect(()=>{
-    if(!gorselDuzenModu) return;
-    // ÖNEMLİ: Sadece "Alan Seç" butonu basıldığında tıklamaları yakala.
-    // Yoksa kullanıcı uygulamayı normal kullanabilsin.
-    if(!gorselSecimAktif) return;
-
-    // ALAN SEÇ butonuna tıklandığı an event listener hemen kurulursa,
-    // o tıklama event'i bubble ile bize gelir ve butonu seçmeye çalışır.
-    // Bu yüzden listener'ları küçük bir gecikme ile kuruyoruz.
-    let baglandi = false;
-    let temizleyiciler = [];
-    const baglantiZaman = setTimeout(()=>{
-      baglandi = true;
-
-    // Bir element için kararlı kimlik üret (içerik + DOM yolu)
-    // Kimlik formatı: auto:<tag>:<dom-yolu>:<içerik-hash>
-    const elKimlik = (el)=>{
-      // Manuel data-edit-key varsa onu kullan
-      const manuel = el.getAttribute("data-edit-key");
-      if(manuel) return manuel;
-      // DOM yolunu çıkar (root'a kadar tag+index)
-      const yol = [];
-      let cur = el;
-      let derinlik = 0;
-      while(cur && cur !== document.body && derinlik < 12){
-        const par = cur.parentElement;
-        if(!par) break;
-        const tag = cur.tagName.toLowerCase();
-        // Aynı tag'li kardeşler arasındaki indeks
-        let idx = 0;
-        for(let i=0;i<par.children.length;i++){
-          if(par.children[i] === cur) break;
-          if(par.children[i].tagName === cur.tagName) idx++;
-        }
-        yol.unshift(tag+idx);
-        cur = par;
-        derinlik++;
-      }
-      // İçerik hash'i (resim için src, diğerleri için ilk 30 karakter)
-      let icerik;
-      if(el.tagName === "IMG"){
-        icerik = (el.getAttribute("src")||"").slice(-40);
-      } else {
-        // Sadece kendi text node'larından içerik (alt elementlerinkini sayma)
-        let kendiText = "";
-        for(const n of el.childNodes){
-          if(n.nodeType === 3) kendiText += n.textContent;
-        }
-        kendiText = kendiText.trim();
-        if(!kendiText) kendiText = (el.textContent||"").trim().slice(0,30);
-        icerik = kendiText.slice(0,30);
-      }
-      // Basit hash
-      let hash = 0;
-      const s = icerik;
-      for(let i=0;i<s.length;i++){ hash = ((hash<<5)-hash)+s.charCodeAt(i); hash|=0; }
-      return "auto:"+el.tagName.toLowerCase()+":"+yol.join(">")+":"+Math.abs(hash).toString(36);
-    };
-
-    // Bir kimliğe karşılık gelen elementi bul (DOM'da ara) - yerel kullanım için
-    const yerelFindByKey = (key)=>{
-      if(!key.startsWith("auto:")) {
-        return document.querySelector('[data-edit-key="'+key+'"]');
-      }
-      // auto:<tag>:<yol>:<hash>
-      const parcalar = key.split(":");
-      if(parcalar.length < 4) return null;
-      const tag = parcalar[1];
-      const adaylar = document.querySelectorAll(tag);
-      for(const aday of adaylar){
-        if(aday.closest("[data-gorsel-yonetim]")) continue;
-        if(aday.closest("[data-gorsel-modal]")) continue;
-        if(aday.closest("[data-gorsel-kalem]")) continue;
-        if(aday.closest("[data-gorsel-serit]")) continue;
-        try {
-          if(elKimlik(aday) === key) return aday;
-        } catch(e){}
-      }
-      return null;
-    };
-
-    // AKILLI FİLTRE: Bu element düzenlenebilir mi?
-    const duzenlenebilirMi = (el)=>{
-      if(!el || !el.tagName) return false;
-      const tag = el.tagName;
-
-      // 1) Editör'ün kendi UI'ı
-      if(el.closest("[data-gorsel-yonetim]")) return false;
-      if(el.closest("[data-gorsel-modal]")) return false;
-      if(el.closest("[data-gorsel-kalem]")) return false;
-      if(el.closest("[data-gorsel-serit]")) return false;
-
-      // 2) Kök elementler
-      if(tag === "HTML" || tag === "BODY") return false;
-
-      // 3) Form öğeleri kendi başına seçilemez (parent'ı seçilir)
-      if(["INPUT","SELECT","TEXTAREA","OPTION"].includes(tag)) return false;
-
-      // 4) Resim → her zaman seçilebilir
-      if(tag === "IMG") return true;
-
-      // 5) Element'in kendi childNode analizi
-      let kendiTextVar = false;
-      let altElementVar = false;
-      for(const n of el.childNodes){
-        if(n.nodeType === 3 && n.textContent.trim().length > 0) kendiTextVar = true;
-        if(n.nodeType === 1) altElementVar = true;
-      }
-
-      // 6) Tamamen boş element → reddet
-      if(!kendiTextVar && !altElementVar) return false;
-
-      // 7) Tüm container ve text elementler seçilebilir
-      // (Dinamik içerik kontrolü modal seviyesinde yapılır - sadece "metin değişikliği" engellenir,
-      //  rakamlara/tarihlere stil müdahalesi serbesttir)
-      return true;
-    };
-
-    // Bu element dinamik içerikli mi? (rakam, tarih, saat, telefon)
-    // Eğer öyleyse modal'da metin alanı gösterilmez ama renk/boyut/çerçeve düzenlenebilir
-    const dinamikIcerikliMi = (el)=>{
-      if(!el || el.tagName === "IMG") return false;
-      let kendiTextVar = false;
-      let altElementVar = false;
-      for(const n of el.childNodes){
-        if(n.nodeType === 3 && n.textContent.trim().length > 0) kendiTextVar = true;
-        if(n.nodeType === 1) altElementVar = true;
-      }
-      if(altElementVar) return false; // container değil
-      const txt = (el.textContent||"").trim();
-      if(txt.length === 0) return false;
-      if(txt.length > 500) return true;
-      if(txt.length < 30 && /^[\d.,\s₺€$%+\-]+$/.test(txt)) return true; // sayı
-      if(/^\d{1,4}[./\-]\d{1,2}[./\-]\d{1,4}$/.test(txt)) return true; // tarih
-      if(/^\d{1,2}:\d{2}(\s*-\s*\d{1,2}:\d{2})?$/.test(txt)) return true; // saat
-      if(/^[\s+()]*[\d\s+()\-]{7,}$/.test(txt)) return true; // telefon
-      return false;
-    };
-    // Global'a aç ki modal kullanabilsin
-    window.__gorselDinamikMi = dinamikIcerikliMi;
-
-    let sonHover = null;
-
-    // Tıklama/hover hedefini bul: önce manuel key, sonra e.target, reddedilirse 3 seviye parent dene
-    const tiklamaHedefiBul = (target)=>{
-      if(!target || !target.tagName) return null;
-      // Önce manuel data-edit-key
-      const m = target.closest && target.closest("[data-edit-key]");
-      if(m) return {el: m, manuelKey: m.getAttribute("data-edit-key")};
-      // Sonra hedefin kendisi
-      let cur = target;
-      let derinlik = 0;
-      while(cur && derinlik < 4){
-        if(duzenlenebilirMi(cur)) return {el: cur, manuelKey: null};
-        cur = cur.parentElement;
-        derinlik++;
-      }
-      return null;
-    };
-
-    const onOver = (e)=>{
-      const hedef = tiklamaHedefiBul(e.target);
-      if(!hedef) return;
-      const t = hedef.el;
-      if(sonHover === t) return;
-      // Önceki hover'ı temizle (eğer seçili değilse)
-      if(sonHover && !sonHover.hasAttribute("data-gorsel-secili-key")){
-        sonHover.style.outline = "";
-        sonHover.style.outlineOffset = "";
-        sonHover.style.cursor = "";
-        sonHover.style.boxShadow = "";
-      }
-      // Hedef seçili ise hover stilini ekleme (yeşili boz)
-      if(!t.hasAttribute("data-gorsel-secili-key")){
-        t.style.outline = "2px dashed #2563a8";
-        t.style.outlineOffset = "2px";
-        t.style.cursor = "pointer";
-        t.style.boxShadow = "0 0 0 4px rgba(37,99,168,.15)";
-      } else {
-        t.style.cursor = "pointer";
-      }
-      sonHover = t;
-    };
-
-    const onOut = (e)=>{
-      if(sonHover && !sonHover.contains(e.relatedTarget)){
-        // Seçili değilse stilleri temizle
-        if(!sonHover.hasAttribute("data-gorsel-secili-key")){
-          sonHover.style.outline = "";
-          sonHover.style.outlineOffset = "";
-          sonHover.style.cursor = "";
-          sonHover.style.boxShadow = "";
-        } else {
-          // Seçili olanın cursor'ını koru ama yeşili koru
-          sonHover.style.cursor = "pointer";
-        }
-        sonHover = null;
-      }
-    };
-
-    let sonTiklamaZaman = 0;
-    let sonTiklamaKey = null;
-
-    const onPointerDown = (e)=>{
-      const hedef = tiklamaHedefiBul(e.target);
-      if(!hedef) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if(e.stopImmediatePropagation) e.stopImmediatePropagation();
-    };
-
-    const onClick = (e)=>{
-      const hedef = tiklamaHedefiBul(e.target);
-      if(!hedef) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if(e.stopImmediatePropagation) e.stopImmediatePropagation();
-      const t = hedef.el;
-      const manuelKey = hedef.manuelKey;
-      const key = manuelKey || elKimlik(t);
-
-      // DEBOUNCE: Aynı key'e 300ms içinde gelen ikinci tıklamayı YOK SAY
-      // (React/browser çoklu olay tetiklemesini engellemek için)
-      const simdi = Date.now();
-      if(sonTiklamaKey === key && (simdi - sonTiklamaZaman) < 300){
-        return;
-      }
-      sonTiklamaKey = key;
-      sonTiklamaZaman = simdi;
-
-      const cs = window.getComputedStyle(t);
-      // Sadece kendi text node'u
-      let kendiText = "";
-      for(const n of t.childNodes){
-        if(n.nodeType === 3) kendiText += n.textContent;
-      }
-      kendiText = kendiText || t.textContent || "";
-
-      // ÇOKLU SEÇİM: aynı alana tekrar tıklanırsa seçimden çıkar (toggle)
-      setGorselSeciliKeys(prev=>{
-        const mevcut = prev.find(x=>x.key===key);
-        if(mevcut){
-          // Seçimden çıkar
-          if(t && t.style){
-            t.style.outline = "";
-            t.style.outlineOffset = "";
-            t.style.boxShadow = "";
-            t.removeAttribute("data-gorsel-secili-key");
-          }
-          return prev.filter(x=>x.key!==key);
-        }
-        // Seçime ekle
-        if(t && t.style){
-          t.style.outline = "2.5px solid #50b880";
-          t.style.outlineOffset = "2px";
-          t.style.boxShadow = "0 0 0 5px rgba(80,184,128,.2)";
-          t.setAttribute("data-gorsel-secili-key", key);
-        }
-        return [...prev,{
-          key,
-          tagName: t.tagName,
-          currentText: kendiText,
-          currentColor: cs.color || "#e2ecea",
-          currentBg: cs.backgroundColor || "",
-          currentImageUrl: t.tagName === "IMG" ? t.src : ""
-        }];
-      });
-    };
-
-    document.addEventListener("mouseover", onOver, true);
-    document.addEventListener("mouseout", onOut, true);
-    document.addEventListener("click", onClick, true);
-    document.addEventListener("pointerdown", onPointerDown, true);
-    temizleyiciler.push(()=>{
-      document.removeEventListener("mouseover", onOver, true);
-      document.removeEventListener("mouseout", onOut, true);
-      document.removeEventListener("click", onClick, true);
-      document.removeEventListener("pointerdown", onPointerDown, true);
-    });
-    },50); // setTimeout sonu
-
-    return ()=>{
-      clearTimeout(baglantiZaman);
-      if(baglandi){
-        temizleyiciler.forEach(fn=>fn());
-      }
-      // Debug box'ı kaldır
-      const dbg = document.getElementById("__gorselDebug");
-      if(dbg) dbg.remove();
-      // Hover stillerini temizle
-      const hov = document.querySelector("[data-gorsel-hover-aktif]");
-      if(hov){
-        hov.style.outline = "";
-        hov.style.outlineOffset = "";
-        hov.style.cursor = "";
-        hov.style.boxShadow = "";
-        hov.removeAttribute("data-gorsel-hover-aktif");
-      }
-    };
-  },[gorselDuzenModu,gorselSecimAktif]);
 
   // Sekme isimlerini kaydet
 
@@ -8278,15 +7742,86 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
               onClick:()=>setAySek("isletme")},
               "🏢 İşletme"
             ),
-            // ── DİZAYN - TEK BAŞLIK ──
-            btn({style:{width:"100%",padding:"11px 14px",
-              background:aySek==="renklendirme"?"rgba(37,99,168,.08)":"transparent",
-              border:"none",borderBottom:"1px solid var(--br)",borderLeft:aySek==="renklendirme"?"3px solid #2563a8":"3px solid transparent",
-              color:aySek==="renklendirme"?"var(--g)":"#3a6a62",
-              fontSize:12,fontWeight:500,
-              cursor:"pointer",textAlign:"left"},
-              onClick:()=>setAySek("renklendirme")},
-              "🎨 Dizayn"
+            // ── RENKLENDİRMELER - ANA BAŞLIK (açılır/kapanır hiyerarşik yapı) ──
+            div(null,
+              btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
+                padding:"11px 8px 11px 10px",
+                background:aySek==="renklendirme"?"rgba(37,99,168,.08)":"transparent",
+                border:"none",borderBottom:"1px solid var(--br)",borderLeft:aySek==="renklendirme"?"3px solid var(--g)":"3px solid transparent",
+                color:aySek==="renklendirme"?"var(--g)":"var(--di)",
+                fontSize:14,fontWeight:800,letterSpacing:.2,textTransform:"uppercase",
+                cursor:"pointer",textAlign:"left",gap:4,overflow:"hidden"},
+                onClick:()=>{setAySek(aySek==="renklendirme"?"":"renklendirme");setAyRenkSek("renklendirmeler");}},
+                div({style:{flex:1,minWidth:0,whiteSpace:"normal",overflowWrap:"anywhere",lineHeight:1.15}},"🎨 RENKLENDİRMELER"),
+                h("span",{style:{fontSize:12,color:"var(--di)",flexShrink:0}},aySek==="renklendirme"?"▾":"▸")
+              ),
+              aySek==="renklendirme"&&div({style:{background:"var(--bg3)"}},
+                btn({style:{width:"100%",padding:"9px 8px 9px 20px",border:"none",
+                  borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:12,cursor:"pointer",
+                  background:ayRenkSek==="genelBazli"?"rgba(37,99,168,.12)":"transparent",
+                  color:ayRenkSek==="genelBazli"?"var(--g)":"#3a6a62",fontWeight:700,lineHeight:1.25,
+                  whiteSpace:"normal",overflowWrap:"anywhere",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6},
+                  onClick:()=>{setAyRenkSek("genelBazli");setAyRenkAcik(o=>({...o,genel:!o.genel}));}},
+                  span(null,"Genel Bazlı Renklendirmeler"),
+                  span({style:{fontSize:11,flexShrink:0}},ayRenkAcik.genel?"▾":"▸")
+                ),
+                ayRenkAcik.genel&&btn({style:{width:"100%",padding:"8px 8px 8px 34px",border:"none",
+                  borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:10,cursor:"pointer",
+                  background:ayRenkSek==="zemin"?"rgba(37,99,168,.12)":"transparent",
+                  color:ayRenkSek==="zemin"?"var(--g)":"#3a6a62",fontWeight:600,lineHeight:1.25,
+                  whiteSpace:"normal",overflowWrap:"anywhere"},
+                  onClick:()=>setAyRenkSek("zemin")},"Zemin"),
+
+                btn({style:{width:"100%",padding:"9px 8px 9px 20px",border:"none",
+                  borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:12,cursor:"pointer",
+                  background:ayRenkSek==="bolumBazli"?"rgba(37,99,168,.12)":"transparent",
+                  color:ayRenkSek==="bolumBazli"?"var(--g)":"#3a6a62",fontWeight:700,lineHeight:1.25,
+                  whiteSpace:"normal",overflowWrap:"anywhere",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6},
+                  onClick:()=>{setAyRenkSek("bolumBazli");setAyRenkAcik(o=>({...o,bolum:!o.bolum}));}},
+                  span(null,"Bölüm Bazlı Renklendirmeler"),
+                  span({style:{fontSize:11,flexShrink:0}},ayRenkAcik.bolum?"▾":"▸")
+                ),
+                ayRenkAcik.bolum&&div(null,
+                  btn({style:{width:"100%",padding:"8px 8px 8px 34px",border:"none",
+                    borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:10,cursor:"pointer",
+                    background:ayRenkSek==="personelPaneli"?"rgba(37,99,168,.12)":"transparent",
+                    color:ayRenkSek==="personelPaneli"?"var(--g)":"#3a6a62",fontWeight:600,lineHeight:1.25,
+                    whiteSpace:"normal",overflowWrap:"anywhere",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6},
+                    onClick:()=>{setAyRenkSek("personelPaneli");setAyRenkAcik(o=>({...o,personel:!o.personel}));}},
+                    span(null,"Personel Paneli"),
+                    span({style:{fontSize:10,flexShrink:0}},ayRenkAcik.personel?"▾":"▸")
+                  ),
+                  ayRenkAcik.personel&&[
+                    ["personelBugun","Bugün"],["personelRandevularim","Randevularım"],["personelGecmisim","Geçmişim"],["personelAyarlar","Ayarlar"]
+                  ].map(([id,lb])=>
+                    btn({key:id,style:{width:"100%",padding:"8px 8px 8px 48px",border:"none",
+                      borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:9,cursor:"pointer",
+                      background:ayRenkSek===id?"rgba(37,99,168,.12)":"transparent",
+                      color:ayRenkSek===id?"var(--g)":"#3a6a62",fontWeight:500,lineHeight:1.25,
+                      whiteSpace:"normal",overflowWrap:"anywhere"},
+                      onClick:()=>setAyRenkSek(id)},lb)
+                  ),
+                  btn({style:{width:"100%",padding:"8px 8px 8px 34px",border:"none",
+                    borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:10,cursor:"pointer",
+                    background:ayRenkSek==="yoneticiPaneli"?"rgba(37,99,168,.12)":"transparent",
+                    color:ayRenkSek==="yoneticiPaneli"?"var(--g)":"#3a6a62",fontWeight:600,lineHeight:1.25,
+                    whiteSpace:"normal",overflowWrap:"anywhere",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6},
+                    onClick:()=>{setAyRenkSek("yoneticiPaneli");setAyRenkAcik(o=>({...o,yonetici:!o.yonetici}));}},
+                    span(null,"Yönetici Paneli"),
+                    span({style:{fontSize:10,flexShrink:0}},ayRenkAcik.yonetici?"▾":"▸")
+                  ),
+                  ayRenkAcik.yonetici&&[
+                    ["yoneticiMuhasebe","Muhasebe"],["yoneticiKayitlar","Kayıtlar"],["yoneticiAyarlar","Ayarlar"]
+                  ].map(([id,lb])=>
+                    btn({key:id,style:{width:"100%",padding:"8px 8px 8px 48px",border:"none",
+                      borderBottom:"1px solid var(--br)",textAlign:"left",fontSize:9,cursor:"pointer",
+                      background:ayRenkSek===id?"rgba(37,99,168,.12)":"transparent",
+                      color:ayRenkSek===id?"var(--g)":"#3a6a62",fontWeight:500,lineHeight:1.25,
+                      whiteSpace:"normal",overflowWrap:"anywhere"},
+                      onClick:()=>setAyRenkSek(id)},lb)
+                  )
+                )
+              )
             ),
             // ── GRUPLAR - TEK BAŞLIK ──
             btn({style:{width:"100%",padding:"11px 14px",
@@ -9171,72 +8706,268 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
           ),
 
 
-          // ── GÖRSEL DÜZENLEME ──
-          aySek==="renklendirme"&&div({"data-gorsel-yonetim":"1",style:{padding:"4px 0",minHeight:"calc(100vh - 130px)"}},
-            div({style:{background:"var(--bg2)",border:"1.5px solid var(--br)",borderRadius:18,padding:20,marginBottom:14}},
-              div({style:{display:"flex",alignItems:"center",gap:12,marginBottom:14}},
-                div({style:{width:50,height:50,borderRadius:14,background:"var(--bg3)",border:"1px solid var(--br)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0}},"✏️"),
-                div(null,
-                  div({style:{fontSize:16,color:"var(--g)",letterSpacing:1.5,textTransform:"uppercase",fontWeight:800,lineHeight:1.25}},"Görsel Düzenleme Makinesi"),
-                  div({style:{fontSize:12,color:"var(--mu)",marginTop:4}},"Uygulamadaki metinleri ve renkleri görsel olarak düzenle")
+          // ── RENKLENDİRME ──
+          aySek==="renklendirme"&&(()=>{
+            const hx2r=c=>{const m=(c||"#000").replace("#","").match(/.{2}/g);return m?m.map(x=>parseInt(x,16)):[0,0,0]};
+            const r2hx=(r,g,b)=>"#"+[r,g,b].map(x=>Math.max(0,Math.min(255,Math.round(x))).toString(16).padStart(2,"0")).join("");
+            const mix=(hex,f)=>{const [r,g,b]=hx2r(hex);if(f>0)return r2hx(r+(255-r)*f,g+(255-g)*f,b+(255-b)*f);return r2hx(r*(1+f),g*(1+f),b*(1+f))};
+
+            const kontrastMi=(hex)=>{
+  const [r,g,b]=hx2r(hex);
+  return (r*299 + g*587 + b*114) / 1000;
+};
+
+const cizgiRengi=(zemin)=>{
+  return kontrastMi(zemin) > 180
+    ? mix(zemin,-0.28)   // açık zeminde koyu çizgi
+    : mix(zemin,0.25);   // koyu zeminde açık çizgi
+};
+
+const turet=(zemin,vurgu,yazi)=>({
+  bg:zemin,
+  bg2:kontrastMi(zemin) > 180 ? mix(zemin,-0.04) : mix(zemin,0.08),
+  bg3:kontrastMi(zemin) > 180 ? mix(zemin,-0.08) : mix(zemin,0.16),
+  br:cizgiRengi(zemin),
+
+  gold:vurgu,
+  goldDark:mix(vurgu,-0.25),
+  gr:mix(vurgu,0.3),
+  bl:vurgu,
+
+  tx:yazi,
+  mu:mix(yazi,-0.35),
+  di:mix(yazi,-0.55),
+
+  font:tema.font||"Jost",
+  v:2,
+  _zemin:zemin,
+  _vurgu:vurgu,
+  _yazi:yazi
+});
+
+            const z=tema._zemin||tema.bg||"#081a1c";
+            const v=tema._vurgu||tema.gold||"#2563a8";
+            const y=tema._yazi||tema.tx||"#e2ecea";
+
+            const satir=(label,ikon,aciklama,renk,degis)=>
+              div({style:{background:"var(--bg3)",borderRadius:14,padding:16,marginBottom:14,border:"1px solid var(--br)"}},
+                div({style:{display:"flex",alignItems:"center",gap:12,marginBottom:14}},
+                  div({style:{width:48,height:48,borderRadius:12,background:renk,border:"2px solid var(--br)",
+                    display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}},ikon),
+                  div({style:{flex:1}},
+                    div({style:{fontSize:14,color:"var(--tx)",fontWeight:600}},label),
+                    div({style:{fontSize:12,color:"var(--mu)",marginTop:3,lineHeight:1.4}},aciklama)
+                  )
+                ),
+                div({style:{display:"flex",alignItems:"center",gap:12,marginBottom:8}},
+                  inp({type:"color",value:renk,
+                    style:{width:50,height:50,border:"2px solid var(--br)",borderRadius:12,cursor:"pointer",background:"transparent",padding:0},
+                    onChange:e=>degis(e.target.value)
+                  }),
+                  div({style:{flex:1}},
+                    div({style:{fontSize:11,color:"var(--mu)",marginBottom:5,display:"flex",justifyContent:"space-between"}},
+                      h("span",null,"Koyu"),h("span",null,"Açık")),
+                    inp({type:"range",min:-50,max:50,defaultValue:0,
+                      style:{width:"100%",height:8,borderRadius:4,appearance:"none",WebkitAppearance:"none",
+                        background:"linear-gradient(90deg,#000 0%,"+renk+" 50%,#fff 100%)",outline:"none",cursor:"pointer"},
+                      onChange:e=>degis(mix(renk,parseInt(e.target.value)/100)),
+                      onMouseUp:e=>{e.target.value=0},onTouchEnd:e=>{e.target.value=0}
+                    }),
+                    div({style:{fontSize:13,color:"var(--mu)",textAlign:"center",marginTop:6,letterSpacing:2,fontFamily:"monospace"}},renk.toUpperCase())
+                  )
+                ),
+                div({style:{display:"flex",gap:4,marginTop:4}},
+                  ...(label==="Zemin Rengi"?[renk,mix(renk,0.08),mix(renk,0.16),mix(renk,0.25)]
+                    :label==="Vurgu Rengi"?[mix(renk,-0.25),renk,mix(renk,0.3)]
+                    :[renk,mix(renk,-0.35),mix(renk,-0.55)]
+                  ).map((c,i)=>div({key:i,style:{flex:1,height:8,borderRadius:4,background:c}}))
+                )
+              );
+
+            const GenelZeminMakinesi = (opts={}) => div({style:{padding:"4px 0"}},
+              opts.baslik!==false&&div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8}},"🎨 GENEL BAZLI RENKLENDİRMELER / ZEMİN"),
+              opts.aciklama!==false&&div({style:{fontSize:13,color:"var(--mu)",marginBottom:18,lineHeight:1.6}},
+                "Arka plan, kartlar, inputlar ve kenarlıklar için genel zemin renk ayarları."),
+              satir("Zemin Rengi","🎨","Arka plan, kartlar, inputlar ve kenarlıklar",z,n=>setTema(turet(n,v,y))),
+              satir("Vurgu Rengi","💎","Butonlar, başlıklar ve aktif elemanlar",v,n=>setTema(turet(z,n,y))),
+              satir("Yazı Rengi","✏","Ana metin, soluk yazılar ve etiketler",y,n=>setTema(turet(z,v,n))),
+              div({style:{background:"var(--bg2)",border:"1.5px solid var(--br)",borderRadius:14,padding:16,marginTop:8}},
+                div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},"👁 ÖNİZLEME"),
+                div({style:{background:"var(--bg)",borderRadius:10,padding:14,border:"1px solid var(--br)"}},
+                  div({style:{fontSize:14,color:"var(--tx)",fontWeight:600,marginBottom:8}},"Örnek Başlık"),
+                  div({style:{fontSize:13,color:"var(--mu)",marginBottom:12,lineHeight:1.5}},
+                    "Bu metin soluk yazı rengini gösterir. Renklerin uyumunu burada kontrol edin."),
+                  div({style:{display:"flex",gap:8,marginBottom:12}},
+                    btn({style:{padding:"10px 20px",borderRadius:8,border:"none",
+                      background:"linear-gradient(135deg,var(--g),var(--gd))",
+                      color:"var(--bg)",fontSize:14,fontWeight:700,cursor:"pointer"}},"Vurgu Buton"),
+                    btn({style:{padding:"10px 20px",borderRadius:8,border:"1px solid var(--br)",
+                      background:"var(--bg3)",color:"var(--tx)",fontSize:14,cursor:"pointer"}},"Normal Buton")
+                  ),
+                  div({style:{background:"var(--bg3)",borderRadius:8,padding:12,border:"1px solid var(--br)"}},
+                    div({style:{fontSize:12,color:"var(--di)",marginBottom:4}},"Kart örneği"),
+                    div({style:{fontSize:14,color:"var(--tx)"}},"Bu bir kart içeriğidir")
+                  )
                 )
               ),
-              div({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:10,padding:12,marginBottom:14,fontSize:12.5,color:"var(--tx)",lineHeight:1.6}},
-                div({style:{fontWeight:700,marginBottom:6,color:"var(--g)"}},"📖 Nasıl Kullanılır?"),
-                "1. Aşağıdaki ",h("b",null,"\"Düzenleme Modunu Başlat\"")," butonuna basın.",h("br",null),
-                "2. Sağ alt köşede ",h("b",null,"✏️ kalem ikonu")," çıkar, üstte mavi şerit görünür.",h("br",null),
-                "3. Uygulamanın ",h("b",null,"her yerinde")," (Personel Paneli, Yönetici Paneli, modal'lar dahil) gezinebilirsiniz.",h("br",null),
-                "4. Düzenlenebilir alanların üzerine geldiğinizde ",h("b",null,"mavi çerçeve")," çıkar.",h("br",null),
-                "5. Tıkladığınızda küçük bir pencere açılır; metni veya rengini değiştirebilirsiniz.",h("br",null),
-                "6. ",h("b",null,"\"Güncelle\"")," dediğinizde değişiklik kalıcı olarak kaydedilir."
-              ),
-              div({style:{background:"rgba(80,184,128,.08)",border:"1px solid rgba(80,184,128,.3)",borderRadius:10,padding:10,marginBottom:14,fontSize:11.5,color:"var(--gr)",lineHeight:1.5}},
-                h("b",null,"🛡 Akıllı Koruma:")," Müşteri isimleri, fiyatlar, tarihler, telefon numaraları gibi ",h("b",null,"dinamik veriler otomatik olarak korunur"),", yanlışlıkla değiştirilemez. Sadece sabit metinler, başlıklar, butonlar ve etiketler düzenlenebilir."
-              ),
-              btn({style:{width:"100%",padding:"14px",borderRadius:12,border:"none",fontSize:14,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",
-                background:gorselDuzenModu?"linear-gradient(135deg,#c0392b,#922b21)":"linear-gradient(135deg,var(--g),var(--gd))",
-                color:"#fff"},
-                onClick:()=>setGorselDuzenModu(m=>!m)},
-                gorselDuzenModu?"⏹ Düzenleme Modunu Kapat":"▶ Düzenleme Modunu Başlat")
-            ),
-            div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:16}},
-              div({style:{fontSize:13,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:700,marginBottom:10}},"📊 Yapılan Değişiklikler"),
-              (()=>{
-                const keys = Object.keys(gorselDuzen||{});
-                if(keys.length===0) return div({style:{fontSize:13,color:"var(--mu)",fontStyle:"italic",padding:"10px 0"}},"Henüz hiçbir değişiklik yapılmadı.");
-                return div(null,
-                  div({style:{fontSize:12,color:"var(--mu)",marginBottom:10}},keys.length+" alan düzenlendi"),
-                  keys.map(k=>{
-                    const v = gorselDuzen[k]||{};
-                    return div({key:k,style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:8,padding:10,marginBottom:8,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}},
-                      div({style:{flex:1,minWidth:0}},
-                        div({style:{fontSize:12,color:"var(--g)",fontWeight:700,marginBottom:3,wordBreak:"break-all"}},k),
-                        div({style:{fontSize:11,color:"var(--mu)"}},
-                          v.text!==undefined?("Metin: \""+String(v.text).slice(0,40)+(String(v.text).length>40?"...":"")+"\""):"",
-                          v.color?(" • Renk: "+v.color):"",
-                          v.bgColor?(" • Arka plan: "+v.bgColor):"",
-                          v.imageUrl?" • Resim güncellendi":""
+              btn({style:{width:"100%",marginTop:14,padding:"12px 0",borderRadius:10,
+                border:"1px dashed rgba(192,80,80,.3)",background:"transparent",
+                color:"#c05050",fontSize:13,cursor:"pointer"},
+                onClick:()=>setTema(turet("#081a1c","#2563a8","#e2ecea"))},
+                "↺ Varsayılan Renklere Dön")
+            );
+
+            const BolumBazliBugunMakinesi = () => (()=>{
+                const fontDegeri = st => st.fontFamily==="Playfair"?"'Playfair Display',Georgia,serif":(st.fontFamily==="Inter"?"'Inter',system-ui,sans-serif":(st.fontFamily==="Sistem"?"system-ui,sans-serif":"'Jost',system-ui,sans-serif"));
+                const renkSatiri = (key,etiket,alan,deger,guncelle)=>div({style:{marginBottom:10}},
+                  lbl({className:"fl"},etiket),
+                  div({style:{display:"flex",gap:8,alignItems:"center"}},
+                    inp({type:"color",value:String(deger||"#000000").startsWith("#")?deger:"#2563a8",
+                      style:{width:48,height:42,border:"1px solid var(--br)",borderRadius:9,background:"transparent",padding:0,cursor:"pointer"},
+                      onChange:e=>guncelle(alan,e.target.value)}),
+                    inp({className:"fi",style:{flex:1,margin:0},value:deger||"",onChange:e=>guncelle(alan,e.target.value)})
+                  )
+                );
+                const numberFontDegeri = st => st.numberFontFamily==="Jost"?"'Jost',system-ui,sans-serif":(st.numberFontFamily==="Inter"?"'Inter',system-ui,sans-serif":(st.numberFontFamily==="Sistem"?"system-ui,sans-serif":"'Cormorant Garamond',serif"));
+                const bolumMakineThemeVars = st => ({
+                  "--apron-section-text-color": st.textColor || "var(--tx)",
+                  "--apron-section-title-color": st.titleColor || "var(--g)",
+                  "--apron-section-font-size": (Number(st.fontSize)||14)+"px",
+                  "--apron-section-title-font-size": (Number(st.titleFontSize)||15)+"px",
+                  "--apron-section-font-family": fontDegeri(st),
+                  "--apron-section-number-color": st.numberColor || st.titleColor || "var(--g)",
+                  "--apron-section-number-font-size": (Number(st.numberFontSize)||23)+"px",
+                  "--apron-section-number-font-family": numberFontDegeri(st)
+                });
+                const bolumKarti = key => {
+                  const hedef = SECTION_STYLE_TARGETS[key];
+                  const st = getSectionStyle(bolumStilleri, key);
+                  const guncelle = (alan,deger)=>setBolumStilleri(p=>({...p,[key]:{...getSectionStyle(p,key),[alan]:deger}}));
+                  return div({key,style:{background:"var(--bg2)",border:"1.5px solid var(--br)",borderRadius:14,padding:14,marginBottom:18}},
+                    div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8}},"BÖLÜM BAZLI RENKLENDİRME"),
+                    div({style:{fontSize:13,color:"var(--mu)",lineHeight:1.5,marginBottom:12}},"Konum: "+hedef.label),
+                    div({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:10,padding:10,marginBottom:12,fontSize:12,color:"var(--tx)",wordBreak:"break-word"}},key),
+                    renkSatiri(key,"Arka Plan Rengi","backgroundColor",st.backgroundColor,guncelle),
+                    renkSatiri(key,"Başlık Rengi","titleColor",st.titleColor,guncelle),
+                    renkSatiri(key,"Çerçeve Rengi","borderColor",st.borderColor,guncelle),
+                    div({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:12,padding:12,marginBottom:12}},
+                      div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:800,marginBottom:10}},"YAZI AYARLARI"),
+                      renkSatiri(key,"Yazı Rengi","textColor",st.textColor,guncelle),
+                      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+                        div(null,lbl({className:"fl"},"Yazı Büyüklüğü"),inp({className:"fi",type:"number",min:9,max:36,value:st.fontSize||14,onChange:e=>guncelle("fontSize",e.target.value)})),
+                        div(null,lbl({className:"fl"},"Başlık Büyüklüğü"),inp({className:"fi",type:"number",min:10,max:42,value:st.titleFontSize||15,onChange:e=>guncelle("titleFontSize",e.target.value)}))
+                      ),
+                      div({style:{marginBottom:10}},
+                        lbl({className:"fl"},"Yazı Tipi"),
+                        sel({className:"fi",value:st.fontFamily||"Jost",onChange:e=>guncelle("fontFamily",e.target.value)},
+                          opt("Jost","Jost"),opt("Inter","Inter"),opt("Playfair","Playfair"),opt("Sistem","Sistem")
                         )
                       ),
-                      btn({style:{background:"transparent",border:"1px solid #c0392b",color:"#c0392b",borderRadius:8,padding:"6px 10px",fontSize:11,cursor:"pointer",flexShrink:0},
-                        onClick:()=>{
-                          if(!confirm("Bu değişiklik silinecek, varsayılana dönecek. Emin misiniz?")) return;
-                          setGorselDuzen(p=>{const n={...p};delete n[k];return n;});
-                          // anlık DOM temizliği için sayfayı tazele
-                          setTimeout(()=>location.reload(),300);
-                        }},"Sıfırla")
-                    );
-                  }),
-                  keys.length>0&&btn({style:{width:"100%",marginTop:8,padding:11,borderRadius:10,border:"1px solid #c0392b",background:"transparent",color:"#c0392b",fontSize:12,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",cursor:"pointer"},
-                    onClick:()=>{
-                      if(!confirm("TÜM görsel düzenlemeler silinecek ve varsayılana dönülecek. Emin misiniz?")) return;
-                      setGorselDuzen({});
-                      setTimeout(()=>location.reload(),300);
-                    }},"🗑 Tüm Düzenlemeleri Sıfırla")
+                      renkSatiri(key,"Rakam Rengi","numberColor",st.numberColor||st.titleColor,guncelle),
+                      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+                        div(null,lbl({className:"fl"},"Rakam Büyüklüğü"),inp({className:"fi",type:"number",min:10,max:60,value:st.numberFontSize||23,onChange:e=>guncelle("numberFontSize",e.target.value)})),
+                        div(null,lbl({className:"fl"},"Rakam Yazı Tipi"),sel({className:"fi",value:st.numberFontFamily||"Cormorant",onChange:e=>guncelle("numberFontFamily",e.target.value)},
+                          opt("Cormorant","Cormorant"),opt("Jost","Jost"),opt("Inter","Inter"),opt("Sistem","Sistem")
+                        ))
+                      )
+                    ),
+                    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+                      div(null,lbl({className:"fl"},"Çerçeve Kalınlığı"),inp({className:"fi",type:"number",min:1,max:8,value:st.borderWidth,onChange:e=>guncelle("borderWidth",e.target.value)})),
+                      div(null,lbl({className:"fl"},"Köşe Yuvarlaklığı"),inp({className:"fi",type:"number",min:0,max:30,value:st.borderRadius,onChange:e=>guncelle("borderRadius",e.target.value)}))
+                    ),
+                    key===SECTION_STYLE_KEY_HIZMETLER&&div({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:12,padding:12,marginBottom:12}},
+                      div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:800,marginBottom:10}},"HİZMET DETAY MAKİNESİ"),
+                      div({style:{fontSize:12,color:"var(--mu)",lineHeight:1.5,marginBottom:10}},"Hizmet bölümünün içindeki seçim yazısı, fiyat rakamı, alt bilgi, ödeme butonu, kutu zemini ve uyarı renkleri ayrı ayrı kontrol edilir."),
+                      renkSatiri(key,"Hizmet Seçim Yazı Rengi","serviceSelectColor",st.serviceSelectColor,guncelle),
+                      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+                        div(null,lbl({className:"fl"},"Seçim Yazı Büyüklüğü"),inp({className:"fi",type:"number",min:9,max:30,value:st.serviceSelectFontSize||13.5,onChange:e=>guncelle("serviceSelectFontSize",e.target.value)})),
+                        div(null,lbl({className:"fl"},"Fiyat Yazı Büyüklüğü"),inp({className:"fi",type:"number",min:10,max:44,value:st.serviceInputFontSize||17,onChange:e=>guncelle("serviceInputFontSize",e.target.value)}))
+                      ),
+                      renkSatiri(key,"Fiyat/Rakam Rengi","serviceInputColor",st.serviceInputColor,guncelle),
+                      renkSatiri(key,"Hizmet Toplam Rakam Rengi","servicePriceColor",st.servicePriceColor,guncelle),
+                      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+                        div(null,lbl({className:"fl"},"Toplam Rakam Büyüklüğü"),inp({className:"fi",type:"number",min:10,max:54,value:st.servicePriceFontSize||20,onChange:e=>guncelle("servicePriceFontSize",e.target.value)})),
+                        div(null,lbl({className:"fl"},"Buton Yazı Büyüklüğü"),inp({className:"fi",type:"number",min:8,max:26,value:st.serviceButtonFontSize||12,onChange:e=>guncelle("serviceButtonFontSize",e.target.value)}))
+                      ),
+                      renkSatiri(key,"Küçük Alt Yazı Rengi","serviceSmallTextColor",st.serviceSmallTextColor,guncelle),
+                      renkSatiri(key,"Buton Yazı Rengi","serviceButtonColor",st.serviceButtonColor,guncelle),
+                      renkSatiri(key,"Seçili Ödeme Yazı Rengi","serviceActiveButtonColor",st.serviceActiveButtonColor,guncelle),
+                      renkSatiri(key,"Kutu Zemin Rengi","serviceBoxBackground",st.serviceBoxBackground,guncelle),
+                      renkSatiri(key,"Kutu Çerçeve Rengi","serviceBoxBorderColor",st.serviceBoxBorderColor,guncelle),
+                      renkSatiri(key,"Dış İç Çerçeve Rengi","serviceOuterBorderColor",st.serviceOuterBorderColor,guncelle),
+                      renkSatiri(key,"Kalın Satır Ayırıcı","serviceStrongDividerColor",st.serviceStrongDividerColor,guncelle),
+                      renkSatiri(key,"İnce Satır Ayırıcı","serviceSoftDividerColor",st.serviceSoftDividerColor,guncelle),
+                      renkSatiri(key,"Uyarı Yazı Rengi","serviceWarningColor",st.serviceWarningColor,guncelle),
+                      renkSatiri(key,"İndirim Yazı Rengi","serviceDiscountColor",st.serviceDiscountColor,guncelle),
+                      renkSatiri(key,"Fazla Alındı Yazı Rengi","serviceIncreaseColor",st.serviceIncreaseColor,guncelle),
+                      renkSatiri(key,"Boş Rakam/Placeholder Rengi","servicePlaceholderColor",st.servicePlaceholderColor,guncelle)
+                    ),
+                    div({className:"theme-section",style:{...bolumMakineThemeVars(st),background:st.backgroundColor,border:(Number(st.borderWidth)||2)+"px solid "+st.borderColor,borderRadius:(Number(st.borderRadius)||16)+"px",padding:13,marginBottom:12,color:st.textColor,fontFamily:fontDegeri(st)}},
+                      div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:10}},
+                        div({style:{width:28,height:28,borderRadius:999,background:st.iconBackground||"linear-gradient(135deg,var(--g),var(--gd))",color:st.iconColor||"var(--bg)",display:"flex",alignItems:"center",justifyContent:"center"}},hedef.icon),
+                        div({className:"theme-title",style:{fontSize:18,color:st.titleColor,fontWeight:800,letterSpacing:3,textTransform:"uppercase"}},hedef.title)
+                      ),
+                      div({style:{fontSize:13,lineHeight:1.45}},"Bu önizleme sadece "+hedef.label+" bölümüne uygulanır.")
+                    ),
+                    btn({style:{width:"100%",padding:"10px",borderRadius:9,border:"1px dashed rgba(192,80,80,.3)",background:"transparent",color:"#c05050",fontSize:13,cursor:"pointer"},
+                      onClick:()=>setBolumStilleri(p=>{const n={...p};delete n[key];return n;})},"Bu Bölümü Varsayılana Döndür")
+                  );
+                };
+                const makineKart = key => {
+                  const hedef = SECTION_STYLE_TARGETS[key];
+                  return div({key,style:{width:"min(430px,100%)",background:"var(--bg2)",border:"1.5px solid var(--br)",borderRadius:18,padding:18,cursor:"pointer",boxShadow:"0 8px 24px rgba(0,0,0,.18)",display:"flex",alignItems:"center",gap:13,marginBottom:12},
+                    onClick:()=>setAyRenkMakineFull(key)},
+                    div({style:{width:50,height:50,borderRadius:14,background:"var(--bg3)",border:"1px solid var(--br)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:25,flexShrink:0}},hedef.icon||"🎨"),
+                    div({style:{fontSize:14,color:"var(--g)",letterSpacing:1.2,textTransform:"uppercase",fontWeight:800,lineHeight:1.3}},hedef.label)
+                  );
+                };
+                const seciliHedef = SECTION_STYLE_TARGETS[ayRenkMakineFull];
+                return div({style:{padding:"4px 0",minHeight:"calc(100vh - 130px)"}},
+                  div({style:{display:"flex",flexDirection:"column",alignItems:"flex-start",width:"100%"}},
+                    makineKart(SECTION_STYLE_KEY_MUSTERI_BILGILERI),
+                    makineKart(SECTION_STYLE_KEY_HIZMETLER),
+                    makineKart(SECTION_STYLE_KEY_URUN_SATISI),
+                    makineKart(SECTION_STYLE_KEY_GENEL_TOPLAM)
+                  ),
+                  seciliHedef&&div({className:"ov"},
+                    div({className:"mod"},
+                      div({className:"mhd"},
+                        div({className:"mtl"},seciliHedef.label),
+                        btn({className:"xbtn",onClick:()=>setAyRenkMakineFull(null)},"✕")
+                      ),
+                      div({className:"mbdy"},bolumKarti(ayRenkMakineFull))
+                    )
+                  )
                 );
-              })()
-            )
-          ),
+              })();
+
+            if(ayRenkSek==="zemin") return div({style:{padding:"4px 0",minHeight:"calc(100vh - 130px)"}},
+              div({style:{display:"flex",justifyContent:"flex-start",alignItems:"flex-start",width:"100%"}},
+                div({style:{width:"min(360px,100%)",background:"var(--bg2)",border:"1.5px solid var(--br)",borderRadius:18,padding:18,cursor:"pointer",boxShadow:"0 8px 24px rgba(0,0,0,.18)",display:"flex",alignItems:"center",gap:13},
+                  onClick:()=>setAyRenkMakineFull("genelZemin")},
+                  div({style:{width:50,height:50,borderRadius:14,background:"var(--bg3)",border:"1px solid var(--br)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0}},"🎨"),
+                  div({style:{fontSize:15,color:"var(--g)",letterSpacing:1.5,textTransform:"uppercase",fontWeight:800,lineHeight:1.25}},
+                    "Tüm Uygulama Renklendirme Makinesi")
+                )
+              ),
+              ayRenkMakineFull==="genelZemin"&&div({className:"ov"},
+                div({className:"mod"},
+                  div({className:"mhd"},
+                    div({className:"mtl"},"Tüm Uygulama Renklendirme Makinesi"),
+                    btn({className:"xbtn",onClick:()=>setAyRenkMakineFull(null)},"✕")
+                  ),
+                  div({className:"mbdy"},
+                    div({style:{background:"var(--bg2)",border:"1.5px solid var(--br)",borderRadius:18,padding:14}},
+                      GenelZeminMakinesi({baslik:false,aciklama:false})
+                    )
+                  )
+                )
+              )
+            );
+            if(ayRenkSek==="personelBugun") return BolumBazliBugunMakinesi();
+
+            return div({style:{padding:"4px 0"}});
+          })(),
 
           // ── İŞLETME ──
           aySek==="isletme"&&div({style:{padding:"4px 0"}},
@@ -9296,622 +9027,6 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                 }},"📥 Veriyi İndir")
             )
           )
-        )
-      )
-    ),
-
-    // ── GÖRSEL DÜZENLEME: Yüzen Kalem Butonu ──
-    // Açma: sadece Yönetici > Ayarlar > Dizayn sekmesindeyken kalem görünür.
-    // Açıkken: her yerde görünür (kapatmak ve panel değiştirmek için).
-    !yukleniyor&&kul&&kul.rol==="yonetici"&&(
-      gorselDuzenModu ||
-      (ekran==="yonetici" && asek==="ayarlar" && aySek==="renklendirme")
-    )&&div({
-      "data-gorsel-kalem":"1",
-      style:{
-        position:"fixed",bottom:80,right:16,zIndex:9998,
-        width:48,height:48,borderRadius:"50%",
-        background:gorselDuzenModu?"linear-gradient(135deg,#c0392b,#922b21)":"linear-gradient(135deg,var(--g),var(--gd))",
-        boxShadow:"0 6px 20px rgba(0,0,0,.45)",
-        display:"flex",alignItems:"center",justifyContent:"center",
-        fontSize:22,cursor:"pointer",color:"#fff",
-        opacity:gorselDuzenModu?1:.55,
-        transition:"opacity .2s, background .2s"
-      },
-      title:gorselDuzenModu?"Düzenleme Modu Aktif - Kapatmak için tıkla":"Düzenleme Modunu Aç",
-      onClick:()=>{
-        // Kapatırken Personel Paneli'ndeyken Yönetici'ye geri dönelim
-        if(gorselDuzenModu && ekran==="personel"){
-          setGorselDuzenModu(false);
-          setEkran("yonetici");
-        } else {
-          setGorselDuzenModu(m=>!m);
-        }
-      },
-      onMouseOver:e=>e.currentTarget.style.opacity=1,
-      onMouseOut:e=>e.currentTarget.style.opacity=gorselDuzenModu?1:.55
-    },gorselDuzenModu?"⏹":"✏️"),
-
-    // ── GÖRSEL DÜZENLEME: Modu açıkken üst kontrol şeridi (Panel değiştirici + Alan Seç dahil) ──
-    !yukleniyor&&kul&&kul.rol==="yonetici"&&gorselDuzenModu&&div({
-      "data-gorsel-serit":"1",
-      style:{
-        position:"fixed",top:0,left:0,right:0,zIndex:9997,
-        background:gorselSecimAktif?"linear-gradient(135deg,#3a7a55,#2a5a3e)":"linear-gradient(135deg,#2563a8,#1a4a80)",
-        color:"#fff",fontSize:11,fontWeight:600,
-        boxShadow:"0 2px 12px rgba(0,0,0,.4)",
-        transition:"background .25s"
-      }
-    },
-      // 1. SATIR: Mod + Panel değiştirici + Kapat
-      div({style:{padding:"6px 10px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}},
-        div({style:{display:"flex",alignItems:"center",gap:6,flexShrink:0}},
-          span({style:{fontSize:14}},gorselSecimAktif?"👆":"✏️"),
-          span({style:{letterSpacing:.5,whiteSpace:"nowrap"}},gorselSecimAktif?"ALAN SEÇİM MODU":"GEZİNTİ MODU")
-        ),
-        div({style:{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"center"}},
-          btn({
-            style:{
-              background:ekran==="yonetici"?"rgba(255,255,255,.95)":"rgba(255,255,255,.15)",
-              color:ekran==="yonetici"?"#1a4a80":"#fff",
-              border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap"
-            },
-            onClick:()=>setEkran("yonetici")
-          },"👔 Yönetici"),
-          btn({
-            style:{
-              background:ekran==="personel"?"rgba(255,255,255,.95)":"rgba(255,255,255,.15)",
-              color:ekran==="personel"?"#1a4a80":"#fff",
-              border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap"
-            },
-            onClick:()=>setEkran("personel")
-          },"👤 Personel")
-        ),
-        btn({
-          style:{
-            background:"rgba(192,57,43,.85)",border:"none",borderRadius:6,padding:"5px 10px",
-            fontSize:11,fontWeight:700,color:"#fff",cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap",flexShrink:0
-          },
-          onClick:()=>{
-            // Seçili stilleri temizle
-            document.querySelectorAll("[data-gorsel-secili-key]").forEach(el=>{
-              el.style.outline = "";
-              el.style.outlineOffset = "";
-              el.style.boxShadow = "";
-              el.removeAttribute("data-gorsel-secili-key");
-            });
-            setGorselSeciliKeys([]);
-            setGorselSecimAktif(false);
-            setGorselDuzenModu(false);
-            if(ekran==="personel") setEkran("yonetici");
-          }
-        },"⏹ Kapat")
-      ),
-      // 2. SATIR: Alan Seç + Seçilen sayısı + Düzenle + Temizle
-      div({style:{padding:"5px 10px 7px",borderTop:"1px solid rgba(255,255,255,.15)",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",justifyContent:"space-between"}},
-        !gorselSecimAktif&&div({style:{flex:1,fontSize:10.5,color:"rgba(255,255,255,.85)",lineHeight:1.3}},
-          "Uygulamayı normal kullanın. Düzenlemek istediğiniz alan(lar)ı seçmek için sağdaki butona basın."
-        ),
-        gorselSecimAktif&&div({style:{flex:1,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},
-          span({style:{background:"rgba(255,255,255,.2)",padding:"3px 9px",borderRadius:12,fontSize:11,fontWeight:700}},
-            gorselSeciliKeys.length+" seçili"
-          ),
-          span({style:{fontSize:10.5,color:"rgba(255,255,255,.85)"}},"Düzenlemek istediğiniz alan(lar)a tıklayın")
-        ),
-        div({style:{display:"flex",gap:5,flexWrap:"wrap"}},
-          !gorselSecimAktif&&btn({
-            style:{
-              background:"rgba(255,255,255,.95)",color:"#1a4a80",
-              border:"none",borderRadius:6,padding:"6px 12px",fontSize:11,fontWeight:800,cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap"
-            },
-            onClick:()=>setGorselSecimAktif(true)
-          },"👆 ALAN SEÇ"),
-          gorselSecimAktif&&gorselSeciliKeys.length>0&&btn({
-            style:{
-              background:"#fff",color:"#2a5a3e",
-              border:"none",borderRadius:6,padding:"6px 12px",fontSize:11,fontWeight:800,cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap"
-            },
-            onClick:()=>{
-              if(gorselSeciliKeys.length === 1){
-                // TEK ALAN: Detaylı analiz et, parçalarını çıkar
-                const tek = gorselSeciliKeys[0];
-                const el = document.querySelector('[data-gorsel-secili-key="'+tek.key.replace(/"/g,'\\"')+'"]');
-                if(!el){
-                  showToast("Element bulunamadı","uy");
-                  return;
-                }
-                // Element analizi: parçalarını çıkar
-                const cs = window.getComputedStyle(el);
-                // İçindeki tüm text node'larını + alt text içeren elementleri bul
-                const altYazilar = [];
-                const taraYazilar = (parent, derinlik=0)=>{
-                  if(derinlik > 5) return;
-                  for(const n of parent.childNodes){
-                    if(n.nodeType === 3){ // text node
-                      const txt = n.textContent.trim();
-                      if(txt.length > 0){
-                        altYazilar.push({
-                          node: n,
-                          parent: parent,
-                          text: txt,
-                          tag: parent.tagName,
-                          parentColor: window.getComputedStyle(parent).color
-                        });
-                      }
-                    } else if(n.nodeType === 1){
-                      // input/textarea hariç
-                      if(!["INPUT","SELECT","TEXTAREA"].includes(n.tagName)){
-                        taraYazilar(n, derinlik+1);
-                      }
-                    }
-                  }
-                };
-                taraYazilar(el);
-                // İçindeki resim varsa
-                const altResimler = Array.from(el.querySelectorAll("img"));
-                // Dinamik içerikli mi (rakam/tarih/saat/telefon)?
-                const dinamik = window.__gorselDinamikMi ? window.__gorselDinamikMi(el) : false;
-                setGorselSeciliEl({
-                  _detayli: true,
-                  _dinamik: dinamik,
-                  key: tek.key,
-                  el: el,
-                  tagName: el.tagName,
-                  // Kutu özellikleri
-                  bgColor: cs.backgroundColor,
-                  borderColor: cs.borderTopColor,
-                  borderWidth: parseInt(cs.borderTopWidth)||0,
-                  borderRadius: parseInt(cs.borderTopLeftRadius)||0,
-                  borderStyle: cs.borderTopStyle || "solid",
-                  borderTop: parseInt(cs.borderTopWidth)||0,
-                  borderRight: parseInt(cs.borderRightWidth)||0,
-                  borderBottom: parseInt(cs.borderBottomWidth)||0,
-                  borderLeft: parseInt(cs.borderLeftWidth)||0,
-                  boxShadow: cs.boxShadow && cs.boxShadow !== "none" ? cs.boxShadow : "",
-                  padding: cs.paddingTop,
-                  width: el.offsetWidth,
-                  height: el.offsetHeight,
-                  textColor: cs.color,
-                  fontSize: parseInt(cs.fontSize)||14,
-                  fontWeight: cs.fontWeight || "400",
-                  fontFamily: cs.fontFamily || "",
-                  textAlign: cs.textAlign || "left",
-                  // İçerikler
-                  altYazilar: altYazilar,
-                  altResimler: altResimler,
-                  altYaziSayisi: altYazilar.length,
-                  // Dinamik içerik için "etrafındaki rakamı" da almalı (örn: "Liste fiyatı 6.204 ₺" kutusu)
-                  currentText: el.textContent ? el.textContent.trim().slice(0,100) : ""
-                });
-              } else {
-                // ÇOKLU MOD: Sadece toplu renk
-                setGorselSeciliEl({
-                  _coklu: true,
-                  count: gorselSeciliKeys.length,
-                  items: gorselSeciliKeys
-                });
-              }
-            }
-          },"✏️ DÜZENLE ("+gorselSeciliKeys.length+")"),
-          gorselSecimAktif&&btn({
-            style:{
-              background:"rgba(192,57,43,.85)",color:"#fff",
-              border:"none",borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer",letterSpacing:.5,whiteSpace:"nowrap"
-            },
-            onClick:()=>{
-              // Seçili stilleri temizle
-              document.querySelectorAll("[data-gorsel-secili-key]").forEach(el=>{
-                el.style.outline = "";
-                el.style.outlineOffset = "";
-                el.style.boxShadow = "";
-                el.removeAttribute("data-gorsel-secili-key");
-              });
-              setGorselSeciliKeys([]);
-              setGorselSecimAktif(false);
-            }
-          },"✕ İptal")
-        )
-      )
-    ),
-
-    // ── GÖRSEL DÜZENLEME: Düzenleme penceresi (modal) ──
-    gorselSeciliEl&&div({
-      "data-gorsel-modal":"1",
-      style:{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:8},
-      onClick:()=>setGorselSeciliEl(null)
-    },
-      div({
-        "data-gorsel-modal-icerik":"1",
-        style:{background:"var(--bg2)",border:"1.5px solid var(--g)",borderRadius:16,padding:14,width:"100%",maxWidth:420,boxShadow:"0 20px 60px rgba(0,0,0,.7)",maxHeight:"95vh",overflowY:"auto"},
-        onClick:e=>e.stopPropagation()
-      },
-        // BAŞLIK
-        div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,paddingBottom:8,borderBottom:"1px solid var(--br)"}},
-          div({style:{flex:1,minWidth:0}},
-            div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:17,color:"var(--g)",fontWeight:700}},
-              gorselSeciliEl._coklu?("Toplu Düzenleme ("+gorselSeciliEl.count+" alan)"):
-              gorselSeciliEl._detayli?"Detaylı Alan Düzenleme":"Alanı Düzenle"
-            ),
-            gorselSeciliEl._detayli&&div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},
-              "<"+gorselSeciliEl.tagName.toLowerCase()+"> · "+gorselSeciliEl.altYaziSayisi+" yazı, "+(gorselSeciliEl.altResimler?gorselSeciliEl.altResimler.length:0)+" resim"
-            ),
-            gorselSeciliEl._coklu&&div({style:{fontSize:11,color:"var(--mu)",marginTop:3}},"Değişiklikler tüm seçili alanlara uygulanır")
-          ),
-          btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:8,color:"var(--mu)",fontSize:16,width:30,height:30,cursor:"pointer",flexShrink:0,marginLeft:8},
-            onClick:()=>setGorselSeciliEl(null)},"✕")
-        ),
-
-        // ── DETAYLI MOD (TEK ALAN) ──
-        gorselSeciliEl._detayli&&(()=>{
-          const k = gorselDuzen[gorselSeciliEl.key] || {};
-          return div(null,
-            // DİNAMİK İÇERİK UYARISI
-            gorselSeciliEl._dinamik && div({style:{background:"rgba(255,180,50,.12)",border:"1px solid rgba(255,180,50,.4)",borderRadius:10,padding:10,marginBottom:12,fontSize:11,color:"#d4924a",lineHeight:1.5}},
-              h("b",null,"⚠ Dinamik Veri:")," Bu alan rakam/tarih/saat gibi otomatik dolan bir veri içeriyor (örn: ",h("b",null,"\""+gorselSeciliEl.currentText.slice(0,30)+"\""),"). Metin değiştirilemez ama ",h("b",null,"renk, yazı tipi, boyut, çerçeve")," ve diğer stiller serbestçe düzenlenebilir."
-            ),
-
-            // KUTU ÖZELLİKLERİ
-            div({style:{marginBottom:12,padding:10,background:"var(--bg3)",borderRadius:10,border:"1px solid var(--br)"}},
-              div({style:{fontSize:11,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8,fontWeight:800}},"📦 Kutu / Çerçeve"),
-              // Zemin rengi
-              div({style:{marginBottom:8}},
-                div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Zemin Rengi"),
-                div({style:{display:"flex",gap:6,alignItems:"center"}},
-                  h("input",{type:"color",id:"d_bgColor",
-                    defaultValue:k.bgColor||"#0e2628",
-                    style:{width:42,height:32,border:"1px solid var(--br)",borderRadius:6,cursor:"pointer"},
-                    onInput:e=>{const t=document.getElementById("d_bgColor_t");if(t)t.value=e.target.value;}}),
-                  h("input",{type:"text",className:"fi",id:"d_bgColor_t",
-                    defaultValue:k.bgColor||"",
-                    placeholder:"Boş = değiştirme",
-                    style:{flex:1,fontSize:11,padding:6},
-                    onInput:e=>{if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){const c=document.getElementById("d_bgColor");if(c)c.value=e.target.value;}}})
-                )
-              ),
-              // Çerçeve rengi
-              div({style:{marginBottom:8}},
-                div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Çerçeve Rengi"),
-                div({style:{display:"flex",gap:6,alignItems:"center"}},
-                  h("input",{type:"color",id:"d_borderColor",
-                    defaultValue:k.borderColor||"#2563a8",
-                    style:{width:42,height:32,border:"1px solid var(--br)",borderRadius:6,cursor:"pointer"},
-                    onInput:e=>{const t=document.getElementById("d_borderColor_t");if(t)t.value=e.target.value;}}),
-                  h("input",{type:"text",className:"fi",id:"d_borderColor_t",
-                    defaultValue:k.borderColor||"",
-                    placeholder:"Boş = değiştirme",
-                    style:{flex:1,fontSize:11,padding:6},
-                    onInput:e=>{if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){const c=document.getElementById("d_borderColor");if(c)c.value=e.target.value;}}})
-                )
-              ),
-              // Çerçeve kalınlığı + Köşe yuvarlama
-              div({style:{display:"flex",gap:8,marginBottom:8}},
-                div({style:{flex:1}},
-                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Çerçeve Kalınlığı (px)"),
-                  h("input",{type:"number",className:"fi",id:"d_borderWidth",min:0,max:20,
-                    defaultValue:k.borderWidth!==undefined?k.borderWidth:gorselSeciliEl.borderWidth,
-                    style:{fontSize:11,padding:6}})
-                ),
-                div({style:{flex:1}},
-                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Köşe Yuvarlama (px)"),
-                  h("input",{type:"number",className:"fi",id:"d_borderRadius",min:0,max:60,
-                    defaultValue:k.borderRadius!==undefined?k.borderRadius:gorselSeciliEl.borderRadius,
-                    style:{fontSize:11,padding:6}})
-                )
-              ),
-              // Çerçeve çizgi tipi
-              div({style:{marginBottom:8}},
-                div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Çerçeve Çizgi Tipi"),
-                h("select",{className:"fi",id:"d_borderStyle",
-                  defaultValue:k.borderStyle||gorselSeciliEl.borderStyle||"solid",
-                  style:{fontSize:11,padding:6,width:"100%"}},
-                  h("option",{value:""},"-- Değiştirme --"),
-                  h("option",{value:"solid"},"━━ Düz (solid)"),
-                  h("option",{value:"dashed"},"╌╌ Kesikli (dashed)"),
-                  h("option",{value:"dotted"},"⋯ Noktalı (dotted)"),
-                  h("option",{value:"double"},"═ İki çizgi (double)"),
-                  h("option",{value:"none"},"Yok (none)")
-                )
-              ),
-              // Gölge efekti
-              div({style:{marginBottom:8}},
-                div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Gölge Efekti"),
-                h("select",{className:"fi",id:"d_boxShadow",
-                  defaultValue:k.boxShadow||"",
-                  style:{fontSize:11,padding:6,width:"100%"}},
-                  h("option",{value:""},"-- Değiştirme --"),
-                  h("option",{value:"none"},"Gölge Yok"),
-                  h("option",{value:"0 1px 3px rgba(0,0,0,0.12)"},"Hafif Gölge"),
-                  h("option",{value:"0 4px 6px rgba(0,0,0,0.2)"},"Normal Gölge"),
-                  h("option",{value:"0 8px 16px rgba(0,0,0,0.3)"},"Güçlü Gölge"),
-                  h("option",{value:"0 0 0 2px rgba(37,99,168,0.4)"},"Mavi Halka"),
-                  h("option",{value:"0 0 0 2px rgba(192,57,43,0.4)"},"Kırmızı Halka")
-                )
-              ),
-              // Yükseklik + Genişlik
-              div({style:{display:"flex",gap:8}},
-                div({style:{flex:1}},
-                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Genişlik"),
-                  h("input",{type:"text",className:"fi",id:"d_width",
-                    defaultValue:k.width||"",
-                    placeholder:"100%, 300px",
-                    style:{fontSize:11,padding:6}})
-                ),
-                div({style:{flex:1}},
-                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yükseklik"),
-                  h("input",{type:"text",className:"fi",id:"d_height",
-                    defaultValue:k.height||"",
-                    placeholder:"200px, auto",
-                    style:{fontSize:11,padding:6}})
-                )
-              )
-            ),
-
-            // YAZI STİLİ - PRO
-            div({style:{marginBottom:12,padding:10,background:"var(--bg3)",borderRadius:10,border:"1px solid var(--br)"}},
-              div({style:{fontSize:11,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8,fontWeight:800}},"🎨 Yazı Stili"),
-              // Yazı Rengi
-              div({style:{marginBottom:8}},
-                div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yazı Rengi (alt elementlere de yansır)"),
-                div({style:{display:"flex",gap:6,alignItems:"center"}},
-                  h("input",{type:"color",id:"d_color",
-                    defaultValue:k.color||"#e2ecea",
-                    style:{width:42,height:32,border:"1px solid var(--br)",borderRadius:6,cursor:"pointer"},
-                    onInput:e=>{const t=document.getElementById("d_color_t");if(t)t.value=e.target.value;}}),
-                  h("input",{type:"text",className:"fi",id:"d_color_t",
-                    defaultValue:k.color||"",
-                    placeholder:"Boş = değiştirme",
-                    style:{flex:1,fontSize:11,padding:6},
-                    onInput:e=>{if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){const c=document.getElementById("d_color");if(c)c.value=e.target.value;}}})
-                )
-              ),
-              // Yazı Boyutu + Kalınlık
-              div({style:{display:"flex",gap:8,marginBottom:8}},
-                div({style:{flex:1}},
-                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yazı Boyutu (px)"),
-                  h("input",{type:"number",className:"fi",id:"d_fontSize",min:8,max:60,
-                    defaultValue:k.fontSize!==undefined?k.fontSize:gorselSeciliEl.fontSize,
-                    style:{fontSize:11,padding:6}})
-                ),
-                div({style:{flex:1}},
-                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yazı Kalınlığı"),
-                  h("select",{className:"fi",id:"d_fontWeight",
-                    defaultValue:k.fontWeight||"",
-                    style:{fontSize:11,padding:6,width:"100%"}},
-                    h("option",{value:""},"-- Değiştirme --"),
-                    h("option",{value:"300"},"İnce (300)"),
-                    h("option",{value:"400"},"Normal (400)"),
-                    h("option",{value:"600"},"Yarı Kalın (600)"),
-                    h("option",{value:"700"},"Kalın (700)"),
-                    h("option",{value:"800"},"Çok Kalın (800)"),
-                    h("option",{value:"900"},"Ekstra Kalın (900)")
-                  )
-                )
-              ),
-              // Yazı Hizalama + Italik
-              div({style:{display:"flex",gap:8}},
-                div({style:{flex:1}},
-                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yazı Hizalama"),
-                  h("select",{className:"fi",id:"d_textAlign",
-                    defaultValue:k.textAlign||"",
-                    style:{fontSize:11,padding:6,width:"100%"}},
-                    h("option",{value:""},"-- Değiştirme --"),
-                    h("option",{value:"left"},"⬅ Sol"),
-                    h("option",{value:"center"},"⬆ Orta"),
-                    h("option",{value:"right"},"➡ Sağ"),
-                    h("option",{value:"justify"},"≡ Yasla")
-                  )
-                ),
-                div({style:{flex:1}},
-                  div({style:{fontSize:10,color:"var(--mu)",marginBottom:4}},"Yazı Stili"),
-                  h("select",{className:"fi",id:"d_fontStyle",
-                    defaultValue:k.fontStyle||"",
-                    style:{fontSize:11,padding:6,width:"100%"}},
-                    h("option",{value:""},"-- Değiştirme --"),
-                    h("option",{value:"normal"},"Normal"),
-                    h("option",{value:"italic"},"İtalik")
-                  )
-                )
-              )
-            ),
-
-            // İÇİNDEKİ YAZILAR (TEK TEK) - sadece dinamik DEĞİLSE
-            !gorselSeciliEl._dinamik && gorselSeciliEl.altYazilar && gorselSeciliEl.altYazilar.length > 0 && div({style:{marginBottom:12,padding:10,background:"var(--bg3)",borderRadius:10,border:"1px solid var(--br)"}},
-              div({style:{fontSize:11,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8,fontWeight:800}},
-                "📝 İçindeki Yazılar ("+gorselSeciliEl.altYazilar.length+")"),
-              gorselSeciliEl.altYazilar.map((y,idx)=>{
-                const kayitliAltYazi = (k.altYazilar||[]).find(x=>x.idx===idx);
-                const mevcutDeger = kayitliAltYazi ? kayitliAltYazi.yeniText : y.text;
-                // Bu alt yazı dinamik mi (rakam/tarih)? Eğer öyleyse text input'unu gizle
-                const altDinamik = (function(){
-                  const t=mevcutDeger.trim();
-                  if(t.length===0) return false;
-                  if(t.length<30 && /^[\d.,\s₺€$%+\-]+$/.test(t)) return true;
-                  if(/^\d{1,4}[./\-]\d{1,2}[./\-]\d{1,4}$/.test(t)) return true;
-                  if(/^\d{1,2}:\d{2}(\s*-\s*\d{1,2}:\d{2})?$/.test(t)) return true;
-                  return false;
-                })();
-                return div({key:idx,style:{marginBottom:8,paddingBottom:8,borderBottom:idx<gorselSeciliEl.altYazilar.length-1?"1px solid var(--br)":"none"}},
-                  div({style:{fontSize:9,color:altDinamik?"#d4924a":"var(--mu)",marginBottom:3}},
-                    "Yazı #"+(idx+1)+" ("+y.tag.toLowerCase()+")"+(altDinamik?" — dinamik veri (kilitli)":"")
-                  ),
-                  altDinamik
-                    ? div({style:{fontSize:11,padding:6,background:"var(--bg2)",borderRadius:6,color:"var(--mu)",fontStyle:"italic"}},"\""+mevcutDeger+"\" (otomatik dolan)")
-                    : h("textarea",{
-                        className:"fi",
-                        "data-d-yazi-idx":idx,
-                        defaultValue:mevcutDeger,
-                        rows:Math.min(3,Math.max(1,Math.ceil(mevcutDeger.length/40))),
-                        style:{fontSize:11,padding:6,resize:"vertical",fontFamily:"inherit"}
-                      })
-                );
-              })
-            ),
-
-            // RESİMLER (varsa)
-            gorselSeciliEl.altResimler && gorselSeciliEl.altResimler.length > 0 && div({style:{marginBottom:12,padding:10,background:"var(--bg3)",borderRadius:10,border:"1px solid var(--br)"}},
-              div({style:{fontSize:11,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:8,fontWeight:800}},
-                "🖼 İçindeki Resimler ("+gorselSeciliEl.altResimler.length+")"),
-              div({style:{fontSize:10,color:"var(--mu)",fontStyle:"italic"}},
-                "Resimleri tek tek düzenlemek için sayfada o resme ayrı ayrı tıklayın."
-              )
-            ),
-
-            // Mevcut kaydı sıfırlama
-            gorselDuzen[gorselSeciliEl.key] && btn({
-              style:{width:"100%",marginBottom:8,background:"transparent",border:"1px solid #c0392b",borderRadius:8,color:"#c0392b",fontSize:11,padding:8,cursor:"pointer"},
-              onClick:()=>{
-                if(!confirm("Bu alandaki tüm değişiklikler silinecek. Emin misiniz?")) return;
-                setGorselDuzen(p=>{const n={...p};delete n[gorselSeciliEl.key];return n;});
-                setGorselSeciliEl(null);
-                document.querySelectorAll("[data-gorsel-secili-key]").forEach(el=>{
-                  el.style.outline = ""; el.style.outlineOffset = ""; el.style.boxShadow = "";
-                  el.removeAttribute("data-gorsel-secili-key");
-                });
-                setGorselSeciliKeys([]);
-                setGorselSecimAktif(false);
-                setTimeout(()=>location.reload(),200);
-              }
-            },"🗑 Bu Alandaki Tüm Değişiklikleri Sıfırla")
-          );
-        })(),
-
-        // ── ÇOKLU MOD: Sadece renk seçimleri ──
-        gorselSeciliEl._coklu&&div(null,
-          div({style:{background:"rgba(80,184,128,.08)",border:"1px solid rgba(80,184,128,.25)",borderRadius:10,padding:10,marginBottom:14,fontSize:11.5,color:"var(--gr)",lineHeight:1.5}},
-            h("b",null,"💡 Toplu Mod:")," Bu modda sadece ",h("b",null,"renk")," ve ",h("b",null,"arka plan")," ayarlanabilir. Tek alan detaylı düzenleme için 1 alan seçin."
-          ),
-          // Yazı rengi
-          div({style:{marginBottom:12}},
-            div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Yazı Rengi"),
-            div({style:{display:"flex",gap:8,alignItems:"center"}},
-              h("input",{type:"color",defaultValue:"#e2ecea",id:"gorsel_color_inp",
-                style:{width:50,height:38,border:"1px solid var(--br)",borderRadius:8,background:"var(--bg3)",cursor:"pointer"},
-                onInput:e=>{const txt=document.getElementById("gorsel_color_txt"); if(txt) txt.value=e.target.value;}}),
-              h("input",{type:"text",className:"fi",defaultValue:"#e2ecea",id:"gorsel_color_txt",
-                style:{flex:1},
-                onInput:e=>{if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){const cl=document.getElementById("gorsel_color_inp"); if(cl) cl.value=e.target.value;}}})
-            )
-          ),
-          // Arka plan
-          div({style:{marginBottom:12}},
-            div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Arka Plan Rengi (opsiyonel)"),
-            div({style:{display:"flex",gap:8,alignItems:"center"}},
-              h("input",{type:"color",defaultValue:"#0e2628",id:"gorsel_bg_inp",
-                style:{width:50,height:38,border:"1px solid var(--br)",borderRadius:8,background:"var(--bg3)",cursor:"pointer"},
-                onInput:e=>{const txt=document.getElementById("gorsel_bg_txt"); if(txt) txt.value=e.target.value;}}),
-              h("input",{type:"text",className:"fi",defaultValue:"",id:"gorsel_bg_txt",
-                style:{flex:1},placeholder:"Boş bırak = değiştirme",
-                onInput:e=>{if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)){const cl=document.getElementById("gorsel_bg_inp"); if(cl) cl.value=e.target.value;}}})
-            )
-          )
-        ),
-
-        // BUTONLAR
-        div({style:{display:"flex",gap:9,marginTop:14,paddingTop:12,borderTop:"1px solid var(--br)"}},
-          btn({style:{flex:1,background:"transparent",border:"1px solid var(--br)",borderRadius:10,color:"var(--mu)",fontSize:13,padding:11,cursor:"pointer"},
-            onClick:()=>setGorselSeciliEl(null)
-          },"İptal"),
-          btn({style:{flex:2,background:"linear-gradient(135deg,var(--g),var(--gd))",border:"none",borderRadius:10,color:"#fff",fontSize:13,fontWeight:700,letterSpacing:1.2,padding:11,cursor:"pointer"},
-            onClick:()=>{
-              if(gorselSeciliEl._detayli){
-                // DETAYLI MOD: tüm alanları topla
-                const yeni = {...(gorselDuzen[gorselSeciliEl.key]||{})};
-                // Renkler
-                const bgT = document.getElementById("d_bgColor_t");
-                const bdT = document.getElementById("d_borderColor_t");
-                const cT = document.getElementById("d_color_t");
-                if(bgT && bgT.value && /^#[0-9a-fA-F]{6}$/.test(bgT.value)) yeni.bgColor = bgT.value;
-                else if(bgT && bgT.value === "") delete yeni.bgColor;
-                if(bdT && bdT.value && /^#[0-9a-fA-F]{6}$/.test(bdT.value)) yeni.borderColor = bdT.value;
-                else if(bdT && bdT.value === "") delete yeni.borderColor;
-                if(cT && cT.value && /^#[0-9a-fA-F]{6}$/.test(cT.value)) yeni.color = cT.value;
-                else if(cT && cT.value === "") delete yeni.color;
-                // Sayılar
-                const bw = document.getElementById("d_borderWidth");
-                const br = document.getElementById("d_borderRadius");
-                const fs = document.getElementById("d_fontSize");
-                if(bw && bw.value !== "") yeni.borderWidth = parseInt(bw.value);
-                if(br && br.value !== "") yeni.borderRadius = parseInt(br.value);
-                if(fs && fs.value !== "") yeni.fontSize = parseInt(fs.value);
-                // Çerçeve çizgi tipi
-                const bs = document.getElementById("d_borderStyle");
-                if(bs && bs.value !== "") yeni.borderStyle = bs.value;
-                // Gölge
-                const sh = document.getElementById("d_boxShadow");
-                if(sh && sh.value !== "") yeni.boxShadow = sh.value;
-                // Yazı kalınlığı
-                const fw = document.getElementById("d_fontWeight");
-                if(fw && fw.value !== "") yeni.fontWeight = fw.value;
-                // Yazı hizalama
-                const ta = document.getElementById("d_textAlign");
-                if(ta && ta.value !== "") yeni.textAlign = ta.value;
-                // Yazı stili (italik)
-                const fst = document.getElementById("d_fontStyle");
-                if(fst && fst.value !== "") yeni.fontStyle = fst.value;
-                // Boyut
-                const w = document.getElementById("d_width");
-                const hh = document.getElementById("d_height");
-                if(w){ if(w.value) yeni.width = w.value; else delete yeni.width; }
-                if(hh){ if(hh.value) yeni.height = hh.value; else delete yeni.height; }
-                // İçindeki yazılar
-                if(gorselSeciliEl.altYazilar && gorselSeciliEl.altYazilar.length > 0){
-                  const altYaziUpd = [];
-                  document.querySelectorAll("[data-d-yazi-idx]").forEach(ta=>{
-                    const idx = parseInt(ta.getAttribute("data-d-yazi-idx"));
-                    const orj = gorselSeciliEl.altYazilar[idx];
-                    if(orj && ta.value !== orj.text){
-                      altYaziUpd.push({idx, yeniText: ta.value});
-                    }
-                  });
-                  if(altYaziUpd.length > 0) yeni.altYazilar = altYaziUpd;
-                  else delete yeni.altYazilar;
-                }
-                setGorselDuzen(p=>({...p,[gorselSeciliEl.key]:yeni}));
-
-                // ANINDA DOM'a uygula (state güncelemesini beklemeden)
-                const elimiz = gorselSeciliEl.el;
-                if(elimiz && window.__gorselElemUygula){
-                  // Önce eski stilleri sıfırla, sonra yeniyi uygula
-                  window.__gorselElemUygula(elimiz, yeni);
-                }
-
-                // Seçimi temizle
-                document.querySelectorAll("[data-gorsel-secili-key]").forEach(el=>{
-                  el.style.outline=""; el.style.outlineOffset=""; el.style.boxShadow="";
-                  el.removeAttribute("data-gorsel-secili-key");
-                });
-                setGorselSeciliKeys([]);
-                setGorselSecimAktif(false);
-                setGorselSeciliEl(null);
-                showToast("Alan güncellendi","ok");
-              } else if(gorselSeciliEl._coklu){
-                // ÇOKLU
-                const c=document.getElementById("gorsel_color_inp");
-                const cTxt=document.getElementById("gorsel_color_txt");
-                const b=document.getElementById("gorsel_bg_txt");
-                const renk = (cTxt && cTxt.value && /^#[0-9a-fA-F]{6}$/.test(cTxt.value)) ? cTxt.value : (c?c.value:null);
-                const bg = (b&&b.value&&/^#[0-9a-fA-F]{6}$/.test(b.value))?b.value:null;
-                setGorselDuzen(p=>{
-                  const yeni={...p};
-                  gorselSeciliEl.items.forEach(item=>{
-                    const mev = yeni[item.key]||{};
-                    const guncel={...mev};
-                    if(renk) guncel.color = renk;
-                    if(bg) guncel.bgColor = bg;
-                    yeni[item.key] = guncel;
-                  });
-                  return yeni;
-                });
-                document.querySelectorAll("[data-gorsel-secili-key]").forEach(el=>{
-                  el.style.outline=""; el.style.outlineOffset=""; el.style.boxShadow="";
-                  el.removeAttribute("data-gorsel-secili-key");
-                });
-                setGorselSeciliKeys([]);
-                setGorselSecimAktif(false);
-                setGorselSeciliEl(null);
-                showToast(gorselSeciliEl.count+" alan güncellendi","ok");
-              }
-            }},"✓ Güncelle")
         )
       )
     )
