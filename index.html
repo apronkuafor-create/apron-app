@@ -5494,6 +5494,14 @@ function App() {
   const [yonDetay, setYonDetay]           = useState(null); // Açık bildirim detayı
   const [yonDuzForm, setYonDuzForm]       = useState(null); // Yönetici düzenleme formu {kayit, neden, islem}
   const [musteriAramaFil, setMusteriAramaFil] = useState(""); // Yönetici kayıt arama
+  // ── Yönetici Kayıtlar Sekmesi — Sorgu Paneli State'leri ──
+  const [kayitPanelAcik, setKayitPanelAcik] = useState(true);
+  const [kayitPanelPersonel, setKayitPanelPersonel] = useState("");
+  const [kayitPanelMusteriAd, setKayitPanelMusteriAd] = useState("");
+  const [kayitPanelMusteriTel, setKayitPanelMusteriTel] = useState("");
+  const [kayitPanelTarihBas, setKayitPanelTarihBas] = useState("");
+  const [kayitPanelTarihBit, setKayitPanelTarihBit] = useState("");
+  const [kayitPanelSonuc, setKayitPanelSonuc] = useState(null);
   const [ayFil, setAyFil]   = useState("");
   const [tAyFil, setTAyFil]   = useState(String(new Date().getMonth()+1));
   const [tGun, setTGun]       = useState("");
@@ -7536,37 +7544,322 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
 
         asek==="kayitlar"&&div(null,
 
-          // Arama ve filtreler
-          div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:13,marginBottom:14,boxSizing:"border-box"}},
-            div({style:{fontSize:12,color:"var(--g)",letterSpacing:3,textTransform:"uppercase",marginBottom:10}},"Müşteri Ara"),
-            div({style:{marginBottom:10}},
-              inp({className:"fi",placeholder:"Ad / Telefon No / Personel İsmi ile ara...",
-                value:musteriAramaFil,onChange:e=>setMusteriAramaFil(e.target.value)})
+          // Apple kırık beyaz gölgeli kutu — Sorgu Paneli
+          div({style:{
+            background:"#FAF9F6",
+            border:"1px solid rgba(0,0,0,.07)",
+            borderRadius:18,
+            padding:"18px 16px",
+            marginBottom:14,
+            boxShadow:"0 4px 24px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.04)"
+          }},
+
+            // Apple mavisi tıklamalı kutu — açılır panel
+            div({
+              style:{
+                background:"linear-gradient(135deg, #0071E3 0%, #0058B0 100%)",
+                border:"1px solid rgba(255,255,255,.18)",
+                borderRadius:14,
+                padding:"14px 16px",
+                cursor:"pointer",
+                boxShadow:"0 4px 14px rgba(0,113,227,.28), 0 1px 3px rgba(0,113,227,.20), inset 0 1px 0 rgba(255,255,255,.15)",
+                display:"flex",
+                alignItems:"center",
+                justifyContent:"space-between",
+                gap:10,
+                transition:"transform .15s, box-shadow .15s"
+              },
+              onClick:()=>setKayitPanelAcik(p=>!p)
+            },
+              div({style:{display:"flex",alignItems:"center",gap:11}},
+                div({style:{
+                  width:34,height:34,borderRadius:9,
+                  background:"rgba(255,255,255,.18)",
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  flexShrink:0
+                }},
+                  h("svg",{width:18,height:18,viewBox:"0 0 24 24",fill:"none",stroke:"#fff",strokeWidth:2,strokeLinecap:"round",strokeLinejoin:"round"},
+                    h("circle",{cx:11,cy:11,r:8}),
+                    h("line",{x1:21,y1:21,x2:16.65,y2:16.65})
+                  )
+                ),
+                div(null,
+                  div({style:{fontSize:15,color:"#fff",fontWeight:700,letterSpacing:"-.2px"}},"Görmek İstediğiniz Bilgileri Çağırın"),
+                  div({style:{fontSize:11,color:"rgba(255,255,255,.78)",marginTop:2,letterSpacing:.3}},"Personel · Müşteri · Tarih aralığı seçimi")
+                )
+              ),
+              div({style:{
+                color:"#fff",fontSize:13,
+                transform:kayitPanelAcik?"rotate(180deg)":"rotate(0)",
+                transition:"transform .25s"
+              }},"▾")
             ),
-            div({style:{width:"100%"}},
-              div({style:{display:"flex",gap:6,alignItems:"center"}},
-                sel({className:"fi",style:{flex:"0 0 68px"},value:tGun,onChange:e=>setTGun(e.target.value)},
-                  opt("","Gun"),
-                  Array.from({length:31},(_,i)=>opt(String(i+1).padStart(2,"0"),String(i+1)))
+
+            // Açılır içerik
+            kayitPanelAcik&&div({style:{marginTop:14,paddingTop:14,borderTop:"1px solid rgba(0,0,0,.06)"}},
+
+              // Personel seçici
+              div({style:{marginBottom:10}},
+                lbl({className:"fl",style:{color:"#6b7280",letterSpacing:1.5}},"Personel"),
+                sel({
+                  className:"fi",
+                  value:kayitPanelPersonel,
+                  onChange:e=>setKayitPanelPersonel(e.target.value),
+                  style:{
+                    background:"#fff",
+                    border:"1px solid rgba(0,0,0,.10)",
+                    color:"#1D1D1F",
+                    fontSize:14,
+                    padding:"11px 13px"
+                  }
+                },
+                  opt("","Tüm Personeller (İşletme Geneli)"),
+                  (()=>{
+                    const gelirGrupId = (pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id;
+                    return personeller
+                      .filter(p=>p.aktif && p.rol==="personel" && (!gelirGrupId || p.grup===gelirGrupId))
+                      .map(p=>opt(p.id,p.ad));
+                  })()
+                )
+              ),
+
+              // Müşteri Ad Soyad + Telefon (biri yazılınca diğeri otomatik dolar)
+              div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:10}},
+                div(null,
+                  lbl({className:"fl",style:{color:"#6b7280",letterSpacing:1.5}},"Müşteri Ad Soyad"),
+                  inp({
+                    className:"fi",
+                    placeholder:"Ad Soyad",
+                    value:kayitPanelMusteriAd,
+                    style:{background:"#fff",border:"1px solid rgba(0,0,0,.10)",color:"#1D1D1F",fontSize:14,padding:"11px 13px"},
+                    onChange:e=>{
+                      const v=e.target.value;
+                      setKayitPanelMusteriAd(v);
+                      if(v.trim().length>=2){
+                        const q=normText(v);
+                        const m=(musteriDB||[]).find(x=>normText(x.ad)===q) || (musteriDB||[]).find(x=>normText(x.ad).startsWith(q));
+                        if(m && m.tel) setKayitPanelMusteriTel(m.tel);
+                      } else if(!v.trim()) {
+                        setKayitPanelMusteriTel("");
+                      }
+                    }
+                  })
                 ),
-                sel({className:"fi",style:{flex:1},value:tAyFil,onChange:e=>setTAyFil(e.target.value)},
-                  opt("","Ay"),
-                  [["1","Ocak"],["2","Subat"],["3","Mart"],["4","Nisan"],["5","Mayis"],
-                   ["6","Haziran"],["7","Temmuz"],["8","Agustos"],["9","Eylul"],
-                   ["10","Ekim"],["11","Kasim"],["12","Aralik"]].map(([v,lb])=>opt(v,lb))
+                div(null,
+                  lbl({className:"fl",style:{color:"#6b7280",letterSpacing:1.5}},"Telefon"),
+                  inp({
+                    className:"fi",
+                    type:"tel",
+                    inputMode:"tel",
+                    placeholder:"05XX XXX XX XX",
+                    value:kayitPanelMusteriTel,
+                    style:{background:"#fff",border:"1px solid rgba(0,0,0,.10)",color:"#1D1D1F",fontSize:14,padding:"11px 13px"},
+                    onChange:e=>{
+                      const v=e.target.value;
+                      setKayitPanelMusteriTel(v);
+                      const r=String(v||"").replace(/\D/g,"");
+                      if(r.length>=4){
+                        const m=(musteriDB||[]).find(x=>String(x.tel||"").replace(/\D/g,"")===r)
+                          || (musteriDB||[]).find(x=>{
+                            const xt=String(x.tel||"").replace(/\D/g,"");
+                            return xt && (xt.endsWith(r) || r.endsWith(xt));
+                          });
+                        if(m && m.ad) setKayitPanelMusteriAd(m.ad);
+                      } else if(!v.trim()) {
+                        setKayitPanelMusteriAd("");
+                      }
+                    }
+                  })
+                )
+              ),
+
+              // Tarih aralığı (zorunlu değil — boş kalırsa tüm zamanlar)
+              div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:14}},
+                div(null,
+                  lbl({className:"fl",style:{color:"#6b7280",letterSpacing:1.5}},"Başlangıç Tarihi"),
+                  inp({
+                    type:"date",
+                    className:"fi",
+                    value:kayitPanelTarihBas,
+                    style:{background:"#fff",border:"1px solid rgba(0,0,0,.10)",color:"#1D1D1F",fontSize:14,padding:"11px 13px"},
+                    onChange:e=>setKayitPanelTarihBas(e.target.value)
+                  })
                 ),
-                sel({className:"fi",style:{flex:"0 0 80px"},value:tYil,onChange:e=>setTYil(e.target.value)},
-                  opt("","Yil"),
-                  [2024,2025,2026,2027].map(y=>opt(String(y),String(y)))
+                div(null,
+                  lbl({className:"fl",style:{color:"#6b7280",letterSpacing:1.5}},"Bitiş Tarihi"),
+                  inp({
+                    type:"date",
+                    className:"fi",
+                    value:kayitPanelTarihBit,
+                    style:{background:"#fff",border:"1px solid rgba(0,0,0,.10)",color:"#1D1D1F",fontSize:14,padding:"11px 13px"},
+                    onChange:e=>setKayitPanelTarihBit(e.target.value)
+                  })
+                )
+              ),
+
+              // Getir + Temizle
+              div({style:{display:"flex",gap:9}},
+                (kayitPanelPersonel||kayitPanelMusteriAd||kayitPanelMusteriTel||kayitPanelTarihBas||kayitPanelTarihBit||kayitPanelSonuc)&&btn({
+                  style:{
+                    flex:1,padding:"13px 0",borderRadius:11,
+                    background:"rgba(0,0,0,.04)",border:"1px solid rgba(0,0,0,.08)",
+                    color:"#4a5568",fontSize:14,fontWeight:600,cursor:"pointer"
+                  },
+                  onClick:()=>{
+                    setKayitPanelPersonel("");
+                    setKayitPanelMusteriAd("");
+                    setKayitPanelMusteriTel("");
+                    setKayitPanelTarihBas("");
+                    setKayitPanelTarihBit("");
+                    setKayitPanelSonuc(null);
+                  }
+                },"Temizle"),
+                btn({
+                  style:{
+                    flex:2,padding:"13px 0",borderRadius:11,border:"none",
+                    background:"linear-gradient(135deg,#0071E3,#0058B0)",
+                    color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",
+                    boxShadow:"0 4px 14px rgba(0,113,227,.28)",letterSpacing:"-.1px"
+                  },
+                  onClick:()=>{
+                    // Yöneticiye düşmüş kayıtlar üzerinden filtrele
+                    let liste = (records||[]).filter(r=>r.gonderildi!==false);
+
+                    // Personel filtresi
+                    if(kayitPanelPersonel){
+                      liste = liste.filter(r=>r.staffId===kayitPanelPersonel);
+                    }
+
+                    // Müşteri filtresi (ad veya tel) — müşterinin tüm işlemleri
+                    const adQ = normText(kayitPanelMusteriAd||"");
+                    const telQ = String(kayitPanelMusteriTel||"").replace(/\D/g,"");
+                    if(adQ || telQ){
+                      liste = liste.filter(r=>{
+                        const rAd = normText(r.musteri||"");
+                        const rTel = String(r.tel||"").replace(/\D/g,"");
+                        const adEslesti = adQ ? rAd.includes(adQ) : false;
+                        const telEslesti = telQ && rTel.length>0 ? (rTel===telQ || rTel.endsWith(telQ) || telQ.endsWith(rTel)) : false;
+                        return adEslesti || telEslesti;
+                      });
+                    }
+
+                    // Tarih aralığı (boşsa filtre yok = tüm zamanlar)
+                    if(kayitPanelTarihBas){
+                      liste = liste.filter(r=>r.tarih && r.tarih>=kayitPanelTarihBas);
+                    }
+                    if(kayitPanelTarihBit){
+                      liste = liste.filter(r=>r.tarih && r.tarih<=kayitPanelTarihBit);
+                    }
+
+                    // Hesapla
+                    const musteriSet = new Set();
+                    let hizKK=0,hizIB=0,hizNK=0,uKK=0,uIB=0,uNK=0;
+                    liste.forEach(r=>{
+                      const mKey = (r.musteri||"").trim().toLowerCase()+"|"+String(r.tel||"").replace(/\D/g,"");
+                      if(mKey!=="|") musteriSet.add(mKey);
+                      hizKK += toN(r.hizKK||0);
+                      hizIB += toN(r.hizIB||0);
+                      hizNK += toN(r.hizNK||0);
+                      uKK   += toN(r.uKK||0);
+                      uIB   += toN(r.uIB||0);
+                      uNK   += toN(r.uNK||0);
+                    });
+
+                    setKayitPanelSonuc({
+                      musteriSay: musteriSet.size,
+                      kayitSay: liste.length,
+                      hizKK, hizIB, hizNK,
+                      hizTop: hizKK+hizIB+hizNK,
+                      uKK, uIB, uNK,
+                      uTop: uKK+uIB+uNK,
+                      topKK: hizKK+uKK,
+                      topIB: hizIB+uIB,
+                      topNK: hizNK+uNK,
+                      genelTop: hizKK+hizIB+hizNK+uKK+uIB+uNK
+                    });
+                  }
+                },"Getir")
+              ),
+
+              // Sonuç paneli — açılır kutunun İÇİNE yerleşir
+              kayitPanelSonuc&&div({style:{marginTop:14,paddingTop:14,borderTop:"1px solid rgba(0,0,0,.06)"}},
+
+                // Müşteri Sayısı
+                div({style:{
+                  background:"#fff",
+                  border:"1px solid rgba(0,0,0,.07)",
+                  borderRadius:12,
+                  padding:"12px 14px",
+                  marginBottom:9,
+                  display:"flex",alignItems:"center",justifyContent:"space-between"
+                }},
+                  div(null,
+                    div({style:{fontSize:11,color:"#6b7280",letterSpacing:2,textTransform:"uppercase",fontWeight:600}},"Müşteri Sayısı"),
+                    div({style:{fontSize:11,color:"#9ca3af",marginTop:3}},kayitPanelSonuc.kayitSay+" kayıt")
+                  ),
+                  div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:26,color:"#0071E3",fontWeight:700,letterSpacing:-.5}},
+                    String(kayitPanelSonuc.musteriSay))
                 ),
-                (tGun||tAyFil||tYil)&&btn({className:"btn-i",style:{flex:"0 0 36px",padding:0,fontSize:16,fontWeight:700},
-                  onClick:()=>{setTGun("");setTAyFil("");setTYil("");setTFil("");}
-                },"✕")
+
+                // Hizmet Getirisi
+                div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:12,padding:"12px 14px",marginBottom:9}},
+                  div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+                    div({style:{fontSize:11,color:"#6b7280",letterSpacing:2,textTransform:"uppercase",fontWeight:600}},"Hizmet Getirisi"),
+                    div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"#0071E3",fontWeight:700}},fmt(kayitPanelSonuc.hizTop))
+                  ),
+                  div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}},
+                    [["💳","K.K",kayitPanelSonuc.hizKK],["🏦","IBAN",kayitPanelSonuc.hizIB],["💵","Nakit",kayitPanelSonuc.hizNK]].map(([ic,lb,v])=>
+                      div({key:lb,style:{background:"rgba(0,113,227,.04)",borderRadius:9,padding:"8px 5px",textAlign:"center",border:"1px solid rgba(0,113,227,.08)"}},
+                        div({style:{fontSize:13,marginBottom:2}},ic),
+                        div({style:{fontSize:10,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginBottom:3,fontWeight:600}},lb),
+                        div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:14,color:v>0?"#0071E3":"#cbd5e0",fontWeight:700}},fmt(v))
+                      )
+                    )
+                  )
+                ),
+
+                // Ürün Getirisi
+                div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:12,padding:"12px 14px",marginBottom:9}},
+                  div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+                    div({style:{fontSize:11,color:"#6b7280",letterSpacing:2,textTransform:"uppercase",fontWeight:600}},"Ürün Getirisi"),
+                    div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"#0071E3",fontWeight:700}},fmt(kayitPanelSonuc.uTop))
+                  ),
+                  div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}},
+                    [["💳","K.K",kayitPanelSonuc.uKK],["🏦","IBAN",kayitPanelSonuc.uIB],["💵","Nakit",kayitPanelSonuc.uNK]].map(([ic,lb,v])=>
+                      div({key:lb,style:{background:"rgba(0,113,227,.04)",borderRadius:9,padding:"8px 5px",textAlign:"center",border:"1px solid rgba(0,113,227,.08)"}},
+                        div({style:{fontSize:13,marginBottom:2}},ic),
+                        div({style:{fontSize:10,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginBottom:3,fontWeight:600}},lb),
+                        div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:14,color:v>0?"#0071E3":"#cbd5e0",fontWeight:700}},fmt(v))
+                      )
+                    )
+                  )
+                ),
+
+                // Toplam Getiri
+                div({style:{
+                  background:"linear-gradient(135deg, rgba(0,113,227,.04) 0%, rgba(0,88,176,.06) 100%)",
+                  border:"1.5px solid rgba(0,113,227,.18)",
+                  borderRadius:12,padding:"13px 14px"
+                }},
+                  div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+                    div({style:{fontSize:12,color:"#0071E3",letterSpacing:2,textTransform:"uppercase",fontWeight:700}},"Toplam Getiri"),
+                    div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:22,color:"#0071E3",fontWeight:700,letterSpacing:-.5}},fmt(kayitPanelSonuc.genelTop))
+                  ),
+                  div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}},
+                    [["💳","K.K",kayitPanelSonuc.topKK],["🏦","IBAN",kayitPanelSonuc.topIB],["💵","Nakit",kayitPanelSonuc.topNK]].map(([ic,lb,v])=>
+                      div({key:lb,style:{background:"#fff",borderRadius:9,padding:"9px 5px",textAlign:"center",border:"1px solid rgba(0,113,227,.10)"}},
+                        div({style:{fontSize:14,marginBottom:2}},ic),
+                        div({style:{fontSize:10,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginBottom:3,fontWeight:600}},lb),
+                        div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:15,color:v>0?"#0071E3":"#cbd5e0",fontWeight:700}},fmt(v))
+                      )
+                    )
+                  )
+                )
               )
             )
           ),
 
-          // Personelden gelen düzenleme/silme onay talepleri - yönetici müdahale edene kadar kalır
+          // Personelden gelen düzenleme/silme onay talepleri — YERİNDE KALIYOR
           yonBildirim.filter(b=>b.kaynak==="personelTalep"&&b.durum==="bekliyor").length>0&&div({
             style:{background:"rgba(37,99,168,.08)",border:"1.5px solid rgba(37,99,168,.30)",borderRadius:12,padding:14,marginBottom:14}},
             div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},"📋 Personel Onay Talepleri"),
@@ -7588,7 +7881,7 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
             )
           ),
 
-          // Ret bildirimleri - yöneticiye
+          // Reddedilen değişiklik bildirimleri — YERİNDE KALIYOR
           yonBildirim.filter(b=>b.durum==="reddedildi"&&!b.yonGordu).length>0&&div({
             style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(200,60,60,.3)",borderRadius:12,padding:14,marginBottom:14}},
             div({style:{fontSize:12,color:"#c05050",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},"Reddedilen Değişiklikler"),
@@ -7599,7 +7892,6 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                 div({style:{display:"flex",gap:8,marginTop:8}},
                   btn({style:{flex:1,padding:8,borderRadius:7,border:"1px solid #3a1510",background:"rgba(160,40,40,.1)",color:"#c05050",fontSize:12,cursor:"pointer"},
                     onClick:()=>{
-                      // Yönetici yine de uygular - karşı açıklama ister
                       setYonDuzForm({
                         kayit:records.find(r=>r.id===b.kayitId)||gecmis.find(r=>r.id===b.kayitId),
                         islem:b.islem, yeniKayit:b.yeniKayit,
@@ -7613,100 +7905,13 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                 )
               )
             )
-          ),
-
-          // Filtreli kayıt listesi
-          (()=>{
-            const aramaFil = musteriAramaFil.trim().toLowerCase();
-            const gosterilecek = filtreli.filter(r=>{
-              if(!aramaFil) return true;
-              return normText(r.musteri).includes(normText(aramaFil))
-                || (r.tel||"").includes(aramaFil)
-                || normText(r.staffAd||"").includes(normText(aramaFil));
-            });
-            return div(null,
-              div({style:{fontSize:13,color:"var(--di)",marginBottom:11}},
-                gosterilecek.length+" kayit · ",
-                h("span",{style:{color:"var(--g)",fontFamily:"Cormorant Garamond,serif",fontSize:15}},
-                  fmt(gosterilecek.reduce((s,r)=>s+r.toplam,0)))
-              ),
-              gosterilecek.length===0
-                ?div({className:"bos"},div({style:{fontSize:42,marginBottom:9}},"📋"),div({style:{fontSize:13,letterSpacing:2}},"Kayıt bulunamadı"))
-                :gosterilecek.map(r=>{
-                  const kk=(r.hizKK||0)+(r.uKK||0),ib=(r.hizIB||0)+(r.uIB||0),nk=(r.hizNK||0)+(r.uNK||0);
-                  const bildirimDurum = yonBildirim.find(b=>b.kayitId===r.id&&b.durum==="bekliyor");
-                  const personelTalepDurum = yonBildirim.find(b=>b.kaynak==="personelTalep"&&b.kayitId===r.id&&b.durum==="bekliyor");
-                  const duzenlendiBildirim = yonBildirim.find(b=>b.kayitId===r.id&&b.durum==="duzenlendi"&&b.yeniKayit);
-                  const kartDuzenlendi = r._duzenlemeYapildi || !!duzenlendiBildirim;
-                  const dznKayit = duzenlendiBildirim?.yeniKayit || r;
-                  const dznOnceki = dznKayit._oncekiKayit || r._oncekiKayit || duzenlendiBildirim?.oncekiKayit || null;
-                  const dznEskiToplam = dznOnceki ? toN(dznOnceki.toplam||0) : toN(r.toplam||0);
-                  const dznYeniToplam = toN(dznKayit.toplam||r.toplam||0);
-                  const dznTarih = fmtT(dznKayit._duzenlemeTarihi || duzenlendiBildirim?.duzenlemeTarihi || r._duzenlemeTarihi || "");
-                  const dznSaat = dznKayit._duzenlemeSaat || duzenlendiBildirim?.duzenlemeSaat || r._duzenlemeSaat || "";
-                  const dznAd = dznKayit._duzenleyenAd || duzenlendiBildirim?.staffAd || r._duzenleyenAd || r.staffAd || "Personel";
-                  return div({key:r.id,style:{background:"var(--bg2)",border:"1px solid "+(kartDuzenlendi?"var(--g)":(bildirimDurum?"#6a5010":"var(--bg3)")),
-                    borderRadius:13,padding:13,marginBottom:9,cursor:"pointer"},
-                    onClick:()=>setDetay(dznKayit)},
-
-                    // Bekleyen / tamamlanan bildirim badge
-                    kartDuzenlendi&&div({style:{fontSize:11,color:"var(--g)",padding:"5px 9px",
-                      background:"rgba(37,99,168,.10)",borderRadius:7,marginBottom:8,
-                      border:"1px solid var(--g)",display:"inline-block",fontWeight:700,lineHeight:1.5}},
-                      "✅ Düzenlendi • ",fmt(dznEskiToplam)," → ",fmt(dznYeniToplam)," • ",dznAd,
-                      dznTarih?" • "+dznTarih:"",dznSaat?" "+dznSaat:""),
-                    !kartDuzenlendi&&bildirimDurum&&div({style:{fontSize:11,color:"var(--g)",padding:"3px 8px",
-                      background:"rgba(37,99,168,.1)",borderRadius:5,marginBottom:8,
-                      border:"1px solid rgba(37,99,168,.2)",display:"inline-block"}},
-                      personelTalepDurum?"⏳ Yönetici Onayı Bekleniyor":"⏳ Personel Onayı Bekleniyor"),
-
-                    div({style:{display:"flex",alignItems:"flex-start",gap:9}},
-                      div({className:"kikon"},r.hizler?.length>0?"✂️":"🛍️"),
-                      div({style:{flex:1,minWidth:0}},
-                        div({style:{fontSize:15,color:"var(--tx)",fontWeight:500}},r.musteri),
-                        div({style:{fontSize:12,color:"var(--di)",marginTop:2}},r.staffAd+" · "+fmtT(r.tarih)+" "+(r.saat||"")),
-                        r.tel&&div({style:{fontSize:12,color:"var(--di)"}},"📞 "+r.tel),
-                        div({className:"kpl",style:{marginTop:5}},
-                          kk>0&&span({className:"kp"},"💳 "+fmt(kk)),
-                          ib>0&&span({className:"kp"},"🏦 "+fmt(ib)),
-                          nk>0&&span({className:"kp"},"💵 "+fmt(nk))
-                        ),
-                        // Değişiklik geçmişi varsa göster
-                        (r._log||[]).length>0&&div({style:{marginTop:6,fontSize:11,color:"#7a5a2a",
-                          padding:"4px 7px",background:"rgba(37,99,168,.05)",borderRadius:5,
-                          border:"1px solid rgba(37,99,168,.1)"}},
-                          "📝 "+r._log.length+" degisiklik gecmisi")
-                      ),
-                      div({style:{textAlign:"right",flexShrink:0}},
-                        div({className:"ktu"},fmt(r.toplam)),
-                        div({style:{fontSize:14,color:"var(--di)"}},"›")
-                      )
-                    ),
-                    div({style:{borderTop:"1px solid #143234",paddingTop:8,marginTop:8,
-                      display:"flex",justifyContent:"space-between",alignItems:"center"}},
-                      h("span",{className:"tag"},
-                        [(r.hizler?.length>0)&&r.hizler.length+" hizmet",
-                         (r.urunler?.length>0)&&r.urunler.length+" urun"].filter(Boolean).join(" · ")
-                      ),
-                      !bildirimDurum&&div({style:{display:"flex",gap:6}},
-                        btn({className:"pbt",onClick:ev=>{ev.stopPropagation();
-                          setYonDuzForm({kayit:dznKayit,islem:"duzenle",neden:"",adim:"form"});}},
-                          "Düzenle"),
-                        btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();
-                          setYonDuzForm({kayit:dznKayit,islem:"sil",neden:"",adim:"form"});}},
-                          "Sil")
-                      )
-                    )
-                  );
-                })
-            );
-          })()
+          )
         ),
 
 
 
 
-
+          
         asek==="urunler"&&div(null,
           div({style:{display:"flex",gap:6,marginBottom:14}},
             [["liste","Stok Listesi"],["giris","Stok Girisi"],["hareketler","Hareketler"]].map(([id,lb])=>
