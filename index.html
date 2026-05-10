@@ -4249,9 +4249,8 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   // Müşteri kaydetme akışı modalları
   const [kendiMusteriModal, setKendiMusteriModal] = useState(null); // {musteri:{...}}
   const [baskaPersonelModal, setBaskaPersonelModal] = useState(null); // {musteri:{...}}
-  // Manikürist akıllı öneri modal'ı (müşteri sistemde yok)
-  const [manikuristYardimModal, setManikuristYardimModal] = useState(false);
-  const [manikuristBildirimSec, setManikuristBildirimSec] = useState(""); // hedef personel id
+  // Manikürist akıllı öneri akışı: bildirim hedef seçim modal'ı
+  const [manikuristBildirimSec, setManikuristBildirimSec] = useState(null); // {ad, hedefId}
   const [hizmetOdemeUyariId, setHizmetOdemeUyariId] = useState("");
   const [urunOdemeUyariId, setUrunOdemeUyariId] = useState("");
   const hizmetBolumRef = useRef(null);
@@ -4775,7 +4774,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                 btn({style:{flex:"1 1 auto",padding:"8px 10px",borderRadius:8,
                   border:"1px solid rgba(0,113,227,.35)",background:"rgba(0,113,227,.08)",
                   color:"#0071E3",fontSize:12,fontWeight:600,cursor:"pointer"},
-                  onClick:()=>{setManikuristBildirimSec("");setManikuristYardimModal("bildirim");}},
+                  onClick:()=>{setManikuristBildirimSec({ad:musteri.trim(),hedefId:""});}},
                   "Bildirim Gönder"),
                 btn({style:{flex:"1 1 auto",padding:"8px 10px",borderRadius:8,
                   border:"1px solid rgba(52,199,89,.35)",background:"rgba(52,199,89,.08)",
@@ -4800,59 +4799,6 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
               )
             );
           })()
-        ),
-        // Manikürist Bildirim Gönder modalı (müşteriyi sahibi olan personel kaydetsin)
-        manikuristYardimModal==="bildirim"&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:9999,
-          display:"flex",alignItems:"center",justifyContent:"center",padding:20,
-          fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
-          div({style:{background:"#FBFBFD",border:"1px solid rgba(0,0,0,.10)",borderRadius:16,padding:22,maxWidth:380,width:"100%",
-            boxShadow:"0 18px 50px rgba(0,0,0,.22), 0 4px 12px rgba(0,0,0,.10)"}},
-            div({style:{fontSize:15,color:"#1D1D1F",fontWeight:700,marginBottom:10,letterSpacing:"-.2px"}},"Müşteri Kayıt Bildirimi"),
-            div({style:{fontSize:13,color:"#1D1D1F",lineHeight:1.55,marginBottom:14}},
-              h("strong",null,"\""+(musteri||"-")+"\""),
-              " adlı müşteriyi sisteme kaydedecek personeli seçin. Seçtiğiniz personele bildirim gönderilecek."),
-            div({style:{marginBottom:14}},
-              lbl({style:{fontSize:11,letterSpacing:1.2,textTransform:"uppercase",color:"#86868B",fontWeight:600,marginBottom:5,display:"block"}},"Hedef Personel"),
-              sel({className:"fi",value:manikuristBildirimSec||"",
-                onChange:e=>setManikuristBildirimSec(e.target.value)},
-                opt("","Personel seçin..."),
-                personeller.filter(p=>p.aktif&&p.rol==="personel"&&p.id!==aktifKullanici?.id&&pGruplar.find(g=>g.id===p.grup&&g.ad.toLowerCase().includes("gelire"))).map(p=>
-                  opt(p.id, p.ad)
-                )
-              )
-            ),
-            div({style:{display:"flex",gap:8}},
-              btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",background:"#FFFFFF",color:"#1D1D1F",fontSize:13.5,fontWeight:500,cursor:"pointer"},
-                onClick:()=>{setManikuristYardimModal(false);setManikuristBildirimSec("");}},"İptal"),
-              btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid rgba(0,113,227,.35)",background:"rgba(0,113,227,.10)",color:"#0071E3",fontSize:13.5,fontWeight:600,cursor:"pointer",
-                opacity:manikuristBildirimSec?1:.4},
-                disabled:!manikuristBildirimSec,
-                onClick:()=>{
-                  const hedef = personeller.find(p=>p.id===manikuristBildirimSec);
-                  if(hedef && typeof setDevirBildirim==="function" && aktifKullanici){
-                    const yeniBildirim = {
-                      id:"mky_"+Date.now()+"_"+Math.random().toString(36).slice(2,8),
-                      tip:"mkayit_talep", // manikürist kayıt talebi
-                      musteriAd:musteri.trim(),
-                      musteriTel:(tel||"").trim(),
-                      talepEdenId:String(aktifKullanici.id||""),
-                      talepEdenAd:aktifKullanici.ad||"",
-                      hedefId:String(hedef.id),
-                      hedefAd:hedef.ad,
-                      durum:"bekliyor",
-                      olusturmaTarihi:new Date().toISOString(),
-                      okundu:false
-                    };
-                    setDevirBildirim(p=>[yeniBildirim,...(p||[])]);
-                    // Manikürist için ana personel otomatik seçilsin (hedef zaten o)
-                    setAnaPersonelId(hedef.id);
-                    if(typeof showToast==="function") showToast("Kayıt bildirimi gönderildi","uy");
-                  }
-                  setManikuristYardimModal(false);
-                  setManikuristBildirimSec("");
-                }},"Bildirim Gönder")
-            )
-          )
         ),
         musteri.trim()&&div({style:{display:"flex",alignItems:"center",gap:12,
           padding:"12px 14px",marginBottom:6,marginTop:10,
@@ -5020,6 +4966,56 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                     setMusteriKaydetUyari("");
                     setBaskaPersonelModal(null);
                   }},"Devralma Onayı Gönder")
+              )
+            )
+          ),
+          // ─── Manikürist: Bildirim göndermek için ana personel seçimi ───
+          manikuristBildirimSec&&div({style:{position:"fixed",top:0,left:0,right:0,bottom:0,
+            background:"rgba(0,0,0,.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,
+            fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+            div({style:{background:"#FBFBFD",border:"1px solid rgba(0,0,0,.10)",borderRadius:16,padding:22,maxWidth:380,width:"100%",
+              boxShadow:"0 18px 50px rgba(0,0,0,.22), 0 4px 12px rgba(0,0,0,.10)"}},
+              div({style:{fontSize:15,color:"#1D1D1F",fontWeight:700,marginBottom:8,textAlign:"center",letterSpacing:"-.2px"}},"Hangi personele bildirim gönderilsin?"),
+              div({style:{fontSize:12.5,color:"#3a3a3c",marginBottom:14,textAlign:"center",lineHeight:1.5}},
+                h("strong",null,manikuristBildirimSec.ad),
+                " adlı müşterinin geldiği personeli seçin. Seçtiğiniz personele müşteriyi sisteme kaydetmesi için bildirim gidecek."),
+              div({style:{marginBottom:14}},
+                lbl({style:{fontSize:11,letterSpacing:1.2,textTransform:"uppercase",color:"#86868B",fontWeight:600,marginBottom:5,display:"block"}},"Personel"),
+                sel({className:"fi",value:manikuristBildirimSec.hedefId||"",
+                  onChange:e=>setManikuristBildirimSec(p=>({...p,hedefId:e.target.value}))},
+                  opt("","Seçin..."),
+                  aktifP.filter(p=>p.id!==aktifKullanici?.id&&p.pozisyon!=="Manikurist"&&p.pozisyon!=="Pedikürist"&&p.pozisyon!=="Pedikurist")
+                    .map(p=>opt(p.id,p.ad+(p.pozisyon?" — "+p.pozisyon:"")))
+                )
+              ),
+              div({style:{display:"flex",gap:8}},
+                btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",background:"#FFFFFF",color:"#1D1D1F",fontSize:13.5,fontWeight:500,cursor:"pointer"},
+                  onClick:()=>setManikuristBildirimSec(null)},"İptal"),
+                btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid rgba(0,113,227,.35)",background:"rgba(0,113,227,.10)",color:"#0071E3",fontSize:13.5,fontWeight:600,cursor:"pointer",
+                  opacity:manikuristBildirimSec.hedefId?1:.5},
+                  disabled:!manikuristBildirimSec.hedefId,
+                  onClick:()=>{
+                    const hedef = aktifP.find(p=>p.id===manikuristBildirimSec.hedefId);
+                    if(!hedef){ return; }
+                    const yeniBildirim = {
+                      id:"mky_"+Date.now()+"_"+Math.random().toString(36).slice(2,8),
+                      tip:"mkayit_talep", // Manikürist'ten ana personele kayıt talebi
+                      musteriAd:manikuristBildirimSec.ad,
+                      musteriTel:"",
+                      talepEdenId:String(aktifKullanici?.id||""),
+                      talepEdenAd:aktifKullanici?.ad||"",
+                      hedefId:String(hedef.id||""),
+                      hedefAd:hedef.ad||"",
+                      durum:"bekliyor",
+                      olusturmaTarihi:new Date().toISOString(),
+                      okundu:false
+                    };
+                    if(typeof setDevirBildirim==="function"){
+                      setDevirBildirim(p=>[yeniBildirim,...(p||[])]);
+                    }
+                    if(typeof showToast==="function") showToast(hedef.ad+" personeline bildirim gönderildi","uy");
+                    setManikuristBildirimSec(null);
+                  }},"Bildirim Gönder")
               )
             )
           )
