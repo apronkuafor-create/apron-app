@@ -4249,6 +4249,9 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   // Müşteri kaydetme akışı modalları
   const [kendiMusteriModal, setKendiMusteriModal] = useState(null); // {musteri:{...}}
   const [baskaPersonelModal, setBaskaPersonelModal] = useState(null); // {musteri:{...}}
+  // Manikürist akıllı öneri modal'ı (müşteri sistemde yok)
+  const [manikuristYardimModal, setManikuristYardimModal] = useState(false);
+  const [manikuristBildirimSec, setManikuristBildirimSec] = useState(""); // hedef personel id
   const [hizmetOdemeUyariId, setHizmetOdemeUyariId] = useState("");
   const [urunOdemeUyariId, setUrunOdemeUyariId] = useState("");
   const hizmetBolumRef = useRef(null);
@@ -4656,7 +4659,12 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                   if((val||tel).trim()) setMusteriKaydetUyari("");
                   setSilIkonuAlani(val||tel?"musteri":"");
                   const q=normText(val);
-                  setMoneri(q.length>=2?personelMusteriDB.filter(m=>normText(m.ad).includes(q)||String(m.tel||"").includes(val)).slice(0,5):[]);
+                  if(_isManikurist){
+                    // Manikürist tüm sistemdeki müşterileri görür (telefon gizli)
+                    setMoneri(q.length>=2?(musteriDB||[]).filter(m=>normText(m.ad).includes(q)).slice(0,8):[]);
+                  } else {
+                    setMoneri(q.length>=2?personelMusteriDB.filter(m=>normText(m.ad).includes(q)||String(m.tel||"").includes(val)).slice(0,5):[]);
+                  }
                 },
                 onBlur:()=>setTimeout(()=>setMoneri([]),200)
               }),
@@ -4668,13 +4676,28 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
             ),
             moneri.length>0&&div({className:"mus-on"},
               moneri.map(m=>div({key:m.id,className:"mus-oi",
-                onMouseDown:()=>{setMusteri(m.ad);setTel(m.tel);setSilIkonuAlani("musteri");setMoneri([]);setTelOneri([]);}},
+                onMouseDown:()=>{
+                  if(_isManikurist){
+                    // Manikürist: ad gelir, telefon arka planda atanır ama input'ta görünmez,
+                    // ana personel otomatik seçilir
+                    setMusteri(m.ad);
+                    setTel(m.tel||"");
+                    if(m.sahipId){ setAnaPersonelId(m.sahipId); }
+                    setSilIkonuAlani("musteri");
+                    setMoneri([]);setTelOneri([]);
+                  } else {
+                    setMusteri(m.ad);setTel(m.tel);setSilIkonuAlani("musteri");setMoneri([]);setTelOneri([]);
+                  }
+                }},
                 div({style:{fontSize:15,color:"var(--tx)"}},m.ad),
-                m.tel&&div({style:{fontSize:12,color:genelToplamBolumStili.textColor||"var(--mu)"}},"📞 "+m.tel)
+                _isManikurist
+                  ? div({style:{fontSize:12,color:m.sahipAd?"#0071E3":"#86868B",marginTop:2,fontStyle:m.sahipAd?"normal":"italic"}},
+                      m.sahipAd ? m.sahipAd+"'ın Müşterisi" : "Sahibi belirsiz")
+                  : (m.tel&&div({style:{fontSize:12,color:genelToplamBolumStili.textColor||"var(--mu)"}},"📞 "+m.tel))
               ))
             )
           ),
-          div({style:{position:"relative",gridColumn:1,gridRow:2}},
+          div({style:{position:"relative",gridColumn:1,gridRow:2,display:_isManikurist?"none":"block"}},
             lbl({className:"fl"},"Telefon"),
             div({style:{position:"relative"}},
               inp({className:"fi",type:"tel",inputMode:"tel",placeholder:"05XX...",value:tel,
@@ -4733,6 +4756,101 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
             opt("","Müşteri Kime Ait?"),
             personeller.filter(p=>p.aktif&&p.rol==="personel"&&pGruplar.find(g=>g.id===p.grup&&g.ad.toLowerCase().includes("gelire"))).map(p=>
               opt(p.id, p.id===aktifKullanici?.id ? p.ad+" (Ben)" : p.ad)
+            )
+          ),
+          // Manikürist müşteri adı yazdı ama henüz öneriden seçmedi → yardım kutusu
+          musteri.trim()&&!anaPersonelId&&(()=>{
+            const q = normText(musteri);
+            const eslesenler = (musteriDB||[]).filter(m=>normText(m.ad).includes(q));
+            if(eslesenler.length>0) return null; // öneri varsa kutu gösterme
+            return div({style:{
+              marginTop:9,padding:"10px 12px",borderRadius:10,
+              background:"#FBFBFD",border:"1px solid rgba(0,0,0,.10)",
+              boxShadow:"0 2px 8px rgba(0,0,0,.05)",
+              fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"
+            }},
+              div({style:{fontSize:12.5,color:"#1D1D1F",lineHeight:1.5,marginBottom:9}},
+                "Bu müşteri sistemde kayıtlı değil. Eğer bu müşterinin özellikle geldiği bir personel varsa, müşteriyi kaydetmesi için ona bildirim gönderin. Sizin müşteriniz ise lütfen sisteme kaydedin."),
+              div({style:{display:"flex",gap:6,flexWrap:"wrap"}},
+                btn({style:{flex:"1 1 auto",padding:"8px 10px",borderRadius:8,
+                  border:"1px solid rgba(0,113,227,.35)",background:"rgba(0,113,227,.08)",
+                  color:"#0071E3",fontSize:12,fontWeight:600,cursor:"pointer"},
+                  onClick:()=>{setManikuristBildirimSec("");setManikuristYardimModal("bildirim");}},
+                  "Bildirim Gönder"),
+                btn({style:{flex:"1 1 auto",padding:"8px 10px",borderRadius:8,
+                  border:"1px solid rgba(52,199,89,.35)",background:"rgba(52,199,89,.08)",
+                  color:"#1F6435",fontSize:12,fontWeight:600,cursor:"pointer"},
+                  onClick:()=>{
+                    // Manikürist'in kendi müşterisi - Müşterilerim'e yönlendir
+                    if(typeof gotoMusteriKart==="function") {
+                      // Yeni müşteri formu açılacak şekilde özel sinyal
+                      gotoMusteriKart("__YENI__:"+musteri.trim()+"|"+temizTelefonRakam(tel));
+                    }
+                    if(typeof onIptal==="function") onIptal();
+                  }},
+                  "Sisteme Kaydet"),
+                btn({style:{flex:"0 1 auto",padding:"8px 12px",borderRadius:8,
+                  border:"1px solid var(--br)",background:"transparent",
+                  color:"#86868B",fontSize:12,fontWeight:500,cursor:"pointer"},
+                  onClick:()=>{
+                    // Sadece kapat - manikürist bilgi olmadan kayda devam edebilir
+                    // (bu durumda anaPersonelId boş kalır, butona basamaz, ama isim sistemde olmaması sorun değil)
+                  }},
+                  "Kapat")
+              )
+            );
+          })()
+        ),
+        // Manikürist Bildirim Gönder modalı (müşteriyi sahibi olan personel kaydetsin)
+        manikuristYardimModal==="bildirim"&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:9999,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:20,
+          fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+          div({style:{background:"#FBFBFD",border:"1px solid rgba(0,0,0,.10)",borderRadius:16,padding:22,maxWidth:380,width:"100%",
+            boxShadow:"0 18px 50px rgba(0,0,0,.22), 0 4px 12px rgba(0,0,0,.10)"}},
+            div({style:{fontSize:15,color:"#1D1D1F",fontWeight:700,marginBottom:10,letterSpacing:"-.2px"}},"Müşteri Kayıt Bildirimi"),
+            div({style:{fontSize:13,color:"#1D1D1F",lineHeight:1.55,marginBottom:14}},
+              h("strong",null,"\""+(musteri||"-")+"\""),
+              " adlı müşteriyi sisteme kaydedecek personeli seçin. Seçtiğiniz personele bildirim gönderilecek."),
+            div({style:{marginBottom:14}},
+              lbl({style:{fontSize:11,letterSpacing:1.2,textTransform:"uppercase",color:"#86868B",fontWeight:600,marginBottom:5,display:"block"}},"Hedef Personel"),
+              sel({className:"fi",value:manikuristBildirimSec||"",
+                onChange:e=>setManikuristBildirimSec(e.target.value)},
+                opt("","Personel seçin..."),
+                personeller.filter(p=>p.aktif&&p.rol==="personel"&&p.id!==aktifKullanici?.id&&pGruplar.find(g=>g.id===p.grup&&g.ad.toLowerCase().includes("gelire"))).map(p=>
+                  opt(p.id, p.ad)
+                )
+              )
+            ),
+            div({style:{display:"flex",gap:8}},
+              btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",background:"#FFFFFF",color:"#1D1D1F",fontSize:13.5,fontWeight:500,cursor:"pointer"},
+                onClick:()=>{setManikuristYardimModal(false);setManikuristBildirimSec("");}},"İptal"),
+              btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid rgba(0,113,227,.35)",background:"rgba(0,113,227,.10)",color:"#0071E3",fontSize:13.5,fontWeight:600,cursor:"pointer",
+                opacity:manikuristBildirimSec?1:.4},
+                disabled:!manikuristBildirimSec,
+                onClick:()=>{
+                  const hedef = personeller.find(p=>p.id===manikuristBildirimSec);
+                  if(hedef && typeof setDevirBildirim==="function" && aktifKullanici){
+                    const yeniBildirim = {
+                      id:"mky_"+Date.now()+"_"+Math.random().toString(36).slice(2,8),
+                      tip:"mkayit_talep", // manikürist kayıt talebi
+                      musteriAd:musteri.trim(),
+                      musteriTel:(tel||"").trim(),
+                      talepEdenId:String(aktifKullanici.id||""),
+                      talepEdenAd:aktifKullanici.ad||"",
+                      hedefId:String(hedef.id),
+                      hedefAd:hedef.ad,
+                      durum:"bekliyor",
+                      olusturmaTarihi:new Date().toISOString(),
+                      okundu:false
+                    };
+                    setDevirBildirim(p=>[yeniBildirim,...(p||[])]);
+                    // Manikürist için ana personel otomatik seçilsin (hedef zaten o)
+                    setAnaPersonelId(hedef.id);
+                    if(typeof showToast==="function") showToast("Kayıt bildirimi gönderildi","uy");
+                  }
+                  setManikuristYardimModal(false);
+                  setManikuristBildirimSec("");
+                }},"Bildirim Gönder")
             )
           )
         ),
@@ -5602,6 +5720,27 @@ function App() {
   const [yeniMusteriForm, setYeniMusteriForm] = useState(null); // null | {ad,telefonlar,...}
   const [yeniMusteriHata, setYeniMusteriHata] = useState("");
   const [yeniMusteriDevirModal, setYeniMusteriDevirModal] = useState(null); // {musteri:{...}}
+  // Müşteri detay paneli (Müşterilerim sekmesinde tıklanan müşteri için hizmet geçmişi)
+  const [musteriDetayId, setMusteriDetayId] = useState(null);
+  const [acikGunler, setAcikGunler] = useState({}); // {tarih: true/false} — akordeon
+
+  // gotoMusteriKart helper — tüm KayitForm çağrıları için
+  const gotoMusteriKartGenel = (mid) => {
+    if(typeof mid==="string" && mid.startsWith("__YENI__:")){
+      const payload = mid.slice("__YENI__:".length);
+      const [ad, tel] = payload.split("|");
+      setPsek("musterilerim");
+      setYeniMusteriHata("");
+      setYeniMusteriForm({
+        ad:(ad||"").trim(),cinsiyet:"",dogumTarihi:"",meslek:"",
+        telefonlar:[{etiket:"Cep",numara:(tel||"").trim()}],
+        email:"",il:"",ilce:"",adres:"",hizmetTercihleri:"",alerji:"",tipNotu:"",ozelTarihler:"",not:""
+      });
+    } else {
+      setPsek("musterilerim");
+      setMDuzenleId(mid);
+    }
+  };
   const [yonDuzForm, setYonDuzForm]       = useState(null); // Yönetici düzenleme formu {kayit, neden, islem}
   const [musteriAramaFil, setMusteriAramaFil] = useState(""); // Yönetici kayıt arama
   // ── Yönetici Kayıtlar Sekmesi — Sorgu Paneli State'leri ──
@@ -6150,7 +6289,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       return h(KayitForm,{bolumStilleri,ilk:{tarih:ds},musteriDB,personeller,aktifKullanici:kul,
         baslik:dl+" Tarihli Kayit",
         devirBildirim,setDevirBildirim,showToast,
-        gotoMusteriKart:(mid)=>{setPsek("musterilerim");setMDuzenleId(mid);},
+        gotoMusteriKart:gotoMusteriKartGenel,
         onKaydet:devUnuttumKaydet,
         onIptal:()=>{setDevUnuttum(false);setEksikGunTarih("");}});
     })(),
@@ -6240,7 +6379,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
             musteriDB, personeller, aktifKullanici:kul,
             baslik:"Kayıt Düzenle (Yönetici)",
             devirBildirim,setDevirBildirim,showToast,
-            gotoMusteriKart:(mid)=>{setPsek("musterilerim");setMDuzenleId(mid);},
+            gotoMusteriKart:gotoMusteriKartGenel,
             onKaydet:f=>{
               const hKK=toN(f.hizKK),hIB=toN(f.hizIB),hNK=toN(f.hizNK);
               const uKK=toN(f.uKK),uIB=toN(f.uIB),uNK=toN(f.uNK);
@@ -6615,7 +6754,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     ),
 
     // Kayit formu
-    kayitForm&&h(KayitForm,{bolumStilleri,ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,hizListeleri,buttonText:kayitForm._yonBildirimId?"Güncelle ve Gönder":undefined,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null),hatirlatmalar,setHatirlatmalar,devirBildirim,setDevirBildirim,showToast,gotoMusteriKart:(mid)=>{setKayitForm(null);setPsek("musterilerim");setMDuzenleId(mid);}}),
+    kayitForm&&h(KayitForm,{bolumStilleri,ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,hizListeleri,buttonText:kayitForm._yonBildirimId?"Güncelle ve Gönder":undefined,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null),hatirlatmalar,setHatirlatmalar,devirBildirim,setDevirBildirim,showToast,gotoMusteriKart:(mid)=>{setKayitForm(null);gotoMusteriKartGenel(mid);}}),
 
     // Personel ekle modal
     pEkle&&h(PersonelFormModal,{title:"Yeni Personel",data:yeniP,setData:setYeniP,hata:pHata,gruplar:pGruplar,onKaydet:pEkleKaydet,onIptal:()=>{setPEkle(false);setPHata("");},showDurum:false}),
@@ -6661,10 +6800,14 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
           const benimId = String(kul?.id||"");
           const okunmamisSayim = (devirBildirim||[]).filter(b => {
             if(b.okundu) return false;
-            // Personele gelen aktif talepler
+            // Personele gelen aktif talepler (devralma)
             if(b.tip==="talep" && String(b.mevcutSahipId||"")===benimId && b.durum==="bekliyor") return true;
             // Talep eden personele dönen geri bildirimler (onay/red)
             if((b.tip==="onay_geri" || b.tip==="red_geri") && String(b.talepEdenId||"")===benimId) return true;
+            // Manikürist müşteri kayıt talebi - hedef personel için
+            if(b.tip==="mkayit_talep" && String(b.hedefId||"")===benimId && b.durum==="bekliyor") return true;
+            // Manikürist'e dönen geri bildirimler (kayıt yapıldı / reddedildi)
+            if((b.tip==="mkayit_kaydedildi" || b.tip==="mkayit_red") && String(b.talepEdenId||"")===benimId) return true;
             return false;
           }).length;
           return div({className:`atab${psek==="bildirimler"?" a":""}`,onClick:()=>setPsek("bildirimler"),
@@ -6692,12 +6835,14 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
         const benimBildirimlerim = (devirBildirim||[]).filter(b => {
           if(b.tip==="talep" && String(b.mevcutSahipId||"")===benimId) return true;
           if((b.tip==="onay_geri" || b.tip==="red_geri") && String(b.talepEdenId||"")===benimId) return true;
+          if(b.tip==="mkayit_talep" && String(b.hedefId||"")===benimId) return true;
+          if((b.tip==="mkayit_kaydedildi" || b.tip==="mkayit_red") && String(b.talepEdenId||"")===benimId) return true;
           return false;
         });
         const okunmamisListe = benimBildirimlerim.filter(b => !b.okundu &&
-          (b.tip!=="talep" || b.durum==="bekliyor"));
+          ((b.tip!=="talep" && b.tip!=="mkayit_talep") || b.durum==="bekliyor"));
         const okunmusListe = benimBildirimlerim.filter(b => b.okundu ||
-          (b.tip==="talep" && b.durum!=="bekliyor"));
+          ((b.tip==="talep" || b.tip==="mkayit_talep") && b.durum!=="bekliyor"));
         const aktifListe = bildirimAltSek==="okunmamis" ? okunmamisListe : okunmusListe;
         const trh = (iso) => {
           if(!iso) return "";
@@ -6869,6 +7014,120 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
                     )
                   );
                 }
+                // ─ Tür 4: Müşteri Kayıt Talebi (manikürist → ana personele) ─
+                if(b.tip==="mkayit_talep"){
+                  const aktifBekleyen = b.durum==="bekliyor";
+                  return div({key:b.id,style:kutuStili},
+                    div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}},
+                      div({style:{fontSize:13.5,fontWeight:700,color:"#1D1D1F",letterSpacing:"-.1px"}},"Müşteri Kayıt Talebi"),
+                      div({style:{fontSize:11,color:"#86868B",flexShrink:0}},trh(b.olusturmaTarihi))
+                    ),
+                    div({style:{fontSize:13,color:"#1D1D1F",lineHeight:1.55,marginBottom:10}},
+                      h("strong",null,b.talepEdenAd||"Manikürist"),
+                      ", ",
+                      h("strong",null,"\""+(b.musteriAd||"-")+"\""),
+                      " adlı müşterinin sizin müşteriniz olarak kaydedilmesini istedi. Müşteri size aitse Müşterilerim bölümünden kaydedin, değilse reddedin."),
+                    div({style:{background:"rgba(0,0,0,.04)",borderRadius:8,padding:"7px 10px",marginBottom:10,fontSize:12,color:"#3a3a3c"}},
+                      "Müşteri: ",h("strong",{style:{color:"#1D1D1F"}},b.musteriAd||"-"),
+                      b.musteriTel&&span(null," · 📞 "+b.musteriTel)
+                    ),
+                    aktifBekleyen
+                      ? div({style:{display:"flex",gap:8}},
+                          btn({style:{flex:1,padding:"9px 0",borderRadius:9,border:"1px solid rgba(0,0,0,.12)",background:"#FFFFFF",color:"#1D1D1F",fontSize:13,fontWeight:500,cursor:"pointer"},
+                            onClick:()=>{
+                              // Reddet: bildirim kapanır + maniküriste geri bildirim
+                              setDevirBildirim(p=>p.map(x=>x.id===b.id ? {...x,durum:"reddedildi",okundu:true,sonuclanmaTarihi:new Date().toISOString()} : x));
+                              const geri = {
+                                id:"mky_"+Date.now()+"_"+Math.random().toString(36).slice(2,8),
+                                tip:"mkayit_red",
+                                iliskiliTalepId:b.id,
+                                musteriAd:b.musteriAd,
+                                musteriTel:b.musteriTel||"",
+                                talepEdenId:b.talepEdenId,
+                                talepEdenAd:b.talepEdenAd,
+                                hedefId:b.hedefId,
+                                hedefAd:b.hedefAd,
+                                durum:"reddedildi",
+                                olusturmaTarihi:new Date().toISOString(),
+                                okundu:false
+                              };
+                              setDevirBildirim(p=>[geri,...p]);
+                              showToast("Talep reddedildi","uy");
+                            }},"Reddet"),
+                          btn({style:{flex:1.4,padding:"9px 0",borderRadius:9,border:"1px solid rgba(0,113,227,.35)",background:"rgba(0,113,227,.10)",color:"#0071E3",fontSize:13,fontWeight:600,cursor:"pointer"},
+                            onClick:()=>{
+                              // Müşterilerim'e git - form ad+tel önceden dolu açılır
+                              // Talep "tamamlandı" olarak işaretlenir, kayıt olduğunda geri bildirim manuel tetiklenir
+                              // Burada talebin id'sini saklayıp kayıt sırasında işleyebiliriz - basit yaklaşım: işaretle ve geri bildirim gönder
+                              setDevirBildirim(p=>p.map(x=>x.id===b.id ? {...x,durum:"yonlendirildi",okundu:true,sonuclanmaTarihi:new Date().toISOString()} : x));
+                              // Maniküriste geri bildirim
+                              const geri = {
+                                id:"mky_"+Date.now()+"_"+Math.random().toString(36).slice(2,8),
+                                tip:"mkayit_kaydedildi",
+                                iliskiliTalepId:b.id,
+                                musteriAd:b.musteriAd,
+                                musteriTel:b.musteriTel||"",
+                                talepEdenId:b.talepEdenId,
+                                talepEdenAd:b.talepEdenAd,
+                                hedefId:b.hedefId,
+                                hedefAd:b.hedefAd,
+                                durum:"kaydedildi",
+                                olusturmaTarihi:new Date().toISOString(),
+                                okundu:false
+                              };
+                              setDevirBildirim(p=>[geri,...p]);
+                              // Müşterilerim'e git, form ad+tel ile açılır
+                              gotoMusteriKartGenel("__YENI__:"+(b.musteriAd||"")+"|"+(b.musteriTel||""));
+                            }},"Müşterilerim'e Git")
+                        )
+                      : div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}},
+                          div({style:{fontSize:12,color:b.durum==="yonlendirildi"?"#34C759":"#FF3B30",fontWeight:600}},
+                            b.durum==="yonlendirildi"?"✓ Müşterilerim'e yönlendirildi":"✕ Reddedildi"),
+                          btn({style:{padding:"6px 12px",borderRadius:8,border:"1px solid var(--br)",background:"transparent",color:"#86868B",fontSize:12,cursor:"pointer"},
+                            onClick:()=>bildirimSil(b)},"Sil")
+                        )
+                  );
+                }
+                // ─ Tür 5: Manikürist'e geri - Kayıt Yapıldı ─
+                if(b.tip==="mkayit_kaydedildi"){
+                  return div({key:b.id,style:kutuStili},
+                    div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}},
+                      div({style:{fontSize:13.5,fontWeight:700,color:"#34C759",letterSpacing:"-.1px"}},"Müşteri Kaydedildi"),
+                      div({style:{fontSize:11,color:"#86868B",flexShrink:0}},trh(b.olusturmaTarihi))
+                    ),
+                    div({style:{fontSize:13,color:"#1D1D1F",lineHeight:1.55,marginBottom:10}},
+                      h("strong",null,b.hedefAd||"İlgili personel"),
+                      ", ",
+                      h("strong",null,"\""+(b.musteriAd||"")+"\""),
+                      " adlı müşteriyi sisteme kaydetti."),
+                    div({style:{display:"flex",justifyContent:"flex-end",gap:8}},
+                      !b.okundu&&btn({style:{padding:"7px 14px",borderRadius:8,border:"1px solid rgba(0,113,227,.35)",background:"rgba(0,113,227,.08)",color:"#0071E3",fontSize:12.5,fontWeight:600,cursor:"pointer"},
+                        onClick:()=>okunduIsaretle(b)},"Tamam"),
+                      btn({style:{padding:"7px 12px",borderRadius:8,border:"1px solid var(--br)",background:"transparent",color:"#86868B",fontSize:12,cursor:"pointer"},
+                        onClick:()=>bildirimSil(b)},"Sil")
+                    )
+                  );
+                }
+                // ─ Tür 6: Manikürist'e geri - Kayıt Reddedildi ─
+                if(b.tip==="mkayit_red"){
+                  return div({key:b.id,style:kutuStili},
+                    div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}},
+                      div({style:{fontSize:13.5,fontWeight:700,color:"#FF3B30",letterSpacing:"-.1px"}},"Müşteri Kaydı Reddedildi"),
+                      div({style:{fontSize:11,color:"#86868B",flexShrink:0}},trh(b.olusturmaTarihi))
+                    ),
+                    div({style:{fontSize:13,color:"#1D1D1F",lineHeight:1.55,marginBottom:10}},
+                      h("strong",null,b.hedefAd||"İlgili personel"),
+                      ", ",
+                      h("strong",null,"\""+(b.musteriAd||"")+"\""),
+                      " adlı müşterinin kendisine ait olmadığını belirtti. Müşterinin doğru sahibini öğrenip yeniden bildirim gönderebilirsiniz."),
+                    div({style:{display:"flex",justifyContent:"flex-end",gap:8}},
+                      !b.okundu&&btn({style:{padding:"7px 14px",borderRadius:8,border:"1px solid rgba(0,113,227,.35)",background:"rgba(0,113,227,.08)",color:"#0071E3",fontSize:12.5,fontWeight:600,cursor:"pointer"},
+                        onClick:()=>okunduIsaretle(b)},"Tamam"),
+                      btn({style:{padding:"7px 12px",borderRadius:8,border:"1px solid var(--br)",background:"transparent",color:"#86868B",fontSize:12,cursor:"pointer"},
+                        onClick:()=>bildirimSil(b)},"Sil")
+                    )
+                  );
+                }
                 return null;
               })
         );
@@ -6917,7 +7176,8 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
             :myMusteriler.map(m=>
               div({key:m.id,style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.09)",borderRadius:14,padding:13,marginBottom:8}},
                 div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:mDuzenleId===m.id?10:0}},
-                  div(null,
+                  div({style:{cursor:"pointer",flex:1,minWidth:0},
+                    onClick:()=>{setMusteriDetayId(m.id);setAcikGunler({});}},
                     div({style:{fontSize:14,fontWeight:700,color:"var(--t)",marginBottom:2}},m.ad),
                     m.tel&&div({style:{fontSize:12,color:"var(--di)"}},"📞 "+m.tel),
                     m.ilkGiris&&div({style:{fontSize:11,color:"var(--di)",marginTop:2}},"İlk giriş: "+m.ilkGiris.split("-").reverse().join(".")),
@@ -7237,7 +7497,154 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
                   }},"Devralma Onayı Gönder")
               )
             )
-          )
+          ),
+          // ─── Müşteri Detay Modal — Hizmet Geçmişi (Akordeon) ───
+          musteriDetayId&&(()=>{
+            const m = musteriDB.find(x=>x.id===musteriDetayId);
+            if(!m) return null;
+            const temizT = v => String(v||"").replace(/\D/g,"");
+            const musTel = temizT(m.tel);
+            // Bu müşteriye ait tüm kayıtlar (records + bekleyen + gecmis) — telefon eşleşmesiyle
+            const tumKayitlar = [...(records||[]),...(bekleyen||[]),...(gecmis||[])];
+            const musteriKayitlar = tumKayitlar.filter(r=>{
+              if(!r) return false;
+              const rTel = temizT(r.tel);
+              if(musTel && rTel && rTel===musTel) return true;
+              // Telefon yoksa isim eşleşmesi (yedek)
+              if(!musTel && r.musteri && normText(r.musteri)===normText(m.ad)) return true;
+              return false;
+            });
+            // Tarihe göre grupla
+            const gunler = {};
+            musteriKayitlar.forEach(r=>{
+              const t = r.tarih || "";
+              if(!t) return;
+              if(!gunler[t]) gunler[t] = [];
+              gunler[t].push(r);
+            });
+            const sirali = Object.keys(gunler).sort().reverse();
+            const trF = iso => {
+              if(!iso) return "";
+              const p = iso.split("-");
+              if(p.length!==3) return iso;
+              const tarih = new Date(p[0],parseInt(p[1])-1,p[2]);
+              return tarih.toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric"});
+            };
+            const personelAdi = (id) => {
+              const p = personeller.find(x=>String(x.id)===String(id));
+              return p?.ad || "";
+            };
+            const isManikuristKaydi = (r) => {
+              const p = personeller.find(x=>String(x.id)===String(r.staffId));
+              const poz = p?.pozisyon || "";
+              return poz==="Manikurist"||poz==="Pedikürist"||poz==="Pedikurist";
+            };
+            return div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:9999,
+              display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"20px 12px",overflowY:"auto",
+              fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+              div({style:{background:"#F5F5F7",borderRadius:18,maxWidth:540,width:"100%",
+                boxShadow:"0 24px 60px rgba(0,0,0,.28), 0 6px 16px rgba(0,0,0,.12)",
+                overflow:"hidden",margin:"auto"}},
+                // Üst başlık
+                div({style:{background:"#FFFFFF",padding:"14px 16px",
+                  display:"flex",alignItems:"center",justifyContent:"space-between",
+                  borderBottom:"1px solid rgba(0,0,0,.08)",position:"sticky",top:0,zIndex:5}},
+                  div(null,
+                    div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F",letterSpacing:"-.2px"}},m.ad),
+                    m.tel&&div({style:{fontSize:12,color:"#86868B",marginTop:1}},"📞 "+m.tel)
+                  ),
+                  btn({style:{background:"transparent",border:"none",color:"#86868B",fontSize:22,cursor:"pointer",padding:0,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"},
+                    onClick:()=>{setMusteriDetayId(null);setAcikGunler({});}},"✕")
+                ),
+                div({style:{padding:14}},
+                  // Müşteri bilgileri özeti
+                  div({style:{background:"#FBFBFD",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:12,marginBottom:12,fontSize:12.5,color:"#1D1D1F",lineHeight:1.6}},
+                    m.ilkGiris&&div(null,h("strong",null,"İlk giriş: "),m.ilkGiris.split("-").reverse().join(".")),
+                    m.cinsiyet&&div(null,h("strong",null,"Cinsiyet: "),m.cinsiyet),
+                    m.dogumTarihi&&div(null,h("strong",null,"Doğum tarihi: "),m.dogumTarihi.split("-").reverse().join(".")),
+                    m.meslek&&div(null,h("strong",null,"Meslek: "),m.meslek),
+                    m.email&&div(null,h("strong",null,"E-posta: "),m.email),
+                    (m.il||m.ilce)&&div(null,h("strong",null,"Konum: "),[m.il,m.ilce].filter(Boolean).join(" / ")),
+                    m.adres&&div(null,h("strong",null,"Adres: "),m.adres),
+                    m.alerji&&div({style:{color:"#A0231C"}},h("strong",null,"⚠ Alerji: "),m.alerji),
+                    m.tipNotu&&div(null,h("strong",null,"Tip notu: "),m.tipNotu),
+                    m.notlar&&div(null,h("strong",null,"Not: "),m.notlar)
+                  ),
+                  // Hizmet Geçmişi başlık
+                  div({style:{fontSize:12,fontWeight:700,color:"#0071E3",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10,paddingBottom:6,borderBottom:"1px solid rgba(0,113,227,.15)"}},
+                    "📋 Hizmet Geçmişi"),
+                  sirali.length===0
+                    ? div({style:{textAlign:"center",padding:"30px 10px",color:"#86868B",fontSize:13}},
+                        "Henüz hizmet kaydı yok")
+                    : sirali.map(t=>{
+                        const gunKayitlari = gunler[t];
+                        const acik = !!acikGunler[t];
+                        // Toplam tutar (görsel)
+                        const toplamGun = gunKayitlari.reduce((s,r)=>s+toN(r.hizKK||0)+toN(r.hizIB||0)+toN(r.hizNK||0)+toN(r.uKK||0)+toN(r.uIB||0)+toN(r.uNK||0),0);
+                        return div({key:t,style:{background:"#FFFFFF",border:"1px solid rgba(0,0,0,.08)",borderRadius:11,marginBottom:8,overflow:"hidden"}},
+                          // Tarih satırı (tıklanabilir)
+                          div({style:{padding:"11px 13px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",
+                            background:acik?"rgba(0,113,227,.04)":"transparent",transition:"background .2s"},
+                            onClick:()=>setAcikGunler(p=>({...p,[t]:!p[t]}))},
+                            div({style:{display:"flex",alignItems:"center",gap:8}},
+                              div({style:{fontSize:13,fontWeight:600,color:"#1D1D1F",letterSpacing:"-.1px"}},trF(t)),
+                              gunKayitlari.length>1&&span({style:{fontSize:11,color:"#86868B",background:"rgba(0,0,0,.05)",padding:"1px 6px",borderRadius:6}},gunKayitlari.length+" kayıt")
+                            ),
+                            div({style:{display:"flex",alignItems:"center",gap:8}},
+                              toplamGun>0&&span({style:{fontSize:12,color:"#1D1D1F",fontWeight:600}},fmt(toplamGun)),
+                              span({style:{fontSize:14,color:"#86868B",transition:"transform .2s",transform:acik?"rotate(180deg)":"rotate(0deg)",display:"inline-block"}},"▾")
+                            )
+                          ),
+                          // Detaylar (akordeon açıkken)
+                          acik&&div({style:{padding:"0 13px 11px"}},
+                            (()=>{
+                              const anaKayitlar = gunKayitlari.filter(r=>!isManikuristKaydi(r));
+                              const manikuristKayitlar = gunKayitlari.filter(r=>isManikuristKaydi(r));
+                              return [
+                                // Ana personel kayıtları
+                                ...anaKayitlar.map((r,idx)=>div({key:"a"+idx,style:{paddingTop:9,borderTop:idx>0?"1px solid rgba(0,0,0,.06)":"none",marginTop:idx>0?9:0}},
+                                  div({style:{fontSize:11,color:"#86868B",marginBottom:4}},personelAdi(r.staffId)),
+                                  div({style:{fontSize:13,color:"#1D1D1F",marginBottom:6}},
+                                    (r.hizler||[]).map(hz=>(typeof hz==="string"?hz:hz.n||"")).filter(Boolean).join(" · ")||"—"),
+                                  (r.urunler||[]).filter(u=>u.a).length>0&&div({style:{fontSize:12,color:"#3a3a3c",marginBottom:6}},
+                                    "📦 "+(r.urunler||[]).filter(u=>u.a).map(u=>u.a).join(", ")),
+                                  div({style:{display:"flex",gap:10,flexWrap:"wrap",fontSize:12}},
+                                    toN(r.hizKK)>0&&span({style:{color:"#1D1D1F"}},"💳 "+fmt(r.hizKK)),
+                                    toN(r.hizIB)>0&&span({style:{color:"#1D1D1F"}},"🏦 "+fmt(r.hizIB)),
+                                    toN(r.hizNK)>0&&span({style:{color:"#1D1D1F"}},"💵 "+fmt(r.hizNK)),
+                                    toN(r.uKK)>0&&span({style:{color:"#3a3a3c"}},"💳 ürün "+fmt(r.uKK)),
+                                    toN(r.uIB)>0&&span({style:{color:"#3a3a3c"}},"🏦 ürün "+fmt(r.uIB)),
+                                    toN(r.uNK)>0&&span({style:{color:"#3a3a3c"}},"💵 ürün "+fmt(r.uNK))
+                                  )
+                                )),
+                                // Manikürist kayıtları (alt blok - tutar gri, "size yazılmadı" tonunda)
+                                manikuristKayitlar.length>0&&div({key:"mk",style:{
+                                  marginTop:10,padding:"10px 12px",
+                                  background:"rgba(0,113,227,.04)",
+                                  border:"1px solid rgba(0,113,227,.12)",
+                                  borderRadius:10
+                                }},
+                                  div({style:{fontSize:11,fontWeight:700,color:"#0071E3",letterSpacing:.8,textTransform:"uppercase",marginBottom:8}},"💅 Manikürist Hizmetleri"),
+                                  manikuristKayitlar.map((r,idx)=>div({key:"m"+idx,style:{paddingTop:idx>0?7:0,marginTop:idx>0?7:0,borderTop:idx>0?"1px solid rgba(0,113,227,.10)":"none"}},
+                                    div({style:{fontSize:11,color:"#5a7a9a",marginBottom:3}},"Hizmet veren: ",h("strong",{style:{color:"#1D1D1F"}},personelAdi(r.staffId))),
+                                    div({style:{fontSize:13,color:"#1D1D1F",marginBottom:5}},
+                                      (r.hizler||[]).map(hz=>(typeof hz==="string"?hz:hz.n||"")).filter(Boolean).join(" · ")||"—"),
+                                    div({style:{display:"flex",gap:10,flexWrap:"wrap",fontSize:12}},
+                                      toN(r.hizKK)>0&&span({style:{color:"#3a3a3c"}},"💳 "+fmt(r.hizKK)),
+                                      toN(r.hizIB)>0&&span({style:{color:"#3a3a3c"}},"🏦 "+fmt(r.hizIB)),
+                                      toN(r.hizNK)>0&&span({style:{color:"#3a3a3c"}},"💵 "+fmt(r.hizNK))
+                                    )
+                                  ))
+                                )
+                              ].filter(Boolean);
+                            })()
+                          )
+                        );
+                      })
+                )
+              )
+            );
+          })()
         );
       })(),
       // Bugun
