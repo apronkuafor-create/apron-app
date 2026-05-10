@@ -5574,6 +5574,488 @@ function StokGiris({stokDB, setStokDB, stokHar, setStokHar, kul, showToast, akti
   );
 }
 
+// ── İNDİRİM/ZAM MUHASEBESİ MODÜLÜ ──────────────────────────────────────────
+function IndirimZamModul({zamGecmisi, setZamGecmisi, triggerUrunRender, hizListeleri, setHizListeleri, showToast}) {
+  // Tip: "hizmet" | "urun"
+  // Kapsam: "hepsi" | "marka" | "liste" | "secili"
+  const [tip, setTip] = React.useState("hizmet");
+  const [kapsam, setKapsam] = React.useState("hepsi");
+  const [seciliMarkalar, setSeciliMarkalar] = React.useState([]); // ürün için
+  const [seciliListe, setSeciliListe] = React.useState("ustaKalfa"); // hizmet için: ustaKalfa | manikurist
+  const [seciliKayitlar, setSeciliKayitlar] = React.useState([]); // tek tek seçim için (barkod veya hizmet adı)
+  const [oran, setOran] = React.useState("");
+  const [yon, setYon] = React.useState("zam"); // zam | indirim
+  const [aciklama, setAciklama] = React.useState("");
+  const [onayModal, setOnayModal] = React.useState(null); // {hedefler, oncekiSonra, ozet}
+  const [aramaQ, setAramaQ] = React.useState("");
+
+  const markaListesi = React.useMemo(()=>[...new Set(URUN_DB.map(u=>u.m))].sort(), [zamGecmisi]);
+  const tumHizmetler = React.useMemo(()=>{
+    const u = (hizListeleri.ustaKalfa||[]).map(h=>typeof h==="object"?h.ad:h);
+    const m = (hizListeleri.manikurist||[]).map(h=>typeof h==="object"?h.ad:h);
+    return {ustaKalfa:u, manikurist:m, hepsi:[...new Set([...u,...m])]};
+  }, [hizListeleri, zamGecmisi]);
+
+  // ─ Hangi öğelere uygulanacak — hesapla ─
+  const hedefleriBul = () => {
+    if(tip==="hizmet"){
+      let adlar = [];
+      if(kapsam==="hepsi") adlar = tumHizmetler.hepsi;
+      else if(kapsam==="liste") adlar = seciliListe==="ustaKalfa" ? tumHizmetler.ustaKalfa : tumHizmetler.manikurist;
+      else if(kapsam==="secili") adlar = seciliKayitlar;
+      return adlar.filter(ad => HIZ_LISTE_FIYAT[ad]>0);
+    } else {
+      let urunler = [];
+      if(kapsam==="hepsi") urunler = [...URUN_DB];
+      else if(kapsam==="marka") urunler = URUN_DB.filter(u=>seciliMarkalar.includes(u.m));
+      else if(kapsam==="secili") urunler = URUN_DB.filter(u=>seciliKayitlar.includes(u.b));
+      return urunler.filter(u=>(u.sp||0)>0 || (u.bp||0)>0 || (u.ap||0)>0);
+    }
+  };
+
+  // ─ Önizleme: önce-sonra hesapla ─
+  const onizlemeYap = () => {
+    const o = parseFloat(String(oran).replace(",","."));
+    if(!o || o<=0) { showToast("Geçerli bir oran girin","uy"); return; }
+    if(o>500) { showToast("Oran %500'den büyük olamaz","uy"); return; }
+    const carpan = yon==="zam" ? (1 + o/100) : (1 - o/100);
+    const hedefler = hedefleriBul();
+    if(hedefler.length===0) { showToast("Hiçbir öğe seçilmedi","uy"); return; }
+
+    const oncekiSonra = [];
+    if(tip==="hizmet"){
+      hedefler.forEach(ad=>{
+        const eski = HIZ_LISTE_FIYAT[ad]||0;
+        const yeni = Math.round(eski * carpan * 100) / 100;
+        oncekiSonra.push({ad, eski, yeni});
+      });
+    } else {
+      hedefler.forEach(u=>{
+        const eskiSp = u.sp||0;
+        const eskiBp = u.bp||0;
+        const eskiAp = u.ap||0;
+        const yeniSp = Math.round(eskiSp * carpan * 100) / 100;
+        const yeniBp = Math.round(eskiBp * carpan * 100) / 100;
+        const yeniAp = Math.round(eskiAp * carpan * 100) / 100;
+        oncekiSonra.push({barkod:u.b, ad:u.a, marka:u.m, eskiSp, yeniSp, eskiBp, yeniBp, eskiAp, yeniAp});
+      });
+    }
+
+    const toplamEski = tip==="hizmet"
+      ? oncekiSonra.reduce((s,x)=>s+x.eski,0)
+      : oncekiSonra.reduce((s,x)=>s+x.eskiSp,0);
+    const toplamYeni = tip==="hizmet"
+      ? oncekiSonra.reduce((s,x)=>s+x.yeni,0)
+      : oncekiSonra.reduce((s,x)=>s+x.yeniSp,0);
+
+    setOnayModal({hedefler, oncekiSonra, oran:o, yon, tip, kapsam, toplamEski, toplamYeni, aciklama});
+  };
+
+  // ─ Onaylandı: uygula ve geçmişe kaydet ─
+  const uygula = () => {
+    const islem = {
+      id: Date.now()+"-"+Math.random().toString(36).slice(2,8),
+      tarih: new Date().toISOString(),
+      tip: onayModal.tip,
+      kapsam: onayModal.kapsam,
+      yon: onayModal.yon,
+      oran: onayModal.oran,
+      aciklama: onayModal.aciklama || "",
+      degisimler: onayModal.oncekiSonra,
+      geriAlindi: false
+    };
+
+    // Uygula
+    if(onayModal.tip==="hizmet"){
+      onayModal.oncekiSonra.forEach(x=>{
+        HIZ_LISTE_FIYAT[x.ad] = x.yeni;
+      });
+    } else {
+      onayModal.oncekiSonra.forEach(x=>{
+        const idx = URUN_DB.findIndex(u=>u.b===x.barkod);
+        if(idx>=0) {
+          URUN_DB[idx].sp = x.yeniSp;
+          URUN_DB[idx].bp = x.yeniBp;
+          URUN_DB[idx].ap = x.yeniAp;
+        }
+      });
+    }
+    triggerUrunRender();
+    setZamGecmisi(p=>[islem,...(p||[])]);
+    setOnayModal(null);
+    setOran(""); setAciklama(""); setSeciliKayitlar([]);
+    showToast("İşlem uygulandı: "+onayModal.oncekiSonra.length+" öğe","ba");
+  };
+
+  // ─ Geri al ─
+  const geriAl = (islem) => {
+    if(!confirm("Bu işlemi geri almak istediğinize emin misiniz?\n\n"+islem.degisimler.length+" öğe eski fiyatlarına dönecek.")) return;
+    if(islem.tip==="hizmet"){
+      islem.degisimler.forEach(x=>{
+        HIZ_LISTE_FIYAT[x.ad] = x.eski;
+      });
+    } else {
+      islem.degisimler.forEach(x=>{
+        const idx = URUN_DB.findIndex(u=>u.b===x.barkod);
+        if(idx>=0) {
+          URUN_DB[idx].sp = x.eskiSp;
+          URUN_DB[idx].bp = x.eskiBp;
+          URUN_DB[idx].ap = x.eskiAp;
+        }
+      });
+    }
+    triggerUrunRender();
+    setZamGecmisi(p=>p.map(z=>z.id===islem.id ? {...z,geriAlindi:true,geriAlmaTarihi:new Date().toISOString()} : z));
+    showToast("İşlem geri alındı","ba");
+  };
+
+  const trh = (iso) => {
+    if(!iso) return "";
+    try { return new Date(iso).toLocaleString("tr-TR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}); }
+    catch(e){ return ""; }
+  };
+
+  // ─ Tek tek seçim için liste ─
+  const secilebilirListe = (()=>{
+    if(tip==="hizmet"){
+      const tum = tumHizmetler.hepsi;
+      if(!aramaQ.trim()) return tum;
+      const q = normText(aramaQ);
+      return tum.filter(ad=>normText(ad).includes(q));
+    } else {
+      let liste = URUN_DB;
+      if(aramaQ.trim()){
+        const q = normText(aramaQ);
+        liste = liste.filter(u=>normText(u.a).includes(q)||normText(u.m).includes(q)||u.b.includes(aramaQ));
+      }
+      return liste;
+    }
+  })();
+
+  return div({style:{padding:"4px 0",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+
+    // Onay modalı (önizleme)
+    onayModal && div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:9999,
+      display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto"}},
+      div({style:{background:"#FBFBFD",border:"1px solid rgba(0,0,0,.10)",borderRadius:18,
+        maxWidth:560,width:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",
+        boxShadow:"0 24px 60px rgba(0,0,0,.28)",overflow:"hidden"}},
+        // Başlık
+        div({style:{padding:"16px 20px",borderBottom:"1px solid rgba(0,0,0,.08)",
+          display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,
+          background:onayModal.yon==="zam"?"rgba(255,159,10,.08)":"rgba(52,199,89,.08)"}},
+          div(null,
+            div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F"}},
+              onayModal.yon==="zam"?"⬆ Zam Onayı":"⬇ İndirim Onayı"),
+            div({style:{fontSize:12,color:"#86868B",marginTop:2}},
+              "%"+onayModal.oran+" · "+onayModal.oncekiSonra.length+" öğe etkilenecek")
+          ),
+          btn({style:{background:"transparent",border:"none",color:"#86868B",fontSize:22,cursor:"pointer",padding:0,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"},
+            onClick:()=>setOnayModal(null)},"✕")
+        ),
+        // Liste
+        div({style:{flex:1,overflowY:"auto",padding:"14px 20px"}},
+          // Özet
+          div({style:{background:"rgba(0,113,227,.06)",border:"1px solid rgba(0,113,227,.2)",
+            borderRadius:11,padding:"12px 14px",marginBottom:14,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
+            div(null,
+              div({style:{fontSize:11,color:"#86868B",letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}},"Toplam Eski"),
+              div({style:{fontSize:18,fontWeight:700,color:"#1D1D1F"}},fmt(onayModal.toplamEski))
+            ),
+            div(null,
+              div({style:{fontSize:11,color:"#86868B",letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}},"Toplam Yeni"),
+              div({style:{fontSize:18,fontWeight:700,color:onayModal.yon==="zam"?"#FF9F0A":"#34C759"}},fmt(onayModal.toplamYeni))
+            )
+          ),
+          // Detay liste
+          div({style:{fontSize:12,fontWeight:700,color:"#0071E3",letterSpacing:1.2,textTransform:"uppercase",marginBottom:8}},
+            "Detay ("+onayModal.oncekiSonra.length+" öğe)"),
+          onayModal.oncekiSonra.slice(0, 50).map((x,i)=>
+            onayModal.tip==="hizmet"
+              ? div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+                  padding:"8px 11px",background:"#fff",border:"1px solid rgba(0,0,0,.06)",
+                  borderRadius:8,marginBottom:5,fontSize:13}},
+                  div({style:{color:"#1D1D1F",fontWeight:500}},x.ad),
+                  div({style:{display:"flex",alignItems:"center",gap:8,fontFamily:"'Inter',monospace"}},
+                    span({style:{color:"#86868B",textDecoration:"line-through"}},fmt(x.eski)),
+                    span({style:{color:"#86868B"}},"→"),
+                    span({style:{color:onayModal.yon==="zam"?"#FF9F0A":"#34C759",fontWeight:700}},fmt(x.yeni))
+                  )
+                )
+              : div({key:i,style:{padding:"9px 11px",background:"#fff",border:"1px solid rgba(0,0,0,.06)",
+                  borderRadius:8,marginBottom:5}},
+                  div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}},
+                    div({style:{flex:1,minWidth:0}},
+                      div({style:{fontSize:12.5,color:"#1D1D1F",fontWeight:500}},x.ad),
+                      div({style:{fontSize:11,color:"#86868B",marginTop:1}},x.marka+" · "+x.barkod)
+                    ),
+                    div({style:{textAlign:"right",fontSize:12,fontFamily:"'Inter',monospace"}},
+                      div(null,
+                        span({style:{color:"#86868B",textDecoration:"line-through"}},fmt(x.eskiSp)),
+                        span({style:{color:"#86868B",margin:"0 4px"}},"→"),
+                        span({style:{color:onayModal.yon==="zam"?"#FF9F0A":"#34C759",fontWeight:700}},fmt(x.yeniSp))
+                      ),
+                      x.eskiBp>0&&div({style:{fontSize:10,color:"#86868B",marginTop:2}},
+                        "Alış: "+fmt(x.eskiBp)+" → "+fmt(x.yeniBp))
+                    )
+                  )
+                )
+          ),
+          onayModal.oncekiSonra.length>50&&div({style:{textAlign:"center",fontSize:12,color:"#86868B",padding:8}},
+            "...ve "+(onayModal.oncekiSonra.length-50)+" öğe daha")
+        ),
+        // Footer butonlar
+        div({style:{padding:"14px 20px",borderTop:"1px solid rgba(0,0,0,.08)",
+          display:"flex",gap:10,flexShrink:0,background:"#FBFBFD"}},
+          btn({style:{flex:1,padding:"12px 0",borderRadius:11,border:"1px solid var(--br)",
+            background:"#FFFFFF",color:"#1D1D1F",fontSize:14,fontWeight:500,cursor:"pointer"},
+            onClick:()=>setOnayModal(null)},"İptal"),
+          btn({style:{flex:2,padding:"12px 0",borderRadius:11,border:"none",
+            background:onayModal.yon==="zam"?"#FF9F0A":"#34C759",
+            color:"#FFFFFF",fontSize:14,fontWeight:700,cursor:"pointer",
+            boxShadow:"0 4px 12px "+(onayModal.yon==="zam"?"rgba(255,159,10,.32)":"rgba(52,199,89,.32)")},
+            onClick:uygula},
+            "✓ Onayla ve Uygula")
+        )
+      )
+    ),
+
+    // Üst başlık
+    div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,gap:10,flexWrap:"wrap"}},
+      div(null,
+        div({style:{fontSize:13,color:"#0071E3",letterSpacing:2,textTransform:"uppercase",fontWeight:700,marginBottom:3}},"💰 İNDİRİM/ZAM MUHASEBESİ"),
+        div({style:{fontSize:12,color:"#86868B"}},"Hizmet ve ürün fiyatlarına toplu zam veya indirim uygulayın")
+      )
+    ),
+
+    // Form kutusu
+    div({style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:16,marginBottom:14,
+      boxShadow:"0 2px 10px rgba(0,0,0,.04)"}},
+
+      // Tip seçimi (Hizmet / Ürün)
+      div({style:{marginBottom:14}},
+        div({style:{fontSize:11,color:"#86868B",letterSpacing:1.5,textTransform:"uppercase",fontWeight:600,marginBottom:6}},"NE Üzerinde?"),
+        div({style:{display:"flex",gap:6,padding:4,background:"rgba(0,0,0,.04)",borderRadius:11}},
+          [["hizmet","✂ Hizmetler"],["urun","📦 Ürünler"]].map(([id,lb])=>
+            btn({key:id,style:{flex:1,padding:"9px 0",borderRadius:8,border:"none",
+              background:tip===id?"#fff":"transparent",
+              color:tip===id?"#0071E3":"#86868B",
+              fontSize:13.5,fontWeight:tip===id?700:500,cursor:"pointer",
+              boxShadow:tip===id?"0 1px 3px rgba(0,0,0,.10)":"none",transition:"all .2s"},
+              onClick:()=>{setTip(id);setKapsam("hepsi");setSeciliMarkalar([]);setSeciliKayitlar([]);setAramaQ("");}},lb)
+          )
+        )
+      ),
+
+      // Kapsam seçimi
+      div({style:{marginBottom:14}},
+        div({style:{fontSize:11,color:"#86868B",letterSpacing:1.5,textTransform:"uppercase",fontWeight:600,marginBottom:6}},"KAPSAM"),
+        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}},
+          [
+            ["hepsi","Hepsi"],
+            tip==="hizmet" ? ["liste","Liste"] : ["marka","Marka"],
+            ["secili","Tek Tek Seç"]
+          ].map(([id,lb])=>
+            btn({key:id,style:{padding:"10px 6px",borderRadius:9,
+              border:"1.5px solid "+(kapsam===id?"#0071E3":"rgba(0,0,0,.10)"),
+              background:kapsam===id?"rgba(0,113,227,.08)":"#fff",
+              color:kapsam===id?"#0071E3":"#1D1D1F",
+              fontSize:13,fontWeight:kapsam===id?700:500,cursor:"pointer"},
+              onClick:()=>{setKapsam(id);setSeciliKayitlar([]);setAramaQ("");}},lb)
+          )
+        )
+      ),
+
+      // Kapsama göre alt seçim
+      // -- Hizmet liste seçimi
+      tip==="hizmet"&&kapsam==="liste"&&div({style:{marginBottom:14}},
+        div({style:{fontSize:11,color:"#86868B",letterSpacing:1.5,textTransform:"uppercase",fontWeight:600,marginBottom:6}},"HİZMET LİSTESİ"),
+        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}},
+          [["ustaKalfa","💈 Usta/Kalfa ("+(tumHizmetler.ustaKalfa.length)+")"],["manikurist","💅 Manikürist ("+(tumHizmetler.manikurist.length)+")"]].map(([id,lb])=>
+            btn({key:id,style:{padding:"9px 6px",borderRadius:9,
+              border:"1.5px solid "+(seciliListe===id?"#0071E3":"rgba(0,0,0,.10)"),
+              background:seciliListe===id?"rgba(0,113,227,.08)":"#fff",
+              color:seciliListe===id?"#0071E3":"#1D1D1F",
+              fontSize:13,fontWeight:seciliListe===id?700:500,cursor:"pointer"},
+              onClick:()=>setSeciliListe(id)},lb)
+          )
+        )
+      ),
+
+      // -- Ürün marka seçimi
+      tip==="urun"&&kapsam==="marka"&&div({style:{marginBottom:14}},
+        div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
+          div({style:{fontSize:11,color:"#86868B",letterSpacing:1.5,textTransform:"uppercase",fontWeight:600}},"MARKALAR ("+seciliMarkalar.length+" SEÇİLİ)"),
+          div({style:{display:"flex",gap:6}},
+            btn({style:{padding:"4px 9px",borderRadius:6,border:"1px solid rgba(0,113,227,.3)",background:"rgba(0,113,227,.05)",color:"#0071E3",fontSize:11,fontWeight:600,cursor:"pointer"},
+              onClick:()=>setSeciliMarkalar([...markaListesi])},"Hepsi"),
+            btn({style:{padding:"4px 9px",borderRadius:6,border:"1px solid rgba(0,0,0,.12)",background:"#fff",color:"#86868B",fontSize:11,fontWeight:500,cursor:"pointer"},
+              onClick:()=>setSeciliMarkalar([])},"Temizle")
+          )
+        ),
+        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,maxHeight:240,overflowY:"auto",padding:4,background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:10}},
+          markaListesi.map(m=>{
+            const sayi = URUN_DB.filter(u=>u.m===m).length;
+            const aktif = seciliMarkalar.includes(m);
+            return div({key:m,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 11px",
+              borderRadius:7,cursor:"pointer",
+              background:aktif?"rgba(0,113,227,.08)":"transparent",
+              border:"1px solid "+(aktif?"rgba(0,113,227,.3)":"transparent")},
+              onClick:()=>setSeciliMarkalar(p=>p.includes(m)?p.filter(x=>x!==m):[...p,m])},
+              div({style:{width:18,height:18,borderRadius:5,border:"1.5px solid "+(aktif?"#0071E3":"rgba(0,0,0,.18)"),
+                background:aktif?"#0071E3":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
+                aktif&&h("svg",{width:11,height:11,viewBox:"0 0 24 24",fill:"none",stroke:"#fff",strokeWidth:3,strokeLinecap:"round",strokeLinejoin:"round"},
+                  h("polyline",{points:"20 6 9 17 4 12"}))
+              ),
+              div({style:{flex:1,minWidth:0}},
+                div({style:{fontSize:13,color:"#1D1D1F",fontWeight:aktif?600:500}},m),
+                div({style:{fontSize:11,color:"#86868B"}},sayi+" ürün")
+              )
+            );
+          })
+        )
+      ),
+
+      // -- Tek tek seçim (hem hizmet hem ürün için)
+      kapsam==="secili"&&div({style:{marginBottom:14}},
+        div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
+          div({style:{fontSize:11,color:"#86868B",letterSpacing:1.5,textTransform:"uppercase",fontWeight:600}},
+            tip==="hizmet"?"HİZMET SEÇ ("+seciliKayitlar.length+" SEÇİLİ)":"ÜRÜN SEÇ ("+seciliKayitlar.length+" SEÇİLİ)"),
+          seciliKayitlar.length>0&&btn({style:{padding:"4px 9px",borderRadius:6,border:"1px solid rgba(0,0,0,.12)",background:"#fff",color:"#86868B",fontSize:11,fontWeight:500,cursor:"pointer"},
+            onClick:()=>setSeciliKayitlar([])},"Temizle")
+        ),
+        inp({className:"fi",placeholder:tip==="hizmet"?"Hizmet ara...":"Ürün/marka/barkod ara...",
+          value:aramaQ,onChange:e=>setAramaQ(e.target.value),style:{marginBottom:6}}),
+        div({style:{maxHeight:280,overflowY:"auto",padding:4,background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:10}},
+          tip==="hizmet"
+            ? secilebilirListe.map(ad=>{
+                const aktif = seciliKayitlar.includes(ad);
+                return div({key:ad,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 11px",
+                  borderRadius:7,cursor:"pointer",marginBottom:3,
+                  background:aktif?"rgba(0,113,227,.08)":"transparent",
+                  border:"1px solid "+(aktif?"rgba(0,113,227,.3)":"transparent")},
+                  onClick:()=>setSeciliKayitlar(p=>p.includes(ad)?p.filter(x=>x!==ad):[...p,ad])},
+                  div({style:{width:18,height:18,borderRadius:5,border:"1.5px solid "+(aktif?"#0071E3":"rgba(0,0,0,.18)"),
+                    background:aktif?"#0071E3":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
+                    aktif&&h("svg",{width:11,height:11,viewBox:"0 0 24 24",fill:"none",stroke:"#fff",strokeWidth:3,strokeLinecap:"round",strokeLinejoin:"round"},
+                      h("polyline",{points:"20 6 9 17 4 12"}))
+                  ),
+                  div({style:{flex:1,minWidth:0}},
+                    div({style:{fontSize:13,color:"#1D1D1F",fontWeight:aktif?600:500}},ad),
+                    HIZ_LISTE_FIYAT[ad]>0&&div({style:{fontSize:11,color:"#86868B"}},fmt(HIZ_LISTE_FIYAT[ad]))
+                  )
+                );
+              })
+            : secilebilirListe.slice(0,200).map(u=>{
+                const aktif = seciliKayitlar.includes(u.b);
+                return div({key:u.b,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 11px",
+                  borderRadius:7,cursor:"pointer",marginBottom:3,
+                  background:aktif?"rgba(0,113,227,.08)":"transparent",
+                  border:"1px solid "+(aktif?"rgba(0,113,227,.3)":"transparent")},
+                  onClick:()=>setSeciliKayitlar(p=>p.includes(u.b)?p.filter(x=>x!==u.b):[...p,u.b])},
+                  div({style:{width:18,height:18,borderRadius:5,border:"1.5px solid "+(aktif?"#0071E3":"rgba(0,0,0,.18)"),
+                    background:aktif?"#0071E3":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
+                    aktif&&h("svg",{width:11,height:11,viewBox:"0 0 24 24",fill:"none",stroke:"#fff",strokeWidth:3,strokeLinecap:"round",strokeLinejoin:"round"},
+                      h("polyline",{points:"20 6 9 17 4 12"}))
+                  ),
+                  div({style:{flex:1,minWidth:0}},
+                    div({style:{fontSize:12.5,color:"#1D1D1F",fontWeight:aktif?600:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},u.a),
+                    div({style:{fontSize:10.5,color:"#86868B"}},u.m+" · "+(u.sp>0?fmt(u.sp):"-"))
+                  )
+                );
+              }),
+          tip==="urun"&&secilebilirListe.length>200&&div({style:{textAlign:"center",fontSize:12,color:"#86868B",padding:10}},
+            "İlk 200 ürün gösteriliyor. Daha çok daraltmak için arama kullanın.")
+        )
+      ),
+
+      // İşlem yönü ve oran
+      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}},
+        div(null,
+          div({style:{fontSize:11,color:"#86868B",letterSpacing:1.5,textTransform:"uppercase",fontWeight:600,marginBottom:6}},"İŞLEM"),
+          div({style:{display:"flex",gap:6,padding:4,background:"rgba(0,0,0,.04)",borderRadius:11}},
+            [["zam","⬆ Zam"],["indirim","⬇ İndirim"]].map(([id,lb])=>
+              btn({key:id,style:{flex:1,padding:"9px 0",borderRadius:8,border:"none",
+                background:yon===id?"#fff":"transparent",
+                color:yon===id?(id==="zam"?"#FF9F0A":"#34C759"):"#86868B",
+                fontSize:13.5,fontWeight:yon===id?700:500,cursor:"pointer",
+                boxShadow:yon===id?"0 1px 3px rgba(0,0,0,.10)":"none"},
+                onClick:()=>setYon(id)},lb)
+            )
+          )
+        ),
+        div(null,
+          div({style:{fontSize:11,color:"#86868B",letterSpacing:1.5,textTransform:"uppercase",fontWeight:600,marginBottom:6}},"ORAN (%)"),
+          inp({className:"fi",type:"number",inputMode:"decimal",placeholder:"Örn: 15",
+            value:oran,onChange:e=>setOran(e.target.value),
+            style:{textAlign:"center",fontSize:18,fontWeight:700,color:yon==="zam"?"#FF9F0A":"#34C759"}})
+        )
+      ),
+
+      // Açıklama (opsiyonel)
+      div({style:{marginBottom:12}},
+        div({style:{fontSize:11,color:"#86868B",letterSpacing:1.5,textTransform:"uppercase",fontWeight:600,marginBottom:6}},"AÇIKLAMA (OPSİYONEL)"),
+        inp({className:"fi",placeholder:"Bu işleme not ekle (örn: 2026 başı zam)",
+          value:aciklama,onChange:e=>setAciklama(e.target.value)})
+      ),
+
+      // Önizleme butonu
+      btn({style:{width:"100%",padding:"13px 0",borderRadius:11,border:"none",
+        background:"#0071E3",color:"#FFFFFF",fontSize:14,fontWeight:700,cursor:"pointer",
+        boxShadow:"0 4px 12px rgba(0,113,227,.32)"},
+        onClick:onizlemeYap},
+        "👁 Önizleme Göster")
+    ),
+
+    // İşlem geçmişi
+    div({style:{background:"#FFFFFF",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:16,
+      boxShadow:"0 2px 10px rgba(0,0,0,.04)"}},
+      div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+        div({style:{fontSize:13,fontWeight:700,color:"#0071E3",letterSpacing:1.5,textTransform:"uppercase"}},"📋 İşlem Geçmişi"),
+        div({style:{fontSize:12,color:"#86868B"}},(zamGecmisi||[]).length+" işlem")
+      ),
+      (zamGecmisi||[]).length===0
+        ? div({style:{textAlign:"center",padding:"30px 10px",color:"#86868B",fontSize:13}},
+            "Henüz işlem yok. Yukarıdan ilk zam/indirim işlemini yapın.")
+        : (zamGecmisi||[]).slice(0,30).map(islem=>{
+            const toplamFark = islem.tip==="hizmet"
+              ? islem.degisimler.reduce((s,x)=>s+(x.yeni-x.eski),0)
+              : islem.degisimler.reduce((s,x)=>s+(x.yeniSp-x.eskiSp),0);
+            return div({key:islem.id,style:{
+              padding:"12px 14px",border:"1px solid rgba(0,0,0,.08)",borderRadius:11,
+              marginBottom:8,background:islem.geriAlindi?"rgba(0,0,0,.03)":"#fff",
+              opacity:islem.geriAlindi?0.6:1
+            }},
+              div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:6}},
+                div({style:{flex:1,minWidth:0}},
+                  div({style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4}},
+                    span({style:{fontSize:13.5,fontWeight:700,
+                      color:islem.geriAlindi?"#86868B":(islem.yon==="zam"?"#FF9F0A":"#34C759")}},
+                      (islem.yon==="zam"?"⬆ +":"⬇ -")+"%"+islem.oran),
+                    span({style:{fontSize:12,color:"#86868B"}},
+                      (islem.tip==="hizmet"?"Hizmet":"Ürün")+" · "+islem.degisimler.length+" öğe"),
+                    islem.geriAlindi&&span({style:{fontSize:10,padding:"2px 7px",borderRadius:5,
+                      background:"rgba(0,0,0,.06)",color:"#86868B",fontWeight:600,letterSpacing:.5}},"GERİ ALINDI")
+                  ),
+                  div({style:{fontSize:11.5,color:"#86868B"}},trh(islem.tarih)),
+                  islem.aciklama&&div({style:{fontSize:12,color:"#3a3a3c",marginTop:3,fontStyle:"italic"}},"\""+islem.aciklama+"\"")
+                ),
+                !islem.geriAlindi&&btn({style:{padding:"6px 12px",borderRadius:8,
+                  border:"1px solid rgba(255,59,48,.3)",background:"rgba(255,59,48,.06)",
+                  color:"#FF3B30",fontSize:12,fontWeight:600,cursor:"pointer",flexShrink:0},
+                  onClick:()=>geriAl(islem)},"↩ Geri Al")
+              ),
+              div({style:{fontSize:11.5,color:"#86868B",paddingTop:6,borderTop:"1px solid rgba(0,0,0,.05)",marginTop:4}},
+                "Toplam fark: ",
+                span({style:{fontWeight:600,color:toplamFark>=0?"#FF9F0A":"#34C759"}},
+                  (toplamFark>=0?"+":"")+fmt(toplamFark))
+              )
+            );
+          })
+    )
+  );
+}
+
 
 function App() {
   const [ekran, setEkran]             = useState("login");
@@ -5663,6 +6145,8 @@ function App() {
   // URUN_DB ve HIZ_LISTE_FIYAT artık dinamik (let) — her değiştiğinde re-render için sayaç
   const [urunDBVer, setUrunDBVer] = useState(0);
   const triggerUrunRender = () => setUrunDBVer(v=>v+1);
+  // İndirim/Zam işlem geçmişi - geri alma için
+  const [zamGecmisi, setZamGecmisi] = useState([]);
   const [hizListeDuz, setHizListeDuz] = useState(false);
   const [aySek, setAySek]             = useState("");
   const [ayListeSek, setAyListeSek]   = useState("ustaKalfa");
@@ -5841,6 +6325,7 @@ ayarlarRaw.forEach(a=>{
   if(a.id==="yonBildirim") setYonBildirim(Array.isArray(a.deger)?a.deger:[]);
   if(a.id==="devirBildirim") setDevirBildirim(Array.isArray(a.deger)?a.deger:[]);
   if(a.id==="bolumStilleri") setBolumStilleri(a.deger||{});
+  if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(a.deger);
 });
         const [k,m,d] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
@@ -5902,6 +6387,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
   useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"devirBildirim",deger:devirBildirim}).then(()=>{}).catch(console.warn); },[devirBildirim]);
   useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; DB.from("ayarlar").upsert({id:"urunler",deger:URUN_DB}).then(()=>{}).catch(console.warn); },[urunDBVer]);
   useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; DB.from("ayarlar").upsert({id:"hizFiyatlar",deger:HIZ_LISTE_FIYAT}).then(()=>{}).catch(console.warn); },[urunDBVer]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"zamGecmisi",deger:zamGecmisi}).then(()=>{}).catch(console.warn); },[zamGecmisi]);
   useEffect(()=>{
     if(yukleniyor) return;
     localStorage.setItem("apron_bolum_stilleri", JSON.stringify(bolumStilleri||{}));
@@ -8353,6 +8839,17 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
               "📊 GENEL ÖZET"
             ),
 
+            // ── İNDİRİM/ZAM MUHASEBESİ - TEK BAŞLIK ──
+            btn({style:{width:"100%",padding:"11px 14px",
+              background:muhSek==="indirimZam"?"rgba(37,99,168,.08)":"transparent",
+              border:"none",borderBottom:"1px solid var(--br)",borderLeft:muhSek==="indirimZam"?"3px solid #2563a8":"3px solid transparent",
+              color:muhSek==="indirimZam"?"var(--g)":"#3a6a62",
+              fontSize:12,fontWeight:700,letterSpacing:1,textTransform:"uppercase",
+              cursor:"pointer",textAlign:"left"},
+              onClick:()=>{setMuhSek("indirimZam");setMuhAlt("");setMuhAltAcik("");}},
+              "💰 İNDİRİM/ZAM"
+            ),
+
               // ── HİZMET MUHASEBESİ - ANA BAŞLIK ──
             btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
               padding:"11px 14px",
@@ -8551,6 +9048,8 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
             }),
 
             false&&muhSek==="vergiMuhasebesi"&&h(VergiMuhasebesiModul,{tumK,faturalar}),
+
+            muhSek==="indirimZam"&&h(IndirimZamModul,{zamGecmisi,setZamGecmisi,triggerUrunRender,hizListeleri,setHizListeleri,showToast}),
 
             muhSek==="ozet"&&div(null,
               div({style:{textAlign:"center",padding:"40px 20px",color:"var(--mu)"}},
