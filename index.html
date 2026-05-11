@@ -3174,9 +3174,6 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
   const topAvans = ayAvanslar.reduce((s,a)=>s+toN(a.tutar),0);
   const netKar = topGelir - topGider;
 
-  // Bekleyen avans talepleri
-  const bekleyenAvans = (avanslar||[]).filter(a=>a.durum==="bekliyor");
-
   // Ay seçici
   const aylar = [];
   for(let i=0;i<12;i++){
@@ -3231,11 +3228,7 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
         color:"var(--g)",fontSize:14,padding:"7px 12px",outline:"none",cursor:"pointer"},
         value:secAy,onChange:e=>setSecAy(e.target.value)},
         aylar.map(a=>opt(a, new Date(a+"-01").toLocaleDateString("tr-TR",{month:"long",year:"numeric"})))
-      ),
-      bekleyenAvans.length>0&&div({style:{fontSize:13,color:"#f0a060",
-        padding:"5px 10px",borderRadius:8,background:"rgba(240,160,60,.1)",
-        border:"1px solid rgba(240,160,60,.25)"}},
-        "⏳ "+bekleyenAvans.length+" avans talebi")
+      )
     ),
 
     // Alt sekmeler - dışarıdan kontrol edilmiyorsa göster
@@ -3489,43 +3482,6 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
             )
           );
         })
-      ),
-
-      // Bekleyen avans talepleri
-      bekleyenAvans.length>0&&div({style:{background:"rgba(240,160,60,.06)",
-        border:"1px solid rgba(240,160,60,.25)",borderRadius:12,padding:14,marginBottom:12}},
-        div({style:{fontSize:12,color:"#f0a060",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},
-          "⏳ Bekleyen Talepler ("+bekleyenAvans.length+")"),
-        bekleyenAvans.map(a=>
-          div({key:a.id,style:{background:"var(--bg3)",borderRadius:9,padding:"11px 12px",marginBottom:8}},
-            div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}},
-              div(null,
-                div({style:{fontSize:15,color:"var(--tx)",fontWeight:500}},(a.staffAd)),
-                div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},fmtT(a.tarih)),
-                a.notlar&&div({style:{fontSize:13,color:"var(--di)",marginTop:3,fontStyle:"italic"}},(a.notlar))
-              ),
-              div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:20,color:"#f0a060",fontWeight:700}},fmt(a.tutar))
-            ),
-            div({style:{display:"flex",gap:8}},
-              btn({style:{flex:1,padding:"9px 0",borderRadius:8,
-                background:"rgba(50,140,100,.1)",border:"1px solid rgba(50,140,100,.25)",
-                color:"var(--gr)",fontSize:14,cursor:"pointer"},
-                onClick:()=>{
-                  setAvanslar(p=>p.map(x=>x.id===a.id?{...x,durum:"onaylandi",odendi:true,odendiTarih:TODAY()}:x));
-                  setGiderler(p=>[...p,{id:uid(),tarih:TODAY(),kategori:"Avans Ödemesi",
-                    tutar:a.tutar,aciklama:a.staffAd+" avans ödemesi"}]);
-                  showToast(a.staffAd+"'e avans onaylandı");
-                }},"✓ Onayla & Öde"),
-              btn({style:{flex:1,padding:"9px 0",borderRadius:8,
-                background:"rgba(160,40,40,.1)",border:"1px solid rgba(160,40,40,.25)",
-                color:"#c05050",fontSize:14,cursor:"pointer"},
-                onClick:()=>{
-                  setAvanslar(p=>p.map(x=>x.id===a.id?{...x,durum:"reddedildi"}:x));
-                  showToast(a.staffAd+" talebi reddedildi","uy");
-                }},"✕ Reddet")
-            )
-          )
-        )
       )
     )
   );
@@ -6379,8 +6335,9 @@ function MaasFormulEditoru({formul, onChange, tumPersoneller}) {
 }
 
 // ── PERSONEL MAAŞ HESAP GÖRÜNÜMÜ (Yönetici için) ──────────────────────────
-function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast, tumPersoneller, giderler}) {
+function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast, tumPersoneller, giderler, avanslar, setAvanslar}) {
   const [periyot, setPeriyot] = React.useState("buAy");
+  const [yeniAvansForm, setYeniAvansForm] = React.useState({tarih:TODAY(), tutar:"", not:""});
   const periyotBaslangic = React.useMemo(()=>{
     const d=new Date();
     if(periyot==="buHafta"){const g=d.getDay()||7;d.setDate(d.getDate()-g+1);}
@@ -6472,6 +6429,95 @@ function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast, tumPe
           )
         )
       ),
+      // ── AVANSLAR BÖLÜMÜ ──
+      (()=>{
+        const periyotAvanslar = (avanslar||[]).filter(a=>{
+          if(String(a.staffId)!==String(personel.id)) return false;
+          if(!a.tarih) return false;
+          const ad = new Date(a.tarih+"T12:00:00");
+          return ad>=periyotBaslangic && ad<=periyotBitis;
+        }).sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
+        const toplamAvans = periyotAvanslar.reduce((s,a)=>s+toN(a.tutar),0);
+        return div({style:{marginBottom:10,padding:14,background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:11}},
+          div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8,flexWrap:"wrap"}},
+            div({style:{fontSize:12,fontWeight:700,color:"#FF9F0A",letterSpacing:1.2,textTransform:"uppercase"}},
+              "💵 AVANSLAR"),
+            div({style:{fontSize:11,color:"#86868B"}},
+              periyotAvanslar.length+" kayıt · "+periyotEt)
+          ),
+          // Yeni avans giriş formu
+          div({style:{display:"grid",gridTemplateColumns:"110px 1fr 90px",gap:6,marginBottom:8}},
+            h("input",{type:"date",className:"fi",style:{margin:0,fontSize:12.5,padding:"8px 9px"},
+              value:yeniAvansForm.tarih||"",
+              onChange:e=>setYeniAvansForm(p=>({...p,tarih:e.target.value}))}),
+            inp({className:"fi",placeholder:"Not (opsiyonel)",style:{margin:0,fontSize:12.5,padding:"8px 9px"},
+              value:yeniAvansForm.not||"",
+              onChange:e=>setYeniAvansForm(p=>({...p,not:e.target.value}))}),
+            inp({className:"fi",type:"number",inputMode:"decimal",placeholder:"Tutar",
+              style:{margin:0,fontSize:12.5,padding:"8px 9px",textAlign:"right",fontWeight:700,color:"#FF9F0A"},
+              value:yeniAvansForm.tutar||"",
+              onChange:e=>setYeniAvansForm(p=>({...p,tutar:e.target.value}))})
+          ),
+          btn({style:{width:"100%",padding:"9px 0",borderRadius:9,border:"none",
+            background:(yeniAvansForm.tarih&&toN(yeniAvansForm.tutar)>0)?"#FF9F0A":"rgba(0,0,0,.08)",
+            color:(yeniAvansForm.tarih&&toN(yeniAvansForm.tutar)>0)?"#fff":"#86868B",
+            fontSize:12.5,fontWeight:700,cursor:(yeniAvansForm.tarih&&toN(yeniAvansForm.tutar)>0)?"pointer":"not-allowed",
+            marginBottom:periyotAvanslar.length>0?10:0},
+            disabled:!(yeniAvansForm.tarih&&toN(yeniAvansForm.tutar)>0),
+            onClick:()=>{
+              if(!yeniAvansForm.tarih){showToast&&showToast("Tarih seçin","uy");return;}
+              const t = toN(yeniAvansForm.tutar);
+              if(t<=0){showToast&&showToast("Geçerli tutar girin","uy");return;}
+              const yeni = {
+                id: Date.now()+"-"+Math.random().toString(36).slice(2,8),
+                staffId: personel.id,
+                staffAd: personel.ad,
+                tutar: t,
+                tarih: yeniAvansForm.tarih,
+                notlar: (yeniAvansForm.not||"").trim(),
+                durum: "onaylandi",
+                odendi: true,
+                odendiTarih: TODAY()
+              };
+              setAvanslar&&setAvanslar(p=>[yeni, ...(p||[])]);
+              setYeniAvansForm({tarih:TODAY(), tutar:"", not:""});
+              showToast&&showToast("Avans işlendi","ba");
+            }},
+            "+ Avans Ekle"),
+          // Avans listesi
+          periyotAvanslar.length>0&&div(null,
+            periyotAvanslar.map(a=>
+              div({key:a.id,style:{display:"flex",alignItems:"center",gap:8,
+                padding:"8px 11px",background:"#FBFBFD",border:"1px solid rgba(0,0,0,.06)",
+                borderRadius:8,marginBottom:5}},
+                div({style:{flex:1,minWidth:0}},
+                  div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:2,flexWrap:"wrap"}},
+                    span({style:{fontSize:12,fontWeight:600,color:"#1D1D1F"}},
+                      new Date(a.tarih+"T12:00:00").toLocaleDateString("tr-TR",{day:"numeric",month:"short",year:"numeric"})),
+                    a.notlar&&span({style:{fontSize:11,color:"#86868B"}},"· "+a.notlar)
+                  )
+                ),
+                div({style:{fontSize:14,fontWeight:700,color:"#FF9F0A",flexShrink:0}},fmt(toN(a.tutar))),
+                btn({style:{background:"transparent",border:"1px solid rgba(255,59,48,.25)",borderRadius:6,
+                  color:"#FF3B30",fontSize:11,fontWeight:600,padding:"3px 8px",cursor:"pointer",flexShrink:0},
+                  onClick:()=>{
+                    if(!confirm("Bu avans kaydı silinsin mi?")) return;
+                    setAvanslar&&setAvanslar(p=>p.filter(x=>x.id!==a.id));
+                    showToast&&showToast("Avans silindi","ba");
+                  }},"Sil")
+              )
+            ),
+            // Avans toplamı
+            div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+              padding:"9px 11px",marginTop:4,
+              background:"rgba(255,159,10,.08)",border:"1px solid rgba(255,159,10,.22)",borderRadius:8}},
+              div({style:{fontSize:11,color:"#86868B",letterSpacing:1.2,textTransform:"uppercase",fontWeight:600}},
+                periyotEt+" TOPLAM AVANS"),
+              div({style:{fontSize:15,fontWeight:700,color:"#FF9F0A"}},fmt(toplamAvans))
+            )
+          )
+        );
+      })(),
       // Toplam
       div({style:{padding:"12px 14px",background:"linear-gradient(135deg,#0071E3,#0058B0)",borderRadius:11,
         display:"flex",justifyContent:"space-between",alignItems:"center",
@@ -11067,7 +11113,9 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                 },
                 showToast,
                 tumPersoneller:personeller,
-                giderler
+                giderler,
+                avanslar,
+                setAvanslar
               }),
 
               div({className:"btn-r",style:{marginTop:14}},
