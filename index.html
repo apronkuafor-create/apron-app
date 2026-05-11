@@ -6161,6 +6161,49 @@ function hesaplaMaas(personel, kayitlar, opts={}) {
       tutar = toplamKademe;
       aciklama = detayKademe.join(" + ");
     }
+    else if(b.tip==="ortakPayi") {
+      // İşyeri sahibi ortaklar için kar/zarar paylaşımı
+      // opts.tumPersoneller, opts.tumKayitlar, opts.toplamGider gerekli
+      // b.ortakIdler: ortakların id listesi
+      const tumPers = opts.tumPersoneller || [];
+      const tumKy = opts.tumKayitlar || [];
+      const ortakIdler = (b.ortakIdler||[]).map(String);
+      const ortakSayi = ortakIdler.length || 2;
+
+      // GELİR HESABI
+      // 1) Ortak OLMAYAN personellerin hizmet ciroları
+      // 2) TÜM personellerin ürün satışları
+      let digerHizmetCiro = 0;
+      let tumUrunCiro = 0;
+      tumKy.forEach(r=>{
+        if(r.gonderildi===false) return;
+        const isOrtak = ortakIdler.includes(String(r.staffId));
+        const hC = toN(r.hizKK||0) + toN(r.hizIB||0) + toN(r.hizNK||0);
+        const uC = toN(r.uKK||0) + toN(r.uIB||0) + toN(r.uNK||0);
+        if(!isOrtak) digerHizmetCiro += hC;
+        tumUrunCiro += uC;
+      });
+      const havuzGelir = digerHizmetCiro + tumUrunCiro;
+
+      // GİDER HESABI
+      // 1) Ortak OLMAYAN personellerin maaşları (uygulamadan hesaplanır)
+      // 2) Elle girilmiş masraflar (opts.toplamGider)
+      let digerMaaslar = 0;
+      tumPers.forEach(p=>{
+        if(ortakIdler.includes(String(p.id))) return; // ortakları atla
+        if(!maasFormuluVarMi(p)) return;
+        // Sonsuz döngüyü önlemek için: ortakPayi içeren formülleri atla (zaten ortak olmayanları aldık ama emniyet)
+        if(p.maasFormulu.some(bi=>bi.tip==="ortakPayi")) return;
+        const sonucP = hesaplaMaas(p, tumKy, {...opts, _icPas:true});
+        digerMaaslar += sonucP.toplam;
+      });
+      const elleMasraf = toN(opts.toplamGider||0);
+      const havuzGider = digerMaaslar + elleMasraf;
+
+      const net = havuzGelir - havuzGider;
+      tutar = net / ortakSayi;
+      aciklama = "Gelir: "+fmt(havuzGelir)+" − Gider: "+fmt(havuzGider)+" = "+fmt(net)+" ÷ "+ortakSayi;
+    }
 
     detay.push({ad: b.ad || b.tip, tip:b.tip, tutar, aciklama});
     toplam += tutar;
@@ -6170,7 +6213,7 @@ function hesaplaMaas(personel, kayitlar, opts={}) {
 }
 
 // ── MAAŞ FORMÜL EDİTÖRÜ BİLEŞENİ ──────────────────────────────────────────
-function MaasFormulEditoru({formul, onChange}) {
+function MaasFormulEditoru({formul, onChange, tumPersoneller}) {
   const [bilesenForm, setBilesenForm] = React.useState(null); // {tip, ad, tutar, oran, ...}
 
   const bilesenTipleri = [
@@ -6180,7 +6223,8 @@ function MaasFormulEditoru({formul, onChange}) {
     {tip:"toplamYuzde", lb:"💵 Toplam Ciro Yüzdesi", desc:"Hizmet+Ürün toplam cirosunun yüzdesi"},
     {tip:"musteriBasi", lb:"👥 Müşteri Başı", desc:"Her tekil müşteri için sabit tutar"},
     {tip:"esikPrimi", lb:"🎯 Eşik Primi", desc:"Belirli ciroyu aşarsa sabit bonus"},
-    {tip:"kademeli", lb:"📊 Kademeli Yüzde", desc:"Ciro dilimine göre farklı oran"}
+    {tip:"kademeli", lb:"📊 Kademeli Yüzde", desc:"Ciro dilimine göre farklı oran"},
+    {tip:"ortakPayi", lb:"🤝 Ortak Payı (Kâr/Zarar)", desc:"İşyeri ortakları için: gelir-gider÷ortak sayısı"}
   ];
 
   const esikTipSecenekleri = [
@@ -6219,6 +6263,7 @@ function MaasFormulEditoru({formul, onChange}) {
     else if(tip==="musteriBasi") base.tutar = 0;
     else if(tip==="esikPrimi") { base.esikTip="hizmetCiro"; base.esikTutar=0; base.primTutar=0; }
     else if(tip==="kademeli") { base.esikTip="hizmetCiro"; base.kademeler=[{baslangic:0,bitis:30000,oran:30}]; }
+    else if(tip==="ortakPayi") { base.ortakIdler=[]; }
     setBilesenForm(base);
   };
 
@@ -6235,6 +6280,7 @@ function MaasFormulEditoru({formul, onChange}) {
             else if(b.tip==="musteriBasi") aciklama = "Müşteri başı: "+fmt(toN(b.tutar));
             else if(b.tip==="esikPrimi") aciklama = fmt(toN(b.esikTutar))+" "+(esikTipSecenekleri.find(e=>e.tip===b.esikTip)?.lb||"")+" aşılırsa +"+fmt(toN(b.primTutar));
             else if(b.tip==="kademeli") aciklama = "Kademeli ("+(b.kademeler||[]).length+" dilim)";
+            else if(b.tip==="ortakPayi") aciklama = "Ortak payı ("+(b.ortakIdler||[]).length+" ortak)";
             return div({key:i,style:{display:"flex",alignItems:"center",gap:8,
               padding:"10px 12px",background:"#FBFBFD",
               border:"1px solid rgba(0,0,0,.08)",borderRadius:10,marginBottom:6}},
@@ -6353,6 +6399,45 @@ function MaasFormulEditoru({formul, onChange}) {
         div({style:{fontSize:11.5,color:"#86868B",padding:"8px 11px",background:"rgba(0,113,227,.04)",borderRadius:8,lineHeight:1.5}},
           "Örnek: 0-30K %30, 30-50K %35, 50K+ %40 — son kademede Bitiş boş bırakılır.")
       ),
+      bilesenForm.tip==="ortakPayi"&&div(null,
+        div({style:{marginBottom:10}},
+          lbl({className:"fl"},"Ortaklar (paylaşıma katılan kişiler)"),
+          div({style:{padding:8,background:"#fff",border:"1px solid rgba(0,0,0,.10)",borderRadius:9,maxHeight:200,overflowY:"auto"}},
+            (tumPersoneller||[]).filter(p=>p.aktif).length===0
+              ? div({style:{textAlign:"center",color:"#86868B",fontSize:12,padding:8}},"Personel yok")
+              : (tumPersoneller||[]).filter(p=>p.aktif).map(p=>{
+                  const aktif = (bilesenForm.ortakIdler||[]).map(String).includes(String(p.id));
+                  return div({key:p.id,style:{display:"flex",alignItems:"center",gap:8,padding:"7px 9px",
+                    borderRadius:7,cursor:"pointer",marginBottom:3,
+                    background:aktif?"rgba(0,113,227,.08)":"transparent",
+                    border:"1px solid "+(aktif?"rgba(0,113,227,.3)":"transparent")},
+                    onClick:()=>{
+                      const liste = (bilesenForm.ortakIdler||[]).map(String);
+                      const yeni = liste.includes(String(p.id))
+                        ? liste.filter(x=>x!==String(p.id))
+                        : [...liste, String(p.id)];
+                      setBilesenForm(prev=>({...prev,ortakIdler:yeni}));
+                    }},
+                    div({style:{width:18,height:18,borderRadius:5,
+                      border:"1.5px solid "+(aktif?"#0071E3":"rgba(0,0,0,.18)"),
+                      background:aktif?"#0071E3":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
+                      aktif&&h("svg",{width:11,height:11,viewBox:"0 0 24 24",fill:"none",stroke:"#fff",strokeWidth:3,strokeLinecap:"round",strokeLinejoin:"round"},
+                        h("polyline",{points:"20 6 9 17 4 12"}))
+                    ),
+                    div({style:{flex:1,minWidth:0}},
+                      div({style:{fontSize:13,color:"#1D1D1F",fontWeight:aktif?600:500}},p.ad),
+                      p.pozisyon&&div({style:{fontSize:11,color:"#86868B"}},p.pozisyon)
+                    )
+                  );
+                })
+          )
+        ),
+        div({style:{fontSize:11.5,color:"#86868B",padding:"10px 12px",background:"rgba(0,113,227,.04)",borderRadius:8,lineHeight:1.55}},
+          "💡 ",h("b",null,"Mantık:"),
+          " (Ortak olmayanların hizmet ciroları + Tüm ürün satışları) − (Ortak olmayanların maaşları + Elle girilen masraflar) = NET. NET ÷ ortak sayısı = bu kişinin payı.",
+          h("br"),h("br"),
+          "Bu bileşeni ",h("b",null,"her ortağın")," formülünde ayrı ayrı eklemen gerekir. NET zarar olursa pay negatif olur.")
+      ),
       div({style:{display:"flex",gap:8,marginTop:12}},
         btn({style:{flex:1,padding:"9px 0",borderRadius:9,border:"1px solid var(--br)",background:"#FFFFFF",
           color:"#1D1D1F",fontSize:13,fontWeight:500,cursor:"pointer"},
@@ -6367,7 +6452,7 @@ function MaasFormulEditoru({formul, onChange}) {
 }
 
 // ── PERSONEL MAAŞ HESAP GÖRÜNÜMÜ (Yönetici için) ──────────────────────────
-function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast}) {
+function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast, tumPersoneller, giderler}) {
   const [periyot, setPeriyot] = React.useState("buAy");
   const periyotBaslangic = React.useMemo(()=>{
     const d=new Date();
@@ -6390,7 +6475,19 @@ function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast}) {
     return rd>=periyotBaslangic && rd<=periyotBitis;
   });
 
-  const sonuc = hesaplaMaas({...personel, maasFormulu:formul}, filtreliK);
+  // Periyot içindeki giderleri topla
+  const filtreliGider = (giderler||[]).filter(g=>{
+    if(!g.tarih) return false;
+    const gd = new Date(g.tarih+"T12:00:00");
+    return gd>=periyotBaslangic && gd<=periyotBitis;
+  });
+  const toplamGider = filtreliGider.reduce((s,g)=>s+toN(g.tutar),0);
+
+  const sonuc = hesaplaMaas({...personel, maasFormulu:formul}, filtreliK, {
+    tumPersoneller: tumPersoneller||[],
+    tumKayitlar: filtreliK,
+    toplamGider
+  });
   const periyotEt = {buHafta:"Bu Hafta",buAy:"Bu Ay",gecenAy:"Geçen Ay",buYil:"Bu Yıl"}[periyot];
 
   return div(null,
@@ -6400,7 +6497,7 @@ function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast}) {
         "💰 MAAŞ/KOMİSYON FORMÜLÜ"),
       div({style:{fontSize:12,color:"#86868B",marginBottom:12,lineHeight:1.5}},
         "Bu personelin maaşı, aşağıdaki bileşenlerin toplamı olarak hesaplanır. Bileşenleri ekleyip kaldırabilirsiniz."),
-      h(MaasFormulEditoru,{formul:formul||[], onChange})
+      h(MaasFormulEditoru,{formul:formul||[], onChange, tumPersoneller})
     ),
 
     // Hesaplama önizlemesi
@@ -6459,6 +6556,224 @@ function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast}) {
         ),
         div({style:{fontSize:22,fontWeight:700,color:"#fff",letterSpacing:-0.5}},fmt(sonuc.toplam))
       )
+    )
+  );
+}
+
+// ── GİDERLER MODÜLÜ (Masraflar) ────────────────────────────────────────────
+function GiderlerModul({giderler, setGiderler, showToast}) {
+  const [yeniGider, setYeniGider] = React.useState(null);
+  const [filtreAy, setFiltreAy] = React.useState(()=>{
+    const d=new Date();
+    return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+  });
+
+  const kategoriler = [
+    {id:"kira", lb:"🏠 Kira"},
+    {id:"elektrik", lb:"⚡ Elektrik"},
+    {id:"dogalgaz", lb:"🔥 Doğalgaz"},
+    {id:"su", lb:"💧 Su"},
+    {id:"internet", lb:"🌐 İnternet/Telefon"},
+    {id:"urunAlim", lb:"📦 Ürün Alımı"},
+    {id:"sarf", lb:"🧴 Sarf Malzeme"},
+    {id:"vergi", lb:"🧾 Vergi/Stopaj"},
+    {id:"reklam", lb:"📢 Reklam/Pazarlama"},
+    {id:"bakim", lb:"🔧 Bakım/Onarım"},
+    {id:"diger", lb:"📌 Diğer"}
+  ];
+
+  const filtreliGiderler = (giderler||[]).filter(g=>{
+    if(!filtreAy || filtreAy==="tum") return true;
+    return (g.tarih||"").startsWith(filtreAy);
+  }).sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
+
+  const toplamFiltreli = filtreliGiderler.reduce((s,g)=>s+toN(g.tutar),0);
+
+  // Kategori bazlı toplam
+  const katBazliToplam = {};
+  filtreliGiderler.forEach(g=>{
+    katBazliToplam[g.kategori] = (katBazliToplam[g.kategori]||0) + toN(g.tutar);
+  });
+
+  const aylarSec = (()=>{
+    const set = new Set((giderler||[]).map(g=>(g.tarih||"").slice(0,7)).filter(Boolean));
+    const arr = [...set].sort().reverse();
+    const cur = new Date();
+    const curAy = cur.getFullYear()+"-"+String(cur.getMonth()+1).padStart(2,"0");
+    if(!arr.includes(curAy)) arr.unshift(curAy);
+    return arr;
+  })();
+
+  const giderEkle = () => {
+    if(!yeniGider?.tarih || !yeniGider?.kategori || !yeniGider?.tutar) {
+      showToast("Tarih, kategori ve tutar zorunlu","uy"); return;
+    }
+    const tutar = toN(yeniGider.tutar);
+    if(tutar<=0) { showToast("Tutar 0'dan büyük olmalı","uy"); return; }
+    const kayit = {
+      id: Date.now()+"-"+Math.random().toString(36).slice(2,8),
+      tarih: yeniGider.tarih,
+      kategori: yeniGider.kategori,
+      tutar,
+      aciklama: yeniGider.aciklama||"",
+      olusturulma: new Date().toISOString()
+    };
+    if(yeniGider._editId) {
+      setGiderler(prev=>prev.map(g=>g.id===yeniGider._editId?{...kayit,id:yeniGider._editId}:g));
+      showToast("Gider güncellendi","ba");
+    } else {
+      setGiderler(prev=>[kayit,...(prev||[])]);
+      showToast("Gider eklendi","ba");
+    }
+    setYeniGider(null);
+  };
+
+  const giderSil = (id) => {
+    if(!confirm("Bu gideri silmek istediğinize emin misiniz?")) return;
+    setGiderler(prev=>prev.filter(g=>g.id!==id));
+    showToast("Gider silindi","ba");
+  };
+
+  const giderDuzenle = (g) => {
+    setYeniGider({tarih:g.tarih,kategori:g.kategori,tutar:g.tutar,aciklama:g.aciklama,_editId:g.id});
+  };
+
+  const yeniGiderBasla = () => {
+    const d=new Date();
+    const tarih=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+    setYeniGider({tarih,kategori:"kira",tutar:"",aciklama:""});
+  };
+
+  const ayEt = (ym) => {
+    if(!ym||ym==="tum") return "Tüm Aylar";
+    const [y,m] = ym.split("-");
+    const d = new Date(parseInt(y), parseInt(m)-1, 1);
+    return d.toLocaleString("tr-TR",{month:"long",year:"numeric"});
+  };
+
+  return div({style:{padding:"4px 0",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+
+    // Üst başlık
+    div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,gap:10,flexWrap:"wrap"}},
+      div(null,
+        div({style:{fontSize:13,color:"#0071E3",letterSpacing:2,textTransform:"uppercase",fontWeight:700,marginBottom:3}},"🧾 GİDERLER"),
+        div({style:{fontSize:12,color:"#86868B"}},"İşletme masraflarını ay bazlı takip edin")
+      ),
+      btn({style:{padding:"10px 16px",borderRadius:10,border:"none",
+        background:"#0071E3",color:"#FFFFFF",fontSize:13,fontWeight:700,cursor:"pointer",
+        boxShadow:"0 4px 12px rgba(0,113,227,.32)"},
+        onClick:yeniGiderBasla},"+ Gider Ekle")
+    ),
+
+    // Yeni gider formu
+    yeniGider && div({style:{background:"#FBFBFD",border:"1.5px solid rgba(0,113,227,.3)",
+      borderRadius:14,padding:16,marginBottom:14}},
+      div({style:{fontSize:13,fontWeight:700,color:"#0071E3",marginBottom:12}},
+        yeniGider._editId?"Gideri Düzenle":"Yeni Gider"),
+      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+        div(null,
+          lbl({className:"fl"},"Tarih"),
+          inp({className:"fi",type:"date",value:yeniGider.tarih||"",
+            onChange:e=>setYeniGider(p=>({...p,tarih:e.target.value}))})
+        ),
+        div(null,
+          lbl({className:"fl"},"Tutar (₺)"),
+          inp({className:"fi",type:"number",placeholder:"0",value:yeniGider.tutar||"",
+            onChange:e=>setYeniGider(p=>({...p,tutar:e.target.value}))})
+        )
+      ),
+      div({style:{marginBottom:10}},
+        lbl({className:"fl"},"Kategori"),
+        sel({className:"fi",value:yeniGider.kategori||"kira",
+          onChange:e=>setYeniGider(p=>({...p,kategori:e.target.value}))},
+          kategoriler.map(k=>opt(k.id,k.lb))
+        )
+      ),
+      div({style:{marginBottom:12}},
+        lbl({className:"fl"},"Açıklama (opsiyonel)"),
+        inp({className:"fi",placeholder:"Örn: Kasım kira",value:yeniGider.aciklama||"",
+          onChange:e=>setYeniGider(p=>({...p,aciklama:e.target.value}))})
+      ),
+      div({style:{display:"flex",gap:8}},
+        btn({style:{flex:1,padding:"10px 0",borderRadius:9,border:"1px solid var(--br)",
+          background:"#FFFFFF",color:"#1D1D1F",fontSize:13,fontWeight:500,cursor:"pointer"},
+          onClick:()=>setYeniGider(null)},"İptal"),
+        btn({style:{flex:2,padding:"10px 0",borderRadius:9,border:"none",
+          background:"#0071E3",color:"#FFFFFF",fontSize:13,fontWeight:700,cursor:"pointer"},
+          onClick:giderEkle},yeniGider._editId?"Güncelle":"Kaydet")
+      )
+    ),
+
+    // Ay filtresi + Toplam
+    div({style:{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}},
+      sel({className:"fi",value:filtreAy,
+        onChange:e=>setFiltreAy(e.target.value),
+        style:{margin:0,flex:1,minWidth:180,maxWidth:260,fontSize:13}},
+        opt("tum","Tüm Aylar"),
+        aylarSec.map(a=>opt(a,ayEt(a)))
+      ),
+      div({style:{padding:"10px 16px",borderRadius:10,
+        background:"linear-gradient(135deg,#0071E3,#0058B0)",
+        boxShadow:"0 4px 12px rgba(0,113,227,.28)"}},
+        div({style:{fontSize:10,letterSpacing:1.5,color:"rgba(255,255,255,.85)",textTransform:"uppercase",fontWeight:600}},
+          ayEt(filtreAy)+" TOPLAM"),
+        div({style:{fontSize:18,fontWeight:800,color:"#fff",lineHeight:1.2}},fmt(toplamFiltreli))
+      )
+    ),
+
+    // Kategori bazlı dağılım
+    Object.keys(katBazliToplam).length>0 && div({style:{background:"#FFFFFF",
+      border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:14,marginBottom:14}},
+      div({style:{fontSize:11,fontWeight:700,color:"#0071E3",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}},"Kategori Dağılımı"),
+      div({style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:8}},
+        Object.keys(katBazliToplam).sort((a,b)=>katBazliToplam[b]-katBazliToplam[a]).map(k=>{
+          const lb = kategoriler.find(x=>x.id===k)?.lb || k;
+          const tutar = katBazliToplam[k];
+          const yuzde = toplamFiltreli>0 ? Math.round(tutar/toplamFiltreli*100) : 0;
+          return div({key:k,style:{padding:"9px 11px",background:"#FAF9F6",borderRadius:9,
+            border:"1px solid rgba(0,0,0,.06)"}},
+            div({style:{fontSize:12,color:"#1D1D1F",fontWeight:600,marginBottom:3}},lb),
+            div({style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:6}},
+              div({style:{fontSize:13.5,fontWeight:700,color:"#0071E3"}},fmt(tutar)),
+              div({style:{fontSize:11,color:"#86868B"}},"%"+yuzde)
+            )
+          );
+        })
+      )
+    ),
+
+    // Liste
+    div({style:{background:"#FFFFFF",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:14}},
+      div({style:{fontSize:11,fontWeight:700,color:"#0071E3",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}},
+        "Gider Listesi ("+filtreliGiderler.length+")"),
+      filtreliGiderler.length===0
+        ? div({style:{textAlign:"center",padding:"30px 10px",color:"#86868B",fontSize:13}},
+            "Bu ayda henüz gider yok. Yukarıdan + Gider Ekle butonuyla ekleyebilirsiniz.")
+        : filtreliGiderler.map(g=>{
+            const kLb = kategoriler.find(x=>x.id===g.kategori)?.lb || g.kategori;
+            return div({key:g.id,style:{padding:"10px 12px",border:"1px solid rgba(0,0,0,.06)",
+              borderRadius:10,marginBottom:6,background:"#FBFBFD"}},
+              div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}},
+                div({style:{flex:1,minWidth:0}},
+                  div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}},
+                    span({style:{fontSize:13,fontWeight:600,color:"#1D1D1F"}},kLb),
+                    span({style:{fontSize:11,color:"#86868B"}},
+                      new Date(g.tarih+"T12:00:00").toLocaleDateString("tr-TR",{day:"numeric",month:"short",year:"numeric"}))
+                  ),
+                  g.aciklama && div({style:{fontSize:12,color:"#86868B",fontStyle:"italic"}},g.aciklama)
+                ),
+                div({style:{fontSize:15,fontWeight:700,color:"#FF3B30",flexShrink:0}},"-"+fmt(g.tutar))
+              ),
+              div({style:{display:"flex",gap:6,marginTop:6}},
+                btn({style:{padding:"4px 10px",borderRadius:6,border:"1px solid rgba(0,113,227,.3)",
+                  background:"rgba(0,113,227,.05)",color:"#0071E3",fontSize:11,fontWeight:600,cursor:"pointer"},
+                  onClick:()=>giderDuzenle(g)},"Düzenle"),
+                btn({style:{padding:"4px 10px",borderRadius:6,border:"1px solid rgba(255,59,48,.3)",
+                  background:"rgba(255,59,48,.05)",color:"#FF3B30",fontSize:11,fontWeight:600,cursor:"pointer"},
+                  onClick:()=>giderSil(g.id)},"Sil")
+              )
+            );
+          })
     )
   );
 }
@@ -6732,6 +7047,7 @@ ayarlarRaw.forEach(a=>{
   if(a.id==="devirBildirim") setDevirBildirim(Array.isArray(a.deger)?a.deger:[]);
   if(a.id==="bolumStilleri") setBolumStilleri(a.deger||{});
   if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(a.deger);
+  if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(a.deger);
 });
         const [k,m,d] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
@@ -6794,6 +7110,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
   useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; DB.from("ayarlar").upsert({id:"urunler",deger:URUN_DB}).then(()=>{}).catch(console.warn); },[urunDBVer]);
   useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; DB.from("ayarlar").upsert({id:"hizFiyatlar",deger:HIZ_LISTE_FIYAT}).then(()=>{}).catch(console.warn); },[urunDBVer]);
   useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"zamGecmisi",deger:zamGecmisi}).then(()=>{}).catch(console.warn); },[zamGecmisi]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"giderler",deger:giderler}).then(()=>{}).catch(console.warn); },[giderler]);
   useEffect(()=>{
     if(yukleniyor) return;
     localStorage.setItem("apron_bolum_stilleri", JSON.stringify(bolumStilleri||{}));
@@ -8828,13 +9145,25 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
               const simdi=new Date();
               const ayBas=new Date(simdi.getFullYear(),simdi.getMonth(),1);
               ayBas.setHours(0,0,0,0);
-              const ayKayitlar=tumK.filter(r=>{
+              // Ortak payı hesabı için TÜM personellerin ay kayıtlarına ihtiyaç var
+              const ayTumKayit=tumK.filter(r=>{
                 if(!r.tarih||r.gonderildi===false) return false;
-                if(String(r.staffId)!==String(kul.id)) return false;
                 const rd=new Date(r.tarih+"T12:00:00");
                 return rd>=ayBas && rd<=simdi;
               });
-              const sonuc=hesaplaMaas(kul,ayKayitlar);
+              const ayKayitlar=ayTumKayit.filter(r=>String(r.staffId)===String(kul.id));
+              // Ay içindeki giderler
+              const ayGiderler=(giderler||[]).filter(g=>{
+                if(!g.tarih) return false;
+                const gd=new Date(g.tarih+"T12:00:00");
+                return gd>=ayBas && gd<=simdi;
+              });
+              const ayToplamGider=ayGiderler.reduce((s,g)=>s+toN(g.tutar),0);
+              const sonuc=hesaplaMaas(kul,ayTumKayit,{
+                tumPersoneller:personeller,
+                tumKayitlar:ayTumKayit,
+                toplamGider:ayToplamGider
+              });
               const ayAd=simdi.toLocaleString("tr-TR",{month:"long"});
               return div({style:{
                 marginTop:14,padding:"16px 16px 14px",borderRadius:18,
@@ -9293,6 +9622,17 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
               "💰 İNDİRİM/ZAM"
             ),
 
+            // ── GİDERLER (MASRAFLAR) - TEK BAŞLIK ──
+            btn({style:{width:"100%",padding:"11px 14px",
+              background:muhSek==="giderler"?"rgba(37,99,168,.08)":"transparent",
+              border:"none",borderBottom:"1px solid var(--br)",borderLeft:muhSek==="giderler"?"3px solid #2563a8":"3px solid transparent",
+              color:muhSek==="giderler"?"var(--g)":"#3a6a62",
+              fontSize:12,fontWeight:700,letterSpacing:1,textTransform:"uppercase",
+              cursor:"pointer",textAlign:"left"},
+              onClick:()=>{setMuhSek("giderler");setMuhAlt("");setMuhAltAcik("");}},
+              "🧾 GİDERLER"
+            ),
+
               // ── HİZMET MUHASEBESİ - ANA BAŞLIK ──
             btn({style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
               padding:"11px 14px",
@@ -9493,6 +9833,8 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
             false&&muhSek==="vergiMuhasebesi"&&h(VergiMuhasebesiModul,{tumK,faturalar}),
 
             muhSek==="indirimZam"&&h(IndirimZamModul,{zamGecmisi,setZamGecmisi,triggerUrunRender,hizListeleri,setHizListeleri,showToast}),
+
+            muhSek==="giderler"&&h(GiderlerModul,{giderler,setGiderler,showToast}),
 
             muhSek==="ozet"&&div(null,
               div({style:{textAlign:"center",padding:"40px 20px",color:"var(--mu)"}},
@@ -10775,7 +11117,9 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                   setPDetay(prev=>({...prev,maasFormulu:yeniFormul}));
                   showToast("Formül güncellendi");
                 },
-                showToast
+                showToast,
+                tumPersoneller:personeller,
+                giderler
               }),
 
               div({className:"btn-r",style:{marginTop:14}},
