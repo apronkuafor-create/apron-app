@@ -6057,6 +6057,412 @@ function IndirimZamModul({zamGecmisi, setZamGecmisi, triggerUrunRender, hizListe
 }
 
 
+// ── MAAŞ/KOMİSYON HESAPLAMA SİSTEMİ ──────────────────────────────────────
+// Bileşen tipleri: sabit | hizmetYuzde | urunYuzde | toplamYuzde | musteriBasi | esikPrimi | kademeli
+//
+// Örnek formül:
+// [
+//   {tip:"sabit", tutar:15000, ad:"Sabit Maaş"},
+//   {tip:"hizmetYuzde", oran:40, ad:"Hizmet Komisyonu"},
+//   {tip:"urunYuzde", oran:15, ad:"Ürün Primi"},
+//   {tip:"esikPrimi", esikTutar:50000, esikTip:"hizmetCiro", primTutar:2000, ad:"Ciro Bonusu"},
+//   {tip:"kademeli", esikTip:"hizmetCiro", kademeler:[{baslangic:0, bitis:30000, oran:30},{baslangic:30000, bitis:50000, oran:35},{baslangic:50000, bitis:null, oran:40}], ad:"Kademeli Hizmet"}
+// ]
+
+function maasFormuluVarMi(personel) {
+  return Array.isArray(personel?.maasFormulu) && personel.maasFormulu.length > 0;
+}
+
+function personelYuzdelimi(personel) {
+  // Sadece "sabit" bileşen varsa maaşlı, yüzdesel varsa yüzdeli
+  if(!maasFormuluVarMi(personel)) return false;
+  return personel.maasFormulu.some(b => b.tip !== "sabit");
+}
+
+function hesaplaMaas(personel, kayitlar, opts={}) {
+  // kayitlar: filtrelenmiş kayıt listesi (zaten dönem süzgeçten geçmiş)
+  // dön: {toplam, detay:[{ad, tutar, aciklama}]}
+  if(!maasFormuluVarMi(personel)) return {toplam:0, detay:[], formulYok:true};
+
+  // Personelin kayıtları
+  const pKayit = kayitlar.filter(r => String(r.staffId)===String(personel.id) && r.gonderildi!==false);
+
+  // Temel veriler
+  const hizmetCiro = pKayit.reduce((s,r) => s + toN(r.hizKK||0) + toN(r.hizIB||0) + toN(r.hizNK||0), 0);
+  const urunCiro   = pKayit.reduce((s,r) => s + toN(r.uKK||0) + toN(r.uIB||0) + toN(r.uNK||0), 0);
+  const toplamCiro = hizmetCiro + urunCiro;
+
+  // Tekil müşteri sayısı
+  const musteriSet = new Set();
+  pKayit.forEach(r => {
+    const key = (r.musteri||"").trim().toLowerCase()+"|"+String(r.tel||"").replace(/\D/g,"");
+    if(key!=="|") musteriSet.add(key);
+  });
+  const musteriSay = musteriSet.size;
+  const kayitSay = pKayit.length;
+  const urunAdet = pKayit.reduce((s,r)=>s + (r.urunler||[]).reduce((ss,u)=>ss+toN(u.qty||1),0), 0);
+
+  const veriler = {hizmetCiro, urunCiro, toplamCiro, musteriSay, kayitSay, urunAdet};
+
+  const detay = [];
+  let toplam = 0;
+
+  personel.maasFormulu.forEach(b => {
+    let tutar = 0;
+    let aciklama = "";
+
+    if(b.tip==="sabit") {
+      tutar = toN(b.tutar);
+      aciklama = "Sabit tutar";
+    }
+    else if(b.tip==="hizmetYuzde") {
+      tutar = hizmetCiro * (toN(b.oran)/100);
+      aciklama = "%"+b.oran+" × "+fmt(hizmetCiro)+" hizmet cirosu";
+    }
+    else if(b.tip==="urunYuzde") {
+      tutar = urunCiro * (toN(b.oran)/100);
+      aciklama = "%"+b.oran+" × "+fmt(urunCiro)+" ürün satışı";
+    }
+    else if(b.tip==="toplamYuzde") {
+      tutar = toplamCiro * (toN(b.oran)/100);
+      aciklama = "%"+b.oran+" × "+fmt(toplamCiro)+" toplam ciro";
+    }
+    else if(b.tip==="musteriBasi") {
+      tutar = musteriSay * toN(b.tutar);
+      aciklama = musteriSay+" müşteri × "+fmt(toN(b.tutar));
+    }
+    else if(b.tip==="esikPrimi") {
+      const esikDegeri = veriler[b.esikTip] || 0;
+      if(esikDegeri >= toN(b.esikTutar)) {
+        tutar = toN(b.primTutar);
+        aciklama = "Eşik aşıldı ("+fmt(esikDegeri)+" ≥ "+fmt(toN(b.esikTutar))+")";
+      } else {
+        tutar = 0;
+        aciklama = "Eşik aşılmadı ("+fmt(esikDegeri)+" / "+fmt(toN(b.esikTutar))+")";
+      }
+    }
+    else if(b.tip==="kademeli") {
+      const veri = veriler[b.esikTip] || 0;
+      const kademeler = b.kademeler||[];
+      let toplamKademe = 0;
+      const detayKademe = [];
+      kademeler.forEach(k => {
+        const bas = toN(k.baslangic);
+        const bit = k.bitis===null||k.bitis===""||k.bitis===undefined ? Infinity : toN(k.bitis);
+        if(veri > bas) {
+          const dilimUst = Math.min(veri, bit);
+          const dilimTutar = (dilimUst - bas) * (toN(k.oran)/100);
+          if(dilimTutar > 0) {
+            toplamKademe += dilimTutar;
+            detayKademe.push(fmt(bas)+"-"+(bit===Infinity?"∞":fmt(bit))+" → %"+k.oran+" = "+fmt(dilimTutar));
+          }
+        }
+      });
+      tutar = toplamKademe;
+      aciklama = detayKademe.join(" + ");
+    }
+
+    detay.push({ad: b.ad || b.tip, tip:b.tip, tutar, aciklama});
+    toplam += tutar;
+  });
+
+  return {toplam, detay, veriler};
+}
+
+// ── MAAŞ FORMÜL EDİTÖRÜ BİLEŞENİ ──────────────────────────────────────────
+function MaasFormulEditoru({formul, onChange}) {
+  const [bilesenForm, setBilesenForm] = React.useState(null); // {tip, ad, tutar, oran, ...}
+
+  const bilesenTipleri = [
+    {tip:"sabit", lb:"💰 Sabit Maaş", desc:"Her ay aynı tutar (ör: 15.000₺)"},
+    {tip:"hizmetYuzde", lb:"✂ Hizmet Cirosu Yüzdesi", desc:"Hizmetlerden gelen cironun yüzdesi"},
+    {tip:"urunYuzde", lb:"📦 Ürün Satışı Yüzdesi", desc:"Ürün satışlarından gelen cironun yüzdesi"},
+    {tip:"toplamYuzde", lb:"💵 Toplam Ciro Yüzdesi", desc:"Hizmet+Ürün toplam cirosunun yüzdesi"},
+    {tip:"musteriBasi", lb:"👥 Müşteri Başı", desc:"Her tekil müşteri için sabit tutar"},
+    {tip:"esikPrimi", lb:"🎯 Eşik Primi", desc:"Belirli ciroyu aşarsa sabit bonus"},
+    {tip:"kademeli", lb:"📊 Kademeli Yüzde", desc:"Ciro dilimine göre farklı oran"}
+  ];
+
+  const esikTipSecenekleri = [
+    {tip:"hizmetCiro", lb:"Hizmet Cirosu"},
+    {tip:"urunCiro", lb:"Ürün Satışı"},
+    {tip:"toplamCiro", lb:"Toplam Ciro"},
+    {tip:"musteriSay", lb:"Müşteri Sayısı"},
+    {tip:"kayitSay", lb:"Kayıt Sayısı"},
+    {tip:"urunAdet", lb:"Ürün Adedi"}
+  ];
+
+  const bilesenKaydet = () => {
+    if(!bilesenForm.ad?.trim()) { alert("Bileşen adı gerekli"); return; }
+    const yeniListe = bilesenForm._editIdx !== undefined
+      ? formul.map((b,i)=>i===bilesenForm._editIdx ? {...bilesenForm, _editIdx:undefined} : b)
+      : [...(formul||[]), {...bilesenForm, _editIdx:undefined}];
+    // _editIdx alanını temizle
+    onChange(yeniListe.map(b=>{const {_editIdx,...rest}=b;return rest;}));
+    setBilesenForm(null);
+  };
+
+  const bilesenSil = (idx) => {
+    if(!confirm("Bu bileşeni silmek istediğinize emin misiniz?")) return;
+    onChange(formul.filter((_,i)=>i!==idx));
+  };
+
+  const bilesenDuzenle = (idx) => {
+    setBilesenForm({...formul[idx], _editIdx:idx});
+  };
+
+  const yeniBilesen = (tip) => {
+    const ad = bilesenTipleri.find(t=>t.tip===tip)?.lb || tip;
+    const base = {tip, ad:ad.replace(/^[^\s]+\s/,"")};
+    if(tip==="sabit") base.tutar = 0;
+    else if(tip==="hizmetYuzde"||tip==="urunYuzde"||tip==="toplamYuzde") base.oran = 0;
+    else if(tip==="musteriBasi") base.tutar = 0;
+    else if(tip==="esikPrimi") { base.esikTip="hizmetCiro"; base.esikTutar=0; base.primTutar=0; }
+    else if(tip==="kademeli") { base.esikTip="hizmetCiro"; base.kademeler=[{baslangic:0,bitis:30000,oran:30}]; }
+    setBilesenForm(base);
+  };
+
+  return div(null,
+    // Mevcut bileşenler listesi
+    (formul||[]).length>0
+      ? div({style:{marginBottom:12}},
+          (formul||[]).map((b,i)=>{
+            let aciklama = "";
+            if(b.tip==="sabit") aciklama = "Sabit: "+fmt(toN(b.tutar));
+            else if(b.tip==="hizmetYuzde") aciklama = "Hizmet cirosunun %"+b.oran+"'i";
+            else if(b.tip==="urunYuzde") aciklama = "Ürün satışının %"+b.oran+"'i";
+            else if(b.tip==="toplamYuzde") aciklama = "Toplam cironun %"+b.oran+"'i";
+            else if(b.tip==="musteriBasi") aciklama = "Müşteri başı: "+fmt(toN(b.tutar));
+            else if(b.tip==="esikPrimi") aciklama = fmt(toN(b.esikTutar))+" "+(esikTipSecenekleri.find(e=>e.tip===b.esikTip)?.lb||"")+" aşılırsa +"+fmt(toN(b.primTutar));
+            else if(b.tip==="kademeli") aciklama = "Kademeli ("+(b.kademeler||[]).length+" dilim)";
+            return div({key:i,style:{display:"flex",alignItems:"center",gap:8,
+              padding:"10px 12px",background:"#FBFBFD",
+              border:"1px solid rgba(0,0,0,.08)",borderRadius:10,marginBottom:6}},
+              div({style:{flex:1,minWidth:0}},
+                div({style:{fontSize:13.5,fontWeight:600,color:"#1D1D1F"}},b.ad),
+                div({style:{fontSize:11.5,color:"#86868B",marginTop:2}},aciklama)
+              ),
+              btn({style:{background:"transparent",border:"1px solid rgba(0,113,227,.3)",borderRadius:7,
+                color:"#0071E3",fontSize:11.5,fontWeight:600,padding:"5px 10px",cursor:"pointer"},
+                onClick:()=>bilesenDuzenle(i)},"Düzenle"),
+              btn({style:{background:"transparent",border:"1px solid rgba(255,59,48,.3)",borderRadius:7,
+                color:"#FF3B30",fontSize:11.5,fontWeight:600,padding:"5px 10px",cursor:"pointer"},
+                onClick:()=>bilesenSil(i)},"Sil")
+            );
+          })
+        )
+      : div({style:{padding:"16px",textAlign:"center",background:"#FBFBFD",
+          border:"1px dashed rgba(0,0,0,.15)",borderRadius:10,marginBottom:12,color:"#86868B",fontSize:13}},
+          "Henüz formül bileşeni eklenmedi. Aşağıdan bir bileşen ekleyin.")
+    ,
+
+    // Yeni bileşen seç butonları
+    !bilesenForm&&div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}},
+      bilesenTipleri.map(t=>
+        btn({key:t.tip,style:{padding:"9px 10px",borderRadius:9,border:"1px solid rgba(0,113,227,.25)",
+          background:"rgba(0,113,227,.04)",color:"#0071E3",fontSize:12,fontWeight:600,cursor:"pointer",
+          textAlign:"left",lineHeight:1.4},
+          onClick:()=>yeniBilesen(t.tip),title:t.desc},
+          "+ "+t.lb)
+      )
+    ),
+
+    // Bileşen düzenleme formu
+    bilesenForm&&div({style:{padding:14,background:"#FBFBFD",border:"1.5px solid rgba(0,113,227,.3)",borderRadius:11,marginTop:8}},
+      div({style:{fontSize:13,fontWeight:700,color:"#0071E3",marginBottom:10}},
+        bilesenForm._editIdx!==undefined?"Bileşeni Düzenle":"Yeni Bileşen"),
+      // Bileşen adı
+      div({style:{marginBottom:10}},
+        lbl({className:"fl"},"Bileşen Adı (etiket)"),
+        inp({className:"fi",placeholder:"örn: Sabit Maaş, Hizmet Komisyonu",
+          value:bilesenForm.ad||"",
+          onChange:e=>setBilesenForm(p=>({...p,ad:e.target.value}))})
+      ),
+      // Tip'e göre alanlar
+      bilesenForm.tip==="sabit"&&div({style:{marginBottom:10}},
+        lbl({className:"fl"},"Sabit Tutar (₺)"),
+        inp({className:"fi",type:"number",placeholder:"15000",
+          value:bilesenForm.tutar||"",
+          onChange:e=>setBilesenForm(p=>({...p,tutar:e.target.value}))})
+      ),
+      (bilesenForm.tip==="hizmetYuzde"||bilesenForm.tip==="urunYuzde"||bilesenForm.tip==="toplamYuzde")&&div({style:{marginBottom:10}},
+        lbl({className:"fl"},"Oran (%)"),
+        inp({className:"fi",type:"number",placeholder:"40",
+          value:bilesenForm.oran||"",
+          onChange:e=>setBilesenForm(p=>({...p,oran:e.target.value}))})
+      ),
+      bilesenForm.tip==="musteriBasi"&&div({style:{marginBottom:10}},
+        lbl({className:"fl"},"Müşteri Başı Tutar (₺)"),
+        inp({className:"fi",type:"number",placeholder:"50",
+          value:bilesenForm.tutar||"",
+          onChange:e=>setBilesenForm(p=>({...p,tutar:e.target.value}))})
+      ),
+      bilesenForm.tip==="esikPrimi"&&div(null,
+        div({style:{marginBottom:10}},
+          lbl({className:"fl"},"Hangi Veri?"),
+          sel({className:"fi",value:bilesenForm.esikTip||"hizmetCiro",
+            onChange:e=>setBilesenForm(p=>({...p,esikTip:e.target.value}))},
+            esikTipSecenekleri.map(s=>opt(s.tip,s.lb))
+          )
+        ),
+        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+          div(null,
+            lbl({className:"fl"},"Eşik (Aşılacak Değer)"),
+            inp({className:"fi",type:"number",placeholder:"50000",
+              value:bilesenForm.esikTutar||"",
+              onChange:e=>setBilesenForm(p=>({...p,esikTutar:e.target.value}))})
+          ),
+          div(null,
+            lbl({className:"fl"},"Prim Tutarı (₺)"),
+            inp({className:"fi",type:"number",placeholder:"2000",
+              value:bilesenForm.primTutar||"",
+              onChange:e=>setBilesenForm(p=>({...p,primTutar:e.target.value}))})
+          )
+        ),
+        div({style:{fontSize:11.5,color:"#86868B",padding:"8px 11px",background:"rgba(0,113,227,.04)",borderRadius:8,lineHeight:1.5}},
+          "Örnek: Hizmet cirosu 50.000₺'yi aşarsa 2.000₺ ekstra prim ödenir.")
+      ),
+      bilesenForm.tip==="kademeli"&&div(null,
+        div({style:{marginBottom:10}},
+          lbl({className:"fl"},"Hangi Veri?"),
+          sel({className:"fi",value:bilesenForm.esikTip||"hizmetCiro",
+            onChange:e=>setBilesenForm(p=>({...p,esikTip:e.target.value}))},
+            esikTipSecenekleri.map(s=>opt(s.tip,s.lb))
+          )
+        ),
+        div({style:{marginBottom:8}},
+          lbl({className:"fl"},"Kademeler"),
+          (bilesenForm.kademeler||[]).map((k,i)=>
+            div({key:i,style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:6,marginBottom:6,alignItems:"center"}},
+              inp({className:"fi",type:"number",placeholder:"Başlangıç",value:k.baslangic||0,style:{margin:0,fontSize:12,padding:"7px 9px"},
+                onChange:e=>setBilesenForm(p=>({...p,kademeler:p.kademeler.map((x,j)=>j===i?{...x,baslangic:e.target.value}:x)}))}),
+              inp({className:"fi",type:"number",placeholder:"Bitiş (boş=sonsuz)",value:k.bitis||"",style:{margin:0,fontSize:12,padding:"7px 9px"},
+                onChange:e=>setBilesenForm(p=>({...p,kademeler:p.kademeler.map((x,j)=>j===i?{...x,bitis:e.target.value}:x)}))}),
+              inp({className:"fi",type:"number",placeholder:"Oran %",value:k.oran||"",style:{margin:0,fontSize:12,padding:"7px 9px"},
+                onChange:e=>setBilesenForm(p=>({...p,kademeler:p.kademeler.map((x,j)=>j===i?{...x,oran:e.target.value}:x)}))}),
+              btn({style:{background:"transparent",border:"1px solid rgba(255,59,48,.3)",borderRadius:6,
+                color:"#FF3B30",fontSize:12,padding:"4px 8px",cursor:"pointer"},
+                onClick:()=>setBilesenForm(p=>({...p,kademeler:p.kademeler.filter((_,j)=>j!==i)}))},"×")
+            )
+          ),
+          btn({style:{padding:"7px 12px",borderRadius:7,border:"1px dashed rgba(0,113,227,.3)",
+            background:"transparent",color:"#0071E3",fontSize:12,cursor:"pointer",marginTop:4},
+            onClick:()=>setBilesenForm(p=>({...p,kademeler:[...(p.kademeler||[]),{baslangic:0,bitis:"",oran:0}]}))},
+            "+ Kademe Ekle")
+        ),
+        div({style:{fontSize:11.5,color:"#86868B",padding:"8px 11px",background:"rgba(0,113,227,.04)",borderRadius:8,lineHeight:1.5}},
+          "Örnek: 0-30K %30, 30-50K %35, 50K+ %40 — son kademede Bitiş boş bırakılır.")
+      ),
+      div({style:{display:"flex",gap:8,marginTop:12}},
+        btn({style:{flex:1,padding:"9px 0",borderRadius:9,border:"1px solid var(--br)",background:"#FFFFFF",
+          color:"#1D1D1F",fontSize:13,fontWeight:500,cursor:"pointer"},
+          onClick:()=>setBilesenForm(null)},"İptal"),
+        btn({style:{flex:2,padding:"9px 0",borderRadius:9,border:"none",background:"#0071E3",
+          color:"#FFFFFF",fontSize:13,fontWeight:700,cursor:"pointer"},
+          onClick:bilesenKaydet},
+          bilesenForm._editIdx!==undefined?"Güncelle":"Ekle")
+      )
+    )
+  );
+}
+
+// ── PERSONEL MAAŞ HESAP GÖRÜNÜMÜ (Yönetici için) ──────────────────────────
+function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast}) {
+  const [periyot, setPeriyot] = React.useState("buAy");
+  const periyotBaslangic = React.useMemo(()=>{
+    const d=new Date();
+    if(periyot==="buHafta"){const g=d.getDay()||7;d.setDate(d.getDate()-g+1);}
+    else if(periyot==="buAy"){d.setDate(1);}
+    else if(periyot==="gecenAy"){d.setMonth(d.getMonth()-1);d.setDate(1);}
+    else if(periyot==="buYil"){d.setMonth(0);d.setDate(1);}
+    d.setHours(0,0,0,0);return d;
+  },[periyot]);
+  const periyotBitis = React.useMemo(()=>{
+    if(periyot==="gecenAy"){
+      const d=new Date();d.setDate(0);d.setHours(23,59,59,999);return d;
+    }
+    return new Date();
+  },[periyot]);
+
+  const filtreliK = (tumK||[]).filter(r=>{
+    if(!r.tarih||r.gonderildi===false) return false;
+    const rd = new Date(r.tarih+"T12:00:00");
+    return rd>=periyotBaslangic && rd<=periyotBitis;
+  });
+
+  const sonuc = hesaplaMaas({...personel, maasFormulu:formul}, filtreliK);
+  const periyotEt = {buHafta:"Bu Hafta",buAy:"Bu Ay",gecenAy:"Geçen Ay",buYil:"Bu Yıl"}[periyot];
+
+  return div(null,
+    // Maaş formülü editörü
+    div({style:{background:"#FFFFFF",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:14,marginBottom:14}},
+      div({style:{fontSize:12,fontWeight:700,color:"#0071E3",letterSpacing:1.2,textTransform:"uppercase",marginBottom:10}},
+        "💰 MAAŞ/KOMİSYON FORMÜLÜ"),
+      div({style:{fontSize:12,color:"#86868B",marginBottom:12,lineHeight:1.5}},
+        "Bu personelin maaşı, aşağıdaki bileşenlerin toplamı olarak hesaplanır. Bileşenleri ekleyip kaldırabilirsiniz."),
+      h(MaasFormulEditoru,{formul:formul||[], onChange})
+    ),
+
+    // Hesaplama önizlemesi
+    (formul||[]).length>0&&div({style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:14}},
+      div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8,flexWrap:"wrap"}},
+        div({style:{fontSize:12,fontWeight:700,color:"#0071E3",letterSpacing:1.2,textTransform:"uppercase"}},
+          "💵 HESAPLAMA"),
+        div({style:{display:"flex",gap:4,flexWrap:"wrap"}},
+          [["buHafta","Bu Hafta"],["buAy","Bu Ay"],["gecenAy","Geçen Ay"],["buYil","Bu Yıl"]].map(([id,lb])=>
+            btn({key:id,style:{padding:"5px 9px",borderRadius:6,fontSize:11,cursor:"pointer",
+              background:periyot===id?"rgba(0,113,227,.12)":"#fff",
+              border:"1px solid "+(periyot===id?"rgba(0,113,227,.4)":"rgba(0,0,0,.10)"),
+              color:periyot===id?"#0071E3":"#86868B",
+              fontWeight:periyot===id?600:500},
+              onClick:()=>setPeriyot(id)},lb)
+          )
+        )
+      ),
+      // Veri özeti
+      sonuc.veriler&&div({style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:12}},
+        [
+          ["Hizmet Ciro",fmt(sonuc.veriler.hizmetCiro)],
+          ["Ürün Ciro",fmt(sonuc.veriler.urunCiro)],
+          ["Toplam Ciro",fmt(sonuc.veriler.toplamCiro)],
+          ["Müşteri",sonuc.veriler.musteriSay+" kişi"],
+          ["Kayıt",sonuc.veriler.kayitSay+" adet"],
+          ["Ürün",sonuc.veriler.urunAdet+" adet"]
+        ].map(([lb,v],i)=>
+          div({key:i,style:{background:"#fff",border:"1px solid rgba(0,0,0,.06)",borderRadius:8,padding:"7px 8px",textAlign:"center"}},
+            div({style:{fontSize:9.5,color:"#86868B",letterSpacing:.8,textTransform:"uppercase",marginBottom:2}},lb),
+            div({style:{fontSize:12.5,color:"#1D1D1F",fontWeight:700}},v)
+          )
+        )
+      ),
+      // Bileşen detayları
+      sonuc.detay.length>0&&div({style:{marginBottom:10}},
+        sonuc.detay.map((d,i)=>
+          div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,
+            padding:"9px 12px",background:"#fff",border:"1px solid rgba(0,0,0,.06)",borderRadius:8,marginBottom:5}},
+            div({style:{flex:1,minWidth:0}},
+              div({style:{fontSize:12.5,fontWeight:600,color:"#1D1D1F"}},d.ad),
+              div({style:{fontSize:11,color:"#86868B",marginTop:2}},d.aciklama)
+            ),
+            div({style:{fontSize:14,fontWeight:700,color:d.tutar>0?"#34C759":"#86868B",flexShrink:0}},fmt(d.tutar))
+          )
+        )
+      ),
+      // Toplam
+      div({style:{padding:"12px 14px",background:"linear-gradient(135deg,#0071E3,#0058B0)",borderRadius:11,
+        display:"flex",justifyContent:"space-between",alignItems:"center",
+        boxShadow:"0 4px 14px rgba(0,113,227,.28)"}},
+        div(null,
+          div({style:{fontSize:11,color:"rgba(255,255,255,.85)",letterSpacing:1.5,textTransform:"uppercase",fontWeight:600,marginBottom:2}},periyotEt+" HAK EDİŞ"),
+          div({style:{fontSize:11,color:"rgba(255,255,255,.7)"}},
+            personelYuzdelimi({maasFormulu:formul}) ? "Personel kendi panelinde görebilir" : "Maaşlı — personel paneli göstermez")
+        ),
+        div({style:{fontSize:22,fontWeight:700,color:"#fff",letterSpacing:-0.5}},fmt(sonuc.toplam))
+      )
+    )
+  );
+}
+
 function App() {
   const [ekran, setEkran]             = useState("login");
   const [panelSec, setPanelSec]       = useState(false); // her iki role sahip kullanıcı için
@@ -8416,6 +8822,43 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
                 div({style:{fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:28,fontWeight:800,color:"#C9A84C",letterSpacing:"-0.5px",lineHeight:1}},fmt(genelTop))
               )
             ),
+            // Bu ayki hak edişim — sadece yüzdeli personellere göster
+            (()=>{
+              if(!personelYuzdelimi(kul)) return null;
+              const simdi=new Date();
+              const ayBas=new Date(simdi.getFullYear(),simdi.getMonth(),1);
+              ayBas.setHours(0,0,0,0);
+              const ayKayitlar=tumK.filter(r=>{
+                if(!r.tarih||r.gonderildi===false) return false;
+                if(String(r.staffId)!==String(kul.id)) return false;
+                const rd=new Date(r.tarih+"T12:00:00");
+                return rd>=ayBas && rd<=simdi;
+              });
+              const sonuc=hesaplaMaas(kul,ayKayitlar);
+              const ayAd=simdi.toLocaleString("tr-TR",{month:"long"});
+              return div({style:{
+                marginTop:14,padding:"16px 16px 14px",borderRadius:18,
+                background:"linear-gradient(135deg,#0071E3,#0058B0)",
+                boxShadow:"0 6px 20px rgba(0,113,227,.30),0 2px 6px rgba(0,113,227,.20)",
+                fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif"
+              }},
+                div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}},
+                  div(null,
+                    div({style:{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"rgba(255,255,255,.82)",fontWeight:700,marginBottom:3}},"💰 "+ayAd.toUpperCase()+" HAK EDİŞİM"),
+                    div({style:{fontSize:11,color:"rgba(255,255,255,.65)"}},sonuc.detay.length+" bileşen · "+(sonuc.veriler?.kayitSay||0)+" kayıt")
+                  ),
+                  div({style:{fontSize:24,fontWeight:800,color:"#fff",letterSpacing:-0.5,lineHeight:1}},fmt(sonuc.toplam))
+                ),
+                sonuc.detay.length>0&&div({style:{borderTop:"1px solid rgba(255,255,255,.15)",paddingTop:10,marginTop:6}},
+                  sonuc.detay.filter(d=>d.tutar>0).slice(0,4).map((d,i)=>
+                    div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",fontSize:12.5}},
+                      div({style:{color:"rgba(255,255,255,.88)",fontWeight:500,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginRight:8}},d.ad),
+                      div({style:{color:"#fff",fontWeight:700,flexShrink:0}},fmt(d.tutar))
+                    )
+                  )
+                )
+              );
+            })(),
             btn({className:"ybt",onClick:()=>setKayitForm({})},
               h("svg",{width:22,height:22,viewBox:"0 0 24 24",fill:"none",
                 stroke:"rgba(255,255,255,0.95)",strokeWidth:1.6,
@@ -10322,7 +10765,20 @@ muhSek==="urunMuhasebe"&&div({style:{background:"var(--bg3)"}},
                 )
               )),
 
-              div({className:"btn-r"},
+              // Maaş/Komisyon Hesabı
+              h(PersonelMaasGorunum,{
+                personel:pDetay,
+                tumK,
+                formul:pDetay.maasFormulu||[],
+                onChange:(yeniFormul)=>{
+                  setPersoneller(prev=>prev.map(x=>x.id===pDetay.id?{...x,maasFormulu:yeniFormul}:x));
+                  setPDetay(prev=>({...prev,maasFormulu:yeniFormul}));
+                  showToast("Formül güncellendi");
+                },
+                showToast
+              }),
+
+              div({className:"btn-r",style:{marginTop:14}},
                 btn({className:"btn-k",onClick:()=>{setPHata("");setPDuz({...pDetay});setPDetay(null);}},"Düzenle")
               )
             )
