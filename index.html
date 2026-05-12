@@ -6334,6 +6334,399 @@ function MaasFormulEditoru({formul, onChange, tumPersoneller}) {
   );
 }
 
+// ── HAKEDİŞ DETAY MODAL (Personel için) ────────────────────────────────────
+// Tam ekran modal - Brüt - Kesintiler = Net tablosu + alt detay sayfaları
+function HakedisDetayModal({kul, tumK, giderler, avanslar, personeller,
+  periyot, setPeriyot, yil, setYil, ay, setAy, hafta, setHafta,
+  onClose, altDetay, setAltDetay}) {
+
+  // ── Periyot başlangıç/bitiş hesapla ──
+  const {pBas, pBitis, pBaslik} = React.useMemo(()=>{
+    let bas, bit, basl;
+    if(periyot==="yil"){
+      bas = new Date(yil, 0, 1, 0, 0, 0, 0);
+      bit = new Date(yil, 11, 31, 23, 59, 59, 999);
+      basl = yil + " Yılı";
+    } else if(periyot==="ay"){
+      bas = new Date(yil, ay, 1, 0, 0, 0, 0);
+      bit = new Date(yil, ay+1, 0, 23, 59, 59, 999);
+      const ayAd = bas.toLocaleString("tr-TR",{month:"long"});
+      basl = ayAd.charAt(0).toUpperCase()+ayAd.slice(1)+" "+yil;
+    } else { // hafta - gün aralığı bazlı: 1-7, 8-14, 15-21, 22-28, 29-ay sonu
+      const ayBas = new Date(yil, ay, 1, 0, 0, 0, 0);
+      const ayBit = new Date(yil, ay+1, 0, 23, 59, 59, 999);
+      const ayAd = ayBas.toLocaleString("tr-TR",{month:"long"});
+      const ayAdC = ayAd.charAt(0).toUpperCase()+ayAd.slice(1);
+      const sonGun = ayBit.getDate();
+      const aralik = [[1,7],[8,14],[15,21],[22,28],[29,sonGun]];
+      const [bg, eg] = aralik[Math.min(hafta,4)];
+      const baslangicGun = Math.min(bg, sonGun);
+      const bitisGun = Math.min(eg, sonGun);
+      bas = new Date(yil, ay, baslangicGun, 0, 0, 0, 0);
+      bit = new Date(yil, ay, bitisGun, 23, 59, 59, 999);
+      basl = ayAdC+" "+yil+" · "+baslangicGun+"-"+bitisGun;
+    }
+    return {pBas:bas, pBitis:bit, pBaslik:basl};
+  },[periyot, yil, ay, hafta]);
+
+  // ── Veriler ──
+  const tumKayit = (tumK||[]).filter(r=>{
+    if(!r.tarih||r.gonderildi===false) return false;
+    const rd=new Date(r.tarih+"T12:00:00");
+    return rd>=pBas && rd<=pBitis;
+  });
+  const tumGiderler = (giderler||[]).filter(g=>{
+    if(!g.tarih) return false;
+    const gd=new Date(g.tarih+"T12:00:00");
+    return gd>=pBas && gd<=pBitis;
+  });
+  const toplamGider = tumGiderler.reduce((s,g)=>s+toN(g.tutar),0);
+
+  const sonuc = hesaplaMaas(kul, tumKayit, {
+    tumPersoneller:personeller,
+    tumKayitlar:tumKayit,
+    toplamGider:toplamGider
+  });
+  const brutHak = toN(sonuc.toplam);
+
+  // İbanıma gelen hizmet
+  const ibanHizmetKayitlar = tumKayit.filter(r=>r.hizIbanId===kul.id && toN(r.hizIB)>0);
+  const ibanHizmetTop = ibanHizmetKayitlar.reduce((s,r)=>s+toN(r.hizIB),0);
+
+  // İbanıma gelen ürün
+  const ibanUrunKayitlar = tumKayit.filter(r=>r.urunIbanId===kul.id && toN(r.uIB)>0);
+  const ibanUrunTop = ibanUrunKayitlar.reduce((s,r)=>s+toN(r.uIB),0);
+
+  // Çekilen avanslar
+  const donemAvanslar = (avanslar||[]).filter(a=>{
+    if(String(a.staffId)!==String(kul.id)) return false;
+    if(a.durum!=="onaylandi") return false;
+    if(!a.tarih) return false;
+    const ad=new Date(a.tarih+"T12:00:00");
+    return ad>=pBas && ad<=pBitis;
+  }).sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
+  const avansTop = donemAvanslar.reduce((s,a)=>s+toN(a.tutar),0);
+
+  const netHak = brutHak - ibanHizmetTop - ibanUrunTop - avansTop;
+  const negatif = netHak < 0;
+
+  const yilSec = (()=>{
+    const su=new Date().getFullYear();
+    return [su-2, su-1, su, su+1];
+  })();
+  const ayAdlari = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran",
+                    "Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
+  const ayBitGun = new Date(yil, ay+1, 0).getDate();
+  const haftaAraliklari = [[1,7],[8,14],[15,21],[22,28],[29,ayBitGun]]
+    .filter(([s,e])=>s<=ayBitGun);
+
+  // ── ALT DETAY SAYFASI ──
+  if(altDetay){
+    let baslik="", kayitlar=[], renkler={};
+    if(altDetay.tip==="brut"){
+      baslik = "Brüt Hakediş Bileşenleri";
+      kayitlar = (sonuc.detay||[]).map(d=>({
+        sol: d.ad,
+        orta: d.aciklama||"",
+        sag: fmt(d.tutar)
+      }));
+      renkler = {anahat:"#0071E3", bg:"rgba(0,113,227,.06)"};
+    } else if(altDetay.tip==="ibanHizmet"){
+      baslik = "İbanıma Gelen Hizmet Tutarı";
+      kayitlar = ibanHizmetKayitlar
+        .sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""))
+        .map(r=>({
+          sol: new Date(r.tarih+"T12:00:00").toLocaleDateString("tr-TR",{day:"numeric",month:"short",year:"numeric"}),
+          orta: (r.musteri||"-")+" · "+((r.hizler||[]).map(x=>x.n||x).filter(Boolean).join(", ")||"Hizmet"),
+          sag: fmt(toN(r.hizIB))
+        }));
+      renkler = {anahat:"#FF9F0A", bg:"rgba(255,159,10,.06)"};
+    } else if(altDetay.tip==="ibanUrun"){
+      baslik = "İbanıma Gelen Ürün Tutarı";
+      kayitlar = ibanUrunKayitlar
+        .sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""))
+        .map(r=>({
+          sol: new Date(r.tarih+"T12:00:00").toLocaleDateString("tr-TR",{day:"numeric",month:"short",year:"numeric"}),
+          orta: (r.musteri||"-")+" · "+((r.urunler||[]).map(x=>x.a||x.ad||"").filter(Boolean).join(", ")||"Ürün"),
+          sag: fmt(toN(r.uIB))
+        }));
+      renkler = {anahat:"#FF9F0A", bg:"rgba(255,159,10,.06)"};
+    } else if(altDetay.tip==="avans"){
+      baslik = "Çektiğim Avanslar";
+      kayitlar = donemAvanslar.map(a=>({
+        sol: new Date(a.tarih+"T12:00:00").toLocaleDateString("tr-TR",{day:"numeric",month:"short",year:"numeric"}),
+        orta: a.notlar||"-",
+        sag: fmt(toN(a.tutar))
+      }));
+      renkler = {anahat:"#FF9F0A", bg:"rgba(255,159,10,.06)"};
+    }
+    const altToplam = altDetay.tip==="brut" ? brutHak
+                    : altDetay.tip==="ibanHizmet" ? ibanHizmetTop
+                    : altDetay.tip==="ibanUrun" ? ibanUrunTop
+                    : avansTop;
+
+    return div({style:{
+      position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,
+      background:"#F5F5F7",overflowY:"auto",
+      fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif"
+    }},
+      // Üst bar
+      div({style:{
+        position:"sticky",top:0,zIndex:10,
+        background:"#fff",borderBottom:"1px solid rgba(0,0,0,.08)",
+        padding:"14px 16px",display:"flex",alignItems:"center",gap:12
+      }},
+        btn({style:{
+          background:"transparent",border:"none",color:"#0071E3",
+          fontSize:16,fontWeight:600,cursor:"pointer",padding:"4px 0",
+          display:"flex",alignItems:"center",gap:4
+        },onClick:()=>setAltDetay(null)},
+          span({style:{fontSize:18}},"‹"),"Geri"),
+        div({style:{flex:1,fontSize:15,fontWeight:700,color:"#1D1D1F",textAlign:"center",paddingRight:48}},
+          baslik)
+      ),
+      div({style:{padding:"16px"}},
+        // Üst özet kart
+        div({style:{
+          padding:"16px",borderRadius:14,background:"#fff",
+          border:"1px solid "+renkler.anahat+"33",marginBottom:14,
+          boxShadow:"0 2px 8px rgba(0,0,0,.04)"
+        }},
+          div({style:{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"#86868B",fontWeight:700,marginBottom:4}},
+            pBaslik),
+          div({style:{display:"flex",justifyContent:"space-between",alignItems:"baseline"}},
+            div({style:{fontSize:13,color:"#1D1D1F",fontWeight:600}},
+              kayitlar.length+" kayıt"),
+            div({style:{fontSize:24,fontWeight:800,color:renkler.anahat,letterSpacing:-0.5}},
+              fmt(altToplam))
+          )
+        ),
+        // Kayıt listesi
+        kayitlar.length===0
+          ? div({style:{
+              padding:"40px 16px",textAlign:"center",
+              background:"#fff",borderRadius:14,
+              border:"1px solid rgba(0,0,0,.06)",
+              color:"#86868B",fontSize:14
+            }},"Bu dönemde kayıt bulunmuyor.")
+          : div({style:{background:"#fff",borderRadius:14,border:"1px solid rgba(0,0,0,.06)",overflow:"hidden"}},
+              kayitlar.map((k,i)=>
+                div({key:i,style:{
+                  padding:"12px 14px",
+                  borderBottom:i<kayitlar.length-1?"1px solid rgba(0,0,0,.06)":"none",
+                  display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10
+                }},
+                  div({style:{flex:1,minWidth:0}},
+                    div({style:{fontSize:13,fontWeight:600,color:"#1D1D1F",marginBottom:2}},k.sol),
+                    div({style:{fontSize:12,color:"#86868B",lineHeight:1.4,wordBreak:"break-word"}},k.orta)
+                  ),
+                  div({style:{fontSize:14,fontWeight:700,color:renkler.anahat,flexShrink:0,whiteSpace:"nowrap"}},k.sag)
+                )
+              )
+            )
+      )
+    );
+  }
+
+  // ── ANA DETAY (Brüt − Kesintiler = Net) ──
+  return div({style:{
+    position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9998,
+    background:"#F5F5F7",overflowY:"auto",
+    fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif"
+  }},
+    // Üst bar
+    div({style:{
+      position:"sticky",top:0,zIndex:10,
+      background:"#fff",borderBottom:"1px solid rgba(0,0,0,.08)",
+      padding:"14px 16px",display:"flex",alignItems:"center",gap:12
+    }},
+      btn({style:{
+        background:"transparent",border:"none",color:"#0071E3",
+        fontSize:16,fontWeight:600,cursor:"pointer",padding:"4px 0",
+        display:"flex",alignItems:"center",gap:4
+      },onClick:onClose},
+        span({style:{fontSize:18}},"‹"),"Kapat"),
+      div({style:{flex:1,fontSize:15,fontWeight:700,color:"#1D1D1F",textAlign:"center",paddingRight:60}},
+        "Hakediş Detayı")
+    ),
+    div({style:{padding:"16px"}},
+      // ── PERİYOT SEÇİCİ ──
+      div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.06)",borderRadius:14,padding:14,marginBottom:14}},
+        div({style:{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"#86868B",fontWeight:700,marginBottom:10}},
+          "Dönem"),
+        div({style:{display:"flex",gap:6,marginBottom:10}},
+          ["hafta","ay","yil"].map(p=>
+            btn({key:p,style:{
+              flex:1,padding:"9px 0",borderRadius:9,
+              border:periyot===p?"1.5px solid #0071E3":"1px solid rgba(0,0,0,.12)",
+              background:periyot===p?"#0071E3":"#fff",
+              color:periyot===p?"#fff":"#1D1D1F",
+              fontSize:13,fontWeight:600,cursor:"pointer",letterSpacing:.3
+            },onClick:()=>setPeriyot(p)},
+              p==="hafta"?"Hafta":p==="ay"?"Ay":"Yıl")
+          )
+        ),
+        // Yıl seçici (her durumda görünür)
+        div({style:{marginBottom:periyot==="yil"?0:8}},
+          div({style:{fontSize:11,color:"#86868B",marginBottom:5,fontWeight:600}},"Yıl"),
+          div({style:{display:"flex",gap:6,flexWrap:"wrap"}},
+            yilSec.map(y=>
+              btn({key:y,style:{
+                padding:"7px 14px",borderRadius:8,
+                border:yil===y?"1.5px solid #0071E3":"1px solid rgba(0,0,0,.12)",
+                background:yil===y?"rgba(0,113,227,.10)":"#fff",
+                color:yil===y?"#0071E3":"#1D1D1F",
+                fontSize:13,fontWeight:600,cursor:"pointer"
+              },onClick:()=>setYil(y)},y)
+            )
+          )
+        ),
+        // Ay seçici (hafta veya ay seçilmişse)
+        (periyot==="hafta"||periyot==="ay") && div({style:{marginTop:8,marginBottom:periyot==="ay"?0:8}},
+          div({style:{fontSize:11,color:"#86868B",marginBottom:5,fontWeight:600}},"Ay"),
+          div({style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5}},
+            ayAdlari.map((nm,i)=>
+              btn({key:i,style:{
+                padding:"7px 0",borderRadius:7,
+                border:ay===i?"1.5px solid #0071E3":"1px solid rgba(0,0,0,.12)",
+                background:ay===i?"rgba(0,113,227,.10)":"#fff",
+                color:ay===i?"#0071E3":"#1D1D1F",
+                fontSize:11.5,fontWeight:600,cursor:"pointer"
+              },onClick:()=>{ setAy(i); setHafta(0); }},nm.slice(0,3))
+            )
+          )
+        ),
+        // Hafta seçici (hafta seçilmişse)
+        periyot==="hafta" && div({style:{marginTop:8}},
+          div({style:{fontSize:11,color:"#86868B",marginBottom:5,fontWeight:600}},"Hafta"),
+          div({style:{display:"flex",gap:5,flexWrap:"wrap"}},
+            haftaAraliklari.map(([s,e],i)=>
+              btn({key:i,style:{
+                padding:"7px 12px",borderRadius:8,
+                border:hafta===i?"1.5px solid #0071E3":"1px solid rgba(0,0,0,.12)",
+                background:hafta===i?"rgba(0,113,227,.10)":"#fff",
+                color:hafta===i?"#0071E3":"#1D1D1F",
+                fontSize:12,fontWeight:600,cursor:"pointer"
+              },onClick:()=>setHafta(i)},s+"-"+e)
+            )
+          )
+        )
+      ),
+
+      // ── HESAPLAMA TABLOSU ──
+      div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.06)",borderRadius:14,overflow:"hidden",marginBottom:14}},
+        // Dönem başlığı
+        div({style:{padding:"12px 14px",background:"#FBFBFD",borderBottom:"1px solid rgba(0,0,0,.06)"}},
+          div({style:{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"#86868B",fontWeight:700}},
+            "Seçili Dönem"),
+          div({style:{fontSize:14,fontWeight:700,color:"#1D1D1F",marginTop:2}},pBaslik)
+        ),
+
+        // Brüt Hakediş (tıklanır)
+        div({
+          onClick:()=>setAltDetay({tip:"brut"}),
+          style:{
+            padding:"14px",cursor:"pointer",
+            borderBottom:"1px solid rgba(0,0,0,.06)",
+            display:"flex",justifyContent:"space-between",alignItems:"center",gap:10
+          }},
+          div({style:{flex:1,minWidth:0}},
+            div({style:{fontSize:14,fontWeight:700,color:"#1D1D1F",marginBottom:2}},
+              "Brüt Hakediş"),
+            div({style:{fontSize:11,color:"#0071E3",display:"flex",alignItems:"center",gap:3}},
+              "Bileşenleri görüntüle",span({style:{fontSize:12}},"›"))
+          ),
+          div({style:{fontSize:18,fontWeight:700,color:"#34C759"}},fmt(brutHak))
+        ),
+
+        // İbanıma Gelen Hizmet (tıklanır, kesinti)
+        div({
+          onClick:()=>setAltDetay({tip:"ibanHizmet"}),
+          style:{
+            padding:"14px",cursor:"pointer",
+            borderBottom:"1px solid rgba(0,0,0,.06)",
+            display:"flex",justifyContent:"space-between",alignItems:"center",gap:10
+          }},
+          div({style:{flex:1,minWidth:0}},
+            div({style:{fontSize:14,fontWeight:600,color:"#1D1D1F",marginBottom:2}},
+              "− İbanıma Gelen Hizmet Tutarı"),
+            div({style:{fontSize:11,color:"#0071E3",display:"flex",alignItems:"center",gap:3}},
+              ibanHizmetKayitlar.length+" kayıt",span({style:{fontSize:12}},"›"))
+          ),
+          div({style:{fontSize:16,fontWeight:700,color:"#FF9F0A"}},
+            (ibanHizmetTop>0?"− ":"")+fmt(ibanHizmetTop))
+        ),
+
+        // İbanıma Gelen Ürün (tıklanır, kesinti)
+        div({
+          onClick:()=>setAltDetay({tip:"ibanUrun"}),
+          style:{
+            padding:"14px",cursor:"pointer",
+            borderBottom:"1px solid rgba(0,0,0,.06)",
+            display:"flex",justifyContent:"space-between",alignItems:"center",gap:10
+          }},
+          div({style:{flex:1,minWidth:0}},
+            div({style:{fontSize:14,fontWeight:600,color:"#1D1D1F",marginBottom:2}},
+              "− İbanıma Gelen Ürün Tutarı"),
+            div({style:{fontSize:11,color:"#0071E3",display:"flex",alignItems:"center",gap:3}},
+              ibanUrunKayitlar.length+" kayıt",span({style:{fontSize:12}},"›"))
+          ),
+          div({style:{fontSize:16,fontWeight:700,color:"#FF9F0A"}},
+            (ibanUrunTop>0?"− ":"")+fmt(ibanUrunTop))
+        ),
+
+        // Çekilen Avanslar (tıklanır, kesinti)
+        div({
+          onClick:()=>setAltDetay({tip:"avans"}),
+          style:{
+            padding:"14px",cursor:"pointer",
+            borderBottom:"2px solid rgba(0,0,0,.10)",
+            display:"flex",justifyContent:"space-between",alignItems:"center",gap:10
+          }},
+          div({style:{flex:1,minWidth:0}},
+            div({style:{fontSize:14,fontWeight:600,color:"#1D1D1F",marginBottom:2}},
+              "− Çektiğim Avanslar"),
+            div({style:{fontSize:11,color:"#0071E3",display:"flex",alignItems:"center",gap:3}},
+              donemAvanslar.length+" kayıt",span({style:{fontSize:12}},"›"))
+          ),
+          div({style:{fontSize:16,fontWeight:700,color:"#FF9F0A"}},
+            (avansTop>0?"− ":"")+fmt(avansTop))
+        ),
+
+        // ── NET HAKEDİŞ ──
+        div({style:{
+          padding:"18px 14px",
+          background: negatif
+            ? "linear-gradient(135deg,#FF3B30,#C0392B)"
+            : "linear-gradient(135deg,#34C759,#22A24B)",
+          display:"flex",justifyContent:"space-between",alignItems:"center",gap:10
+        }},
+          div(null,
+            div({style:{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"rgba(255,255,255,.85)",fontWeight:700,marginBottom:3}},
+              "Net Hakediş"),
+            div({style:{fontSize:12,color:"rgba(255,255,255,.85)"}},
+              negatif?"İşyerine borç":"Ödenecek tutar")
+          ),
+          div({style:{fontSize:24,fontWeight:800,color:"#fff",letterSpacing:-0.5}},fmt(netHak))
+        )
+      ),
+
+      // Uyarı (negatifse)
+      negatif && div({style:{
+        padding:"14px",borderRadius:14,
+        background:"rgba(255,59,48,.08)",
+        border:"1.5px solid rgba(255,59,48,.30)",
+        marginBottom:14
+      }},
+        div({style:{fontSize:12,fontWeight:800,color:"#C0392B",letterSpacing:1.5,textTransform:"uppercase",marginBottom:8}},
+          "⚠ İşyerine Borçlusunuz"),
+        div({style:{fontSize:13.5,color:"#1D1D1F",lineHeight:1.55,fontWeight:500}},
+          "İbanınıza gelen tutarlar ve çektiğiniz avanslar, hakedişinizi aştı. Bu durumda işyerinize borçlandınız. İşyerinin hesaplarının kesintiye uğramaması için bugün ödeme yapmak zorundasınız.")
+      )
+    )
+  );
+}
+
 // ── PERSONEL MAAŞ HESAP GÖRÜNÜMÜ (Yönetici için) ──────────────────────────
 function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast, tumPersoneller, giderler, avanslar, setAvanslar}) {
   const [periyot, setPeriyot] = React.useState("buAy");
@@ -6778,6 +7171,16 @@ function App() {
   const [asek, setAsek]               = useState("ozet");
   const [psek, setPsek]               = useState("bugun");
   const [bugunAltSek, setBugunAltSek] = useState("kayit");
+  // Hakediş modal state'leri
+  const [hakedisAcik, setHakedisAcik]       = useState(false);  // ana detay modal
+  const [hakedisAltDetay, setHakedisAltDetay] = useState(null); // {tip:"brut"|"ibanHizmet"|"ibanUrun"|"avans"}
+  const [hakedisPeriyot, setHakedisPeriyot] = useState("ay");   // "hafta" | "ay" | "yil"
+  const [hakedisYil, setHakedisYil]         = useState(new Date().getFullYear());
+  const [hakedisAy, setHakedisAy]           = useState(new Date().getMonth()); // 0-11
+  const [hakedisHafta, setHakedisHafta]     = useState(()=>{
+    const g = new Date().getDate();
+    if(g<=7) return 0; if(g<=14) return 1; if(g<=21) return 2; if(g<=28) return 3; return 4;
+  });
   const [mDuzenleId, setMDuzenleId]   = useState(null);
   const [mDuzenleNot, setMDuzenleNot] = useState("");
   const [sifreAdim, setSifreAdim]     = useState(0); // 0=kapalı,1=mevcut,2=yeni
@@ -9168,50 +9571,114 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
             background:"#FAF9F6",border:"1px solid rgba(0,0,0,.07)",borderRadius:18,
             padding:24,textAlign:"center",color:"var(--mu)",fontSize:14,marginTop:4
           }},"Bu hesap için hakediş bilgisi bulunmuyor.");
+
+          // ── İçinde bulunulan ay (kart ön yüzü periyodu) ──
           const simdi=new Date();
           const ayBas=new Date(simdi.getFullYear(),simdi.getMonth(),1);
           ayBas.setHours(0,0,0,0);
+          const aySon=new Date(simdi.getFullYear(),simdi.getMonth()+1,0);
+          aySon.setHours(23,59,59,999);
+
           const ayTumKayit=tumK.filter(r=>{
             if(!r.tarih||r.gonderildi===false) return false;
             const rd=new Date(r.tarih+"T12:00:00");
-            return rd>=ayBas && rd<=simdi;
+            return rd>=ayBas && rd<=aySon;
           });
           const ayGiderler=(giderler||[]).filter(g=>{
             if(!g.tarih) return false;
             const gd=new Date(g.tarih+"T12:00:00");
-            return gd>=ayBas && gd<=simdi;
+            return gd>=ayBas && gd<=aySon;
           });
           const ayToplamGider=ayGiderler.reduce((s,g)=>s+toN(g.tutar),0);
+
+          // Brüt hakediş (mevcut hesaplama)
           const sonuc=hesaplaMaas(kul,ayTumKayit,{
             tumPersoneller:personeller,
             tumKayitlar:ayTumKayit,
             toplamGider:ayToplamGider
           });
-          const ayAd=simdi.toLocaleString("tr-TR",{month:"long"});
+          const brutHak = toN(sonuc.toplam);
+
+          // İbanıma gelen hizmet (bu ay)
+          const ibanHizmetKayitlar = ayTumKayit.filter(r=>
+            r.hizIbanId===kul.id && toN(r.hizIB)>0
+          );
+          const ibanHizmetTop = ibanHizmetKayitlar.reduce((s,r)=>s+toN(r.hizIB),0);
+
+          // İbanıma gelen ürün (bu ay)
+          const ibanUrunKayitlar = ayTumKayit.filter(r=>
+            r.urunIbanId===kul.id && toN(r.uIB)>0
+          );
+          const ibanUrunTop = ibanUrunKayitlar.reduce((s,r)=>s+toN(r.uIB),0);
+
+          // Çekilen avanslar (bu ay)
+          const ayAvanslar = (avanslar||[]).filter(a=>
+            String(a.staffId)===String(kul.id) &&
+            a.durum==="onaylandi" &&
+            a.tarih &&
+            (()=>{ const d=new Date(a.tarih+"T12:00:00"); return d>=ayBas && d<=aySon; })()
+          );
+          const avansTop = ayAvanslar.reduce((s,a)=>s+toN(a.tutar),0);
+
+          const netHak = brutHak - ibanHizmetTop - ibanUrunTop - avansTop;
+          const ayAd = simdi.toLocaleString("tr-TR",{month:"long",year:"numeric"});
+          const negatif = netHak < 0;
+
           return div({style:{marginTop:4}},
             div({className:"gozetim-baslik"},"Hakediş Özetim"),
-            div({style:{
-              padding:"18px 16px 16px",borderRadius:18,
-              background:"linear-gradient(135deg,#0071E3,#0058B0)",
-              boxShadow:"0 6px 20px rgba(0,113,227,.30),0 2px 6px rgba(0,113,227,.20)",
-              fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif"
-            }},
-              div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}},
-                div(null,
-                  div({style:{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"rgba(255,255,255,.82)",fontWeight:700,marginBottom:3}},"💰 "+ayAd.toUpperCase()+" HAK EDİŞİM"),
-                  div({style:{fontSize:11,color:"rgba(255,255,255,.65)"}},sonuc.detay.length+" bileşen · "+(sonuc.veriler?.kayitSay||0)+" kayıt")
-                ),
-                div({style:{fontSize:24,fontWeight:800,color:"#fff",letterSpacing:-0.5,lineHeight:1}},fmt(sonuc.toplam))
+            // ── KART ÖN YÜZÜ - SADECE NET HAKEDİŞ ──
+            div({
+              onClick:()=>setHakedisAcik(true),
+              style:{
+                padding:"22px 18px",borderRadius:18,cursor:"pointer",
+                background: negatif
+                  ? "linear-gradient(135deg,#FF3B30,#C0392B)"
+                  : "linear-gradient(135deg,#0071E3,#0058B0)",
+                boxShadow: negatif
+                  ? "0 6px 20px rgba(255,59,48,.30),0 2px 6px rgba(255,59,48,.20)"
+                  : "0 6px 20px rgba(0,113,227,.30),0 2px 6px rgba(0,113,227,.20)",
+                fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
+                transition:"transform .15s ease"
+              }},
+              div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
+                div({style:{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"rgba(255,255,255,.82)",fontWeight:700}},
+                  "💰 "+ayAd.toUpperCase()),
+                div({style:{fontSize:11,color:"rgba(255,255,255,.7)",display:"flex",alignItems:"center",gap:4}},
+                  "Detay",
+                  span({style:{fontSize:14}},"›"))
               ),
-              sonuc.detay.length>0&&div({style:{borderTop:"1px solid rgba(255,255,255,.15)",paddingTop:10,marginTop:6}},
-                sonuc.detay.filter(d=>d.tutar>0).map((d,i)=>
-                  div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",fontSize:13,borderBottom:i<sonuc.detay.filter(d=>d.tutar>0).length-1?"1px solid rgba(255,255,255,.10)":"none"}},
-                    div({style:{color:"rgba(255,255,255,.88)",fontWeight:500,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginRight:8}},d.ad),
-                    div({style:{color:"#fff",fontWeight:700,flexShrink:0}},fmt(d.tutar))
-                  )
-                )
+              div({style:{fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:"rgba(255,255,255,.78)",fontWeight:600,marginBottom:6}},
+                "Net Hakedişim"),
+              div({style:{fontSize:34,fontWeight:800,color:"#fff",letterSpacing:-1,lineHeight:1.05}},
+                fmt(netHak)),
+              negatif && div({style:{
+                marginTop:14,padding:"12px 14px",borderRadius:11,
+                background:"rgba(0,0,0,.18)",border:"1px solid rgba(255,255,255,.25)"
+              }},
+                div({style:{fontSize:11,fontWeight:700,color:"#fff",letterSpacing:1.2,textTransform:"uppercase",marginBottom:6}},
+                  "⚠ İşyerine Borçlusunuz"),
+                div({style:{fontSize:12.5,color:"rgba(255,255,255,.95)",lineHeight:1.5}},
+                  "İbanınıza gelen tutarlar ve çektiğiniz avanslar, hakedişinizi aştı. Bu durumda işyerinize borçlandınız. İşyerinin hesaplarının kesintiye uğramaması için bugün ödeme yapmak zorundasınız.")
               )
-            )
+            ),
+
+            // ── ANA DETAY MODAL (Brüt − Kesintiler = Net tablosu) ──
+            hakedisAcik && h(HakedisDetayModal,{
+              key:"hakedis-modal",
+              kul:kul,
+              tumK:tumK,
+              giderler:giderler,
+              avanslar:avanslar,
+              personeller:personeller,
+              periyot:hakedisPeriyot,
+              setPeriyot:setHakedisPeriyot,
+              yil:hakedisYil, setYil:setHakedisYil,
+              ay:hakedisAy, setAy:setHakedisAy,
+              hafta:hakedisHafta, setHafta:setHakedisHafta,
+              onClose:()=>{ setHakedisAcik(false); setHakedisAltDetay(null); },
+              altDetay:hakedisAltDetay,
+              setAltDetay:setHakedisAltDetay
+            })
           );
         })()
       ),
