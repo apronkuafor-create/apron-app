@@ -7384,7 +7384,25 @@ ayarlarRaw.forEach(a=>{
   if(!a.deger||!Object.keys(a.deger).length) return;
   if(a.id==="tema") setTema(a.deger);
   if(a.id==="isletme") setIsletme(a.deger);
-  if(a.id==="personeller") setPersoneller(a.deger);
+  if(a.id==="personeller") {
+    // personeller tablosundaki auth_user_id'leri merge et
+    (async () => {
+      try {
+        const pRows = await dbAl("personeller");
+        if(pRows && pRows.length) {
+          setPersoneller(prev => {
+            const base = Array.isArray(a.deger) ? a.deger : prev;
+            return base.map(p => {
+              const row = pRows.find(r => r.id === p.id);
+              return row && row.auth_user_id ? {...p, auth_user_id: row.auth_user_id} : p;
+            });
+          });
+        } else {
+          setPersoneller(a.deger);
+        }
+      } catch(e) { setPersoneller(a.deger); }
+    })();
+  }
   if(a.id==="pGruplar") setPGruplar(a.deger);
   if(a.id==="hizListeleri") setHizListeleri(a.deger);
   if(a.id==="urunler" && Array.isArray(a.deger)) {
@@ -7511,11 +7529,12 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     const y=pin+d;
     if(y.length>4) return;
     setPin(y);
-    if(y.length===4) setTimeout(()=>{
+    if(y.length===4) setTimeout(async()=>{
       // Önce yönetici PIN'i kontrol et
       const yonPin = personeller.find(p=>p.rol==="yonetici")?.pin || YONETICI.pin;
       if(y===yonPin){
         const yon = personeller.find(p=>p.rol==="yonetici") || YONETICI;
+        if(DB) { try { await DB.auth.signInWithPassword({email:"personel-ad@apron.local", password:"ApronAd2026!"}); } catch(e){} }
         setKul(yon); setPin(""); setPinHata(false);
         setEkran("yonetici"); return;
       }
@@ -7523,13 +7542,18 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       const eslesenler=personeller.filter(x=>x.pin===y&&x.aktif&&x.rol!=="yonetici");
       const k=eslesenler[0];
       if(!k){ setPinHata(true); setTimeout(()=>{setPin("");setPinHata(false);},700); return; }
+      if(DB) {
+        const emailMap={"s1":"personel-s1@apron.local","s2":"personel-s2@apron.local","s3":"personel-s3@apron.local","s4":"personel-s4@apron.local"};
+        const passMap={"s1":"ApronS12026!","s2":"ApronS22026!","s3":"ApronS32026!","s4":"ApronS42026!"};
+        if(emailMap[k.id]) { try { await DB.auth.signInWithPassword({email:emailMap[k.id], password:passMap[k.id]}); } catch(e){} }
+      }
       setKul(k); setPin(""); setPinHata(false);
       if(k.rol==="yonetici"){ setEkran("yonetici"); return; }
       setEkran("personel");
     },120);
   };
 
-  const cikis = () => { setCikisSecenek(false); setKul(null); setEkran("login"); setKayitForm(null); setDetay(null); };
+  const cikis = async () => { setCikisSecenek(false); setKul(null); setEkran("login"); setKayitForm(null); setDetay(null); if(DB) { try { await DB.auth.signOut(); } catch(e){} } };
 
   const devKaydet = () => {
     if(!devSec) return;
