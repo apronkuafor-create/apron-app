@@ -129,7 +129,7 @@ const DEFAULT_PERSONELLER = [
   ];
 
 // Yönetici ayrı tanımlı - personel listesinde YOK
-const YONETICI = {id:"ad",ad:"Yonetici",pin:"0000",rol:"yonetici",aktif:true};
+const YONETICI = {id:"ad",ad:"Yonetici",pin:"",rol:"yonetici",aktif:true};
 
 // ── DB ────────────────────────────────────────────────────────────────
 const dbAl = async (t,opts={}) => {
@@ -7530,11 +7530,17 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     if(y.length>4) return;
     setPin(y);
     if(y.length===4) setTimeout(async()=>{
-      // Önce yönetici PIN'i kontrol et
-      const yonPin = personeller.find(p=>p.rol==="yonetici")?.pin || YONETICI.pin;
-      if(y===yonPin){
+      // Önce yönetici PIN'i kontrol et — önce state'ten, yoksa DB'den çek
+      let yonPin = personeller.find(p=>p.rol==="yonetici")?.pin || "";
+      if(!yonPin && DB) {
+        try {
+          const {data} = await DB.from("personeller").select("pin").eq("rol","yonetici").single();
+          if(data?.pin) yonPin = data.pin;
+        } catch(e){}
+      }
+      if(yonPin && y===yonPin){
         const yon = personeller.find(p=>p.rol==="yonetici") || YONETICI;
-        if(DB) { try { await DB.auth.signInWithPassword({email:"mrtsrd@hotmail.com", password:yon.pin}); } catch(e){} }
+        if(DB) { try { await DB.auth.signInWithPassword({email:"mrtsrd@hotmail.com", password:y}); } catch(e){} }
         setKul(yon); setPin(""); setPinHata(false);
         setEkran("yonetici"); return;
       }
