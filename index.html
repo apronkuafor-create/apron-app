@@ -6337,7 +6337,7 @@ function MaasFormulEditoru({formul, onChange, tumPersoneller}) {
 // ── HAKEDİŞ DETAY MODAL (Personel için) ────────────────────────────────────
 // Tam ekran modal - Brüt - Kesintiler = Net tablosu + alt detay sayfaları
 function HakedisDetayModal({kul, tumK, giderler, avanslar, personeller,
-  periyot, setPeriyot, yil, setYil, ay, setAy, hafta, setHafta,
+  periyot, setPeriyot, yil, setYil, ay, setAy,
   onClose, altDetay, setAltDetay}) {
 
   // ── Periyot başlangıç/bitiş hesapla ──
@@ -6347,27 +6347,14 @@ function HakedisDetayModal({kul, tumK, giderler, avanslar, personeller,
       bas = new Date(yil, 0, 1, 0, 0, 0, 0);
       bit = new Date(yil, 11, 31, 23, 59, 59, 999);
       basl = yil + " Yılı";
-    } else if(periyot==="ay"){
+    } else { // ay
       bas = new Date(yil, ay, 1, 0, 0, 0, 0);
       bit = new Date(yil, ay+1, 0, 23, 59, 59, 999);
       const ayAd = bas.toLocaleString("tr-TR",{month:"long"});
       basl = ayAd.charAt(0).toUpperCase()+ayAd.slice(1)+" "+yil;
-    } else { // hafta - gün aralığı bazlı: 1-7, 8-14, 15-21, 22-28, 29-ay sonu
-      const ayBas = new Date(yil, ay, 1, 0, 0, 0, 0);
-      const ayBit = new Date(yil, ay+1, 0, 23, 59, 59, 999);
-      const ayAd = ayBas.toLocaleString("tr-TR",{month:"long"});
-      const ayAdC = ayAd.charAt(0).toUpperCase()+ayAd.slice(1);
-      const sonGun = ayBit.getDate();
-      const aralik = [[1,7],[8,14],[15,21],[22,28],[29,sonGun]];
-      const [bg, eg] = aralik[Math.min(hafta,4)];
-      const baslangicGun = Math.min(bg, sonGun);
-      const bitisGun = Math.min(eg, sonGun);
-      bas = new Date(yil, ay, baslangicGun, 0, 0, 0, 0);
-      bit = new Date(yil, ay, bitisGun, 23, 59, 59, 999);
-      basl = ayAdC+" "+yil+" · "+baslangicGun+"-"+bitisGun;
     }
     return {pBas:bas, pBitis:bit, pBaslik:basl};
-  },[periyot, yil, ay, hafta]);
+  },[periyot, yil, ay]);
 
   // ── Veriler ──
   const tumKayit = (tumK||[]).filter(r=>{
@@ -6416,9 +6403,6 @@ function HakedisDetayModal({kul, tumK, giderler, avanslar, personeller,
   })();
   const ayAdlari = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran",
                     "Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
-  const ayBitGun = new Date(yil, ay+1, 0).getDate();
-  const haftaAraliklari = [[1,7],[8,14],[15,21],[22,28],[29,ayBitGun]]
-    .filter(([s,e])=>s<=ayBitGun);
 
   // ── ALT DETAY SAYFASI ──
   if(altDetay){
@@ -6554,8 +6538,9 @@ function HakedisDetayModal({kul, tumK, giderler, avanslar, personeller,
       div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.06)",borderRadius:14,padding:14,marginBottom:14}},
         div({style:{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"#86868B",fontWeight:700,marginBottom:10}},
           "Dönem"),
-        div({style:{display:"flex",gap:6,marginBottom:10}},
-          ["hafta","ay","yil"].map(p=>
+        // Ay / Yıl butonları
+        div({style:{display:"flex",gap:6,marginBottom:12}},
+          ["ay","yil"].map(p=>
             btn({key:p,style:{
               flex:1,padding:"9px 0",borderRadius:9,
               border:periyot===p?"1.5px solid #0071E3":"1px solid rgba(0,0,0,.12)",
@@ -6563,51 +6548,47 @@ function HakedisDetayModal({kul, tumK, giderler, avanslar, personeller,
               color:periyot===p?"#fff":"#1D1D1F",
               fontSize:13,fontWeight:600,cursor:"pointer",letterSpacing:.3
             },onClick:()=>setPeriyot(p)},
-              p==="hafta"?"Hafta":p==="ay"?"Ay":"Yıl")
+              p==="ay"?"Ay":"Yıl")
           )
         ),
-        // Yıl seçici (her durumda görünür)
-        div({style:{marginBottom:periyot==="yil"?0:8}},
-          div({style:{fontSize:11,color:"#86868B",marginBottom:5,fontWeight:600}},"Yıl"),
-          div({style:{display:"flex",gap:6,flexWrap:"wrap"}},
-            yilSec.map(y=>
-              btn({key:y,style:{
-                padding:"7px 14px",borderRadius:8,
-                border:yil===y?"1.5px solid #0071E3":"1px solid rgba(0,0,0,.12)",
-                background:yil===y?"rgba(0,113,227,.10)":"#fff",
-                color:yil===y?"#0071E3":"#1D1D1F",
-                fontSize:13,fontWeight:600,cursor:"pointer"
-              },onClick:()=>setYil(y)},y)
+        // Açılır listeler: Ay seçilmişse Ay+Yıl, Yıl seçilmişse sadece Yıl
+        div({style:{display:"grid",gridTemplateColumns:periyot==="ay"?"1fr 1fr":"1fr",gap:8}},
+          periyot==="ay" && div(null,
+            div({style:{fontSize:11,color:"#86868B",marginBottom:5,fontWeight:600}},"Ay"),
+            h("select",{
+              value:ay,
+              onChange:e=>setAy(parseInt(e.target.value,10)),
+              style:{
+                width:"100%",padding:"10px 12px",borderRadius:9,
+                border:"1px solid rgba(0,0,0,.12)",background:"#fff",
+                fontSize:14,fontWeight:600,color:"#1D1D1F",
+                cursor:"pointer",outline:"none",
+                WebkitAppearance:"none",MozAppearance:"none",appearance:"none",
+                backgroundImage:"url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='%23999' d='M6 8L0 0h12z'/></svg>\")",
+                backgroundRepeat:"no-repeat",
+                backgroundPosition:"right 12px center",
+                paddingRight:32
+              }},
+              ayAdlari.map((nm,i)=>h("option",{key:i,value:i},nm))
             )
-          )
-        ),
-        // Ay seçici (hafta veya ay seçilmişse)
-        (periyot==="hafta"||periyot==="ay") && div({style:{marginTop:8,marginBottom:periyot==="ay"?0:8}},
-          div({style:{fontSize:11,color:"#86868B",marginBottom:5,fontWeight:600}},"Ay"),
-          div({style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5}},
-            ayAdlari.map((nm,i)=>
-              btn({key:i,style:{
-                padding:"7px 0",borderRadius:7,
-                border:ay===i?"1.5px solid #0071E3":"1px solid rgba(0,0,0,.12)",
-                background:ay===i?"rgba(0,113,227,.10)":"#fff",
-                color:ay===i?"#0071E3":"#1D1D1F",
-                fontSize:11.5,fontWeight:600,cursor:"pointer"
-              },onClick:()=>{ setAy(i); setHafta(0); }},nm.slice(0,3))
-            )
-          )
-        ),
-        // Hafta seçici (hafta seçilmişse)
-        periyot==="hafta" && div({style:{marginTop:8}},
-          div({style:{fontSize:11,color:"#86868B",marginBottom:5,fontWeight:600}},"Hafta"),
-          div({style:{display:"flex",gap:5,flexWrap:"wrap"}},
-            haftaAraliklari.map(([s,e],i)=>
-              btn({key:i,style:{
-                padding:"7px 12px",borderRadius:8,
-                border:hafta===i?"1.5px solid #0071E3":"1px solid rgba(0,0,0,.12)",
-                background:hafta===i?"rgba(0,113,227,.10)":"#fff",
-                color:hafta===i?"#0071E3":"#1D1D1F",
-                fontSize:12,fontWeight:600,cursor:"pointer"
-              },onClick:()=>setHafta(i)},s+"-"+e)
+          ),
+          div(null,
+            div({style:{fontSize:11,color:"#86868B",marginBottom:5,fontWeight:600}},"Yıl"),
+            h("select",{
+              value:yil,
+              onChange:e=>setYil(parseInt(e.target.value,10)),
+              style:{
+                width:"100%",padding:"10px 12px",borderRadius:9,
+                border:"1px solid rgba(0,0,0,.12)",background:"#fff",
+                fontSize:14,fontWeight:600,color:"#1D1D1F",
+                cursor:"pointer",outline:"none",
+                WebkitAppearance:"none",MozAppearance:"none",appearance:"none",
+                backgroundImage:"url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='%23999' d='M6 8L0 0h12z'/></svg>\")",
+                backgroundRepeat:"no-repeat",
+                backgroundPosition:"right 12px center",
+                paddingRight:32
+              }},
+              yilSec.map(y=>h("option",{key:y,value:y},y))
             )
           )
         )
@@ -7174,13 +7155,9 @@ function App() {
   // Hakediş modal state'leri
   const [hakedisAcik, setHakedisAcik]       = useState(false);  // ana detay modal
   const [hakedisAltDetay, setHakedisAltDetay] = useState(null); // {tip:"brut"|"ibanHizmet"|"ibanUrun"|"avans"}
-  const [hakedisPeriyot, setHakedisPeriyot] = useState("ay");   // "hafta" | "ay" | "yil"
+  const [hakedisPeriyot, setHakedisPeriyot] = useState("ay");   // "ay" | "yil"
   const [hakedisYil, setHakedisYil]         = useState(new Date().getFullYear());
   const [hakedisAy, setHakedisAy]           = useState(new Date().getMonth()); // 0-11
-  const [hakedisHafta, setHakedisHafta]     = useState(()=>{
-    const g = new Date().getDate();
-    if(g<=7) return 0; if(g<=14) return 1; if(g<=21) return 2; if(g<=28) return 3; return 4;
-  });
   const [mDuzenleId, setMDuzenleId]   = useState(null);
   const [mDuzenleNot, setMDuzenleNot] = useState("");
   const [sifreAdim, setSifreAdim]     = useState(0); // 0=kapalı,1=mevcut,2=yeni
@@ -9674,7 +9651,6 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
               setPeriyot:setHakedisPeriyot,
               yil:hakedisYil, setYil:setHakedisYil,
               ay:hakedisAy, setAy:setHakedisAy,
-              hafta:hakedisHafta, setHafta:setHakedisHafta,
               onClose:()=>{ setHakedisAcik(false); setHakedisAltDetay(null); },
               altDetay:hakedisAltDetay,
               setAltDetay:setHakedisAltDetay
