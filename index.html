@@ -8378,24 +8378,34 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
           const benimId = String(kul?.id||"");
           const okunmamisSayim = (devirBildirim||[]).filter(b => {
             if(b.okundu) return false;
-            // Personele gelen aktif talepler (devralma)
             if(b.tip==="talep" && String(b.mevcutSahipId||"")===benimId && b.durum==="bekliyor") return true;
-            // Talep eden personele dönen geri bildirimler (onay/red)
             if((b.tip==="onay_geri" || b.tip==="red_geri") && String(b.talepEdenId||"")===benimId) return true;
-            // Manikürist müşteri kayıt talebi - hedef personel için
             if(b.tip==="mkayit_talep" && String(b.hedefId||"")===benimId && b.durum==="bekliyor") return true;
-            // Manikürist'e dönen geri bildirimler (kayıt yapıldı / reddedildi)
             if((b.tip==="mkayit_kaydedildi" || b.tip==="mkayit_red") && String(b.talepEdenId||"")===benimId) return true;
             return false;
           }).length;
+          // Eksik gün sayısını badge'e ekle
+          const bugunStr2 = TODAY(); const ayPrefix2 = bugunStr2.slice(0,7);
+          const ptTarihler = [...records.filter(r=>r.staffId===kul.id&&r.tarih&&r.tarih.startsWith(ayPrefix2)).map(r=>r.tarih),...bekleyen.filter(r=>r.staffId===kul.id&&r.tarih&&r.tarih.startsWith(ayPrefix2)).map(r=>r.tarih),...Object.keys(devDB).filter(k=>k.endsWith("_"+kul.id)).map(k=>k.split("_")[0]).filter(t=>t.startsWith(ayPrefix2))];
+          let eksikSayi = 0;
+          if(ptTarihler.length > 0){
+            const enErken2 = parseInt(ptTarihler.sort()[0].split("-")[2]);
+            const bugunDate2 = new Date(); const yil2=bugunDate2.getFullYear(); const ay2=bugunDate2.getMonth();
+            for(let g=enErken2;g<=bugunDate2.getDate();g++){
+              const d2=new Date(yil2,ay2,g); const ds2=d2.toISOString().split("T")[0];
+              if(ds2===bugunStr2) continue;
+              if(!records.some(r=>r.staffId===kul.id&&r.tarih===ds2)&&!devDB[ds2+"_"+kul.id]) eksikSayi++;
+            }
+          }
+          const toplamBadge = okunmamisSayim + eksikSayi;
           return div({className:`atab${psek==="bildirimler"?" a":""}`,onClick:()=>setPsek("bildirimler"),
             style:{display:"inline-flex",alignItems:"center",gap:6,position:"relative"}},
             "Bildirimler",
-            okunmamisSayim>0&&span({style:{
+            toplamBadge>0&&span({style:{
               background:"#FF3B30",color:"#FFFFFF",borderRadius:10,
               padding:"1px 7px",fontSize:11,fontWeight:700,minWidth:18,textAlign:"center",
               boxShadow:"0 1px 3px rgba(255,59,48,.4)",letterSpacing:"-.2px"
-            }},String(okunmamisSayim))
+            }},String(toplamBadge))
           );
         })(),
         div({className:`atab${psek==="bugun"?" a":""}`,onClick:()=>setPsek("bugun")},sekmeler.p_bugun||"Bugün"),
@@ -8487,6 +8497,65 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
           setDevirBildirim(p=>p.filter(x=>x.id!==b.id));
         };
         return div({className:"pg",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+
+          // ── Eksik Gün Bildirimi ──
+          (()=>{
+            const bugun = new Date();
+            const yil = bugun.getFullYear();
+            const ay = bugun.getMonth();
+            const bugunStr = TODAY();
+            const ayPrefix = bugunStr.slice(0,7);
+            const personelTumTarihler = [
+              ...records.filter(r=>r.staffId===kul.id && r.tarih && r.tarih.startsWith(ayPrefix)).map(r=>r.tarih),
+              ...bekleyen.filter(r=>r.staffId===kul.id && r.tarih && r.tarih.startsWith(ayPrefix)).map(r=>r.tarih),
+              ...Object.keys(devDB).filter(k=>k.endsWith("_"+kul.id)).map(k=>k.split("_")[0]).filter(t=>t.startsWith(ayPrefix))
+            ];
+            if(personelTumTarihler.length === 0) return null;
+            const enErkenTarih = personelTumTarihler.sort()[0];
+            const enErkenGun = parseInt(enErkenTarih.split("-")[2]);
+            const eksikGunler = [];
+            for(let g=enErkenGun; g<=bugun.getDate(); g++){
+              const d = new Date(yil, ay, g);
+              const ds = d.toISOString().split("T")[0];
+              if(ds === bugunStr) continue;
+              const gonderilmisKayit = records.some(r=>r.staffId===kul.id && r.tarih===ds);
+              const mazeretVar = !!devDB[ds+"_"+kul.id];
+              if(!gonderilmisKayit && !mazeretVar) eksikGunler.push(ds);
+            }
+            if(eksikGunler.length === 0) return null;
+            return div({style:{background:"rgba(224,96,96,.06)",border:"1.5px solid rgba(224,96,96,.25)",
+              borderRadius:12,padding:14,marginBottom:14}},
+              div({style:{fontSize:12,color:"#e06060",letterSpacing:2,textTransform:"uppercase",marginBottom:4}},
+                "⚠ Eksik Veri Girişi ("+eksikGunler.length+")"),
+              div({style:{fontSize:13,color:"#9a6a4a",marginBottom:12,lineHeight:1.5}},
+                "Bu ay içinde kayıt yapılmamış günleriniz var. Her gün için ya çalıştığınız kayıtlarını girin ya da bir mazeret seçin."),
+              eksikGunler.slice().reverse().map(ds=>{
+                const d = new Date(ds+"T12:00:00");
+                const lb = d.toLocaleDateString("tr-TR",{weekday:"long",day:"2-digit",month:"long"});
+                return div({key:ds,style:{display:"flex",alignItems:"center",justifyContent:"space-between",
+                  gap:8,padding:"10px 12px",marginBottom:6,
+                  background:"var(--bg)",borderRadius:9,border:"1px solid rgba(224,96,96,.15)"}},
+                  div({style:{flex:1,minWidth:0}},
+                    div({style:{fontSize:14,color:"var(--tx)",fontWeight:500}},lb),
+                    div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},ds)
+                  ),
+                  btn({style:{background:"rgba(224,96,96,.12)",border:"1px solid rgba(224,96,96,.3)",
+                    borderRadius:8,color:"#e06060",fontSize:13,padding:"6px 12px",cursor:"pointer",
+                    whiteSpace:"nowrap",flexShrink:0},
+                    onClick:()=>{
+                      if(calistiGunler.includes(ds+"_"+kul.id)){
+                        setKayitForm({tarih:ds});
+                      } else {
+                        setEksikGunTarih(ds);
+                        setDevSec(""); setDevDiger("");
+                        setDevUyari(true);
+                      }
+                    }},"İşlem Yap")
+                );
+              })
+            );
+          })(),
+
           div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
             div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)"}},"Bildirimler"),
             div({style:{fontSize:12,color:"var(--di)"}},benimBildirimlerim.length+" toplam")
@@ -9227,75 +9296,6 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
       })(),
       // Bugun
       psek==="bugun"&&div({className:"pg"},
-
-        // Eksik Gün Bildirimi - içinde bulunulan ayda kayıt yapılmamış günler
-        (()=>{
-          const bugun = new Date();
-          const yil = bugun.getFullYear();
-          const ay = bugun.getMonth();
-          const bugunStr = TODAY();
-          const ayPrefix = bugunStr.slice(0,7); // "2026-04"
-
-          // Bu personelin bu ay içindeki tüm kayıt/mazeret tarihlerini topla
-          const personelTumTarihler = [
-            ...records.filter(r=>r.staffId===kul.id && r.tarih && r.tarih.startsWith(ayPrefix)).map(r=>r.tarih),
-            ...bekleyen.filter(r=>r.staffId===kul.id && r.tarih && r.tarih.startsWith(ayPrefix)).map(r=>r.tarih),
-            ...Object.keys(devDB).filter(k=>k.endsWith("_"+kul.id)).map(k=>k.split("_")[0]).filter(t=>t.startsWith(ayPrefix))
-          ];
-
-          // Hiç kayıt/mazeret yoksa uyarı çıkarma (yeni personel veya yeni uygulama)
-          if(personelTumTarihler.length === 0) return null;
-
-          // En erken tarih = personelin bu ay ilk kayıt/mazeret attığı gün
-          const enErkenTarih = personelTumTarihler.sort()[0];
-          const enErkenGun = parseInt(enErkenTarih.split("-")[2]);
-
-          const eksikGunler = [];
-          for(let g=enErkenGun; g<=bugun.getDate(); g++){
-            const d = new Date(yil, ay, g);
-            const ds = d.toISOString().split("T")[0];
-            if(ds === bugunStr) continue;
-            // Sadece yöneticiye gönderilmiş kayıtlara bak (bekleyen sayılmaz)
-            const gonderilmisKayit = records.some(r=>r.staffId===kul.id && r.tarih===ds);
-            const mazeretVar = !!devDB[ds+"_"+kul.id];
-            // Kart gözüksün: gönderilmemiş VE mazeret yoksa
-            if(!gonderilmisKayit && !mazeretVar) eksikGunler.push(ds);
-          }
-          if(eksikGunler.length === 0) return null;
-          return div({style:{background:"rgba(224,96,96,.06)",border:"1.5px solid rgba(224,96,96,.25)",
-            borderRadius:12,padding:14,marginBottom:14}},
-            div({style:{fontSize:12,color:"#e06060",letterSpacing:2,textTransform:"uppercase",marginBottom:4}},
-              "⚠ Eksik Veri Girişi ("+eksikGunler.length+")"),
-            div({style:{fontSize:13,color:"#9a6a4a",marginBottom:12,lineHeight:1.5}},
-              "Bu ay içinde kayıt yapılmamış günleriniz var. Her gün için ya çalıştığınız kayıtlarını girin ya da bir mazeret seçin."),
-            eksikGunler.slice().reverse().map(ds=>{
-              const d = new Date(ds+"T12:00:00");
-              const lb = d.toLocaleDateString("tr-TR",{weekday:"long",day:"2-digit",month:"long"});
-              return div({key:ds,style:{display:"flex",alignItems:"center",justifyContent:"space-between",
-                gap:8,padding:"10px 12px",marginBottom:6,
-                background:"var(--bg)",borderRadius:9,border:"1px solid rgba(224,96,96,.15)"}},
-                div({style:{flex:1,minWidth:0}},
-                  div({style:{fontSize:14,color:"var(--tx)",fontWeight:500}},lb),
-                  div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},ds)
-                ),
-                btn({style:{background:"rgba(224,96,96,.12)",border:"1px solid rgba(224,96,96,.3)",
-                  borderRadius:8,color:"#e06060",fontSize:13,padding:"6px 12px",cursor:"pointer",
-                  whiteSpace:"nowrap",flexShrink:0},
-                  onClick:()=>{
-                    // Önceden "Çalıştım ama Kayıt Yapmadım" seçildiyse direkt form aç
-                    if(calistiGunler.includes(ds+"_"+kul.id)){
-                      setKayitForm({tarih:ds});
-                    } else {
-                      // İlk tıklama - mazeret/kayıt seçim modalını aç
-                      setEksikGunTarih(ds);
-                      setDevSec(""); setDevDiger("");
-                      setDevUyari(true);
-                    }
-                  }},"İşlem Yap")
-              );
-            })
-          );
-        })(),
 
         // Yönetici tarafından personele gönderilen bildirimler
         // Personelin kendi gönderdiği yönetici onay talepleri burada görünmez.
