@@ -3168,18 +3168,6 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
         padding:20,maxWidth:400,width:"100%",margin:"auto"}},
         div({style:{fontFamily:"Cormorant Garamond,serif",fontSize:18,color:"var(--g)",marginBottom:14}},
           giderFrm.id?"Gider Düzenle":"Yeni Gider Ekle"),
-        // Tip seçimi
-        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}},
-          ["kdvli","kdvsiz"].map(tip=>
-            btn({key:tip,
-              style:{padding:"9px 0",borderRadius:10,fontSize:13,fontWeight:600,cursor:"pointer",
-                border:"1.5px solid "+(giderFrm.tip===tip?"var(--g)":"var(--br)"),
-                background:giderFrm.tip===tip?"rgba(37,99,168,.13)":"transparent",
-                color:giderFrm.tip===tip?"var(--g)":"var(--mu)"},
-              onClick:()=>setGiderFrm(p=>({...p,tip,kategori:""}))},
-              tip==="kdvli"?"🧾 KDV'li Gider":"🪪 KDV'siz Gider")
-          )
-        ),
         div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
           div(null,lbl({className:"fl"},"Tarih *"),
             h("input",{type:"date",className:"fi",value:giderFrm.tarih||"",
@@ -3188,11 +3176,39 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
             inp({className:"fi",type:"number",placeholder:"0",value:giderFrm.tutar||"",
               onChange:e=>setGiderFrm(p=>({...p,tutar:e.target.value}))}))
         ),
-        div({style:{marginBottom:10}},lbl({className:"fl"},"Kategori *"),
-          sel({className:"fi",value:giderFrm.kategori||"",
-            onChange:e=>setGiderFrm(p=>({...p,kategori:e.target.value}))},
-            opt("","Seçin..."),
-            (giderFrm.tip==="kdvli"?kdvliKatlar:giderFrm.tip==="kdvsiz"?kdvsizKatlar:[]).map(k=>opt(k,k))
+        div({style:{marginBottom:6}},lbl({className:"fl"},"Kategori *"),
+          h("select",{className:"fi",value:giderFrm.kategori||"",
+            onChange:e=>{
+              const v=e.target.value;
+              const tip=kdvliKatlar.includes(v)?"kdvli":kdvsizKatlar.includes(v)?"kdvsiz":"";
+              setGiderFrm(p=>({...p,kategori:v,tip}));
+            }},
+            h("option",{value:""},"Seçin..."),
+            h("optgroup",{label:"── KDV'li Giderler ──"},
+              kdvliKatlar.map(k=>h("option",{key:k,value:k},k))
+            ),
+            h("optgroup",{label:"── KDV'siz Giderler ──"},
+              kdvsizKatlar.map(k=>h("option",{key:k,value:k},k))
+            )
+          )
+        ),
+        // Kategori ekleme satırı
+        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}},
+          div({style:{display:"flex",gap:4}},
+            inp({className:"fi",style:{fontSize:11,flex:1},placeholder:"KDV'li ekle...",
+              value:kdvliYeniKat,onChange:e=>setKdvliYeniKat(e.target.value),
+              onKeyDown:e=>{if(e.key==="Enter"&&kdvliYeniKat.trim()&&!kdvliKatlar.includes(kdvliYeniKat.trim())){setKdvliKatlar(p=>[...p,kdvliYeniKat.trim()]);setKdvliYeniKat("");}}}),
+            btn({style:{padding:"0 8px",borderRadius:7,border:"1px solid rgba(37,99,168,.3)",
+              background:"rgba(37,99,168,.1)",color:"var(--g)",fontSize:16,cursor:"pointer"},
+              onClick:()=>{if(kdvliYeniKat.trim()&&!kdvliKatlar.includes(kdvliYeniKat.trim())){setKdvliKatlar(p=>[...p,kdvliYeniKat.trim()]);setKdvliYeniKat("");}}},"+")
+          ),
+          div({style:{display:"flex",gap:4}},
+            inp({className:"fi",style:{fontSize:11,flex:1},placeholder:"KDV'siz ekle...",
+              value:kdvsizYeniKat,onChange:e=>setKdvsizYeniKat(e.target.value),
+              onKeyDown:e=>{if(e.key==="Enter"&&kdvsizYeniKat.trim()&&!kdvsizKatlar.includes(kdvsizYeniKat.trim())){setKdvsizKatlar(p=>[...p,kdvsizYeniKat.trim()]);setKdvsizYeniKat("");}}}),
+            btn({style:{padding:"0 8px",borderRadius:7,border:"1px solid rgba(100,100,120,.25)",
+              background:"rgba(100,100,120,.08)",color:"var(--mu)",fontSize:16,cursor:"pointer"},
+              onClick:()=>{if(kdvsizYeniKat.trim()&&!kdvsizKatlar.includes(kdvsizYeniKat.trim())){setKdvsizKatlar(p=>[...p,kdvsizYeniKat.trim()]);setKdvsizYeniKat("");}}},"+")
           )
         ),
         div({style:{marginBottom:14}},lbl({className:"fl"},"Açıklama"),
@@ -3201,7 +3217,7 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
         div({className:"btn-r"},
           btn({className:"btn-i",onClick:()=>setGiderFrm(null)},"İptal"),
           btn({className:"btn-k",
-            disabled:!giderFrm.tarih||!giderFrm.tutar||!giderFrm.kategori||!giderFrm.tip,
+            disabled:!giderFrm.tarih||!giderFrm.tutar||!giderFrm.kategori,
             onClick:()=>{
               const g={...giderFrm,id:giderFrm.id||uid(),tutar:toN(giderFrm.tutar)};
               setGiderler(p=>giderFrm.id?p.map(x=>x.id===g.id?g:x):[...p,g]);
