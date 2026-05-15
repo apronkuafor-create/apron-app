@@ -3106,20 +3106,30 @@ function OduncModul({oduncler,setOduncler,komsular,setKomsular,stokPartiler,setS
 
 
 // ── GELİR/GİDER MODÜLÜ ─────────────────────────────────────────────────────
+// Gider kategori yönetimi - localStorage
+function useGiderKategoriler() {
+  const [kdvli, setKdvli] = React.useState(()=>{
+    try { return JSON.parse(localStorage.getItem("apron_gkat_kdvli")||"[]"); } catch(e){ return []; }
+  });
+  const [kdvsiz, setKdvsiz] = React.useState(()=>{
+    try { return JSON.parse(localStorage.getItem("apron_gkat_kdvsiz")||"[]"); } catch(e){ return []; }
+  });
+  React.useEffect(()=>{ localStorage.setItem("apron_gkat_kdvli", JSON.stringify(kdvli)); }, [kdvli]);
+  React.useEffect(()=>{ localStorage.setItem("apron_gkat_kdvsiz", JSON.stringify(kdvsiz)); }, [kdvsiz]);
+  const ekleKdvli  = v => { v=v.trim(); if(v && !kdvli.includes(v))  setKdvli(p=>[...p,v]); };
+  const ekleKdvsiz = v => { v=v.trim(); if(v && !kdvsiz.includes(v)) setKdvsiz(p=>[...p,v]); };
+  return { kdvli, kdvsiz, ekleKdvli, ekleKdvsiz };
+}
+
 function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, setAvanslar, ibanBildirimler, showToast, aktifSekme}) {
   const [sekmeLocal, setSekmeLocal] = React.useState("ozet");
   const sekme = aktifSekme || sekmeLocal;
   const setSekme = aktifSekme ? (()=>{}) : setSekmeLocal;
   const [secAy, setSecAy] = React.useState(new Date().toISOString().slice(0,7));
   const [giderFrm, setGiderFrm] = React.useState(null);
-  const [kdvliKatlar, setKdvliKatlar] = React.useState(()=>{try{const v=localStorage.getItem("apron_kdvli_kat");return v?JSON.parse(v):[];}catch(e){return [];}});
-  const [kdvsizKatlar, setKdvsizKatlar] = React.useState(()=>{try{const v=localStorage.getItem("apron_kdvsiz_kat");return v?JSON.parse(v):[];}catch(e){return [];}});
-  const [yeniKdvli, setYeniKdvli] = React.useState("");
+  const gkat = useGiderKategoriler();
+  const [yeniKdvli,  setYeniKdvli]  = React.useState("");
   const [yeniKdvsiz, setYeniKdvsiz] = React.useState("");
-  React.useEffect(()=>{localStorage.setItem("apron_kdvli_kat",JSON.stringify(kdvliKatlar));},[kdvliKatlar]);
-  React.useEffect(()=>{localStorage.setItem("apron_kdvsiz_kat",JSON.stringify(kdvsizKatlar));},[kdvsizKatlar]);
-  const ekleKdvli=()=>{const v=yeniKdvli.trim();if(v&&!kdvliKatlar.includes(v)){setKdvliKatlar(p=>[...p,v]);}setYeniKdvli("");};
-  const ekleKdvsiz=()=>{const v=yeniKdvsiz.trim();if(v&&!kdvsizKatlar.includes(v)){setKdvsizKatlar(p=>[...p,v]);}setYeniKdvsiz("");};
 
   // Seçilen ay kayıtları
   const ayKayitlar = (tumK||[]).filter(r=>r.tarih?.startsWith(secAy)&&r.gonderildi!==false);
@@ -3171,38 +3181,38 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
             inp({className:"fi",type:"number",placeholder:"0",value:giderFrm.tutar||"",
               onChange:e=>setGiderFrm(p=>({...p,tutar:e.target.value}))}))
         ),
-        div({style:{marginBottom:6}},lbl({className:"fl"},"Kategori *"),
-          h("select",{className:"fi",value:giderFrm.kategori||"",
+        div({style:{marginBottom:6}},
+          lbl({className:"fl"},"Kategori *"),
+          h("select",{
+            className:"fi",
+            value:giderFrm.kategori||"",
             onChange:e=>{
               const v=e.target.value;
-              const tip=kdvliKatlar.includes(v)?"kdvli":kdvsizKatlar.includes(v)?"kdvsiz":"";
+              const tip=gkat.kdvli.includes(v)?"kdvli":gkat.kdvsiz.includes(v)?"kdvsiz":"";
               setGiderFrm(p=>({...p,kategori:v,tip}));
-            }},
+            }
+          },
             h("option",{value:""},"Seçin..."),
-            h("optgroup",{label:"── KDV'li Giderler ──"},
-              kdvliKatlar.map(k=>h("option",{key:k,value:k},k))
+            h("optgroup",{label:"KDV\u2019li Giderler"},
+              ...gkat.kdvli.map(k=>h("option",{key:k,value:k},k))
             ),
-            h("optgroup",{label:"── KDV'siz Giderler ──"},
-              kdvsizKatlar.map(k=>h("option",{key:k,value:k},k))
+            h("optgroup",{label:"KDV\u2019siz Giderler"},
+              ...gkat.kdvsiz.map(k=>h("option",{key:k,value:k},k))
             )
-          )
-        ),
-        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}},
-          div({style:{display:"flex",gap:4}},
-            inp({className:"fi",style:{fontSize:11,flex:1},placeholder:"KDV'li ekle...",value:yeniKdvli,
-              onChange:e=>setYeniKdvli(e.target.value),
-              onKeyDown:e=>{if(e.key==="Enter")ekleKdvli();}}),
+          ),
+          div({style:{display:"flex",gap:6,marginTop:6}},
+            inp({className:"fi",style:{flex:1,fontSize:12},placeholder:"KDV'li ekle...",
+              value:yeniKdvli,onChange:e=>setYeniKdvli(e.target.value),
+              onKeyDown:e=>{ if(e.key==="Enter"){ gkat.ekleKdvli(yeniKdvli); setYeniKdvli(""); }}}),
             btn({style:{padding:"0 10px",borderRadius:7,border:"1px solid rgba(37,99,168,.3)",
               background:"rgba(37,99,168,.1)",color:"var(--g)",fontSize:18,cursor:"pointer"},
-              onClick:ekleKdvli},"+")
-          ),
-          div({style:{display:"flex",gap:4}},
-            inp({className:"fi",style:{fontSize:11,flex:1},placeholder:"KDV'siz ekle...",value:yeniKdvsiz,
-              onChange:e=>setYeniKdvsiz(e.target.value),
-              onKeyDown:e=>{if(e.key==="Enter")ekleKdvsiz();}}),
-            btn({style:{padding:"0 10px",borderRadius:7,border:"1px solid rgba(100,100,120,.25)",
-              background:"rgba(100,100,120,.08)",color:"var(--mu)",fontSize:18,cursor:"pointer"},
-              onClick:ekleKdvsiz},"+")
+              onClick:()=>{ gkat.ekleKdvli(yeniKdvli); setYeniKdvli(""); }},"+"),
+            inp({className:"fi",style:{flex:1,fontSize:12},placeholder:"KDV'siz ekle...",
+              value:yeniKdvsiz,onChange:e=>setYeniKdvsiz(e.target.value),
+              onKeyDown:e=>{ if(e.key==="Enter"){ gkat.ekleKdvsiz(yeniKdvsiz); setYeniKdvsiz(""); }}}),
+            btn({style:{padding:"0 10px",borderRadius:7,border:"1px solid rgba(120,120,120,.25)",
+              background:"rgba(120,120,120,.08)",color:"var(--mu)",fontSize:18,cursor:"pointer"},
+              onClick:()=>{ gkat.ekleKdvsiz(yeniKdvsiz); setYeniKdvsiz(""); }},"+")
           )
         ),
         div({style:{marginBottom:14}},lbl({className:"fl"},"Açıklama"),
