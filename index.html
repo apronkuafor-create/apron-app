@@ -7284,7 +7284,7 @@ function App() {
   const [personeller, setPersoneller] = useState(DEFAULT_PERSONELLER);
   const [pin, setPin]                 = useState("");
   const [pinHata, setPinHata]         = useState(false);
-  const [loginMod, setLoginMod]       = useState("secim");   // "secim"|"yon"|"per"
+  const [loginMod, setLoginMod]       = useState("secim");   // "secim"|"yon"|"yon_giris"|"yon_uye"|"per"
   const [loginEmail, setLoginEmail]   = useState("");
   const [loginSifre, setLoginSifre]   = useState("");
   const [loginHata, setLoginHata]     = useState("");
@@ -7739,12 +7739,49 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
   // Yönetici girişi (Supabase Auth)
   const yoneticiGiris = async () => {
     if(!loginEmail.trim()||!loginSifre){ setLoginHata("Email ve şifre gerekli."); return; }
-    if(loginSifre.length<8){ setLoginHata("Şifre en az 8 karakter olmalı."); return; }
     setLoginYuk(true); setLoginHata("");
     try {
+      let girisOk = false;
       if(DB) {
+        // 1. Supabase Auth ile dene
         const {data,error} = await DB.auth.signInWithPassword({email:loginEmail.trim(),password:loginSifre});
-        if(error) { setLoginHata("Email veya şifre hatalı."); setLoginYuk(false); return; }
+        if(!error) girisOk = true;
+      }
+      if(!girisOk) {
+        // 2. Fallback: DB'deki yönetici PIN'i ile karşılaştır (eski sistem)
+        let yonPin = personeller.find(p=>p.rol==="yonetici")?.pin || "";
+        if(!yonPin && DB) {
+          try {
+            const {data} = await DB.from("personeller").select("pin").eq("rol","yonetici").single();
+            if(data?.pin) yonPin = data.pin;
+          } catch(e){}
+        }
+        if(yonPin && loginSifre === yonPin) {
+          girisOk = true;
+        } else {
+          setLoginHata("Email veya şifre hatalı."); setLoginYuk(false); return;
+        }
+      }
+      if(beniHatirla){ localStorage.setItem("apron_hatirla","1"); localStorage.setItem("apron_saved_email",loginEmail.trim()); }
+      else { localStorage.removeItem("apron_hatirla"); localStorage.removeItem("apron_saved_email"); }
+      const yon = personeller.find(p=>p.rol==="yonetici") || YONETICI;
+      setKul(yon); setLoginMod("secim"); setLoginSifre(""); setLoginHata("");
+      setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); setEkran("yonetici");
+    } catch(e){ setLoginHata("Bağlantı hatası."); }
+    setLoginYuk(false);
+  };
+
+  // Üye ol
+  const uyeOl = async () => {
+    if(!loginEmail.trim()||!loginSifre){ setLoginHata("Email ve şifre gerekli."); return; }
+    if(loginSifre.length<8){ setLoginHata("Şifre en az 8 karakter olmalı."); return; }
+    const re = /^(?=.*[a-zA-Z])(?=.*\d).{8,}$/;
+    if(!re.test(loginSifre)){ setLoginHata("Şifre en az 1 harf ve 1 rakam içermeli."); return; }
+    setLoginYuk(true); setLoginHata("");
+    try {
+      if(DB){
+        const {data,error} = await DB.auth.signUp({email:loginEmail.trim(),password:loginSifre});
+        if(error){ setLoginHata(error.message||"Kayıt başarısız."); setLoginYuk(false); return; }
       }
       if(beniHatirla){ localStorage.setItem("apron_hatirla","1"); localStorage.setItem("apron_saved_email",loginEmail.trim()); }
       else { localStorage.removeItem("apron_hatirla"); localStorage.removeItem("apron_saved_email"); }
@@ -8639,10 +8676,30 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
           "✂️  Personel Girişi")
       ),
 
-      // ── YÖNETİCİ GİRİŞİ ──
+      // ── YÖNETİCİ — ALT MENÜ ──
       loginMod==="yon"&&div({style:{width:"100%",maxWidth:320}},
+        div({style:{fontSize:11,color:"#86868B",letterSpacing:2,textTransform:"uppercase",
+          textAlign:"center",marginBottom:16,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Yönetici Paneli"),
+        btn({style:{width:"100%",padding:"15px 0",borderRadius:14,border:"1px solid #E5E5EA",
+          background:"#1D1D1F",color:"#FFFFFF",fontSize:15,fontWeight:700,cursor:"pointer",
+          marginBottom:10,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+          onClick:()=>{setLoginMod("yon_giris");setLoginHata("");}},
+          "Giriş Yap"),
+        btn({style:{width:"100%",padding:"15px 0",borderRadius:14,border:"1px solid #E5E5EA",
+          background:"#FFFFFF",color:"#1D1D1F",fontSize:15,fontWeight:700,cursor:"pointer",
+          marginBottom:16,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+          onClick:()=>{setLoginMod("yon_uye");setLoginHata("");setLoginSifre("");}},
+          "Üye Ol"),
+        btn({style:{width:"100%",padding:"11px 0",borderRadius:12,border:"1px solid #E5E5EA",
+          background:"transparent",color:"#86868B",fontSize:13,cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+          onClick:()=>{setLoginMod("secim");setLoginHata("");}},
+          "‹ Geri")
+      ),
+
+      // ── YÖNETİCİ GİRİŞ FORMU ──
+      loginMod==="yon_giris"&&div({style:{width:"100%",maxWidth:320}},
         // Şifremi unuttum modal
-        sifremiUnuttum&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:999,
+        sifremiUnuttum&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:999,
           display:"flex",alignItems:"center",justifyContent:"center",padding:16}},
           div({style:{background:"#FFFFFF",borderRadius:18,padding:24,width:"100%",maxWidth:340}},
             div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F",marginBottom:4,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Şifre Sıfırlama"),
@@ -8650,58 +8707,50 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
             resetDurum==="gonderildi"
               ? div({style:{background:"rgba(52,199,89,.1)",border:"1px solid rgba(52,199,89,.3)",
                   borderRadius:12,padding:14,textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:14,color:"#1A7A34"}},
-                  "✅ Sıfırlama bağlantısı gönderildi. Mailinizi kontrol edin.")
+                  "✅ Sıfırlama maili gönderildi. Mailinizi kontrol edin.")
               : div(null,
                   inp({className:"fi",type:"email",placeholder:"Email adresiniz",value:resetMail,
-                    style:{marginBottom:8,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
-                    onChange:e=>setResetMail(e.target.value)}),
-                  resetDurum==="hata"&&div({style:{color:"#FF3B30",fontSize:12,marginBottom:8,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Lütfen geçerli bir email girin."),
+                    style:{marginBottom:8,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},onChange:e=>setResetMail(e.target.value)}),
+                  resetDurum==="hata"&&div({style:{color:"#FF3B30",fontSize:12,marginBottom:8,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Geçerli bir email girin."),
                   div({style:{display:"flex",gap:8}},
                     btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid #E5E5EA",
                       background:"#F5F5F7",color:"#1D1D1F",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
                       onClick:()=>{setSifremiUnuttum(false);setResetMail("");setResetDurum("");}},"İptal"),
                     btn({style:{flex:2,padding:"11px 0",borderRadius:10,border:"none",
                       background:"#1D1D1F",color:"#FFFFFF",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
-                      onClick:sifreReset},"İletişim Gönder")
+                      onClick:sifreReset},"Mail Gönder")
                   )
                 )
           )
         ),
-
         div({style:{fontSize:11,color:"#86868B",letterSpacing:2,textTransform:"uppercase",
-          marginBottom:16,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Yönetici Girişi"),
+          marginBottom:14,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Yönetici Girişi"),
         div({style:{marginBottom:10}},
           lbl({className:"fl",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Email"),
           inp({className:"fi",type:"email",placeholder:"ornek@mail.com",value:loginEmail,
-            style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
-            onChange:e=>setLoginEmail(e.target.value),
-            onKeyDown:e=>{if(e.key==="Enter") yoneticiGiris();}})
-        ),
+            style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},onChange:e=>setLoginEmail(e.target.value),
+            onKeyDown:e=>{if(e.key==="Enter") yoneticiGiris();}})),
         div({style:{marginBottom:14}},
           lbl({className:"fl",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Şifre"),
           inp({className:"fi",type:"password",placeholder:"••••••••",value:loginSifre,
-            style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
-            onChange:e=>setLoginSifre(e.target.value),
-            onKeyDown:e=>{if(e.key==="Enter") yoneticiGiris();}})
-        ),
+            style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},onChange:e=>setLoginSifre(e.target.value),
+            onKeyDown:e=>{if(e.key==="Enter") yoneticiGiris();}})),
         div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}},
-          div({style:{display:"flex",alignItems:"center",gap:8,cursor:"pointer"},
-            onClick:()=>setBeniHatirla(p=>!p)},
-            div({style:{width:18,height:18,borderRadius:5,border:"1.5px solid "+(beniHatirla?"#1D1D1F":"#C7C7CC"),
-              background:beniHatirla?"#1D1D1F":"transparent",display:"flex",alignItems:"center",
-              justifyContent:"center",transition:"all .15s",flexShrink:0}},
+          div({style:{display:"flex",alignItems:"center",gap:8,cursor:"pointer"},onClick:()=>setBeniHatirla(p=>!p)},
+            div({style:{width:18,height:18,borderRadius:5,flexShrink:0,transition:"all .15s",
+              border:"1.5px solid "+(beniHatirla?"#1D1D1F":"#C7C7CC"),
+              background:beniHatirla?"#1D1D1F":"transparent",
+              display:"flex",alignItems:"center",justifyContent:"center"}},
               beniHatirla&&h("span",{style:{color:"#FFFFFF",fontSize:12,fontWeight:700}},"✓")
             ),
             h("span",{style:{fontSize:13,color:"#1D1D1F",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Beni hatırla")
           ),
           btn({style:{background:"transparent",border:"none",color:"#0071E3",fontSize:13,
             cursor:"pointer",padding:0,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontWeight:500},
-            onClick:()=>{setSifremiUnuttum(true);setResetMail(loginEmail);setResetDurum("");}},
-            "Şifremi unuttum")
+            onClick:()=>{setSifremiUnuttum(true);setResetMail(loginEmail);setResetDurum("");}},"Şifremi unuttum")
         ),
         loginHata&&div({style:{background:"rgba(255,59,48,.08)",border:"1px solid rgba(255,59,48,.25)",
-          borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13,color:"#FF3B30",
-          fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"⚠ "+loginHata),
+          borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13,color:"#FF3B30",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"⚠ "+loginHata),
         btn({style:{width:"100%",padding:"14px 0",borderRadius:12,border:"none",
           background:"#1D1D1F",color:"#FFFFFF",fontSize:15,fontWeight:700,cursor:"pointer",
           fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",opacity:loginYukleniyor?0.7:1},
@@ -8710,7 +8759,45 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
         btn({style:{width:"100%",marginTop:10,padding:"11px 0",borderRadius:12,
           border:"1px solid #E5E5EA",background:"transparent",color:"#86868B",
           fontSize:14,cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
-          onClick:()=>{setLoginMod("secim");setLoginHata("");}},
+          onClick:()=>{setLoginMod("yon");setLoginHata("");}},
+          "‹ Geri")
+      ),
+
+      // ── ÜYE OL FORMU ──
+      loginMod==="yon_uye"&&div({style:{width:"100%",maxWidth:320}},
+        div({style:{fontSize:11,color:"#86868B",letterSpacing:2,textTransform:"uppercase",
+          marginBottom:14,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Yeni Hesap Oluştur"),
+        div({style:{marginBottom:10}},
+          lbl({className:"fl",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Email"),
+          inp({className:"fi",type:"email",placeholder:"ornek@mail.com",value:loginEmail,
+            style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},onChange:e=>setLoginEmail(e.target.value)})),
+        div({style:{marginBottom:8}},
+          lbl({className:"fl",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Şifre (min 8 karakter, harf+rakam)"),
+          inp({className:"fi",type:"password",placeholder:"••••••••",value:loginSifre,
+            style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},onChange:e=>setLoginSifre(e.target.value),
+            onKeyDown:e=>{if(e.key==="Enter") uyeOl();}})),
+        div({style:{background:"rgba(0,113,227,.06)",border:"1px solid rgba(0,113,227,.15)",
+          borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#0071E3",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"💡 En az 8 karakter, en az 1 harf ve 1 rakam içermeli."),
+        div({style:{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginBottom:16},onClick:()=>setBeniHatirla(p=>!p)},
+          div({style:{width:18,height:18,borderRadius:5,flexShrink:0,transition:"all .15s",
+            border:"1.5px solid "+(beniHatirla?"#1D1D1F":"#C7C7CC"),
+            background:beniHatirla?"#1D1D1F":"transparent",
+            display:"flex",alignItems:"center",justifyContent:"center"}},
+            beniHatirla&&h("span",{style:{color:"#FFFFFF",fontSize:12,fontWeight:700}},"✓")
+          ),
+          h("span",{style:{fontSize:13,color:"#1D1D1F",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Beni hatırla")
+        ),
+        loginHata&&div({style:{background:"rgba(255,59,48,.08)",border:"1px solid rgba(255,59,48,.25)",
+          borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13,color:"#FF3B30",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"⚠ "+loginHata),
+        btn({style:{width:"100%",padding:"14px 0",borderRadius:12,border:"none",
+          background:"#0071E3",color:"#FFFFFF",fontSize:15,fontWeight:700,cursor:"pointer",
+          fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",opacity:loginYukleniyor?0.7:1},
+          onClick:uyeOl,disabled:loginYukleniyor},
+          loginYukleniyor?"Kayıt yapılıyor...":"Üye Ol"),
+        btn({style:{width:"100%",marginTop:10,padding:"11px 0",borderRadius:12,
+          border:"1px solid #E5E5EA",background:"transparent",color:"#86868B",
+          fontSize:14,cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+          onClick:()=>{setLoginMod("yon");setLoginHata("");}},
           "‹ Geri")
       ),
 
