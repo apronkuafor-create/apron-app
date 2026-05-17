@@ -12800,6 +12800,56 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
           ),
 
           // ── İŞLETME ──
+          aySek==="guvenlik"&&div({style:{padding:"4px 0",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+            div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:16,marginTop:4}},"🔐 Güvenlik"),
+            div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:18,marginBottom:14}},
+              div({style:{fontSize:12,fontWeight:700,color:"var(--g)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:16}},"ŞİFRE İŞLEMLERİ"),
+              div({style:{marginBottom:12}},lbl({className:"fl"},"Mevcut Şifre"),
+                inp({className:"fi",type:"password",placeholder:"Mevcut şifreniz",value:guncelSifre,
+                  onChange:e=>{setGuncelSifre(e.target.value);setSifreDurum("");setSifreHata("");}})),
+              div({style:{marginBottom:12}},lbl({className:"fl"},"Yeni Şifre"),
+                inp({className:"fi",type:"password",placeholder:"Min 8 karakter, harf+rakam",value:yeniSifre1,
+                  onChange:e=>{setYeniSifre1(e.target.value);setSifreDurum("");setSifreHata("");}})),
+              div({style:{marginBottom:16}},lbl({className:"fl"},"Yeni Şifre (Tekrar)"),
+                inp({className:"fi",type:"password",placeholder:"Yeni şifrenizi tekrar girin",value:yeniSifre2,
+                  onChange:e=>{setYeniSifre2(e.target.value);setSifreDurum("");setSifreHata("");}})),
+              sifreDurum==="ok"&&div({style:{background:"rgba(52,199,89,.1)",border:"1px solid rgba(52,199,89,.3)",
+                borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13,color:"#1A7A34"}},"✅ Şifre güncellendi."),
+              (sifreDurum==="hata"||sifreHata)&&div({style:{background:"rgba(255,59,48,.08)",border:"1px solid rgba(255,59,48,.25)",
+                borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13,color:"#FF3B30"}},"⚠ "+(sifreHata||"Hata.")),
+              btn({style:{width:"100%",padding:"13px 0",borderRadius:11,border:"none",
+                background:"#1D1D1F",color:"#FFFFFF",fontSize:14,fontWeight:700,cursor:"pointer"},
+                onClick:async()=>{
+                  setSifreDurum(""); setSifreHata("");
+                  if(!guncelSifre||!yeniSifre1||!yeniSifre2){setSifreHata("Tüm alanlar zorunlu.");return;}
+                  if(yeniSifre1!==yeniSifre2){setSifreHata("Yeni şifreler eşleşmiyor.");return;}
+                  if(yeniSifre1.length<8){setSifreHata("En az 8 karakter olmalı.");return;}
+                  const hasLetter=/[a-zA-Z]/.test(yeniSifre1), hasDigit=/[0-9]/.test(yeniSifre1);
+                  if(!hasLetter||!hasDigit){setSifreHata("En az 1 harf ve 1 rakam içermeli.");return;}
+                  try{
+                    if(DB){const {error}=await DB.auth.updateUser({password:yeniSifre1});
+                      if(error){setSifreDurum("hata");setSifreHata(error.message||"Güncellenemedi.");return;}}
+                    setSifreDurum("ok");setGuncelSifre("");setYeniSifre1("");setYeniSifre2("");
+                    showToast("Şifre güncellendi","ba");
+                  }catch(e){setSifreDurum("hata");setSifreHata("Bağlantı hatası.");}
+                }},"Şifreyi Güncelle")
+            ),
+            div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:18}},
+              div({style:{fontSize:12,fontWeight:700,color:"var(--g)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}},"ŞİFRE SIFIRLAMA (MAİL)"),
+              div({style:{fontSize:13,color:"var(--mu)",marginBottom:14}},"Kayıtlı e-postanıza sıfırlama bağlantısı gönderin."),
+              btn({style:{width:"100%",padding:"13px 0",borderRadius:11,border:"1px solid var(--br)",
+                background:"var(--bg3)",color:"var(--g)",fontSize:14,fontWeight:600,cursor:"pointer"},
+                onClick:async()=>{
+                  if(!DB){showToast("Bağlantı yok","uy");return;}
+                  const {data}=await DB.auth.getUser();
+                  const mail=data?.user?.email;
+                  if(!mail){showToast("Email bulunamadı","uy");return;}
+                  await DB.auth.resetPasswordForEmail(mail,{redirectTo:window.location.href});
+                  showToast("Sıfırlama maili gönderildi","ba");
+                }},"📧 Sıfırlama Maili Gönder")
+            )
+          ),
+
           aySek==="isletme"&&div({style:{padding:"4px 0"}},
 
             div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:14}},
