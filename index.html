@@ -3850,22 +3850,7 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
 
   return div(null,
 
-    // Yapılmayan günler uyarısı
-    yapilmayanGunler.length > 0 && div({style:{background:"rgba(240,160,60,.06)",
-      border:"1px solid rgba(240,160,60,.25)",borderRadius:12,padding:12,marginBottom:14}},
-      div({style:{fontSize:12,color:"#f0a060",letterSpacing:2,textTransform:"uppercase",marginBottom:8}},
-        "⚠ Sağlaması Yapılmayan Günler ("+yapilmayanGunler.length+")"),
-      div({style:{display:"flex",flexWrap:"wrap",gap:6}},
-        yapilmayanGunler.slice(0,10).map(g =>
-          btn({key:g.tarih,style:{padding:"5px 10px",borderRadius:7,fontSize:13,cursor:"pointer",
-            background:"rgba(240,160,60,.1)",border:"1px solid rgba(240,160,60,.3)",
-            color:"#f0a060"},
-            onClick:()=>setSecTarih(g.tarih)},
-            new Date(g.tarih).toLocaleDateString("tr-TR",{day:"numeric",month:"short"})
-          )
-        )
-      )
-    ),
+    // "Sağlaması Yapılmayan Günler" uyarısı → Bildirimler sekmesine taşındı
 
     // Tarih seçici
     div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,
@@ -10868,13 +10853,13 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     // ── YONETİCİ ──
     !yukleniyor&&ekran==="yonetici"&&kul&&div(null,
       div({className:"tbar",id:"apron-tbar",style:{flexDirection:"column",alignItems:"stretch",height:"auto",paddingBottom:0,padding:0}},
-        div({style:{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 0"}},
+        div({style:{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 0 10px 12px"}},
         btn({style:{background:"transparent",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center"},
           onClick:()=>setCikisSecenek(true),
           title:"Çıkış seçenekleri"},
           isletme.logo ? img({src:isletme.logo,style:{height:34,objectFit:"contain",maxWidth:128}}) : img({src:LOGO,height:34})
         ),
-        div({style:{flex:1,fontSize:13,color:"var(--mu)"}},"Yönetici Paneli"),
+        div({style:{flex:1}}),
         // Mesajlar butonu
         (()=>{
           const benimId = String(kul?.id||"");
@@ -11281,11 +11266,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
         ),
 
         // ── Hizmet Muhasebesi Alt-Alt Başlıkları ──
-        panelAdim==="muhasebe"&&panelAltSek==="hizmet"&&!asek&&div({style:{padding:"14px 14px 8px"}},
-          div({style:{display:"flex",alignItems:"center",gap:10,marginBottom:16,paddingTop:12}},
-            div({style:{width:38,height:38,borderRadius:12,background:"linear-gradient(135deg,#5856D6,#3634A3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}},"💇"),
-            div({style:{fontSize:16,fontWeight:700,color:"#5856D6"}})
-          ),
+        panelAdim==="muhasebe"&&panelAltSek==="hizmet"&&!asek&&div({style:{padding:"8px 14px"}},
           [
             // Özet — grafik/analiz → mor
             ["rgba(100,80,220,.13)","📊","Özet",()=>{setAsek("ozet");setMuhSek("hizmetMuhasebe");setMuhAlt("hizmetOzet");setMuhAltAcik("");}],
@@ -11310,11 +11291,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
         ),
 
         // ── Ürün Muhasebesi Alt-Alt Başlıkları ──
-        panelAdim==="muhasebe"&&panelAltSek==="urun"&&!asek&&div({style:{padding:"14px 14px 8px"}},
-          div({style:{display:"flex",alignItems:"center",gap:10,marginBottom:16,paddingTop:12}},
-            div({style:{width:38,height:38,borderRadius:12,background:"linear-gradient(135deg,#FF9500,#C77200)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}},"🏷️"),
-            div({style:{fontSize:16,fontWeight:700,color:"#C77200"}})
-          ),
+        panelAdim==="muhasebe"&&panelAltSek==="urun"&&!asek&&div({style:{padding:"8px 14px"}},
           [
             // Özet — genel tablo → turuncu koyu
             ["rgba(200,100,0,.13)","📊","Özet",()=>{setAsek("ozet");setMuhSek("urunMuhasebe");setMuhAlt("ozet");setMuhAltAcik("ozet");}],
@@ -11404,6 +11381,14 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
           const okunmamisListe = tumBildirimler.filter(b=>!b.okundu);
           const okunmusListe = tumBildirimler.filter(b=>b.okundu);
           const aktifListe = bildirimAltSek==="okunmus" ? okunmusListe : okunmamisListe;
+
+          // Sağlaması yapılmayan günler hesabı (Hesap Sağlaması sayfasından taşındı)
+          const yapilmayanGunler = (()=>{
+            const tarihler = [...new Set((tumK||[]).map(r=>r.tarih).filter(Boolean))]
+              .sort((a,b)=>b.localeCompare(a)).slice(0,30);
+            return tarihler.filter(t => !hesapSaglama[t]);
+          })();
+
           const trh = (iso) => {
             if(!iso) return "";
             try { return new Date(iso).toLocaleString("tr-TR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}); } catch(e){ return ""; }
@@ -11423,6 +11408,28 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
             return {bg:"rgba(255,107,74,.08)",border:"rgba(255,107,74,.3)",tx:"#FF6B4A"};
           };
           return div({className:"pg",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",padding:"8px 14px"}},
+
+            // ════════════════════════════════════════
+            // SAĞLAMASI YAPILMAYAN GÜNLER (Hesap Sağlaması'ndan taşındı)
+            // ════════════════════════════════════════
+            yapilmayanGunler.length > 0 && div({style:{
+              background:"rgba(240,160,60,.06)",
+              border:"1px solid rgba(240,160,60,.25)",
+              borderRadius:12,padding:12,marginBottom:14,marginTop:6
+            }},
+              div({style:{fontSize:12,color:"#f0a060",letterSpacing:2,textTransform:"uppercase",marginBottom:8}},
+                "⚠ Sağlaması Yapılmayan Günler ("+yapilmayanGunler.length+")"),
+              div({style:{display:"flex",flexWrap:"wrap",gap:6}},
+                yapilmayanGunler.slice(0,10).map(t =>
+                  btn({key:t,style:{padding:"5px 10px",borderRadius:7,fontSize:13,cursor:"pointer",
+                    background:"rgba(240,160,60,.1)",border:"1px solid rgba(240,160,60,.3)",
+                    color:"#f0a060"},
+                    onClick:()=>{ setHesapFull(true); setPanelAdim("muhasebe"); }},
+                    new Date(t).toLocaleDateString("tr-TR",{day:"numeric",month:"short"})
+                  )
+                )
+              )
+            ),
 
             // ════════════════════════════════════════
             // PERSONEL ONAY TALEPLERİ (Kayıtlar'dan taşındı)
@@ -11597,7 +11604,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
 
 
           // ── İÇERİK TAM GENİŞLİK ──
-          div({style:{padding:"16px 14px 0"}},
+          div({style:{padding:"4px 14px 0"}},
 
             // Hizmet Muhasebesi — Özet
             muhSek==="hizmetMuhasebe"&&muhAlt==="hizmetOzet"&&h(HizmetMuhasebe,{
@@ -11670,11 +11677,11 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
           )
         ),
 
-        hesapFull&&div({style:{minHeight:"80vh",padding:"14px"}},
+        hesapFull&&div({style:{minHeight:"80vh",padding:"4px 14px 14px"}},
           h(HesapOzetiModul,{tumK, bankalar, hesapSaglama, setHesapSaglama, showToast})
         ),
 
-        vergiFull&&div({style:{minHeight:"80vh",padding:"14px"}},
+        vergiFull&&div({style:{minHeight:"80vh",padding:"4px 14px 14px"}},
           h(VergiMuhasebesiModul,{tumK,faturalar,giderler})
         ),
 
