@@ -11404,6 +11404,58 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
           };
           return div({className:"pg",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",padding:"8px 14px"}},
 
+            // ════════════════════════════════════════
+            // PERSONEL ONAY TALEPLERİ (Kayıtlar'dan taşındı)
+            // ════════════════════════════════════════
+            yonBildirim.filter(b=>b.kaynak==="personelTalep"&&b.durum==="bekliyor").length>0&&div({
+              style:{background:"rgba(37,99,168,.08)",border:"1.5px solid rgba(37,99,168,.30)",borderRadius:12,padding:14,marginBottom:14,marginTop:6}},
+              div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:10,marginTop:4}},"📋 Personel Onay Talepleri"),
+              yonBildirim.filter(b=>b.kaynak==="personelTalep"&&b.durum==="bekliyor").map(b=>
+                div({key:b.id,style:{background:"var(--bg3)",borderRadius:9,padding:"10px 12px",marginBottom:8,border:"1px solid var(--br)"}},
+                  div({style:{fontSize:14,color:"var(--tx)",fontWeight:700,marginBottom:4}},
+                    (b.islem==="sil"?"🗑 Silme talebi":"✏ Düzenleme talebi")),
+                  div({style:{fontSize:13,color:"var(--mu)",marginBottom:4}},
+                    h("strong",{style:{color:"var(--g)"}},b.staffAd||"Personel")," · ",h("strong",{style:{color:"var(--tx)"}},b.musteri||"Kayıt")," · ",fmtT(b.tarih)),
+                  div({style:{fontSize:13,color:"var(--g)",marginBottom:10,padding:"8px 10px",background:"rgba(37,99,168,.10)",border:"1px solid rgba(37,99,168,.20)",borderRadius:7,lineHeight:1.45}},
+                    "Bu kayıt "+(b.islem==="sil"?"silinmek":"düzenlenmek")+" üzere Onay'a gönderildi. Yönetici onayı bekleniyor."),
+                  div({style:{display:"flex",gap:8}},
+                    btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #1e5a48",background:"rgba(50,140,100,.12)",color:"var(--gr)",fontSize:13,fontWeight:700,cursor:"pointer"},
+                      onClick:()=>yoneticiTalepOnayla(b)},"✓ Onay Ver"),
+                    btn({style:{flex:1,padding:9,borderRadius:8,border:"1px solid #6a2020",background:"rgba(160,40,40,.10)",color:"#c05050",fontSize:13,fontWeight:700,cursor:"pointer"},
+                      onClick:()=>yoneticiTalepIptal(b)},"✕ İptal Et")
+                  )
+                )
+              )
+            ),
+
+            // ════════════════════════════════════════
+            // REDDEDİLEN DEĞİŞİKLİKLER (Kayıtlar'dan taşındı)
+            // ════════════════════════════════════════
+            yonBildirim.filter(b=>b.durum==="reddedildi"&&!b.yonGordu).length>0&&div({
+              style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(200,60,60,.3)",borderRadius:12,padding:14,marginBottom:14}},
+              div({style:{fontSize:12,color:"#c05050",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},"Reddedilen Değişiklikler"),
+              yonBildirim.filter(b=>b.durum==="reddedildi"&&!b.yonGordu).map(b=>
+                div({key:b.id,style:{background:"var(--bg3)",borderRadius:9,padding:"10px 12px",marginBottom:8}},
+                  div({style:{fontSize:14,color:"var(--tx)",fontWeight:500,marginBottom:4}},b.musteri+" · "+fmtT(b.tarih)),
+                  div({style:{fontSize:13,color:"#c05050",marginBottom:4}},"Personel Yaniti: "+b.personelYanit),
+                  div({style:{display:"flex",gap:8,marginTop:8}},
+                    btn({style:{flex:1,padding:8,borderRadius:7,border:"1px solid #3a1510",background:"rgba(160,40,40,.1)",color:"#c05050",fontSize:12,cursor:"pointer"},
+                      onClick:()=>{
+                        setYonDuzForm({
+                          kayit:records.find(r=>r.id===b.kayitId)||gecmis.find(r=>r.id===b.kayitId),
+                          islem:b.islem, yeniKayit:b.yeniKayit,
+                          neden:b.neden, personelYanit:b.personelYanit,
+                          bildirimId:b.id, adim:"karsiaciklama"
+                        });
+                      }},"Yine de Uygula"),
+                    btn({style:{flex:1,padding:8,borderRadius:7,border:"1px solid var(--br)",background:"transparent",color:"var(--mu)",fontSize:12,cursor:"pointer"},
+                      onClick:()=>setYonBildirim(p=>p.map(x=>x.id===b.id?{...x,yonGordu:true}:x))
+                    },"Kapat")
+                  )
+                )
+              )
+            ),
+
             // Başlık satırı
             div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,paddingTop:6}},
               div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,color:"var(--g)",fontWeight:600}},"🔔 Bildirimler"),
@@ -11920,7 +11972,9 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
             })()
           ),
 
-          
+          // Personelden gelen düzenleme/silme talepleri ve Reddedilen değişiklikler
+          // → Bildirimler sekmesine taşındı (Yönetici Paneli → Bildirimler)
+
         ),
 
 
