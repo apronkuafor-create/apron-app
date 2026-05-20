@@ -1768,9 +1768,11 @@ function UrunMuhasebe({
   odemeler,setOdemeler,hareketler,setHareketler,
   umDetay,setUmDetay,tumK,showToast,personeller,aktifSekme,onSekmeChange,onAnaPanel
 }) {
-const [umSekLocal, setUmSekLocal] = React.useState("ozet");
-  const umSek = aktifSekme || umSekLocal;
-  const setUmSek = (id)=>{ setUmSekLocal(id); if(onSekmeChange) onSekmeChange(id); };
+const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
+  const [showMenu, setShowMenu] = React.useState(!aktifSekme);
+  const umSek = showMenu ? "" : (aktifSekme || umSekLocal);
+  const setUmSek = (id)=>{ setUmSekLocal(id); setShowMenu(false); if(onSekmeChange) onSekmeChange(id); };
+  const goGeri = ()=>{ setShowMenu(true); };
 
   // Sipariş listesi state
   const [siparisListesi, setSiparisListesi] = React.useState([]);
@@ -1850,7 +1852,7 @@ const [umSekLocal, setUmSekLocal] = React.useState("ozet");
   // UrunAramaBilesen dışarıda tanımlı (klavye kapanma sorunu için)
 
   // İç tab barı
-  const tabBar = !aktifSekme&&div({style:{display:"flex",gap:0,borderBottom:"1px solid var(--br)",marginBottom:14,overflowX:"auto",scrollbarWidth:"none"}},
+  const tabBar = !aktifSekme&&!showMenu&&div({style:{display:"flex",gap:0,borderBottom:"1px solid var(--br)",marginBottom:14,overflowX:"auto",scrollbarWidth:"none"}},
     [["ozet","📊 Özet"],["malKabul","📦 Mal Kabul"],["stokDetay","🔍 Stok Detay"],["stokDurum","📊 Stok"],["cari","💳 Cari"],["siparis","📋 Sipariş"]].map(([id,lb])=>
       div({key:id,style:{padding:"8px 12px",cursor:"pointer",fontSize:12,
         letterSpacing:1,textTransform:"uppercase",whiteSpace:"nowrap",flexShrink:0,
@@ -1863,13 +1865,61 @@ const [umSekLocal, setUmSekLocal] = React.useState("ozet");
   return div(null,
     tabBar,
 
-   umSek==="ozet"&&div({style:{position:"fixed",inset:0,zIndex:901,background:"var(--bg)",display:"flex",flexDirection:"column",overflow:"hidden"}},
-      h("div",{style:{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:"var(--bg2)",width:"100%",boxSizing:"border-box",minHeight:40,flexShrink:0}},
-        h("button",{style:{background:"transparent",border:"none",flexShrink:0,padding:0,cursor:"pointer",display:"flex",alignItems:"center",height:40},
-          onClick:()=>onAnaPanel&&onAnaPanel(),title:"Ana panele dön"
-        }, h("img",{src:LOGO,style:{height:34,objectFit:"contain"}})),
+    showMenu&&div({style:{position:"fixed",inset:0,zIndex:999,background:"var(--bg)",display:"flex",flexDirection:"column",overflow:"hidden"}},
+      h("div",{style:{display:"flex",alignItems:"center",padding:"10px 12px 6px",background:"var(--bg2)",width:"100%",boxSizing:"border-box",flexShrink:0}},
+        h("button",{style:{background:"transparent",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center"},
+          onClick:()=>onAnaPanel&&onAnaPanel()
+        }, h("img",{src:LOGO,style:{height:34,objectFit:"contain"}}))
+      ),
+      h("div",{style:{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:"var(--bg2)",borderBottom:"1px solid var(--br)",width:"100%",boxSizing:"border-box",minHeight:40,flexShrink:0}},
+        h("button",{style:{background:"rgba(0,0,0,.06)",border:"none",flexShrink:0,color:"var(--mu)",fontSize:16,fontWeight:700,cursor:"pointer",padding:0,borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center"},
+          onClick:()=>onAnaPanel&&onAnaPanel()
+        },"«"),
         h("button",{style:{background:"rgba(0,113,227,.10)",border:"none",flexShrink:0,color:"#0071E3",fontSize:14,cursor:"pointer",padding:"0 14px",height:40,borderRadius:10,fontWeight:700,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4},
-          onClick:()=>onSekmeChange&&onSekmeChange("")
+          onClick:()=>onAnaPanel&&onAnaPanel()
+        },"‹ Geri"),
+        h("div",{style:{flex:1,fontSize:13,minWidth:0,overflow:"hidden",display:"flex",alignItems:"center",gap:4}},
+          h("span",{style:{color:"var(--mu)",flexShrink:0}},"🧮 / "),
+          h("span",{style:{color:"var(--g)",fontWeight:700}},"Ürün Muhasebesi")
+        )
+      ),
+      div({style:{flex:1,overflowY:"auto",padding:"14px"}},
+        [
+          ["rgba(100,80,220,.13)","📊","Özet","ozet"],
+          ["rgba(40,160,80,.13)","🛒","Ürün Satışları","urunSatislari"],
+          ["rgba(220,110,0,.13)","📦","Mal Kabul","malKabul"],
+          ["rgba(0,120,200,.13)","🔍","Stok Detay","stokDetay"],
+          ["rgba(0,150,140,.13)","📋","Stok Durumu","stokDurum"],
+          ["rgba(200,40,40,.13)","💳","Cari","cari"],
+          ["rgba(80,80,80,.13)","📋","Sipariş Listesi","siparis"],
+        ].map(([bg,ikon,lb,id])=>
+          div({key:id,onClick:()=>{ setShowMenu(false); setUmSek(id); },style:{
+            display:"flex",alignItems:"center",gap:14,
+            background:"#fff",border:"1px solid rgba(0,0,0,.07)",
+            borderRadius:14,padding:"13px 16px",marginBottom:9,
+            cursor:"pointer",boxShadow:"0 1px 6px rgba(0,0,0,.05)"
+          }},
+            div({style:{width:48,height:48,borderRadius:14,background:bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0}},ikon),
+            div({style:{fontFamily:"'Inter',-apple-system,sans-serif",fontSize:16,fontWeight:500}},lb)
+          )
+        )
+      )
+    ),
+
+   umSek==="ozet"&&!showMenu&&div({style:{position:"fixed",inset:0,zIndex:999,background:"var(--bg)",display:"flex",flexDirection:"column",overflow:"hidden"}},
+      // Satır 1: Logo
+      h("div",{style:{display:"flex",alignItems:"center",padding:"10px 12px 6px",background:"var(--bg2)",width:"100%",boxSizing:"border-box",flexShrink:0}},
+        h("button",{style:{background:"transparent",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center"},
+          onClick:()=>onAnaPanel&&onAnaPanel(),title:"Ana panele dön"
+        }, h("img",{src:LOGO,style:{height:34,objectFit:"contain"}}))
+      ),
+      // Satır 2: Nav + alt çizgi
+      h("div",{style:{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:"var(--bg2)",borderBottom:"1px solid var(--br)",width:"100%",boxSizing:"border-box",minHeight:40,flexShrink:0}},
+        h("button",{style:{background:"rgba(0,0,0,.06)",border:"none",flexShrink:0,color:"var(--mu)",fontSize:16,fontWeight:700,cursor:"pointer",padding:0,borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center"},
+          onClick:()=>onAnaPanel&&onAnaPanel()
+        },"«"),
+        h("button",{style:{background:"rgba(0,113,227,.10)",border:"none",flexShrink:0,color:"#0071E3",fontSize:14,cursor:"pointer",padding:"0 14px",height:40,borderRadius:10,fontWeight:700,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4},
+          onClick:()=>goGeri()
         },"‹ Geri"),
         h("div",{style:{flex:1,fontSize:13,minWidth:0,overflow:"hidden",display:"flex",alignItems:"center",gap:4,flexWrap:"nowrap"}},
           h("span",{style:{color:"var(--mu)",flexShrink:0}},"🧮 / Ürün Muhasebesi / "),
@@ -1883,7 +1933,7 @@ const [umSekLocal, setUmSekLocal] = React.useState("ozet");
              
 
     // ═══════════════ SİPARİŞ LİSTESİ ═══════════════
-    umSek==="siparis"&&div(null,
+    umSek==="siparis"&&!showMenu&&div(null,
       div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},"📋 Sipariş Listesi"),
 
       // Tedarikçi telefon + rehber ikonu
@@ -1970,7 +2020,7 @@ const [umSekLocal, setUmSekLocal] = React.useState("ozet");
     ),
 
     // ═══════════════ MAL KABUL ═══════════════
-    umSek==="malKabul"&&div(null,
+    umSek==="malKabul"&&!showMenu&&div(null,
 
       // Alt sekme barı
       !mkForm&&div({style:{display:"flex",gap:0,borderBottom:"1px solid var(--br)",marginBottom:14}},
@@ -2335,7 +2385,7 @@ const [umSekLocal, setUmSekLocal] = React.useState("ozet");
     ),
 
     // ═══════════════ STOK DETAY ═══════════════
-    umSek==="stokDetay"&&div(null,
+    umSek==="stokDetay"&&!showMenu&&div(null,
       div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},"🔍 Stok Detay"),
 
       !sdSecili&&div(null,
@@ -2428,7 +2478,7 @@ const [umSekLocal, setUmSekLocal] = React.useState("ozet");
     ),
 
     // ═══════════════ STOK DURUMU ═══════════════
-    umSek==="stokDurum"&&(()=>{
+    umSek==="stokDurum"&&!showMenu&&(()=>{
       const liste=Object.values(stokOzet).sort((a,b)=>a.urunAd.localeCompare(b.urunAd));
       const q=(sdAramaF||"").trim();
       const filtred=q.length>1
@@ -2442,12 +2492,19 @@ const [umSekLocal, setUmSekLocal] = React.useState("ozet");
         display:"flex",flexDirection:"column",overflow:"hidden"}},
 
         // ── ÜST GERİ ÇUBUĞU ──
-        h("div",{style:{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:"var(--bg2)",width:"100%",boxSizing:"border-box",minHeight:40,flexShrink:0}},
-          h("button",{style:{background:"transparent",border:"none",flexShrink:0,padding:0,cursor:"pointer",display:"flex",alignItems:"center",height:40},
+        // Satır 1: Logo
+        h("div",{style:{display:"flex",alignItems:"center",padding:"10px 12px 6px",background:"var(--bg2)",width:"100%",boxSizing:"border-box",flexShrink:0}},
+          h("button",{style:{background:"transparent",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center"},
             onClick:()=>onAnaPanel&&onAnaPanel(),title:"Ana panele dön"
-          }, h("img",{src:LOGO,style:{height:34,objectFit:"contain"}})),
+          }, h("img",{src:LOGO,style:{height:34,objectFit:"contain"}}))
+        ),
+        // Satır 2: Nav + alt çizgi
+        h("div",{style:{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:"var(--bg2)",borderBottom:"1px solid var(--br)",width:"100%",boxSizing:"border-box",minHeight:40,flexShrink:0}},
+          h("button",{style:{background:"rgba(0,0,0,.06)",border:"none",flexShrink:0,color:"var(--mu)",fontSize:16,fontWeight:700,cursor:"pointer",padding:0,borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center"},
+            onClick:()=>onAnaPanel&&onAnaPanel()
+          },"«"),
           h("button",{style:{background:"rgba(0,113,227,.10)",border:"none",flexShrink:0,color:"#0071E3",fontSize:14,cursor:"pointer",padding:"0 14px",height:40,borderRadius:10,fontWeight:700,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4},
-            onClick:()=>onSekmeChange&&onSekmeChange("")
+            onClick:()=>goGeri()
           },"‹ Geri"),
           h("div",{style:{flex:1,fontSize:13,minWidth:0,overflow:"hidden",display:"flex",alignItems:"center",gap:4,flexWrap:"nowrap"}},
             h("span",{style:{color:"var(--mu)",flexShrink:0}},"🧮 / Ürün Muhasebesi / "),
@@ -2544,16 +2601,23 @@ const [umSekLocal, setUmSekLocal] = React.useState("ozet");
     })(),
 
     // ═══════════════ CARİ ═══════════════
-    (umSek==="cari"||umSek==="cariOde")&&div({style:{position:"fixed",inset:0,zIndex:902,
+    (umSek==="cari"||umSek==="cariOde")&&!showMenu&&div({style:{position:"fixed",inset:0,zIndex:902,
       background:"var(--bg)",display:"flex",flexDirection:"column",overflow:"hidden"}},
 
       // ── ÜST GERİ ÇUBUĞU ──
-      h("div",{style:{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:"var(--bg2)",width:"100%",boxSizing:"border-box",minHeight:40,flexShrink:0}},
-        h("button",{style:{background:"transparent",border:"none",flexShrink:0,padding:0,cursor:"pointer",display:"flex",alignItems:"center",height:40},
+      // Satır 1: Logo
+      h("div",{style:{display:"flex",alignItems:"center",padding:"10px 12px 6px",background:"var(--bg2)",width:"100%",boxSizing:"border-box",flexShrink:0}},
+        h("button",{style:{background:"transparent",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center"},
           onClick:()=>onAnaPanel&&onAnaPanel(),title:"Ana panele dön"
-        }, h("img",{src:LOGO,style:{height:34,objectFit:"contain"}})),
+        }, h("img",{src:LOGO,style:{height:34,objectFit:"contain"}}))
+      ),
+      // Satır 2: Nav + alt çizgi
+      h("div",{style:{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:"var(--bg2)",borderBottom:"1px solid var(--br)",width:"100%",boxSizing:"border-box",minHeight:40,flexShrink:0}},
+        h("button",{style:{background:"rgba(0,0,0,.06)",border:"none",flexShrink:0,color:"var(--mu)",fontSize:16,fontWeight:700,cursor:"pointer",padding:0,borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center"},
+          onClick:()=>onAnaPanel&&onAnaPanel()
+        },"«"),
         h("button",{style:{background:"rgba(0,113,227,.10)",border:"none",flexShrink:0,color:"#0071E3",fontSize:14,cursor:"pointer",padding:"0 14px",height:40,borderRadius:10,fontWeight:700,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4},
-          onClick:()=>onSekmeChange&&onSekmeChange("")
+          onClick:()=>goGeri()
         },"‹ Geri"),
         h("div",{style:{flex:1,fontSize:13,minWidth:0,overflow:"hidden",display:"flex",alignItems:"center",gap:4,flexWrap:"nowrap"}},
           h("span",{style:{color:"var(--mu)",flexShrink:0}},"🧮 / Ürün Muhasebesi / "),
@@ -11759,7 +11823,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
               onAnaPanel:()=>{ setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); setMuhSek(""); setMuhAlt(""); setMuhAltAcik(""); },
               onGeri:()=>{ setMuhAlt("hizmetSatislari"); setMuhAltAcik("hizmetSatislari"); }
             }),
-            muhSek==="urunMuhasebe"&&muhAlt&&!(muhAlt.startsWith&&muhAlt.startsWith("usPers_"))&&h(UrunMuhasebe,{
+            muhSek==="urunMuhasebe"&&!(muhAlt.startsWith&&muhAlt.startsWith("usPers_"))&&h(UrunMuhasebe,{
               stokPartiler,setStokPartiler,stokDB,setStokDB,
               stokGirisForm,setStokGirisForm,
               stokGirisUrun,setStokGirisUrun,
