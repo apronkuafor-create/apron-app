@@ -3,7 +3,7 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="1779393679">
+  <meta name="version" content="1779394972">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -8470,6 +8470,85 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
 
   // Modal - Personel form
 
+  // ── KURUMSAL BREADCRUMB ──
+  // Tek bir merkezi mantık. Tüm state'lere göre yol parçaları döndürür.
+  // Format: [{label: "...", emoji?: "..."}, ...]
+  // Son segment vurgulu, diğerleri soluk; tıklanamaz.
+  const getBreadcrumb = () => {
+    const segs = [{label:"Yönetici Paneli"}];
+    // HesapFull / VergiFull → Muhasebe altında
+    if(hesapFull){ segs.push({label:"Muhasebe"}); segs.push({label:"Günlük Hesap Özeti"}); return segs; }
+    if(vergiFull){ segs.push({label:"Muhasebe"}); segs.push({label:"Vergi Muhasebesi"}); return segs; }
+    // Muhasebe özeti (asek="ozet")
+    if(asek==="ozet"){
+      segs.push({label:"Muhasebe"});
+      if(muhSek==="hizmetMuhasebe"){
+        segs.push({label:"Hizmet Muhasebesi"});
+        if(muhAlt==="hizmetOzet") segs.push({label:"Özet"});
+        else if(muhAlt==="hizmetSatislari") segs.push({label:"Hizmet Satışları"});
+        else if(muhAlt){ const p=personeller.find(p=>p.id===muhAlt); if(p) segs.push({label:p.ad}); }
+      } else if(muhSek==="urunMuhasebe"){
+        segs.push({label:"Ürün Muhasebesi"});
+        if(muhAlt){
+          const lblMap={ozet:"Özet",urunSatislari:"Ürün Satışları",malKabul:"Mal Kabul",stokDetay:"Stok Detay",stokDurum:"Stok Durumu",cari:"Cari",siparis:"Sipariş Listesi"};
+          if(lblMap[muhAlt]) segs.push({label:lblMap[muhAlt]});
+        }
+      } else if(muhSek==="indirimZam") segs.push({label:"İndirim / Zam"});
+      else if(muhSek==="giderler") segs.push({label:"Giderler"});
+      else if(muhSek==="ozet") segs.push({label:"Genel Özet"});
+      return segs;
+    }
+    // Ayarlar overlay (asek="ayarlar")
+    if(asek==="ayarlar"){
+      segs.push({label:"Ayarlar"});
+      const aySekMap={listeler:"Listeler",isletme:"İşletme",renklendirme:"Dizayn",gruplar:"Gruplar",guvenlik:"Güvenlik"};
+      if(aySekMap[aySek]) segs.push({label:aySekMap[aySek]});
+      const listeMap={ustaKalfa:"Usta/Kalfa",manikurist:"Manikürist","ürün":"Ürünler",personel:"Personel",musteriler:"Müşteriler",banka:"Bankalar",giderListesi:"Gider Listesi"};
+      if(ayListeSek&&listeMap[ayListeSek]) segs.push({label:listeMap[ayListeSek]});
+      return segs;
+    }
+    // Kayıtlar
+    if(asek==="kayitlar"||panelAdim==="kayitlar"){ segs.push({label:"Kayıtlar"}); return segs; }
+    // Bildirimler
+    if(panelAdim==="bildirimler"){ segs.push({label:"Bildirimler"}); return segs; }
+    // Ana panelAdim'lere göre
+    if(panelAdim==="muhasebe"){
+      segs.push({label:"Muhasebe"});
+      if(panelAltSek==="hizmet") segs.push({label:"Hizmet Muhasebesi"});
+      else if(panelAltSek==="urun") segs.push({label:"Ürün Muhasebesi"});
+      return segs;
+    }
+    if(panelAdim==="ayarlar"){
+      segs.push({label:"Ayarlar"});
+      if(panelAltSek==="listeler") segs.push({label:"Listeler"});
+      return segs;
+    }
+    return segs;
+  };
+
+  // Kurumsal breadcrumb renderer
+  const renderBreadcrumb = () => {
+    const segs = getBreadcrumb();
+    return h("div",{style:{
+      flex:1,fontSize:13,minWidth:0,overflow:"hidden",
+      display:"flex",alignItems:"center",gap:0,flexWrap:"nowrap",
+      fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"
+    }},
+      segs.map((seg,i)=>{
+        const isLast = i===segs.length-1;
+        return h("span",{key:i,style:{display:"flex",alignItems:"center",minWidth:0,flexShrink:isLast?1:0}},
+          i>0 && h("span",{style:{color:"#C7C7CC",margin:"0 8px",fontWeight:300,flexShrink:0}},"/"),
+          h("span",{style:{
+            color:isLast?"#1D1D1F":"#86868B",
+            fontWeight:isLast?700:500,
+            letterSpacing:isLast?"-.1px":0,
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"
+          }},seg.label)
+        );
+      })
+    );
+  };
+
   return div({style:{minHeight:"100vh",background:"var(--bg)"}},
     h('style',null,CSS),
     h(Toast, {toast}),
@@ -11158,77 +11237,8 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
           }},
           "‹", h("span",null,"Geri")),
 
-          // Breadcrumb — kalan alan, taşmaz, ellipsis
-          div({style:{
-            flex:1,fontSize:13,minWidth:0,overflow:"hidden",
-            display:"flex",alignItems:"center",gap:4,flexWrap:"nowrap"
-          }},
-
-            hesapFull&&h("span",{style:{display:"flex",alignItems:"center",gap:3,minWidth:0}},
-              h("span",{style:{color:"var(--mu)",flexShrink:0}},h(MUH_IKON_SVG_KUCUK,null)," / "),
-              h("span",{style:{color:"var(--g)",fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},"Günlük Hesap Özeti")
-            ),
-            vergiFull&&h("span",{style:{display:"flex",alignItems:"center",gap:3,minWidth:0}},
-              h("span",{style:{color:"var(--mu)",flexShrink:0}},h(MUH_IKON_SVG_KUCUK,null)," / "),
-              h("span",{style:{color:"var(--g)",fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},"Vergi Muhasebesi")
-            ),
-
-            asek==="ozet"&&!hesapFull&&!vergiFull&&div({style:{display:"flex",alignItems:"center",gap:3,minWidth:0,overflow:"hidden"}},
-              h("span",{style:{color:(!muhSek&&!muhAlt)?"var(--g)":"var(--mu)",fontWeight:(!muhSek&&!muhAlt)?700:400,flexShrink:0}},h(MUH_IKON_SVG_KUCUK,null)),
-              muhSek&&h("span",{style:{color:"var(--mu)",flexShrink:0}}," / "),
-              muhSek==="hizmetMuhasebe"&&h("span",{style:{color:!muhAlt?"var(--g)":"var(--mu)",fontWeight:!muhAlt?700:400,flexShrink:muhAlt?0:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},"Hizmet Muhasebesi"),
-              muhSek==="urunMuhasebe"&&h("span",{style:{color:!muhAlt?"var(--g)":"var(--mu)",fontWeight:!muhAlt?700:400,flexShrink:muhAlt?0:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},"Ürün Muhasebesi"),
-              muhSek==="indirimZam"&&h("span",{style:{color:"var(--g)",fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},"İndirim / Zam"),
-              muhSek==="giderler"&&h("span",{style:{color:"var(--g)",fontWeight:700}},"Giderler"),
-              muhSek==="ozet"&&h("span",{style:{color:"var(--g)",fontWeight:700}},"Genel Özet"),
-              muhAlt&&h("span",{style:{color:"var(--mu)",flexShrink:0}}," / "),
-              muhAlt==="hizmetOzet"&&h("span",{style:{color:"var(--g)",fontWeight:700}},"Özet"),
-              muhAlt==="hizmetSatislari"&&h("span",{style:{color:"var(--g)",fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},"Hizmet Satışları"),
-              muhAlt&&muhAlt!=="hizmetOzet"&&muhAlt!=="hizmetSatislari"&&muhSek==="hizmetMuhasebe"&&h("span",{style:{color:"var(--g)",fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},(personeller.find(p=>p.id===muhAlt)||{ad:""}).ad),
-              muhAlt&&muhSek==="urunMuhasebe"&&h("span",{style:{color:"var(--g)",fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},
-                muhAlt==="ozet"?"Özet":muhAlt==="urunSatislari"?"Ürün Satışları":muhAlt==="malKabul"?"Mal Kabul":muhAlt==="stokDetay"?"Stok Detay":muhAlt==="stokDurum"?"Stok Durumu":muhAlt==="cari"?"Cari":muhAlt==="siparis"?"Sipariş Listesi":""
-              )
-            ),
-
-            asek==="kayitlar"&&h("span",{style:{color:"var(--g)",fontWeight:700}},"🗂️ KAYITLAR"),
-
-            asek==="ayarlar"&&div({style:{display:"flex",alignItems:"center",gap:3,minWidth:0,overflow:"hidden"}},
-              h("span",{style:{color:(!aySek)?"var(--g)":"var(--mu)",fontWeight:(!aySek)?700:400,flexShrink:0}},"🔧"),
-              aySek&&h("span",{style:{color:"var(--mu)",flexShrink:0}}," / "),
-              aySek==="listeler"&&h("span",{style:{color:!ayListeSek?"var(--g)":"var(--mu)",fontWeight:!ayListeSek?700:400,flexShrink:ayListeSek?0:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},"Listeler"),
-              aySek==="isletme"&&h("span",{style:{color:"var(--g)",fontWeight:700}},"İşletme"),
-              aySek==="renklendirme"&&h("span",{style:{color:"var(--g)",fontWeight:700}},"Dizayn"),
-              aySek==="gruplar"&&h("span",{style:{color:"var(--g)",fontWeight:700}},"Gruplar"),
-              ayListeSek&&h("span",{style:{color:"var(--mu)",flexShrink:0}}," / "),
-              ayListeSek==="ustaKalfa"&&h("span",{style:{color:"var(--g)",fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},"Usta/Kalfa"),
-              ayListeSek==="manikurist"&&h("span",{style:{color:"var(--g)",fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},"Manikürist"),
-              ayListeSek==="ürün"&&h("span",{style:{color:"var(--g)",fontWeight:700}},"Ürünler"),
-              ayListeSek==="personel"&&h("span",{style:{color:"var(--g)",fontWeight:700}},"Personel"),
-              ayListeSek==="musteriler"&&h("span",{style:{color:"var(--g)",fontWeight:700}},"Müşteriler"),
-              ayListeSek==="banka"&&h("span",{style:{color:"var(--g)",fontWeight:700}},"Bankalar")
-            ),
-
-            !asek&&panelAdim==="muhasebe"&&!panelAltSek&&h("span",{style:{color:"var(--g)",fontWeight:700}},h(MUH_IKON_SVG_KUCUK,null)," MUHASEBE"),
-            !asek&&panelAdim==="muhasebe"&&panelAltSek==="hizmet"&&div({style:{display:"flex",alignItems:"center",gap:3,minWidth:0,overflow:"hidden"}},
-              h("span",{style:{color:"var(--mu)",flexShrink:0}},h(MUH_IKON_SVG_KUCUK,null)," / "),
-              h("span",{style:{color:"var(--g)",fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},"Hizmet Muhasebesi")
-            ),
-            !asek&&panelAdim==="muhasebe"&&panelAltSek==="urun"&&div({style:{display:"flex",alignItems:"center",gap:3,minWidth:0,overflow:"hidden"}},
-              h("span",{style:{color:"var(--mu)",flexShrink:0}},h(MUH_IKON_SVG_KUCUK,null)," / "),
-              h("span",{style:{color:"var(--g)",fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},"Ürün Muhasebesi")
-            ),
-            !asek&&panelAdim==="kayitlar"&&h("span",{style:{color:"var(--g)",fontWeight:700}},"🗂️ KAYITLAR"),
-            !asek&&panelAdim==="bildirimler"&&h("span",{style:{color:"var(--g)",fontWeight:700}},"🔔 BİLDİRİMLER"),
-            !asek&&panelAdim==="ayarlar"&&!panelAltSek&&h("span",{style:{color:"var(--g)",fontWeight:700}},"🔧 AYARLAR"),
-            asek==="ayarlar"&&aySek==="guvenlik"&&div({style:{display:"flex",alignItems:"center",gap:3,minWidth:0,overflow:"hidden"}},
-              h("span",{style:{color:"var(--mu)",flexShrink:0}},"🔧 AYARLAR"),
-              h("span",{style:{color:"var(--mu)",flexShrink:0}},"/"),
-              h("span",{style:{color:"var(--g)",fontWeight:700}},"Güvenlik")),
-            !asek&&panelAdim==="ayarlar"&&panelAltSek==="listeler"&&div({style:{display:"flex",alignItems:"center",gap:3,minWidth:0,overflow:"hidden"}},
-              h("span",{style:{color:"var(--mu)",flexShrink:0}},"🔧 / "),
-              h("span",{style:{color:"var(--g)",fontWeight:700}},"Listeler")
-            )
-          )
+          // Breadcrumb — merkezi mantık (kurumsal)
+          renderBreadcrumb()
         ),
 
       ),
@@ -12287,16 +12297,7 @@ if(DB) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).cat
     setAsek("");setPanelAdim("ayarlar");setPanelAltSek(aySek==="listeler"?"listeler":"");setAySek("");
     }
     },"‹ Geri"),
-    h("div",{style:{flex:1,fontSize:13,minWidth:0,overflow:"hidden",display:"flex",alignItems:"center",gap:4}},
-    h("span",{style:{color:"var(--mu)",flexShrink:0}},"🔧 / "),
-    h("span",{style:{color:ayListeSek?"var(--mu)":"var(--g)",fontWeight:ayListeSek?400:700,flexShrink:0}},
-    aySek==="listeler"?"Listeler":aySek==="isletme"?"İşletme":aySek==="renklendirme"?"Dizayn":aySek==="gruplar"?"Gruplar":aySek==="guvenlik"?"Güvenlik":""
-    ),
-    ayListeSek&&h("span",{style:{color:"var(--mu)",flexShrink:0}}," / "),
-    ayListeSek&&h("span",{style:{color:"var(--g)",fontWeight:700}},
-    ayListeSek==="ustaKalfa"?"Usta/Kalfa":ayListeSek==="manikurist"?"Manikürist":ayListeSek==="ürün"?"Ürünler":ayListeSek==="personel"?"Personel":ayListeSek==="musteriler"?"Müşteriler":ayListeSek==="banka"?"Bankalar":ayListeSek==="giderListesi"?"Gider Listesi":""
-    )
-    )
+    renderBreadcrumb()
     ),
     div({style:{flex:"0 1 auto",minHeight:0,overflowY:"auto",padding:"0 14px 14px"}},
 
