@@ -7727,6 +7727,7 @@ function App() {
   const [hesapSaglama, setHesapSaglama] = useState({}); // {tarih: {kk:{banka:tutar},iban,nakit,durum}}
   const [yeniMarkaAdi, setYeniMarkaAdi] = useState("");
   const [yeniTedarikciAdi, setYeniTedarikciAdi] = useState("");
+  const [tedarikciDuzIdx, setTedarikciDuzIdx]   = useState(null); // {idx, ad}
   const [urunTipSecim, setUrunTipSecim] = useState(null); // null|"marka"|"urun"
   const [sarfUrunForm, setSarfUrunForm] = useState(false);
   const [sarfAd, setSarfAd] = useState("");
@@ -13393,15 +13394,48 @@ div({style:{fontSize:15,color:"var(--tx)",fontWeight:600,marginBottom:12}},"🏦
 
     aySek==="listeler"&&ayListeSek==="tedarikciListesi"&&div({style:{marginTop:10}},
 
-    tedarikciler.map((t,i)=>
-      div({key:i,style:{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",
-        marginBottom:6,background:"var(--bg2)",borderRadius:10,border:"1px solid var(--br)"}},
-        div({style:{flex:1,fontSize:15,color:"var(--tx)",fontWeight:500}},typeof t==="string"?t:(t.ad||"")),
-        btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",
-          borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
-          onClick:()=>setTedarikciler(p=>p.filter((_,j)=>j!==i))},"Sil")
-      )
-    ),
+    tedarikciler.map((t,i)=>{
+      const ad = typeof t==="string"?t:(t.ad||"");
+      const duzAcik = tedarikciDuzIdx?.idx===i;
+      return div({key:i},
+        div({style:{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",
+          marginBottom: duzAcik ? 0 : 6,
+          background:"var(--bg2)",
+          borderRadius: duzAcik ? "10px 10px 0 0" : 10,
+          border:"1px solid var(--br)",
+          borderBottom: duzAcik ? "none" : undefined}},
+          div({style:{flex:1,fontSize:15,color:"var(--tx)",fontWeight:500}},ad),
+          duzAcik
+            ? btn({style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(160,40,40,.2)",borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
+                onClick:()=>setTedarikciDuzIdx(null)},"İptal")
+            : btn({style:{background:"rgba(37,99,168,.08)",border:"1px solid rgba(37,99,168,.2)",borderRadius:6,color:"var(--g)",fontSize:13,padding:"4px 10px",cursor:"pointer"},
+                onClick:()=>setTedarikciDuzIdx({idx:i,ad})},"✏ Düzenle"),
+          btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",
+            borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
+            onClick:()=>{setTedarikciler(p=>p.filter((_,j)=>j!==i));if(duzAcik)setTedarikciDuzIdx(null);}},"Sil")
+        ),
+        duzAcik&&div({style:{
+          background:"rgba(37,99,168,.06)",border:"1px solid var(--br)",borderTop:"none",
+          borderRadius:"0 0 10px 10px",padding:13,marginBottom:6}},
+          div({style:{marginBottom:10}},
+            lbl({className:"fl"},"Tedarikçi Adı"),
+            inp({className:"fi",value:tedarikciDuzIdx.ad,
+              onChange:e=>setTedarikciDuzIdx(p=>({...p,ad:e.target.value}))})
+          ),
+          div({className:"btn-r"},
+            btn({className:"btn-i",onClick:()=>setTedarikciDuzIdx(null)},"İptal"),
+            btn({className:"btn-k",onClick:()=>{
+              const yeniAd=tedarikciDuzIdx.ad.trim();
+              if(!yeniAd) return;
+              setTedarikciler(p=>p.map((x,j)=>j===i?(typeof x==="string"?yeniAd:{...x,ad:yeniAd}):x));
+              setTedarikciDuzIdx(null);
+              showToast("Tedarikçi güncellendi");
+            }},"Kaydet")
+          )
+        )
+      );
+    }),
+
     div({style:{display:"flex",gap:8,marginTop:10}},
       inp({className:"fi",style:{flex:1},placeholder:"Tedarikçi adı... (örn: Wella Türkiye)",
         value:yeniTedarikciAdi||"",
