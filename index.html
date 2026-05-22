@@ -40,6 +40,8 @@ color: #e2ecea;
 </style>
 
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
 
 </head>
 <body>
@@ -13399,7 +13401,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
     div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:14}},
     div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},"🏢 Logo"),
     div({style:{display:"flex",flexDirection:"column",alignItems:"center",gap:10,marginBottom:14}},
-    div({style:{width:160,height:90,borderRadius:12,background:"var(--bg)",
+    div({style:{width:200,height:120,borderRadius:12,background:"var(--bg)",
       border:"1px solid var(--br)",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}},
       isletme.logo
         ? img({src:isletme.logo,style:{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}})
@@ -13410,16 +13412,41 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
         background:"rgba(37,99,168,.08)",color:"var(--g)",fontSize:13,cursor:"pointer"},
         onClick:()=>{
           const fi=document.createElement("input");
-          fi.type="file"; fi.accept="image/*,.svg,.ico,.webp,.bmp,.avif";
-          fi.onchange=ev=>{
+          fi.type="file"; fi.accept="image/*,.svg,.ico,.webp,.bmp,.avif,.pdf";
+          fi.onchange=async ev=>{
             const f=ev.target.files[0]; if(!f) return;
-            if(f.size>5242880){showToast("Max 5MB","uy");return;}
+            if(f.size>20971520){showToast("Max 20MB","uy");return;}
+            // PDF ise → PDF.js ile ilk sayfayı yüksek çözünürlüklü PNG'e çevir
+            if(f.type==="application/pdf" || f.name.toLowerCase().endsWith(".pdf")){
+              if(!window.pdfjsLib){showToast("PDF.js yüklenemedi","ha");return;}
+              showToast("PDF işleniyor...","uy");
+              try{
+                const ab=await f.arrayBuffer();
+                const pdf=await pdfjsLib.getDocument({data:ab}).promise;
+                const page=await pdf.getPage(1);
+                // Yüksek DPI için scale=4
+                const vp=page.getViewport({scale:4});
+                const canvas=document.createElement("canvas");
+                canvas.width=vp.width; canvas.height=vp.height;
+                const ctx=canvas.getContext("2d");
+                await page.render({canvasContext:ctx,viewport:vp}).promise;
+                const dataUrl=canvas.toDataURL("image/png",1.0);
+                setIsletme(p=>({...p,logo:dataUrl}));
+                showToast("PDF'den logo alındı ✓","ba");
+              }catch(err){
+                console.error(err);
+                showToast("PDF okunamadı: "+err.message,"ha");
+              }
+              return;
+            }
+            // Normal resim
+            if(f.size>5242880){showToast("Resim max 5MB","uy");return;}
             const rd=new FileReader();
             rd.onload=e2=>{ setIsletme(p=>({...p,logo:e2.target.result})); showToast("Logo kaydedildi","ba"); };
             rd.readAsDataURL(f);
           };
           fi.click();
-        }},"📁 Logo Yükle"),
+        }},"📁 Logo Yükle (Resim / PDF)"),
       isletme.logo&&btn({style:{padding:"8px 14px",borderRadius:8,border:"1px solid #1e3a3a",
         background:"rgba(160,40,40,.08)",color:"#c05050",fontSize:13,cursor:"pointer"},
         onClick:()=>{ setIsletme(p=>({...p,logo:null})); showToast("Logo kaldırıldı","uy"); }},"Kaldır")
