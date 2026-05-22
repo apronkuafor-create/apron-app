@@ -3495,7 +3495,7 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
         div({style:{marginBottom:10}},lbl({className:"fl"},"Kategori *"),
           sel({className:"fi",value:giderFrm.kategori||"",
             onChange:e=>setGiderFrm(p=>({...p,kategori:e.target.value}))},
-            opt("","Seçin..."),
+            opt("","Marka seçin"),
             GID_KATEGORILER.map(k=>opt(k,k))
           )
         ),
@@ -5312,7 +5312,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                 lbl({style:{fontSize:11,letterSpacing:1.2,textTransform:"uppercase",color:"#86868B",fontWeight:600,marginBottom:5,display:"block"}},"Personel"),
                 sel({className:"fi",value:manikuristBildirimSec.hedefId||"",
                   onChange:e=>setManikuristBildirimSec(p=>({...p,hedefId:e.target.value}))},
-                  opt("","Seçin..."),
+                  opt("","Marka seçin"),
                   aktifP.filter(p=>p.id!==aktifKullanici?.id&&p.pozisyon!=="Manikurist"&&p.pozisyon!=="Pedikürist"&&p.pozisyon!=="Pedikurist")
                     .map(p=>opt(p.id,p.ad+(p.pozisyon?" — "+p.pozisyon:"")))
                 )
@@ -7440,7 +7440,7 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, setGiderKategor
           sel({className:"fi",value:yeniGider.kategori||"",
             style:{fontFamily:FONT},
             onChange:function(e){setYeniGider(function(p){return Object.assign({},p,{kategori:e.target.value});}); }},
-            opt("","Seçin..."),
+            opt("","Marka seçin"),
             aktifKatlar.map(function(k){return opt(k,k);})
           )
         ),
@@ -10239,7 +10239,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
                         lbl({style:fl},"Cinsiyet"),
                         sel({className:"fi",value:f.cinsiyet||"",
                           onChange:e=>upd("cinsiyet",e.target.value)},
-                          opt("","Seçin..."),
+                          opt("","Marka seçin"),
                           opt("Kadın","Kadın"),
                           opt("Erkek","Erkek"),
                           opt("Diğer","Diğer")
@@ -12644,14 +12644,14 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
           div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
             div(null,
               lbl({className:"fl"},"Marka"),
-              sel({className:"fi",value:urunDuzData.m||"",
+              sel({className:"fi",style:{color:urunDuzData.m?"":"var(--mu)"},value:urunDuzData.m||"",
                 onChange:e=>setUrunDuzData(p=>({...p,m:e.target.value}))},
-                opt("","Seçin..."),
+                opt("","Marka seçin"),
                 markaListesi.map(m=>opt(m,m))
               )
             ),
             div(null,
-              lbl({className:"fl"},"Miktar/ML"),
+              lbl({className:"fl"},"EBAT/ML"),
               inp({className:"fi",placeholder:"örn: 100ml",value:urunDuzData.ml||"",
                 onChange:e=>setUrunDuzData(p=>({...p,ml:e.target.value}))})
             )
@@ -12670,6 +12670,18 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
           ),
           div({className:"btn-r"},
             btn({className:"btn-i",onClick:()=>{setUrunDuzId(null);setUrunDuzData(null);}},"İptal"),
+            urunDuzId!=="yeni"&&btn({style:{
+              background:"rgba(160,40,40,.1)",border:"1px solid rgba(160,40,40,.25)",
+              borderRadius:10,color:"#c05050",fontSize:14,padding:"0 16px",height:44,
+              cursor:"pointer",fontWeight:600},
+              onClick:()=>{
+                if(!confirm("\""+urunDuzData.a+"\" silinecek. Emin misiniz?")) return;
+                const idx3=URUN_DB.findIndex(u=>u.b===urunDuzId);
+                if(idx3>=0) URUN_DB.splice(idx3,1);
+                triggerUrunRender();
+                setUrunDuzId(null); setUrunDuzData(null);
+                showToast("Ürün silindi","uy");
+              }},"🗑 Sil"),
             btn({className:"btn-k",
               disabled:!(urunDuzData.a||"").trim()||!(urunDuzData.sp),
               onClick:()=>{
@@ -12715,7 +12727,12 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
             onClick:()=>{
               if(urunTipSecim==="marka"){
                 setUrunTipSecim(null);
-                setSarfUrunForm(tip==="sarf"?"sarfMarka":"satilabilen");
+                if(tip==="sarf"){
+                  setSarfEkMarkalar(p=>[...new Set([...p,yeniMarkaAdi.trim()])]);
+                } else {
+                  setEkMarkalar(p=>[...new Set([...p,yeniMarkaAdi.trim()])]);
+                }
+                setYeniMarkaAdi(""); showToast("Marka eklendi");
               } else {
                 // Yeni ürün ekle
                 setUrunTipSecim(null);
@@ -12744,38 +12761,40 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
       )
     ),
 
-    // Sarf ürün ekleme formu
-    sarfUrunForm==="sarf"&&!urunDuzId&&div({style:{background:"rgba(255,149,0,.06)",
-      border:"1.5px solid rgba(255,149,0,.3)",borderRadius:13,padding:16,marginBottom:14}},
-      div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:12}},
-        div({style:{fontSize:12,fontWeight:700,color:"#FF9500",letterSpacing:1.5,
-          textTransform:"uppercase"}},"🧪 Sarf Malzeme Ekle"),
-        btn({style:{marginLeft:"auto",background:"transparent",border:"none",
-          color:"var(--mu)",fontSize:16,cursor:"pointer",padding:"0 4px"},
-          onClick:()=>setSarfUrunForm(false)},"✕")
-      ),
+    // Sarf ürün ekleme formu (modal)
+    sarfUrunForm==="sarf"&&!urunDuzId&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",
+      zIndex:900,overflow:"auto"}},
+      div({style:{background:"var(--bg)",minHeight:"100vh",paddingBottom:40}},
+        div({style:{background:"var(--bg2)",borderBottom:"1px solid #1e4244",padding:"13px 16px",
+          display:"flex",alignItems:"center",justifyContent:"space-between",
+          position:"sticky",top:0,zIndex:5}},
+          div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
+            fontSize:18,color:"#FF9500"}},"Sarf Malzeme Ekle"),
+          btn({className:"xbtn",onClick:()=>setSarfUrunForm(false)},"✕")
+        ),
+        div({style:{padding:16,maxWidth:500,margin:"0 auto"}},
       div({style:{display:"grid",gridTemplateColumns:"1fr",gap:10,marginBottom:12}},
         div(null,lbl({className:"fl"},"SARF MALZEME *"),
           inp({className:"fi",placeholder:"Sarf malzeme adı...",value:sarfAd,
             onChange:e=>setSarfAd(e.target.value)})),
-        div(null,lbl({className:"fl"},"MARKA"),
-          sarfMarkaListesi.length>0
-            ? h("select",{className:"fi",style:{fontSize:13},value:sarfMarka||"",
-                onChange:e=>setSarfMarka(e.target.value)},
-                h("option",{value:""},"— Marka seçin (opsiyonel) —"),
-                sarfMarkaListesi.map((m,i)=>h("option",{key:i,value:m},m))
-              )
-            : inp({className:"fi",placeholder:"Marka adı (opsiyonel)...",value:sarfMarka||"",
-                onChange:e=>setSarfMarka(e.target.value)})
-        ),
         div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
-          div(null,lbl({className:"fl"},"MİKTAR / ML"),
+          div(null,lbl({className:"fl"},"MARKA"),
+            sarfMarkaListesi.length>0
+              ? h("select",{className:"fi",style:{fontSize:13,color:sarfMarka?"":"var(--mu)"},value:sarfMarka||"",
+                  onChange:e=>setSarfMarka(e.target.value)},
+                  h("option",{value:"",style:{color:"var(--mu)"}},"Marka seçin"),
+                  sarfMarkaListesi.map((m,i)=>h("option",{key:i,value:m},m))
+                )
+              : inp({className:"fi",placeholder:"Marka (opsiyonel)...",value:sarfMarka||"",
+                  onChange:e=>setSarfMarka(e.target.value)})
+          ),
+          div(null,lbl({className:"fl"},"EBAT/ML"),
             inp({className:"fi",placeholder:"örn: 100ml",value:sarfMl,
-              onChange:e=>setSarfMl(e.target.value)})),
-          div(null,lbl({className:"fl"},"ALIŞ FİYATI (₺)"),
-            inp({className:"fi",type:"number",placeholder:"0",value:sarfFiyat,
-              onChange:e=>setSarfFiyat(e.target.value)}))
-        )
+              onChange:e=>setSarfMl(e.target.value)}))
+        ),
+        div(null,lbl({className:"fl"},"ALIŞ FİYATI (₺)"),
+          inp({className:"fi",type:"number",placeholder:"0",value:sarfFiyat,
+            onChange:e=>setSarfFiyat(e.target.value)}))
       ),
       div({className:"btn-r"},
         btn({className:"btn-i",onClick:()=>setSarfUrunForm(false)},"İptal"),
@@ -12789,61 +12808,38 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
             setSarfMarka(""); setSarfUrunForm(false); showToast("Sarf malzeme eklendi");
           }},"Ekle")
       )
-    ),
+        ) // maxWidth div
+      ) // bg div
+    ), // modal div
 
-    // Marka Ekle formu (satılabilen için)
-    sarfUrunForm==="satilabilen"&&!urunDuzId&&div({style:{display:"flex",gap:8,marginBottom:16}},
-      inp({className:"fi",placeholder:"Yeni marka adı (Satılabilen)...",
+    // Marka adı input + Marka Ekle butonu (tek satır)
+    div({style:{display:"flex",gap:8,marginBottom:8,marginTop:4}},
+      inp({className:"fi",placeholder:"Marka adı girin...",
         value:yeniMarkaAdi||"",
         onChange:e=>setYeniMarkaAdi(e.target.value),
         style:{flex:1},
         onKeyDown:e=>{
-          if(e.key==="Enter"&&yeniMarkaAdi.trim()){
-            setEkMarkalar(p=>[...new Set([...p,yeniMarkaAdi.trim()])]);
-            setYeniMarkaAdi(""); setSarfUrunForm(false); showToast("Marka eklendi");
+          if(e.key==="Enter"){
+            if(!yeniMarkaAdi.trim()){showToast("Lütfen önce marka adı girin","uy");return;}
+            setUrunTipSecim("marka");
           }
         }
       }),
-      btn({style:{background:"rgba(37,99,168,.1)",border:"1px solid rgba(37,99,168,.3)",
-        borderRadius:9,color:"var(--g)",fontSize:14,padding:"0 14px",cursor:"pointer",whiteSpace:"nowrap"},
+      btn({style:{padding:"0 18px",height:44,borderRadius:10,border:"1px solid rgba(37,99,168,.3)",
+        background:"rgba(37,99,168,.1)",color:"var(--g)",fontSize:14,cursor:"pointer",
+        whiteSpace:"nowrap",fontWeight:600},
         onClick:()=>{
-          if(yeniMarkaAdi.trim()){
-            setEkMarkalar(p=>[...new Set([...p,yeniMarkaAdi.trim()])]);
-            setYeniMarkaAdi(""); setSarfUrunForm(false); showToast("Marka eklendi");
+          if(!yeniMarkaAdi.trim()){
+            showToast("Lütfen önce marka adı girin","uy");
+            return;
           }
-        }},"+ Ekle")
+          setUrunTipSecim("marka");
+        }},"+ Marka Ekle")
     ),
 
-    // Marka Ekle formu (sarf için)
-    sarfUrunForm==="sarfMarka"&&!urunDuzId&&div({style:{display:"flex",gap:8,marginBottom:16}},
-      inp({className:"fi",placeholder:"Yeni marka adı (Sarf Malzeme)...",
-        value:yeniMarkaAdi||"",
-        onChange:e=>setYeniMarkaAdi(e.target.value),
-        style:{flex:1},
-        onKeyDown:e=>{
-          if(e.key==="Enter"&&yeniMarkaAdi.trim()){
-            setSarfEkMarkalar(p=>[...new Set([...p,yeniMarkaAdi.trim()])]);
-            setYeniMarkaAdi(""); setSarfUrunForm(false); showToast("Sarf marka eklendi");
-          }
-        }
-      }),
-      btn({style:{background:"rgba(255,149,0,.1)",border:"1px solid rgba(255,149,0,.3)",
-        borderRadius:9,color:"#FF9500",fontSize:14,padding:"0 14px",cursor:"pointer",whiteSpace:"nowrap"},
-        onClick:()=>{
-          if(yeniMarkaAdi.trim()){
-            setSarfEkMarkalar(p=>[...new Set([...p,yeniMarkaAdi.trim()])]);
-            setYeniMarkaAdi(""); setSarfUrunForm(false); showToast("Sarf marka eklendi");
-          }
-        }},"+ Ekle")
-    ),
-
-    // Butonlar
-    div({style:{display:"flex",gap:8,marginBottom:16,marginTop:4}},
-      btn({style:{flex:1,padding:"11px 0",borderRadius:11,
-        border:"1.5px dashed rgba(37,99,168,.3)",background:"rgba(37,99,168,.04)",
-        color:"var(--g)",fontSize:14,cursor:"pointer"},
-        onClick:()=>setUrunTipSecim("marka")},"+ Marka Ekle"),
-      btn({style:{flex:1,padding:"11px 0",borderRadius:11,
+    // Yeni Ürün Ekle butonu
+    div({style:{marginBottom:16}},
+      btn({style:{width:"100%",padding:"11px 0",borderRadius:11,
         border:"1.5px dashed rgba(52,199,89,.3)",background:"rgba(52,199,89,.04)",
         color:"#34C759",fontSize:14,cursor:"pointer"},
         onClick:()=>setUrunTipSecim("urun")},"+ Yeni Ürün Ekle")
@@ -12926,8 +12922,18 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
                   div({style:{fontSize:12,color:"var(--di)",marginTop:1}},
                     [u.ml&&"Miktar: "+u.ml, u.ap&&"Alış: "+fmt(u.ap)].filter(Boolean).join(" · ")||"—")
                 ),
-                h("span",{style:{fontSize:12,color:"#FF9500",padding:"2px 8px",
-                  background:"rgba(255,149,0,.1)",borderRadius:5,flexShrink:0}},"Düzenle")
+                div({style:{display:"flex",gap:4,flexShrink:0}},
+                  h("span",{style:{fontSize:12,color:"#FF9500",padding:"2px 8px",
+                    background:"rgba(255,149,0,.1)",borderRadius:5,cursor:"pointer"}},"Düzenle"),
+                  h("span",{style:{fontSize:12,color:"#c05050",padding:"2px 8px",
+                    background:"rgba(160,40,40,.08)",borderRadius:5,cursor:"pointer"},
+                    onClick:e=>{e.stopPropagation();
+                      if(!confirm("\""+u.a+"\" silinecek. Emin misiniz?")) return;
+                      const i3=URUN_DB.findIndex(x=>x.b===u.b);
+                      if(i3>=0) URUN_DB.splice(i3,1);
+                      triggerUrunRender(); showToast("Ürün silindi","uy");
+                    }},"🗑")
+                )
               )
             )
           );
@@ -12948,8 +12954,18 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
                 div({style:{fontSize:12,color:"var(--di)",marginTop:1}},
                   [u.ml&&"Miktar: "+u.ml, u.ap&&"Alış: "+fmt(u.ap)].filter(Boolean).join(" · ")||"—")
               ),
-              h("span",{style:{fontSize:12,color:"#FF9500",padding:"2px 8px",
-                background:"rgba(255,149,0,.1)",borderRadius:5,flexShrink:0}},"Düzenle")
+              div({style:{display:"flex",gap:4,flexShrink:0}},
+                h("span",{style:{fontSize:12,color:"#FF9500",padding:"2px 8px",
+                  background:"rgba(255,149,0,.1)",borderRadius:5,cursor:"pointer"}},"Düzenle"),
+                h("span",{style:{fontSize:12,color:"#c05050",padding:"2px 8px",
+                  background:"rgba(160,40,40,.08)",borderRadius:5,cursor:"pointer"},
+                  onClick:e=>{e.stopPropagation();
+                    if(!confirm("\""+u.a+"\" silinecek. Emin misiniz?")) return;
+                    const i4=URUN_DB.findIndex(x=>x.b===u.b);
+                    if(i4>=0) URUN_DB.splice(i4,1);
+                    triggerUrunRender(); showToast("Ürün silindi","uy");
+                  }},"🗑")
+              )
             )
           )
         )
