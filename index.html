@@ -7777,9 +7777,6 @@ function App() {
   const [bildirimAltSek, setBildirimAltSek] = useState("okunmamis"); // okunmamis | okunmus
   // Mesajlaşma
   const [mesajlar, setMesajlar]           = useState([]);
-  const [mesajEkran, setMesajEkran]       = useState(null); // null | {tip:"grup"} | {tip:"bireysel",kisiId,kisiAd}
-  const [mesajMetin, setMesajMetin]       = useState("");
-  const [mesajSablon, setMesajSablon]     = useState("");
   // Personel "Yeni Müşteri" formu (Müşterilerim sekmesinde)
   const [yeniMusteriForm, setYeniMusteriForm] = useState(null); // null | {ad,telefonlar,...}
   const [yeniMusteriHata, setYeniMusteriHata] = useState("");
@@ -7994,40 +7991,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
   useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"giderler",deger:giderler}).then(()=>{}).catch(console.warn); },[giderler]);
   useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"giderKategoriler",deger:giderKategoriler}).then(()=>{}).catch(console.warn); },[giderKategoriler]);
 
-  // Mesajlar - Supabase'den yükle + realtime (WebSocket yoksa polling)
-  useEffect(()=>{
-    if(!DB) return;
-    // İlk yükleme
-    const yukle = () => DB.from("mesajlar").select("*").order("tarih",{ascending:true}).then(({data})=>{
-      if(data) setMesajlar(data);
-    }).catch(()=>{});
 
-    yukle();
-
-    // Realtime — WebSocket yoksa (file://) hata verir, polling'e düş
-    let interval = null;
-    try {
-      const ch = DB.channel("mesajlar_ch")
-        .on("postgres_changes",{event:"INSERT",schema:"public",table:"mesajlar"},payload=>{
-          setMesajlar(p=>[...p.filter(m=>m.id!==payload.new.id), payload.new]);
-        })
-        .on("postgres_changes",{event:"UPDATE",schema:"public",table:"mesajlar"},payload=>{
-          setMesajlar(p=>p.map(m=>m.id===payload.new.id ? payload.new : m));
-        })
-        .subscribe((status, err)=>{
-          if(err || status === "CHANNEL_ERROR" || status === "TIMED_OUT"){
-            // WebSocket başarısız — 10sn polling'e geç
-            DB.removeChannel(ch);
-            interval = setInterval(yukle, 10000);
-          }
-        });
-      return ()=>{ try{ DB.removeChannel(ch); }catch(e){} if(interval) clearInterval(interval); };
-    } catch(e) {
-      // WebSocket hiç açılamadı — polling
-      interval = setInterval(yukle, 10000);
-      return ()=>{ if(interval) clearInterval(interval); };
-    }
-  },[]);
 
   // Yönetici Bildirim Merkezi - Supabase'den yükle + realtime
   useEffect(()=>{
@@ -8862,31 +8826,29 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
     ),
 
         // Yönetici onaylı düzeltme modalı
-    gecmisDuzeltOnay&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",
+    gecmisDuzeltOnay&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",
       zIndex:900,display:"flex",alignItems:"center",justifyContent:"center",padding:18}},
-      div({style:{background:"var(--bg2)",border:"1.5px solid var(--br)",borderRadius:18,padding:24,maxWidth:320,width:"100%"}},
-
-        gecmisDuzeltOnay.adim==="secim"&&div(null,
-          div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:19,color:"var(--g)",marginBottom:8,textAlign:"center"}},"Yönetici Onaylı İşlem"),
-          div({style:{fontSize:14,color:"var(--mu)",marginBottom:14,textAlign:"center",lineHeight:1.6}},
-            h("strong",{style:{color:"var(--tx)"}},gecmisDuzeltOnay.kayit.musteri),
-            div({style:{fontSize:12,color:"var(--di)",marginTop:4}},fmtT(gecmisDuzeltOnay.kayit.tarih)+" · "+fmt(gecmisDuzeltOnay.kayit.toplam))
+      div({style:{background:"var(--bg)",border:"1px solid var(--br)",borderRadius:16,padding:24,maxWidth:320,width:"100%"}},
+        div({style:{marginBottom:20}},
+          div({style:{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"var(--di)",marginBottom:10,textAlign:"center"}},
+            "Yönetici Onayı Gerekiyor"
           ),
-          div({style:{fontSize:13,color:"#9a6a4a",marginBottom:9,padding:"9px 12px",background:"rgba(180,60,0,.1)",borderRadius:8,lineHeight:1.45}},
-            "⚠ Bu İşlem Yönetici Onayı Gerektirir"),
-          div({style:{fontSize:13,color:"var(--mu)",marginBottom:14,padding:"9px 12px",background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:8,lineHeight:1.45}},
-            "Lütfen yapmak istediğiniz işlemi seçin ve Onay'a Gönder butonuna tıklayın."),
-          div({style:{display:"flex",flexDirection:"column",gap:8,marginBottom:14}},
-            btn({style:{padding:13,borderRadius:10,border:"1px solid "+(gecmisDuzeltOnay.islem==="duzenle"?"var(--g)":"var(--br)"),background:gecmisDuzeltOnay.islem==="duzenle"?"rgba(37,99,168,.16)":"rgba(37,99,168,.08)",color:"var(--g)",fontSize:15,cursor:"pointer",fontWeight:gecmisDuzeltOnay.islem==="duzenle"?700:500},
-              onClick:()=>setGecmisDuzeltOnay(p=>({...p,islem:"duzenle"}))},"✏ Kaydı Düzenle"),
-            btn({style:{padding:13,borderRadius:10,border:"1px solid "+(gecmisDuzeltOnay.islem==="sil"?"#c05050":"#1e3a3a"),background:gecmisDuzeltOnay.islem==="sil"?"rgba(160,40,40,.16)":"rgba(160,40,40,.08)",color:"#c05050",fontSize:15,cursor:"pointer",fontWeight:gecmisDuzeltOnay.islem==="sil"?700:500},
-              onClick:()=>setGecmisDuzeltOnay(p=>({...p,islem:"sil"}))},"🗑 Kaydı Sil")
+          div({style:{fontSize:16,fontWeight:600,color:"var(--tx)",textAlign:"center",marginBottom:4}},
+            gecmisDuzeltOnay.kayit.musteri
           ),
-          div({className:"btn-r"},
-            btn({className:"btn-i",onClick:()=>{setGecmisDuzeltOnay(null);showToast("Onay'a gönderme işleminden vazgeçildi","uy");}},"İptal"),
-            btn({className:"btn-k",disabled:!gecmisDuzeltOnay.islem,
-              onClick:()=>yoneticiTalepGonder(gecmisDuzeltOnay.kayit,gecmisDuzeltOnay.islem)},"Onay'a Gönder")
+          div({style:{fontSize:13,color:"var(--di)",textAlign:"center"}},
+            fmtT(gecmisDuzeltOnay.kayit.tarih)+" · "+fmt(gecmisDuzeltOnay.kayit.toplam)
           )
+        ),
+        div({style:{fontSize:13,color:"var(--di)",marginBottom:20,lineHeight:1.6,textAlign:"center"}},
+          "Bu kayıt ",
+          h("span",{style:{color:gecmisDuzeltOnay.islem==="sil"?"#c05050":"#1A7A34",fontWeight:600}},
+            gecmisDuzeltOnay.islem==="sil"?"silinmek":"düzenlenmek"),
+          " üzere yönetici onayına gönderilecek. Emin misin?"
+        ),
+        div({className:"btn-r"},
+          btn({className:"btn-i",onClick:()=>setGecmisDuzeltOnay(null)},"Vazgeç"),
+          btn({className:"btn-k",onClick:()=>yoneticiTalepGonder(gecmisDuzeltOnay.kayit,gecmisDuzeltOnay.islem)},"Gönder")
         )
       )
     ),
@@ -9477,81 +9439,68 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
         const bildirimSil = (b) => {
           setDevirBildirim(p=>p.filter(x=>x.id!==b.id));
         };
+        // Eksik gün hesaplama (sekme içinde kullanmak için)
+        const bugunEksik = new Date();
+        const yilEksik = bugunEksik.getFullYear();
+        const ayEksik = bugunEksik.getMonth();
+        const bugunStrEksik = TODAY();
+        const ayPrefixEksik = bugunStrEksik.slice(0,7);
+        const personelTumTarihlerEksik = [
+          ...records.filter(r=>r.staffId===kul.id && r.tarih && r.tarih.startsWith(ayPrefixEksik)).map(r=>r.tarih),
+          ...bekleyen.filter(r=>r.staffId===kul.id && r.tarih && r.tarih.startsWith(ayPrefixEksik)).map(r=>r.tarih),
+          ...Object.keys(devDB).filter(k=>k.endsWith("_"+kul.id)).map(k=>k.split("_")[0]).filter(t=>t.startsWith(ayPrefixEksik))
+        ];
+        const eksikGunler = (()=>{
+          if(personelTumTarihlerEksik.length === 0) return [];
+          const enErken = parseInt(personelTumTarihlerEksik.sort()[0].split("-")[2]);
+          const gunler = [];
+          for(let g=enErken; g<=bugunEksik.getDate(); g++){
+            const d = new Date(yilEksik, ayEksik, g);
+            const ds = d.toISOString().split("T")[0];
+            if(ds === bugunStrEksik) continue;
+            if(!records.some(r=>r.staffId===kul.id && r.tarih===ds) && !devDB[ds+"_"+kul.id]) gunler.push(ds);
+          }
+          return gunler;
+        })();
+        const eksikKarti = eksikGunler.length>0 ? div({style:{background:"rgba(224,96,96,.06)",border:"1.5px solid rgba(224,96,96,.25)",
+          borderRadius:12,padding:14,marginBottom:14}},
+          div({style:{fontSize:12,color:"#e06060",letterSpacing:2,textTransform:"uppercase",marginBottom:4}},
+            "⚠ Eksik Veri Girişi ("+eksikGunler.length+")"),
+          div({style:{fontSize:13,color:"#9a6a4a",marginBottom:12,lineHeight:1.5}},
+            "Bu ay içinde kayıt yapılmamış günleriniz var. Her gün için ya çalıştığınız kayıtlarını girin ya da bir mazeret seçin."),
+          eksikGunler.slice().reverse().map(ds=>{
+            const d = new Date(ds+"T12:00:00");
+            const lb = d.toLocaleDateString("tr-TR",{weekday:"long",day:"2-digit",month:"long"});
+            return div({key:ds,style:{display:"flex",alignItems:"center",justifyContent:"space-between",
+              gap:8,padding:"10px 12px",marginBottom:6,
+              background:"var(--bg)",borderRadius:9,border:"1px solid rgba(224,96,96,.15)"}},
+              div({style:{flex:1,minWidth:0}},
+                div({style:{fontSize:14,color:"var(--tx)",fontWeight:500}},lb),
+                div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},ds)
+              ),
+              btn({style:{background:"rgba(224,96,96,.12)",border:"1px solid rgba(224,96,96,.3)",
+                borderRadius:8,color:"#e06060",fontSize:13,padding:"6px 12px",cursor:"pointer",
+                whiteSpace:"nowrap",flexShrink:0},
+                onClick:()=>{
+                  if(calistiGunler.includes(ds+"_"+kul.id)){
+                    setKayitForm({tarih:ds});
+                  } else {
+                    setEksikGunTarih(ds);
+                    setDevSec(""); setDevDiger("");
+                    setDevUyari(true);
+                  }
+                }},"İşlem Yap")
+            );
+          })
+        ) : null;
+
         return div({className:"pg",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
 
-          // ── Eksik Gün Bildirimi ──
-          (()=>{
-            const bugun = new Date();
-            const yil = bugun.getFullYear();
-            const ay = bugun.getMonth();
-            const bugunStr = TODAY();
-            const ayPrefix = bugunStr.slice(0,7);
-            const personelTumTarihler = [
-              ...records.filter(r=>r.staffId===kul.id && r.tarih && r.tarih.startsWith(ayPrefix)).map(r=>r.tarih),
-              ...bekleyen.filter(r=>r.staffId===kul.id && r.tarih && r.tarih.startsWith(ayPrefix)).map(r=>r.tarih),
-              ...Object.keys(devDB).filter(k=>k.endsWith("_"+kul.id)).map(k=>k.split("_")[0]).filter(t=>t.startsWith(ayPrefix))
-            ];
-            if(personelTumTarihler.length === 0) return null;
-            const enErkenTarih = personelTumTarihler.sort()[0];
-            const enErkenGun = parseInt(enErkenTarih.split("-")[2]);
-            const eksikGunler = [];
-            for(let g=enErkenGun; g<=bugun.getDate(); g++){
-              const d = new Date(yil, ay, g);
-              const ds = d.toISOString().split("T")[0];
-              if(ds === bugunStr) continue;
-              const gonderilmisKayit = records.some(r=>r.staffId===kul.id && r.tarih===ds);
-              const mazeretVar = !!devDB[ds+"_"+kul.id];
-              if(!gonderilmisKayit && !mazeretVar) eksikGunler.push(ds);
-            }
-            if(eksikGunler.length === 0) return null;
-            return div({style:{background:"rgba(224,96,96,.06)",border:"1.5px solid rgba(224,96,96,.25)",
-              borderRadius:12,padding:14,marginBottom:14}},
-              div({style:{fontSize:12,color:"#e06060",letterSpacing:2,textTransform:"uppercase",marginBottom:4}},
-                "⚠ Eksik Veri Girişi ("+eksikGunler.length+")"),
-              div({style:{fontSize:13,color:"#9a6a4a",marginBottom:12,lineHeight:1.5}},
-                "Bu ay içinde kayıt yapılmamış günleriniz var. Her gün için ya çalıştığınız kayıtlarını girin ya da bir mazeret seçin."),
-              eksikGunler.slice().reverse().map(ds=>{
-                const d = new Date(ds+"T12:00:00");
-                const lb = d.toLocaleDateString("tr-TR",{weekday:"long",day:"2-digit",month:"long"});
-                return div({key:ds,style:{display:"flex",alignItems:"center",justifyContent:"space-between",
-                  gap:8,padding:"10px 12px",marginBottom:6,
-                  background:"var(--bg)",borderRadius:9,border:"1px solid rgba(224,96,96,.15)"}},
-                  div({style:{flex:1,minWidth:0}},
-                    div({style:{fontSize:14,color:"var(--tx)",fontWeight:500}},lb),
-                    div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},ds)
-                  ),
-                  btn({style:{background:"rgba(224,96,96,.12)",border:"1px solid rgba(224,96,96,.3)",
-                    borderRadius:8,color:"#e06060",fontSize:13,padding:"6px 12px",cursor:"pointer",
-                    whiteSpace:"nowrap",flexShrink:0},
-                    onClick:()=>{
-                      if(calistiGunler.includes(ds+"_"+kul.id)){
-                        setKayitForm({tarih:ds});
-                      } else {
-                        setEksikGunTarih(ds);
-                        setDevSec(""); setDevDiger("");
-                        setDevUyari(true);
-                      }
-                    }},"İşlem Yap")
-                );
-              })
-            );
-          })(),
-
-          div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
-            div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,color:"var(--g)"}},"Bildirimler & Mesajlar"),
-          ),
           // ── 3 Alt Sekme ──
           div({style:{display:"flex",gap:6,marginBottom:14,padding:4,background:"rgba(0,0,0,.04)",borderRadius:10}},
             [
-              ["bildirim","🔔 Bildirimler", okunmamisListe.length],
-              ["mesajlar","💬 Mesajlar", mesajlar.filter(m=>{
-                if(!kul) return false;
-                const benim = String(kul.id);
-                const ilgili = m.alici_id===null || m.alici_id===benim || m.gonderen_id===benim;
-                if(!ilgili) return false;
-                const okunanlar = Array.isArray(m.okundu_ids) ? m.okundu_ids : [];
-                return !okunanlar.includes(benim) && m.gonderen_id!==benim;
-              }).length],
+              ["bildirim","🔔 Bildirimler", okunmamisListe.length+okunmusListe.length],
+              ["okunmamis","📭 Okunmamış", okunmamisListe.length],
               ["okunmus","✓ Okunmuş", okunmusListe.length],
             ].map(([t,lbl,sayi])=>{
               const aktif = bildirimAltSek===t;
@@ -9564,7 +9513,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
                 display:"flex",alignItems:"center",justifyContent:"center",gap:4
               }},
                 lbl,
-                sayi>0&&span({style:{
+                span({style:{
                   background:aktif?"#FF3B30":"#86868B",color:"#fff",
                   borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:700
                 }},String(sayi))
@@ -9572,279 +9521,20 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
             })
           ),
 
-          // ══════════════════════════════════════════
-          // MESAJLAR SEKMESİ
-          // ══════════════════════════════════════════
-          bildirimAltSek==="mesajlar"&&div(null,
-
-            // Mesaj ekranı kapalıyken — sohbet listesi
-            !mesajEkran&&div(null,
-
-              // Yeni mesaj / sohbet başlat butonları
-              div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}},
-                // Grup sohbeti
-                div({onClick:()=>setMesajEkran({tip:"grup"}),style:{
-                  background:"linear-gradient(135deg,#0071E3,#0058B0)",
-                  borderRadius:16,padding:"16px 14px",cursor:"pointer",
-                  boxShadow:"0 4px 14px rgba(0,113,227,.3)"
-                }},
-                  div({style:{fontSize:26,marginBottom:6}},"👥"),
-                  div({style:{fontSize:14,fontWeight:700,color:"#fff"}},">Grup Sohbeti"),
-                  div({style:{fontSize:11,color:"rgba(255,255,255,.7)",marginTop:3}},
-                    mesajlar.filter(m=>m.alici_id===null).length+" mesaj"
-                  )
-                ),
-                // Bireysel — kişi seç
-                div({onClick:()=>setMesajEkran({tip:"kisi_sec"}),style:{
-                  background:"linear-gradient(135deg,#34C759,#248A3D)",
-                  borderRadius:16,padding:"16px 14px",cursor:"pointer",
-                  boxShadow:"0 4px 14px rgba(52,199,89,.3)"
-                }},
-                  div({style:{fontSize:26,marginBottom:6}},"✉️"),
-                  div({style:{fontSize:14,fontWeight:700,color:"#fff"}},"Bireysel"),
-                  div({style:{fontSize:11,color:"rgba(255,255,255,.7)",marginTop:3}},"Kişi seç")
+          (bildirimAltSek==="bildirim"||bildirimAltSek==="okunmamis"||bildirimAltSek==="okunmus")&&div(null,
+            bildirimAltSek!=="okunmus"&&eksikKarti,
+            aktifListe.length===0 && bildirimAltSek==="okunmus"
+              ? div({style:{textAlign:"center",padding:"40px 20px",color:"var(--mu)"}},
+                  div({style:{fontSize:40,marginBottom:8}},"🔔"),
+                  div({style:{fontSize:13,letterSpacing:2,textTransform:"uppercase"}},"Okunmuş bildirim yok")
                 )
-              ),
-
-              // Son sohbetler listesi
-              div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:10,marginTop:4}},"Son Sohbetler"),
-              (()=>{
-                // Bireysel konuşmaları grupla
-                const sohbetler = [];
-                const benimId = String(kul?.id||"");
-                // Grup
-                const grupMesajlar = mesajlar.filter(m=>m.alici_id===null);
-                if(grupMesajlar.length>0){
-                  const son = grupMesajlar[grupMesajlar.length-1];
-                  const okunmamis = grupMesajlar.filter(m=>{
-                    const okunanlar = Array.isArray(m.okundu_ids)?m.okundu_ids:[];
-                    return !okunanlar.includes(benimId) && m.gonderen_id!==benimId;
-                  }).length;
-                  sohbetler.push({tip:"grup",ad:"Grup Sohbeti",ikon:"👥",sonMesaj:son.mesaj||son.sablon,tarih:son.tarih,okunmamis});
-                }
-                // Bireysel sohbetler
-                const kisiIds = new Set();
-                mesajlar.filter(m=>m.alici_id!==null).forEach(m=>{
-                  const karsi = m.gonderen_id===benimId ? m.alici_id : m.gonderen_id;
-                  const karsiAd = m.gonderen_id===benimId ? (m.alici_ad||"") : m.gonderen_ad;
-                  if(!kisiIds.has(karsi)){
-                    kisiIds.add(karsi);
-                    const bireyselM = mesajlar.filter(m2=>m2.alici_id!==null&&(
-                      (m2.gonderen_id===benimId&&m2.alici_id===karsi)||
-                      (m2.gonderen_id===karsi&&m2.alici_id===benimId)
-                    ));
-                    const son2 = bireyselM[bireyselM.length-1];
-                    const okunmamis2 = bireyselM.filter(m2=>{
-                      const okunanlar2=Array.isArray(m2.okundu_ids)?m2.okundu_ids:[];
-                      return !okunanlar2.includes(benimId)&&m2.gonderen_id!==benimId;
-                    }).length;
-                    sohbetler.push({tip:"bireysel",kisiId:karsi,ad:karsiAd,ikon:"👤",sonMesaj:son2.mesaj||son2.sablon,tarih:son2.tarih,okunmamis:okunmamis2});
-                  }
-                });
-                if(sohbetler.length===0) return div({style:{textAlign:"center",padding:"30px 0",color:"var(--mu)"}},
-                  div({style:{fontSize:36,marginBottom:8}},"💬"),
-                  div({style:{fontSize:13}},"Henüz mesaj yok")
-                );
-                return sohbetler.map((s,i)=>
-                  div({key:i,onClick:()=>setMesajEkran(s.tip==="grup"?{tip:"grup"}:{tip:"bireysel",kisiId:s.kisiId,kisiAd:s.ad}),
-                    style:{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",
-                      background:"var(--bg2)",borderRadius:14,marginBottom:8,cursor:"pointer",
-                      border:"1px solid var(--br)",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}},
-                    div({style:{
-                      width:46,height:46,borderRadius:14,flexShrink:0,
-                      background:s.tip==="grup"?"linear-gradient(135deg,#0071E3,#0058B0)":"linear-gradient(135deg,#34C759,#248A3D)",
-                      display:"flex",alignItems:"center",justifyContent:"center",fontSize:22
-                    }},s.ikon),
-                    div({style:{flex:1,minWidth:0}},
-                      div({style:{fontSize:15,fontWeight:700,color:"var(--tx)",marginBottom:3}},s.ad),
-                      div({style:{fontSize:12,color:"var(--mu)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},
-                        s.sonMesaj||"")
-                    ),
-                    s.okunmamis>0&&div({style:{
-                      background:"#FF3B30",color:"#fff",borderRadius:10,
-                      padding:"2px 8px",fontSize:12,fontWeight:700,flexShrink:0
-                    }},String(s.okunmamis))
-                  )
-                );
-              })()
-            ),
-
-            // Kişi seçim ekranı
-            mesajEkran?.tip==="kisi_sec"&&div(null,
-              div({style:{display:"flex",alignItems:"center",gap:10,marginBottom:14}},
-                btn({onClick:()=>setMesajEkran(null),style:{background:"none",border:"none",color:"var(--g)",fontSize:14,fontWeight:700,cursor:"pointer",padding:0}},"‹ Geri"),
-                div({style:{fontSize:15,fontWeight:700,color:"var(--tx)"}})
-              ),
-              div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:10,marginTop:4}},"Kişi Seç"),
-              personeller.filter(p=>p.aktif&&p.id!==kul?.id).map(p=>
-                div({key:p.id,onClick:()=>setMesajEkran({tip:"bireysel",kisiId:String(p.id),kisiAd:p.ad}),
-                  style:{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",
-                    background:"var(--bg2)",borderRadius:14,marginBottom:8,cursor:"pointer",
-                    border:"1px solid var(--br)"}},
-                  div({style:{
-                    width:42,height:42,borderRadius:13,flexShrink:0,
-                    background:"linear-gradient(135deg,#AF52DE,#8944AB)",
-                    display:"flex",alignItems:"center",justifyContent:"center",
-                    fontSize:18,color:"#fff",fontWeight:700
-                  }},p.ad.charAt(0).toUpperCase()),
-                  div(null,
-                    div({style:{fontSize:15,fontWeight:600,color:"var(--tx)"}}),
-                    div({style:{fontSize:15,fontWeight:600,color:"var(--tx)"}},p.ad),
-                    div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},p.rol==="yonetici"?"Yönetici":"Personel")
-                  )
+              : aktifListe.length===0 && !eksikKarti
+              ? div({style:{textAlign:"center",padding:"40px 20px",color:"var(--mu)"}},
+                  div({style:{fontSize:40,marginBottom:8}},"🔔"),
+                  div({style:{fontSize:13,letterSpacing:2,textTransform:"uppercase"}},
+                    bildirimAltSek==="okunmamis"?"Okunmamış bildirim yok":"Bildirim yok")
                 )
-              ),
-              // Yönetici de listede yoksa ekle
-              kul?.rol!=="yonetici"&&personeller.filter(p=>p.rol==="yonetici"&&p.id!==kul?.id).length===0&&
-                div({style:{textAlign:"center",padding:"20px",color:"var(--mu)",fontSize:13}},"Konuşacak başka kişi yok")
-            ),
-
-            // Sohbet ekranı (grup veya bireysel)
-            (mesajEkran?.tip==="grup"||mesajEkran?.tip==="bireysel")&&(()=>{
-              const benimId = String(kul?.id||"");
-              const sohbetMesajlari = mesajEkran.tip==="grup"
-                ? mesajlar.filter(m=>m.alici_id===null)
-                : mesajlar.filter(m=>
-                    (m.gonderen_id===benimId&&m.alici_id===mesajEkran.kisiId)||
-                    (m.gonderen_id===mesajEkran.kisiId&&m.alici_id===benimId)
-                  );
-
-              // Okundu işaretle
-              sohbetMesajlari.forEach(m=>{
-                const okunanlar = Array.isArray(m.okundu_ids)?m.okundu_ids:[];
-                if(!okunanlar.includes(benimId)&&m.gonderen_id!==benimId){
-                  const yeniOkundu = [...okunanlar,benimId];
-                  DB&&DB.from("mesajlar").update({okundu_ids:yeniOkundu}).eq("id",m.id).then(()=>{
-                    setMesajlar(p=>p.map(x=>x.id===m.id?{...x,okundu_ids:yeniOkundu}:x));
-                  });
-                }
-              });
-
-              const SABLONLAR = [
-                {id:"izin",ikon:"🌴",metin:"İzin Talebi"},
-                {id:"erken_cikis",ikon:"🚪",metin:"Erken Çıkış Talebi"},
-                {id:"gecikme",ikon:"⏰",metin:"Geç Kalacağım"},
-                {id:"hastalik",ikon:"🤒",metin:"Hasta/Raporluyum"},
-                {id:"devamsizlik",ikon:"📋",metin:"Devamsızlık Bildirimi"},
-                {id:"diger",ikon:"💡",metin:"Diğer"},
-              ];
-
-              const mesajGonder = ()=>{
-                const metin = mesajSablon ? SABLONLAR.find(s=>s.id===mesajSablon)?.metin+(mesajMetin?" — "+mesajMetin:"") : mesajMetin.trim();
-                if(!metin) return;
-                const yeni = {
-                  id:"msg_"+Date.now()+"_"+Math.random().toString(36).slice(2,8),
-                  gonderen_id:benimId,
-                  gonderen_ad:kul.ad,
-                  alici_id:mesajEkran.tip==="grup"?null:mesajEkran.kisiId,
-                  alici_ad:mesajEkran.tip==="grup"?null:mesajEkran.kisiAd,
-                  mesaj:metin,
-                  sablon:mesajSablon||null,
-                  tarih:new Date().toISOString(),
-                  okundu_ids:[benimId]
-                };
-                DB&&DB.from("mesajlar").insert(yeni).then(()=>{}).catch(console.warn);
-                setMesajlar(p=>[...p,yeni]);
-                setMesajMetin(""); setMesajSablon("");
-              };
-
-              const fmtSaat = iso=>{ try{return new Date(iso).toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit"});}catch(e){return "";} };
-              const fmtGun  = iso=>{ try{const d=new Date(iso);return d.toLocaleDateString("tr-TR",{day:"numeric",month:"short"});}catch(e){return "";} };
-
-              return div({style:{display:"flex",flexDirection:"column",minHeight:"60vh"}},
-                // Başlık
-                div({style:{display:"flex",alignItems:"center",gap:10,marginBottom:12,paddingBottom:10,borderBottom:"1px solid var(--br)"}},
-                  btn({onClick:()=>setMesajEkran(null),style:{background:"none",border:"none",color:"var(--g)",fontSize:14,fontWeight:700,cursor:"pointer",padding:0,flexShrink:0}},"‹ Geri"),
-                  div({style:{
-                    width:38,height:38,borderRadius:12,flexShrink:0,
-                    background:mesajEkran.tip==="grup"?"linear-gradient(135deg,#0071E3,#0058B0)":"linear-gradient(135deg,#34C759,#248A3D)",
-                    display:"flex",alignItems:"center",justifyContent:"center",fontSize:20
-                  }},mesajEkran.tip==="grup"?"👥":"👤"),
-                  div({style:{fontSize:15,fontWeight:700,color:"var(--tx)"}},
-                    mesajEkran.tip==="grup"?"Grup Sohbeti":mesajEkran.kisiAd)
-                ),
-
-                // Mesaj listesi
-                div({style:{flex:1,overflowY:"auto",marginBottom:12,maxHeight:"50vh"}},
-                  sohbetMesajlari.length===0&&div({style:{textAlign:"center",padding:"30px 0",color:"var(--mu)"}},
-                    div({style:{fontSize:36,marginBottom:8}},"💬"),
-                    div({style:{fontSize:13}},"Henüz mesaj yok. İlk mesajı gönder!")
-                  ),
-                  sohbetMesajlari.map((m,i)=>{
-                    const benim = m.gonderen_id===benimId;
-                    const onceki = i>0?sohbetMesajlari[i-1]:null;
-                    const gunDegisti = !onceki||fmtGun(m.tarih)!==fmtGun(onceki.tarih);
-                    return div({key:m.id},
-                      gunDegisti&&div({style:{textAlign:"center",fontSize:11,color:"var(--mu)",margin:"10px 0",letterSpacing:1}},fmtGun(m.tarih)),
-                      div({style:{display:"flex",justifyContent:benim?"flex-end":"flex-start",marginBottom:6}},
-                        div({style:{
-                          maxWidth:"78%",padding:"9px 13px",borderRadius:benim?"16px 4px 16px 16px":"4px 16px 16px 16px",
-                          background:benim?"linear-gradient(135deg,#0071E3,#0058B0)":"var(--bg2)",
-                          color:benim?"#fff":"var(--tx)",
-                          boxShadow:"0 2px 8px rgba(0,0,0,.08)",border:benim?"none":"1px solid var(--br)"
-                        }},
-                          !benim&&div({style:{fontSize:11,fontWeight:700,color:"var(--g)",marginBottom:4,opacity:.8}},m.gonderen_ad),
-                          m.sablon&&div({style:{
-                            fontSize:11,fontWeight:700,
-                            color:benim?"rgba(255,255,255,.8)":"var(--g)",
-                            marginBottom:4,letterSpacing:.5
-                          }},SABLONLAR.find(s=>s.id===m.sablon)?.ikon+" "+SABLONLAR.find(s=>s.id===m.sablon)?.metin),
-                          div({style:{fontSize:14,lineHeight:1.45}},m.mesaj),
-                          div({style:{fontSize:10,marginTop:4,opacity:.6,textAlign:"right"}},fmtSaat(m.tarih))
-                        )
-                      )
-                    );
-                  })
-                ),
-
-                // Şablon seçici
-                div({style:{marginBottom:8,overflowX:"auto",display:"flex",gap:6,paddingBottom:4}},
-                  SABLONLAR.map(s=>
-                    div({key:s.id,onClick:()=>setMesajSablon(mesajSablon===s.id?"":s.id),style:{
-                      flexShrink:0,padding:"6px 12px",borderRadius:20,cursor:"pointer",fontSize:12,fontWeight:600,
-                      background:mesajSablon===s.id?"var(--g)":"var(--bg2)",
-                      color:mesajSablon===s.id?"#fff":"var(--tx)",
-                      border:"1px solid "+(mesajSablon===s.id?"var(--g)":"var(--br)"),
-                      transition:"all .15s"
-                    }},s.ikon+" "+s.metin)
-                  )
-                ),
-
-                // Mesaj yazma alanı
-                div({style:{display:"flex",gap:8,alignItems:"flex-end"}},
-                  div({style:{flex:1,background:"var(--bg2)",borderRadius:16,border:"1px solid var(--br)",padding:"10px 14px"}},
-                    mesajSablon&&div({style:{fontSize:12,color:"var(--g)",fontWeight:700,marginBottom:6}},
-                      SABLONLAR.find(s=>s.id===mesajSablon)?.ikon+" "+SABLONLAR.find(s=>s.id===mesajSablon)?.metin),
-                    h("textarea",{
-                      placeholder:mesajSablon?"Ek not ekle (isteğe bağlı)...":"Mesaj yaz...",
-                      value:mesajMetin,
-                      onChange:e=>setMesajMetin(e.target.value),
-                      onKeyDown:e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();mesajGonder();}},
-                      rows:2,
-                      style:{width:"100%",border:"none",background:"transparent",outline:"none",
-                        fontSize:14,color:"var(--tx)",resize:"none",fontFamily:"inherit",lineHeight:1.4}
-                    })
-                  ),
-                  btn({onClick:mesajGonder,
-                    style:{
-                      width:46,height:46,borderRadius:14,border:"none",cursor:"pointer",flexShrink:0,
-                      background:"linear-gradient(135deg,#0071E3,#0058B0)",
-                      color:"#fff",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center",
-                      boxShadow:"0 4px 14px rgba(0,113,227,.35)",
-                      opacity:(mesajMetin.trim()||mesajSablon)?1:.4
-                    }},"➤")
-                )
-              );
-            })()
-          ),
-          (bildirimAltSek==="bildirim"||bildirimAltSek==="okunmamis"||bildirimAltSek==="okunmus")&&bildirimAltSek!=="mesajlar"&&(
-          aktifListe.length===0
-            ? div({style:{textAlign:"center",padding:"40px 20px",color:"var(--mu)"}},
-                div({style:{fontSize:40,marginBottom:8}},"🔔"),
-                div({style:{fontSize:13,letterSpacing:2,textTransform:"uppercase"}},
-                  bildirimAltSek==="okunmamis"?"Okunmamış bildirim yok":"Okunmuş bildirim yok")
-              )
-            : aktifListe.map(b => {
+              : div(null, aktifListe.map(b => {
                 // ─ Tür 1: Devir talebi (alıcı personelde) ─
                 if(b.tip==="talep"){
                   const aktifBekleyen = b.durum==="bekliyor";
@@ -10036,8 +9726,8 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
                   );
                 }
                 return null;
-              })
-          ))
+              }))
+        ))
       })(),
       // Müşterilerim
       psek==="musterilerim"&&(()=>{
@@ -10240,7 +9930,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
                         lbl({style:fl},"Cinsiyet"),
                         sel({className:"fi",value:f.cinsiyet||"",
                           onChange:e=>upd("cinsiyet",e.target.value)},
-                          opt("","Marka seçin"),
+                          opt("","Cinsiyet seçin"),
                           opt("Kadın","Kadın"),
                           opt("Erkek","Erkek"),
                           opt("Diğer","Diğer")
@@ -10262,11 +9952,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
                   div({style:grpKutu},
                     div({style:grpBaslik},"İletişim"),
                     div({style:{marginBottom:11}},
-                      div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}},
-                        lbl({style:{...fl,marginBottom:0}},"Telefon Numaraları *"),
-                        btn({style:{background:"transparent",border:"1px solid rgba(0,113,227,.4)",color:"#0071E3",fontSize:11,fontWeight:600,padding:"3px 9px",borderRadius:7,cursor:"pointer"},
-                          onClick:telEkle},"+ Numara Ekle")
-                      ),
+                      lbl({style:{...fl,marginBottom:5}},"Telefon Numaraları *"),
                       (f.telefonlar||[]).map((t,idx)=>
                         div({key:idx,style:{display:"flex",gap:6,marginBottom:6}},
                           sel({className:"fi",style:{flex:"0 0 90px",fontSize:13},
@@ -10280,10 +9966,35 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
                           inp({className:"fi",style:{flex:1},placeholder:"05xx xxx xx xx",
                             value:t.numara||"",
                             onChange:e=>telGuncelle(idx,"numara",e.target.value)}),
+                          btn({type:"button",title:"Rehberden telefon seç","aria-label":"Rehberden telefon seç",
+                            style:{width:42,height:42,background:"linear-gradient(160deg,#EEF2F8 0%,#E4EAF4 100%)",
+                              border:"1.5px solid rgba(37,99,168,.28)",borderRadius:10,color:"#2563A8",cursor:"pointer",
+                              display:"flex",alignItems:"center",justifyContent:"center",flex:"0 0 auto",
+                              boxShadow:"0 2px 8px rgba(37,99,168,.10)"},
+                            onClick:async()=>{
+                              try{
+                                if(!("contacts" in navigator&&"ContactsManager" in window)){alert("Bu tarayıcı telefon rehberinden seçim özelliğini desteklemiyor.");return;}
+                                const contacts=await navigator.contacts.select(["tel"],{multiple:false});
+                                if(contacts&&contacts.length>0&&contacts[0].tel&&contacts[0].tel.length>0){
+                                  telGuncelle(idx,"numara",contacts[0].tel[0].replace(/\s/g,""));
+                                }
+                              }catch(e){alert("Rehber erişimi sağlanamadı.");}
+                            }},
+                            h("svg",{width:22,height:22,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.6,strokeLinecap:"round",strokeLinejoin:"round"},
+                              h("rect",{x:4,y:2,width:14,height:20,rx:2,ry:2}),
+                              h("line",{x1:2,y1:7,x2:4,y2:7}),
+                              h("line",{x1:2,y1:12,x2:4,y2:12}),
+                              h("line",{x1:2,y1:17,x2:4,y2:17}),
+                              h("circle",{cx:11,cy:9,r:2.2}),
+                              h("path",{d:"M7.2 16.5c.5-2 1.9-3.2 3.8-3.2s3.3 1.2 3.8 3.2"})
+                            )
+                          ),
                           (f.telefonlar||[]).length>1&&btn({style:{background:"transparent",border:"1px solid rgba(255,59,48,.3)",color:"#FF3B30",fontSize:14,padding:"0 10px",borderRadius:7,cursor:"pointer",flex:"0 0 auto"},
                             onClick:()=>telSil(idx)},"✕")
                         )
-                      )
+                      ),
+                      btn({style:{background:"transparent",border:"1px solid rgba(0,113,227,.4)",color:"#0071E3",fontSize:11,fontWeight:600,padding:"5px 12px",borderRadius:7,cursor:"pointer",marginTop:2},
+                        onClick:telEkle},"+ Numara Ekle")
                     ),
                     div({style:{marginBottom:11}},
                       lbl({style:fl},"E-posta"),
@@ -11267,28 +10978,6 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
           isletme.logo ? img({src:isletme.logo,style:{height:34,objectFit:"contain",maxWidth:128}}) : img({src:LOGO,height:34})
         ),
         div({style:{flex:1}}),
-        // Mesajlar butonu
-        (()=>{
-          const benimId = String(kul?.id||"");
-          const okunmamisMesaj = mesajlar.filter(m=>{
-            const ilgili = m.alici_id===null||m.alici_id===benimId||m.gonderen_id===benimId;
-            if(!ilgili) return false;
-            const okunanlar = Array.isArray(m.okundu_ids)?m.okundu_ids:[];
-            return !okunanlar.includes(benimId)&&m.gonderen_id!==benimId;
-          }).length;
-          return btn({
-            onClick:()=>setMesajEkran(mesajEkran?null:{tip:"liste"}),
-            style:{position:"relative",background:"transparent",border:"none",cursor:"pointer",
-              padding:"6px 8px",borderRadius:10,fontSize:22}
-          },
-            "💬",
-            okunmamisMesaj>0&&span({style:{
-              position:"absolute",top:0,right:0,
-              background:"#FF3B30",color:"#fff",borderRadius:8,
-              padding:"1px 5px",fontSize:10,fontWeight:700
-            }},String(okunmamisMesaj))
-          );
-        })()
         ),  // ilk satır div kapanışı
         // ══════════════════════════════════════════
         // GLOBAL NAV ÇUBUĞU — Her zaman en üstte
@@ -11359,106 +11048,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
       div({className:"pg",style:{paddingTop:0,paddingBottom:asek==="kayitlar"?0:undefined}},
 
         // ── Yönetici Mesajlar Overlay ──
-        mesajEkran&&div({style:{
-          position:"fixed",inset:0,zIndex:980,background:"var(--bg)",
-          display:"flex",flexDirection:"column",overflow:"hidden"
-        }},
-          div({style:{background:"var(--bg2)",borderBottom:"1px solid var(--br)",padding:"12px 14px",flexShrink:0,display:"flex",alignItems:"center",gap:10}},
-            btn({onClick:()=>{setMesajEkran(null);setMesajMetin("");setMesajSablon("");},
-              style:{background:"none",border:"none",color:"var(--g)",fontSize:14,fontWeight:700,cursor:"pointer",padding:0}},"‹ Geri"),
-            div({style:{fontSize:11,color:"var(--mu)",letterSpacing:1.5,textTransform:"uppercase"}},
-              mesajEkran.tip==="grup"?"💬 MESAJLAR / Grup Sohbeti":mesajEkran.tip==="bireysel"?"💬 MESAJLAR / "+mesajEkran.kisiAd:"💬 MESAJLAR")
-          ),
-          div({style:{flex:1,overflowY:"auto",padding:"14px"}},
-            // Liste görünümü
-            (mesajEkran.tip==="liste"||mesajEkran.tip==="kisi_sec")&&div(null,
-              div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}},
-                div({onClick:()=>setMesajEkran({tip:"grup"}),style:{
-                  background:"linear-gradient(135deg,#0071E3,#0058B0)",
-                  borderRadius:16,padding:"16px 14px",cursor:"pointer",boxShadow:"0 4px 14px rgba(0,113,227,.3)"
-                }},
-                  div({style:{fontSize:26,marginBottom:6}},"👥"),
-                  div({style:{fontSize:14,fontWeight:700,color:"#fff"}},"Grup Sohbeti"),
-                  div({style:{fontSize:11,color:"rgba(255,255,255,.7)",marginTop:3}},mesajlar.filter(m=>m.alici_id===null).length+" mesaj")
-                ),
-                div({onClick:()=>setMesajEkran({tip:"kisi_sec"}),style:{
-                  background:"linear-gradient(135deg,#34C759,#248A3D)",
-                  borderRadius:16,padding:"16px 14px",cursor:"pointer",boxShadow:"0 4px 14px rgba(52,199,89,.3)"
-                }},
-                  div({style:{fontSize:26,marginBottom:6}},"✉️"),
-                  div({style:{fontSize:14,fontWeight:700,color:"#fff"}},"Bireysel"),
-                  div({style:{fontSize:11,color:"rgba(255,255,255,.7)",marginTop:3}},"Kişi seç")
-                )
-              ),
-              mesajEkran.tip==="kisi_sec"&&div(null,
-                div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:10,marginTop:4}},"Personel Seç"),
-                personeller.filter(p=>p.aktif&&p.id!==kul?.id).map(p=>
-                  div({key:p.id,onClick:()=>setMesajEkran({tip:"bireysel",kisiId:String(p.id),kisiAd:p.ad}),
-                    style:{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",
-                      background:"var(--bg2)",borderRadius:14,marginBottom:8,cursor:"pointer",border:"1px solid var(--br)"}},
-                    div({style:{width:42,height:42,borderRadius:13,flexShrink:0,background:"linear-gradient(135deg,#AF52DE,#8944AB)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",fontWeight:700}},p.ad.charAt(0).toUpperCase()),
-                    div(null,
-                      div({style:{fontSize:15,fontWeight:600,color:"var(--tx)"}},p.ad),
-                      div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},p.rol==="yonetici"?"Yönetici":"Personel")
-                    )
-                  )
-                )
-              ),
-              // Son sohbetler
-              div({style:{fontSize:11,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:10,marginTop:4}},"Son Sohbetler"),
-              (()=>{
-                const benimId=String(kul?.id||""); const sohbetler=[];
-                const grupM=mesajlar.filter(m=>m.alici_id===null);
-                if(grupM.length>0){const son=grupM[grupM.length-1];sohbetler.push({tip:"grup",ad:"Grup Sohbeti",ikon:"👥",sonMesaj:son.mesaj,tarih:son.tarih});}
-                const kisiIds=new Set();
-                mesajlar.filter(m=>m.alici_id!==null).forEach(m=>{
-                  const karsi=m.gonderen_id===benimId?m.alici_id:m.gonderen_id;
-                  const karsiAd=m.gonderen_id===benimId?(m.alici_ad||""):m.gonderen_ad;
-                  if(!kisiIds.has(karsi)){kisiIds.add(karsi);const son2=mesajlar.filter(m2=>m2.alici_id!==null&&((m2.gonderen_id===benimId&&m2.alici_id===karsi)||(m2.gonderen_id===karsi&&m2.alici_id===benimId))).pop();if(son2)sohbetler.push({tip:"bireysel",kisiId:karsi,ad:karsiAd,ikon:"👤",sonMesaj:son2.mesaj,tarih:son2.tarih});}
-                });
-                return sohbetler.map((s,i)=>div({key:i,onClick:()=>setMesajEkran(s.tip==="grup"?{tip:"grup"}:{tip:"bireysel",kisiId:s.kisiId,kisiAd:s.ad}),
-                  style:{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",background:"var(--bg2)",borderRadius:14,marginBottom:8,cursor:"pointer",border:"1px solid var(--br)"}},
-                  div({style:{width:46,height:46,borderRadius:14,flexShrink:0,background:s.tip==="grup"?"linear-gradient(135deg,#0071E3,#0058B0)":"linear-gradient(135deg,#34C759,#248A3D)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}},s.ikon),
-                  div({style:{flex:1,minWidth:0}},
-                    div({style:{fontSize:15,fontWeight:700,color:"var(--tx)",marginBottom:3}},s.ad),
-                    div({style:{fontSize:12,color:"var(--mu)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},s.sonMesaj||"")
-                  )
-                ));
-              })()
-            ),
-            // Sohbet görünümü
-            (mesajEkran.tip==="grup"||mesajEkran.tip==="bireysel")&&(()=>{
-              const benimId=String(kul?.id||"");
-              const SABLONLAR=[{id:"izin",ikon:"🌴",metin:"İzin Talebi"},{id:"erken_cikis",ikon:"🚪",metin:"Erken Çıkış Talebi"},{id:"gecikme",ikon:"⏰",metin:"Geç Kalacağım"},{id:"hastalik",ikon:"🤒",metin:"Hasta/Raporluyum"},{id:"devamsizlik",ikon:"📋",metin:"Devamsızlık"},{id:"diger",ikon:"💡",metin:"Diğer"}];
-              const sohbetM=mesajEkran.tip==="grup"?mesajlar.filter(m=>m.alici_id===null):mesajlar.filter(m=>(m.gonderen_id===benimId&&m.alici_id===mesajEkran.kisiId)||(m.gonderen_id===mesajEkran.kisiId&&m.alici_id===benimId));
-              sohbetM.forEach(m=>{const ok=Array.isArray(m.okundu_ids)?m.okundu_ids:[];if(!ok.includes(benimId)&&m.gonderen_id!==benimId){const yeni=[...ok,benimId];DB&&DB.from("mesajlar").update({okundu_ids:yeni}).eq("id",m.id).then(()=>{setMesajlar(p=>p.map(x=>x.id===m.id?{...x,okundu_ids:yeni}:x));});}});
-              const mesajGonder2=()=>{const metin=mesajSablon?SABLONLAR.find(s=>s.id===mesajSablon)?.metin+(mesajMetin?" — "+mesajMetin:""):mesajMetin.trim();if(!metin)return;const yeni={id:"msg_"+Date.now()+"_"+Math.random().toString(36).slice(2,8),gonderen_id:benimId,gonderen_ad:kul.ad,alici_id:mesajEkran.tip==="grup"?null:mesajEkran.kisiId,alici_ad:mesajEkran.tip==="grup"?null:mesajEkran.kisiAd,mesaj:metin,sablon:mesajSablon||null,tarih:new Date().toISOString(),okundu_ids:[benimId]};DB&&DB.from("mesajlar").insert(yeni).catch(console.warn);setMesajlar(p=>[...p,yeni]);setMesajMetin("");setMesajSablon("");};
-              const fmtSaat=iso=>{try{return new Date(iso).toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit"});}catch(e){return "";}};
-              return div({style:{display:"flex",flexDirection:"column",height:"100%"}},
-                div({style:{flex:1,overflowY:"auto",marginBottom:12}},
-                  sohbetM.length===0&&div({style:{textAlign:"center",padding:"30px 0",color:"var(--mu)"}},div({style:{fontSize:36,marginBottom:8}},"💬"),div({style:{fontSize:13}},"Henüz mesaj yok")),
-                  sohbetM.map(m=>div({key:m.id,style:{display:"flex",justifyContent:m.gonderen_id===benimId?"flex-end":"flex-start",marginBottom:6}},
-                    div({style:{maxWidth:"78%",padding:"9px 13px",borderRadius:m.gonderen_id===benimId?"16px 4px 16px 16px":"4px 16px 16px 16px",background:m.gonderen_id===benimId?"linear-gradient(135deg,#0071E3,#0058B0)":"var(--bg2)",color:m.gonderen_id===benimId?"#fff":"var(--tx)",boxShadow:"0 2px 8px rgba(0,0,0,.08)",border:m.gonderen_id===benimId?"none":"1px solid var(--br)"}},
-                      m.gonderen_id!==benimId&&div({style:{fontSize:11,fontWeight:700,color:"var(--g)",marginBottom:4}}),
-                      m.gonderen_id!==benimId&&div({style:{fontSize:11,fontWeight:700,color:"var(--g)",marginBottom:4}},m.gonderen_ad),
-                      m.sablon&&div({style:{fontSize:11,fontWeight:700,color:m.gonderen_id===benimId?"rgba(255,255,255,.8)":"var(--g)",marginBottom:4}},SABLONLAR.find(s=>s.id===m.sablon)?.ikon+" "+SABLONLAR.find(s=>s.id===m.sablon)?.metin),
-                      div({style:{fontSize:14,lineHeight:1.45}},m.mesaj),
-                      div({style:{fontSize:10,marginTop:4,opacity:.6,textAlign:"right"}},fmtSaat(m.tarih))
-                    )
-                  ))
-                ),
-                div({style:{overflowX:"auto",display:"flex",gap:6,paddingBottom:6,marginBottom:8}},SABLONLAR.map(s=>div({key:s.id,onClick:()=>setMesajSablon(mesajSablon===s.id?"":s.id),style:{flexShrink:0,padding:"6px 12px",borderRadius:20,cursor:"pointer",fontSize:12,fontWeight:600,background:mesajSablon===s.id?"var(--g)":"var(--bg2)",color:mesajSablon===s.id?"#fff":"var(--tx)",border:"1px solid "+(mesajSablon===s.id?"var(--g)":"var(--br)")}},s.ikon+" "+s.metin))),
-                div({style:{display:"flex",gap:8,alignItems:"flex-end"}},
-                  div({style:{flex:1,background:"var(--bg2)",borderRadius:16,border:"1px solid var(--br)",padding:"10px 14px"}},
-                    mesajSablon&&div({style:{fontSize:12,color:"var(--g)",fontWeight:700,marginBottom:6}},SABLONLAR.find(s=>s.id===mesajSablon)?.ikon+" "+SABLONLAR.find(s=>s.id===mesajSablon)?.metin),
-                    h("textarea",{placeholder:mesajSablon?"Ek not...":"Mesaj yaz...",value:mesajMetin,onChange:e=>setMesajMetin(e.target.value),onKeyDown:e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();mesajGonder2();}},rows:2,style:{width:"100%",border:"none",background:"transparent",outline:"none",fontSize:14,color:"var(--tx)",resize:"none",fontFamily:"inherit",lineHeight:1.4}})
-                  ),
-                  btn({onClick:mesajGonder2,style:{width:46,height:46,borderRadius:14,border:"none",cursor:"pointer",flexShrink:0,background:"linear-gradient(135deg,#0071E3,#0058B0)",color:"#fff",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 14px rgba(0,113,227,.35)"}},">")
-                )
-              );
-            })()
-          )
-        ),
+
 
 
         // ══════════════════════════════════════════
