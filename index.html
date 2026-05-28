@@ -9370,11 +9370,20 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
           if((b.tip==="mkayit_kaydedildi" || b.tip==="mkayit_red") && String(b.talepEdenId||"")===benimId) return true;
           return false;
         });
-        const okunmamisListe = benimBildirimlerim.filter(b => !b.okundu &&
-          ((b.tip!=="talep" && b.tip!=="mkayit_talep") || b.durum==="bekliyor"));
-        const okunmusListe = benimBildirimlerim.filter(b => b.okundu ||
-          ((b.tip==="talep" || b.tip==="mkayit_talep") && b.durum!=="bekliyor"));
-        const aktifListe = bildirimAltSek==="bildirim" ? [...okunmamisListe,...okunmusListe] : bildirimAltSek==="okunmamis" ? okunmamisListe : okunmusListe;
+        // Okunmamış: talep/mkayit_talep tipleri bekliyorsa otomatik okunmamış; diğerleri okundu=true değilse okunmamış
+        const okunmamisListe = benimBildirimlerim.filter(b => {
+          if((b.tip==="talep" || b.tip==="mkayit_talep")) return b.durum==="bekliyor" && !b.okundu;
+          return !b.okundu;
+        });
+        // Okunmuş: yukarıdaki okunmamış değilse okunmuş
+        const okunmusListe = benimBildirimlerim.filter(b => !okunmamisListe.includes(b));
+        // "Bildirimler" başlığı → tüm bildirimler (okundu/okunmadı fark etmez), tarihe göre yeniden→eskiye sırala
+        const tumListe = [...benimBildirimlerim].sort((a,b)=>{
+          const ta = new Date(a.olusturmaTarihi||0).getTime();
+          const tb = new Date(b.olusturmaTarihi||0).getTime();
+          return tb - ta;
+        });
+        const aktifListe = bildirimAltSek==="bildirim" ? tumListe : bildirimAltSek==="okunmamis" ? okunmamisListe : okunmusListe;
         const trh = (iso) => {
           if(!iso) return "";
           try { return new Date(iso).toLocaleString("tr-TR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}); } catch(e){ return ""; }
@@ -9499,7 +9508,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
           // ── 3 Alt Sekme ──
           div({style:{display:"flex",gap:6,marginBottom:14,padding:4,background:"rgba(0,0,0,.04)",borderRadius:10}},
             [
-              ["bildirim","🔔 Bildirimler", okunmamisListe.length+okunmusListe.length],
+              ["bildirim","🔔 Bildirimler", tumListe.length],
               ["okunmamis","📭 Okunmamış", okunmamisListe.length],
               ["okunmus","✓ Okunmuş", okunmusListe.length],
             ].map(([t,lbl,sayi])=>{
@@ -9523,16 +9532,13 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
 
           (bildirimAltSek==="bildirim"||bildirimAltSek==="okunmamis"||bildirimAltSek==="okunmus")&&div(null,
             bildirimAltSek!=="okunmus"&&eksikKarti,
-            aktifListe.length===0 && bildirimAltSek==="okunmus"
-              ? div({style:{textAlign:"center",padding:"40px 20px",color:"var(--mu)"}},
-                  div({style:{fontSize:40,marginBottom:8}},"🔔"),
-                  div({style:{fontSize:13,letterSpacing:2,textTransform:"uppercase"}},"Okunmuş bildirim yok")
-                )
-              : aktifListe.length===0 && !eksikKarti
+            aktifListe.length===0 && (bildirimAltSek==="okunmus" || bildirimAltSek==="bildirim" || !eksikKarti)
               ? div({style:{textAlign:"center",padding:"40px 20px",color:"var(--mu)"}},
                   div({style:{fontSize:40,marginBottom:8}},"🔔"),
                   div({style:{fontSize:13,letterSpacing:2,textTransform:"uppercase"}},
-                    bildirimAltSek==="okunmamis"?"Okunmamış bildirim yok":"Bildirim yok")
+                    bildirimAltSek==="okunmus" ? "Okunmuş bildirim yok"
+                    : bildirimAltSek==="okunmamis" ? "Okunmamış bildirim yok"
+                    : "Bildirim yok")
                 )
               : div(null, aktifListe.map(b => {
                 // ─ Tür 1: Devir talebi (alıcı personelde) ─
