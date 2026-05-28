@@ -7949,6 +7949,14 @@ ayarlarRaw.forEach(a=>{
         } catch(e){ console.warn("Stok yuklenemedi",e); }
         if(d.length){ const dm={};d.forEach(x=>{dm[x.tarih+"_"+x.staff_id]=x.aciklama;});setDevDB(dm); }
       } catch(e){ console.warn("DB:",e); }
+      // ── Oturum yükle — sayfa yenilenince kullanıcıyı doğru ekrana yönlendir ──
+      try {
+        const sess = JSON.parse(localStorage.getItem("apron_session")||"null");
+        if(sess && sess.kul && sess.kul.id){
+          setKul(sess.kul);
+          setEkran(sess.ekran || (sess.kul.rol==="yonetici"?"yonetici":"personel"));
+        }
+      } catch(e){}
       setYukleniyor(false);
     })();
   },[]);
@@ -8026,6 +8034,144 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
       return ()=>{ if(interval) clearInterval(interval); };
     }
   },[]);
+
+  // ── GENEL REALTIME — kayitlar, ayarlar, musteriler, devamsizliklar ──
+  // Diğer cihazlardan veya oturumlardan gelen değişiklikler anında yansısın.
+  useEffect(()=>{
+    if(!DB) return;
+    const channels = [];
+    const musteriMap = (x) => ({id:x.id,ad:x.ad,tel:x.tel||"",sahipId:x.sahip_id||"",sahipAd:x.sahip_ad||"",ilkGiris:x.ilk_giris||"",dogumTarihi:x.dogum_tarihi||"",cinsiyet:x.cinsiyet||"",adres:x.adres||"",notlar:x.notlar||""});
+    const ayarUygula = (a) => {
+      if(!a || !a.id) return;
+      if(a.id==="isletme") { setIsletme(a.deger); try{ localStorage.setItem("apron_isletme", JSON.stringify(a.deger)); }catch(e){} }
+      if(a.id==="personeller" && Array.isArray(a.deger)) setPersoneller(a.deger);
+      if(a.id==="pGruplar" && Array.isArray(a.deger)) setPGruplar(a.deger);
+      if(a.id==="hizListeleri" && Array.isArray(a.deger)) setHizListeleri(a.deger);
+      if(a.id==="giderKategoriler" && a.deger) setGiderKategoriler(a.deger);
+      if(a.id==="urunler" && Array.isArray(a.deger)) {
+        URUN_DB.length = 0;
+        a.deger.forEach(u => URUN_DB.push(u));
+        triggerUrunRender();
+      }
+      if(a.id==="hizFiyatlar" && a.deger && typeof a.deger==="object") {
+        Object.keys(a.deger).forEach(k => { HIZ_LISTE_FIYAT[k] = a.deger[k]; });
+        triggerUrunRender();
+      }
+      if(a.id==="bankalar" && Array.isArray(a.deger)) setBankalar(a.deger);
+      if(a.id==="tedarikciler" && Array.isArray(a.deger)) setTedarikciler(a.deger);
+      if(a.id==="yonBildirim") setYonBildirim(Array.isArray(a.deger)?a.deger:[]);
+      if(a.id==="devirBildirim") setDevirBildirim(Array.isArray(a.deger)?a.deger:[]);
+      if(a.id==="bolumStilleri") setBolumStilleri(a.deger||{});
+      if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(a.deger);
+      if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(a.deger);
+      if(a.id==="tema" && a.deger && typeof a.deger==="object") setTema(a.deger);
+    };
+
+    // 1) kayitlar — INSERT/UPDATE/DELETE
+    try {
+      const chK = DB.channel("kayitlar_rt_ch")
+        .on("postgres_changes",{event:"INSERT",schema:"public",table:"kayitlar"},payload=>{
+          const r = mapR(payload.new);
+          if(payload.new.gonderildi){
+            setRecords(p=>[r, ...p.filter(x=>x.id!==r.id)]);
+            setBekleyen(p=>p.filter(x=>x.id!==r.id));
+          } else {
+            setBekleyen(p=>[r, ...p.filter(x=>x.id!==r.id)]);
+            setRecords(p=>p.filter(x=>x.id!==r.id));
+          }
+        })
+        .on("postgres_changes",{event:"UPDATE",schema:"public",table:"kayitlar"},payload=>{
+          const r = mapR(payload.new);
+          if(payload.new.gonderildi){
+            setBekleyen(p=>p.filter(x=>x.id!==r.id));
+            setRecords(p=>{
+              const ex = p.some(x=>x.id===r.id);
+              return ex ? p.map(x=>x.id===r.id?r:x) : [r, ...p];
+            });
+          } else {
+            setRecords(p=>p.filter(x=>x.id!==r.id));
+            setBekleyen(p=>{
+              const ex = p.some(x=>x.id===r.id);
+              return ex ? p.map(x=>x.id===r.id?r:x) : [r, ...p];
+            });
+          }
+        })
+        .on("postgres_changes",{event:"DELETE",schema:"public",table:"kayitlar"},payload=>{
+          const id = payload.old && payload.old.id;
+          if(!id) return;
+          setRecords(p=>p.filter(x=>x.id!==id));
+          setBekleyen(p=>p.filter(x=>x.id!==id));
+        })
+        .subscribe();
+      channels.push(chK);
+    } catch(e){}
+
+    // 2) ayarlar — UPDATE/INSERT (upsert)
+    try {
+      const chA = DB.channel("ayarlar_rt_ch")
+        .on("postgres_changes",{event:"*",schema:"public",table:"ayarlar"},payload=>{
+          if(payload.eventType==="DELETE") return;
+          ayarUygula(payload.new);
+        })
+        .subscribe();
+      channels.push(chA);
+    } catch(e){}
+
+    // 3) musteriler — INSERT/UPDATE/DELETE
+    try {
+      const chM = DB.channel("musteriler_rt_ch")
+        .on("postgres_changes",{event:"INSERT",schema:"public",table:"musteriler"},payload=>{
+          const m = musteriMap(payload.new);
+          setMusteriDB(p=>[m, ...p.filter(x=>x.id!==m.id)]);
+        })
+        .on("postgres_changes",{event:"UPDATE",schema:"public",table:"musteriler"},payload=>{
+          const m = musteriMap(payload.new);
+          setMusteriDB(p=>{
+            const ex = p.some(x=>x.id===m.id);
+            return ex ? p.map(x=>x.id===m.id?m:x) : [m, ...p];
+          });
+        })
+        .on("postgres_changes",{event:"DELETE",schema:"public",table:"musteriler"},payload=>{
+          const id = payload.old && payload.old.id;
+          if(!id) return;
+          setMusteriDB(p=>p.filter(x=>x.id!==id));
+        })
+        .subscribe();
+      channels.push(chM);
+    } catch(e){}
+
+    // 4) devamsizliklar — INSERT/UPDATE/DELETE  (devDB anahtarı: tarih_staffId)
+    try {
+      const chD = DB.channel("devamsizliklar_rt_ch")
+        .on("postgres_changes",{event:"*",schema:"public",table:"devamsizliklar"},payload=>{
+          if(payload.eventType==="DELETE"){
+            const o = payload.old||{};
+            const k = (o.tarih||"")+"_"+(o.staff_id||"");
+            if(k!=="_") setDevDB(p=>{ const y={...p}; delete y[k]; return y; });
+          } else {
+            const n = payload.new||{};
+            const k = (n.tarih||"")+"_"+(n.staff_id||"");
+            if(k!=="_") setDevDB(p=>({...p, [k]: n.aciklama||""}));
+          }
+        })
+        .subscribe();
+      channels.push(chD);
+    } catch(e){}
+
+    // 5) stok_hareketleri — INSERT (yeni stok hareketleri görünür olsun)
+    try {
+      const chS = DB.channel("stok_hareketleri_rt_ch")
+        .on("postgres_changes",{event:"INSERT",schema:"public",table:"stok_hareketleri"},payload=>{
+          setStokHar(p=>[payload.new, ...p.filter(x=>x.id!==payload.new.id)]);
+        })
+        .subscribe();
+      channels.push(chS);
+    } catch(e){}
+
+    return ()=>{
+      channels.forEach(ch=>{ try{ DB.removeChannel(ch); }catch(e){} });
+    };
+  },[]);
   useEffect(()=>{
     if(yukleniyor) return;
     localStorage.setItem("apron_bolum_stilleri", JSON.stringify(bolumStilleri||{}));
@@ -8043,6 +8189,15 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
     if(yukleniyor) return;
     localStorage.setItem("apron_v3",JSON.stringify({records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,giderler,avanslar,ibanBildirimler,bankalar,hesapSaglama,pGruplar,yonBildirim,devirBildirim,urunler:URUN_DB,hizFiyatlar:HIZ_LISTE_FIYAT}));
   },[records,bekleyen,musteriDB,personeller,devDB,gecmis,yukleniyor,yonBildirim,devirBildirim,urunDBVer]);
+
+  // ── Oturum Persistance — sayfa yenilenince kullanıcı PIN ekranına dönmesin ──
+  useEffect(()=>{
+    if(yukleniyor) return;
+    try {
+      if(kul) localStorage.setItem("apron_session", JSON.stringify({kul, ekran}));
+      else localStorage.removeItem("apron_session");
+    } catch(e){}
+  }, [kul, ekran, yukleniyor]);
 
   // Ay başı gecmis temizle
   useEffect(()=>{
@@ -8159,7 +8314,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
     },120);
   };
 
-  const cikis = async () => { setCikisSecenek(false); setKul(null); setEkran("login"); setKayitForm(null); setDetay(null); if(DB) { try { await DB.auth.signOut(); } catch(e){} } };
+  const cikis = async () => { setCikisSecenek(false); setKul(null); setEkran("login"); setKayitForm(null); setDetay(null); try{ localStorage.removeItem("apron_session"); }catch(e){} if(DB) { try { await DB.auth.signOut(); } catch(e){} } };
 
   const devKaydet = () => {
     if(!devSec) return;
