@@ -10627,7 +10627,16 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
       ),
       // Gecmis
       psek==="gecmis"&&(()=>{
-        const tumBenim=[...(records||[]).filter(r=>r.staffId===kul.id),...(gecmis||[]).filter(r=>r.staffId===kul.id)];
+        const _recList=(records||[]).filter(r=>r.staffId===kul.id);
+        const _gecList=(gecmis||[]).filter(r=>r.staffId===kul.id);
+        const _gorulen=new Set();
+        const tumBenim=[..._recList,..._gecList].filter(r=>{
+          const k=String(r.id||"");
+          if(!k) return true;
+          if(_gorulen.has(k)) return false;
+          _gorulen.add(k);
+          return true;
+        });
         return div({className:"pg"},
           div({style:{
             background:"#FAF9F6",
@@ -11323,8 +11332,16 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
         panelAdim==="bildirimler"&&!asek&&(()=>{
           // Sağlaması yapılmayan günler hesabı
           const yapilmayanGunler = (()=>{
-            const tarihler = [...new Set((tumK||[]).map(r=>r.tarih).filter(Boolean))]
-              .sort((a,b)=>b.localeCompare(a)).slice(0,30);
+            // Tarih kaynakları: hem kayıtlar (tumK) hem de devDB'deki "çalıştı" işaretleri.
+            // Böylece bir kayıt silinse bile devDB'de tarih kaldığı için sağlama uyarısı kaybolmaz.
+            const devDbTarihler = Object.keys(devDB||{}).map(k=>{
+              const parc = String(k).split("_");
+              return parc[0] || "";
+            }).filter(Boolean);
+            const tarihler = [...new Set([
+              ...(tumK||[]).map(r=>r.tarih).filter(Boolean),
+              ...devDbTarihler
+            ])].sort((a,b)=>b.localeCompare(a)).slice(0,30);
             return tarihler.filter(t => !hesapSaglama[t]);
           })();
 
