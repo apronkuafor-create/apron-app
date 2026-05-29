@@ -13,6 +13,8 @@
 <style>
 :root{--g:#0071E3;--gd:#0058B0;--bg:#FFFFFF;--bg2:#FFFFFF;--bg3:#F5F5F7;--br:#E5E5EA;--tx:#1D1D1F;--mu:#86868B;--di:#6E6E73;--gr:#34C759;--bl:#0071E3;--re:#FF3B30}
 html,body{margin:0;padding:0;background:#FFFFFF;min-height:100%;overflow-x:hidden;max-width:100vw}
+/* iOS notch/dynamic-island arkası: header rengi ile aynı olsun ki sticky header altında boşluk görünmesin */
+html{background:#1F3D2C}
 #root{min-height:100vh;background:#FFFFFF;overflow-x:hidden;max-width:100vw}
 
 input[type=“date”], input[type=“month”] {
@@ -217,7 +219,7 @@ input,select,textarea{font-family:'Inter',-apple-system,BlinkMacSystemFont,syste
 .pb{background:#F0EFEB;border:1px solid #E5E5EA;border-radius:11px;color:#1D1D1F;font-size:21px;padding:15px;cursor:pointer;text-align:center;transition:all .15s;width:100%}
 .pb:hover{border-color:var(--g);color:var(--g)}
 .pb:active{transform:scale(.94)}
-.tbar{background:#1F3D2C;border-bottom:none;padding:10px 14px 0;padding-top:max(10px,env(safe-area-inset-top));display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:20;width:100%;overflow:visible;box-sizing:border-box;min-height:56px}
+.tbar{background:#1F3D2C;border-bottom:none;padding:10px 14px 0;padding-top:env(safe-area-inset-top,47px);padding-top:max(env(safe-area-inset-top,47px),10px);display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:20;width:100%;overflow:visible;box-sizing:border-box;min-height:56px}
 .tbtn{background:transparent;border:1px solid var(--br);border-radius:7px;color:var(--mu);font-size:14px;padding:5px 11px;cursor:pointer;white-space:nowrap}
 .tbtn:hover{border-color:var(--g);color:var(--g)}
 .gsbtn{background:rgba(52,199,89,.1);border:1px solid rgba(52,199,89,.3);border-radius:10px;color:#1A7A34;font-size:12px;font-weight:600;padding:6px 10px;cursor:pointer;white-space:nowrap;transition:all .15s;flex-shrink:0}
@@ -8198,6 +8200,24 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(con
       else localStorage.removeItem("apron_session");
     } catch(e){}
   }, [kul, ekran, yukleniyor]);
+
+  // ── iOS Safari sticky header reflow fix ──
+  // Sayfa yüklendiğinde / ekran değiştiğinde URL bar yüzünden sticky header notch altında kalabiliyor.
+  // Mikro scroll ile Safari'yi viewport boyutunu yeniden hesaplamaya zorlar.
+  useEffect(()=>{
+    if(yukleniyor) return;
+    const fix = () => {
+      try {
+        if(window.scrollY === 0){
+          window.scrollTo(0, 1);
+          requestAnimationFrame(()=>window.scrollTo(0, 0));
+        }
+      } catch(e){}
+    };
+    const t1 = setTimeout(fix, 50);
+    const t2 = setTimeout(fix, 250);
+    return ()=>{ clearTimeout(t1); clearTimeout(t2); };
+  }, [yukleniyor, ekran]);
 
   // Ay başı gecmis temizle
   useEffect(()=>{
