@@ -2090,7 +2090,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)",
           fontSize:14,fontWeight:700,cursor:"pointer"},
           onClick:()=>{setMkTipSecim(true);setMkTip("");setMkTarih(TODAY());setMkFatura("");setMkIrsaliye("");setMkFaturaTarih("");setMkFaturaImg("");setMkUrunler([]);setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());}},
-          "+ Yeni Mal Kabul")
+          "+ Yeni Mal Kabul"),
+        btn({style:{width:"100%",marginTop:10,padding:"11px 0",borderRadius:11,border:"1px dashed var(--g)",
+          background:"transparent",color:"var(--g)",fontSize:13,fontWeight:600,cursor:"pointer"},
+          onClick:()=>{setMkTip("acilis");setMkForm(true);setMkTarih(TODAY());setMkFatura("");setMkIrsaliye("");setMkFaturaTarih("");setMkFaturaImg("");setMkUrunler([]);setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());}},
+          "+ Açılış / Devir Stoğu")
       ),
 
       // ── ARŞİV ──
@@ -2306,14 +2310,17 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 },"‹ Geri"),
                 h("span",{style:{color:"#95B5A0",display:"flex",alignItems:"center",gap:4,marginLeft:4,whiteSpace:"nowrap"}},"Yönetici / Muhasebe / Ürün Muhasebesi / Mal Kabul / "),
                 h("span",{style:{color:"#FFE8C8",fontWeight:700,whiteSpace:"nowrap"}},
-                  "Yeni Mal Kabul",
+                  mkTip==="acilis"?"Açılış / Devir Stoğu":"Yeni Mal Kabul",
                   mkTip&&h("span",{style:{marginLeft:8,fontSize:11,padding:"2px 8px",borderRadius:8,
-                    background:mkTip==="satilabilen"?"rgba(52,199,89,.2)":"rgba(255,149,0,.2)",
-                    color:mkTip==="satilabilen"?"#34C759":"#FF9500",fontWeight:600,verticalAlign:"middle"}},
-                    mkTip==="satilabilen"?"🛍️ Satılabilen":"🧪 Sarf")
+                    background:mkTip==="satilabilen"?"rgba(52,199,89,.2)":mkTip==="sarf"?"rgba(255,149,0,.2)":"rgba(0,120,200,.2)",
+                    color:mkTip==="satilabilen"?"#34C759":mkTip==="sarf"?"#FF9500":"#3A9AD9",fontWeight:600,verticalAlign:"middle"}},
+                    mkTip==="satilabilen"?"🛍️ Satılabilen":mkTip==="sarf"?"🧪 Sarf":"🔄 Açılış")
                 )
             ),
-            div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+            mkTip==="acilis"
+              ? div({style:{marginBottom:10,maxWidth:260}},lbl({className:"fl"},"Açılış / Devir Tarihi"),
+                  inp({className:"fi",type:"date",style:{fontSize:13},value:mkTarih,onChange:e=>setMkTarih(e.target.value)}))
+              : div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
               div({style:{gridColumn:"1/-1"}},lbl({className:"fl"},"Tedarikçi"),
                 tedarikciler&&tedarikciler.length>0
                   ? h("select",{className:"fi",style:{fontSize:13,cursor:"pointer",color:mkTedarikci?"":"var(--mu)"},value:mkTedarikci,
@@ -2497,6 +2504,19 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     fontSize:14,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",alignSelf:"flex-end"},
                     onClick:()=>{
                       if(mkUrunler.some(u=>!toN(u.adet)||!toN(u.birimF))){showToast("Adet ve birim fiyat girin","uy");return;}
+                      if(mkTip==="acilis"){
+                        // AÇILIŞ / DEVİR STOĞU: yalnızca stoğa eklenir (tip:"acilis"); fatura/cari/alım kaydı oluşmaz.
+                        mkUrunler.forEach(u=>{
+                          const ad=toN(u.adet),bf=toN(u.birimF);
+                          setStokPartiler(p=>[...p,{id:uid(),barkod:u.barkod,urunAd:u.urunAd,marka:u.marka,
+                            adet:ad,kalan:ad,alisF:bf,kdvOran:0,tarih:mkTarih,faturaN:"AÇILIŞ",tip:"acilis"}]);
+                          setHareketler(p=>[...p,{id:uid(),barkod:u.barkod,urun_ad:u.urunAd,
+                            tip:"giris",adet:ad,tarih:mkTarih,faturaN:"AÇILIŞ",staff_id:"yonetici",staff_name:"Yönetici"}]);
+                        });
+                        showToast(mkUrunler.length+" ürün açılış stoğuna eklendi");
+                        setMkForm(false);setMkTipSecim(false);setMkTip("");setMkUrunler([]);setMkFatura("");setMkFaturaTarih("");setMkIrsaliye("");setMkTarih(TODAY());setMkFaturaImg("");setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());
+                        return;
+                      }
                       mkUrunler.forEach(u=>{
                         const ad=toN(u.adet),bf=toN(u.birimF);
                         const isk=bf*(toN(u.iskontoOran||"0")/100);
