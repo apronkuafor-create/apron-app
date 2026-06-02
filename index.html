@@ -7717,6 +7717,7 @@ function App() {
   const [gecmis, setGecmis]           = useState([]);
   const [yukleniyor, setYukleniyor]   = useState(true);
   const [personeller, setPersoneller] = useState(DEFAULT_PERSONELLER);
+  const personellerHazirRef = React.useRef(false); // ayarlar(bulut) personel listesi en az bir kez yuklendi mi -> bayat geri-yazmayi engeller
   const [pin, setPin]                 = useState("");
   const [pinHata, setPinHata]         = useState(false);
   const [loginMod, setLoginMod]       = useState("secim");   // "secim"|"yon"|"yon_giris"|"yon_uye"|"per"
@@ -8011,6 +8012,7 @@ ayarlarRaw.forEach(a=>{
   if(a.id==="tema") setTema(a.deger);
   if(a.id==="isletme") { setIsletme(a.deger); try{ localStorage.setItem("apron_isletme", JSON.stringify(a.deger)); }catch(e){} }
   if(a.id==="personeller") {
+    personellerHazirRef.current = true; // bulutta personel satiri var -> otorite bulut, geri-yazma artik guvenli
     // personeller tablosundaki auth_user_id'leri merge et
     (async () => {
       try {
@@ -8175,7 +8177,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
     localStorage.setItem("apron_isletme", JSON.stringify(isletme));
     if(DB && !yukleniyor) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).catch(()=>{});
   }, [isletme, yukleniyor]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"personeller",deger:personeller}).then(()=>{}).catch(()=>{}); },[personeller]);
+  useEffect(()=>{ if(yukleniyor||!DB||!personellerHazirRef.current) return; DB.from("ayarlar").upsert({id:"personeller",deger:personeller}).then(()=>{}).catch(()=>{}); },[personeller]);
   useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"pGruplar",deger:pGruplar}).then(()=>{}).catch(()=>{}); },[pGruplar]);
   useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"hizListeleri",deger:hizListeleri}).then(()=>{}).catch(()=>{}); },[hizListeleri]);
   useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"bankalar",deger:bankalar}).then(()=>{}).catch(()=>{}); },[bankalar]);
@@ -8233,7 +8235,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
     const ayarUygula = (a) => {
       if(!a || !a.id) return;
       if(a.id==="isletme") { setIsletme(a.deger); try{ localStorage.setItem("apron_isletme", JSON.stringify(a.deger)); }catch(e){} }
-      if(a.id==="personeller" && Array.isArray(a.deger)) setPersoneller(a.deger);
+      if(a.id==="personeller" && Array.isArray(a.deger)) { personellerHazirRef.current = true; setPersoneller(a.deger); }
       if(a.id==="pGruplar" && Array.isArray(a.deger)) setPGruplar(a.deger);
       if(a.id==="hizListeleri" && Array.isArray(a.deger)) setHizListeleri(a.deger);
       if(a.id==="giderKategoriler" && a.deger) setGiderKategoriler(a.deger);
@@ -8774,7 +8776,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
     if(!yeniP.ad.trim()){setPHata("Ad Soyad zorunlu");return;}
     if(!yeniP.pin||yeniP.pin.length<6){setPHata("Şifre en az 6 karakter olmalı.");return;}
     if(personeller.find(p=>p.pin===yeniP.pin)){setPHata("Bu PIN kullaniliyor");return;}
-    setPersoneller(p=>[...p,{id:"s"+uid(),ad:yeniP.ad.trim(),pin:yeniP.pin,rol:yeniP.rol,aktif:false}]);
+    setPersoneller(p=>[...p,{id:"s"+uid(),ad:yeniP.ad.trim(),pin:yeniP.pin,rol:yeniP.rol,aktif:true}]);
     setYeniP({ad:"",pin:"",rol:"personel"}); setPEkle(false); setPHata("");
     showToast("Personel eklendi - aktiflestirilmeyi bekliyor");
   };
