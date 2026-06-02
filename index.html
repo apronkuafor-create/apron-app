@@ -8487,8 +8487,23 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
   const perPinGiris = async () => {
     if(!perPin){ setPerPinHata("Şifrenizi girin."); return; }
     if(perPin.length<6){ setPerPinHata("Şifre en az 6 karakter olmalı."); return; }
-    const eslesenler = personeller.filter(x=>x.pin===perPin&&x.aktif&&x.rol!=="yonetici");
-    const k = eslesenler[0];
+    let liste = personeller;
+    let k = liste.find(x=>x.pin===perPin && x.aktif && x.rol!=="yonetici");
+    // Eşleşme yoksa liste henüz yüklenmemiş ya da başka cihazda değişmiş olabilir — Supabase'den taze çek
+    if(!k && DB){
+      try {
+        const { data } = await DB.from("ayarlar").select("deger").eq("id","personeller").maybeSingle();
+        if(data && Array.isArray(data.deger)){
+          liste = data.deger;
+          k = liste.find(x=>x.pin===perPin && x.aktif && x.rol!=="yonetici");
+          // state'i de güncelle, varsa auth_user_id'leri koru
+          setPersoneller(prev => liste.map(p => {
+            const old = prev.find(o=>o.id===p.id);
+            return old && old.auth_user_id ? {...p, auth_user_id: old.auth_user_id} : p;
+          }));
+        }
+      } catch(e){}
+    }
     if(!k){ setPerPinHata("Hatalı şifre. Yöneticinizle iletişime geçin."); setTimeout(()=>{setPerPin("");setPerPinHata("");},2000); return; }
     setKul(k); setPerPin(""); setPerPinHata(""); setLoginMod("secim");
     kapidanGir("personel");
