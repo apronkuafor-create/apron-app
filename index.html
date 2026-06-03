@@ -7997,7 +7997,9 @@ ayarlarRaw.forEach(a=>{
           dbAl("devamsizliklar"),
         ]);
         if(k.length){
-          setRecords(k.filter(r=>r.gonderildi).map(mapR));
+          const gonderilmis = k.filter(r=>r.gonderildi).map(mapR);
+          setRecords(gonderilmis);
+          setGecmis(gonderilmis);
           setBekleyen(k.filter(r=>!r.gonderildi).map(mapR));
         }
         if(m.length) setMusteriDB(m.map(x=>({id:x.id,ad:x.ad,tel:x.tel||"",sahipId:x.sahip_id||"",sahipAd:x.sahip_ad||"",ilkGiris:x.ilk_giris||"",dogumTarihi:x.dogum_tarihi||"",cinsiyet:x.cinsiyet||"",adres:x.adres||"",notlar:x.notlar||""})));
@@ -8205,33 +8207,35 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
           const r = mapR(payload.new);
           if(payload.new.gonderildi){
             setRecords(p=>[r, ...p.filter(x=>x.id!==r.id)]);
+            setGecmis(p=>[r, ...p.filter(x=>x.id!==r.id)]);
             setBekleyen(p=>p.filter(x=>x.id!==r.id));
           } else {
             setBekleyen(p=>[r, ...p.filter(x=>x.id!==r.id)]);
             setRecords(p=>p.filter(x=>x.id!==r.id));
+            setGecmis(p=>p.filter(x=>x.id!==r.id));
           }
         })
         .on("postgres_changes",{event:"UPDATE",schema:"public",table:"kayitlar"},payload=>{
           const r = mapR(payload.new);
           if(payload.new.gonderildi){
             setBekleyen(p=>p.filter(x=>x.id!==r.id));
-            setRecords(p=>{
-              const ex = p.some(x=>x.id===r.id);
-              return ex ? p.map(x=>x.id===r.id?r:x) : [r, ...p];
-            });
+            setRecords(p=>{ const ex=p.some(x=>x.id===r.id); return ex?p.map(x=>x.id===r.id?r:x):[r,...p]; });
+            setGecmis(p=>{ const ex=p.some(x=>x.id===r.id); return ex?p.map(x=>x.id===r.id?r:x):[r,...p]; });
           } else {
             setRecords(p=>p.filter(x=>x.id!==r.id));
-            setBekleyen(p=>{
-              const ex = p.some(x=>x.id===r.id);
-              return ex ? p.map(x=>x.id===r.id?r:x) : [r, ...p];
-            });
+            setGecmis(p=>p.filter(x=>x.id!==r.id));
+            setBekleyen(p=>{ const ex=p.some(x=>x.id===r.id); return ex?p.map(x=>x.id===r.id?r:x):[r,...p]; });
           }
+          setKayitPanelSonuc(p=>p?{...p,kayitlar:(p.kayitlar||[]).map(k=>String(k.id)===String(r.id)?r:k)}:p);
         })
         .on("postgres_changes",{event:"DELETE",schema:"public",table:"kayitlar"},payload=>{
           const id = payload.old && payload.old.id;
           if(!id) return;
           setRecords(p=>p.filter(x=>x.id!==id));
+          setGecmis(p=>p.filter(x=>x.id!==id));
           setBekleyen(p=>p.filter(x=>x.id!==id));
+          setIbanBildirimler(p=>p.filter(b=>String(b.kayitId)!==String(id)));
+          setKayitPanelSonuc(p=>p?{...p,kayitlar:(p.kayitlar||[]).filter(r=>String(r.id)!==String(id))}:p);
         })
         .subscribe();
       channels.push(chK);
@@ -8667,7 +8671,10 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
 
   const kayitSil = id => {
     setSilOnay(null); setDetay(null);
-    setRecords(p=>p.filter(r=>r.id!==id)); setBekleyen(p=>p.filter(r=>r.id!==id));
+    setRecords(p=>p.filter(r=>r.id!==id));
+    setGecmis(p=>p.filter(r=>r.id!==id));
+    setBekleyen(p=>p.filter(r=>r.id!==id));
+    setIbanBildirimler(p=>p.filter(b=>b.kayitId!==id));
     setKayitPanelSonuc(p=>p?{...p,kayitlar:(p.kayitlar||[]).filter(r=>String(r.id)!==String(id))}:p);
     dbSil("kayitlar",id);
     showToast("Kayıt silindi","uy");
@@ -8679,6 +8686,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
     setRecords(p=>p.filter(x=>String(x.id)!==String(r.id)));
     setGecmis(p=>p.filter(x=>String(x.id)!==String(r.id)));
     setBekleyen(p=>p.filter(x=>String(x.id)!==String(r.id)));
+    setIbanBildirimler(p=>p.filter(b=>String(b.kayitId)!==String(r.id)));
     setKayitPanelSonuc(p=>p?{...p,kayitlar:(p.kayitlar||[]).filter(x=>String(x.id)!==String(r.id))}:p);
     dbSil("kayitlar", r.id);
     if(r.staffId){
@@ -8867,6 +8875,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
       setRecords(p=>p.filter(r=>String(r.id)!==String(talep.kayitId)));
       setGecmis(p=>p.filter(r=>String(r.id)!==String(talep.kayitId)));
       setBekleyen(p=>p.filter(r=>String(r.id)!==String(talep.kayitId)));
+      setIbanBildirimler(p=>p.filter(b=>String(b.kayitId)!==String(talep.kayitId)));
       setKayitPanelSonuc(p=>p?{...p,kayitlar:(p.kayitlar||[]).filter(r=>String(r.id)!==String(talep.kayitId))}:p);
       dbSil("kayitlar",talep.kayitId);
       const silB = {id:uid(),kaynak:"talepSonuc",sonuc:"silindi",staffId:talep.staffId,kayitId:talep.kayitId,musteri:talep.musteri||"",tarih:talep.tarih||TODAY(),durum:"bekliyor",tarihGonder:TODAY()};
@@ -9149,6 +9158,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
                     setRecords(p=>p.filter(r=>r.id!==yonDuzForm.kayit.id));
                     setGecmis(p=>p.filter(r=>r.id!==yonDuzForm.kayit.id));
                     setBekleyen(p=>p.filter(r=>r.id!==yonDuzForm.kayit.id));
+                    setIbanBildirimler(p=>p.filter(b=>String(b.kayitId)!==String(yonDuzForm.kayit.id)));
                     setKayitPanelSonuc(p=>p?{...p,kayitlar:(p.kayitlar||[]).filter(r=>String(r.id)!==String(yonDuzForm.kayit.id))}:p);
                     dbSil("kayitlar",yonDuzForm.kayit.id);
                     showToast("Kayıt silindi","uy");
@@ -9219,6 +9229,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
                   setRecords(p=>p.filter(r=>String(r.id)!==String(yonDetay.kayitId)));
                   setGecmis(p=>p.filter(r=>String(r.id)!==String(yonDetay.kayitId)));
                   setBekleyen(p=>p.filter(r=>String(r.id)!==String(yonDetay.kayitId)));
+                  setIbanBildirimler(p=>p.filter(b=>String(b.kayitId)!==String(yonDetay.kayitId)));
                   setKayitPanelSonuc(p=>p?{...p,kayitlar:(p.kayitlar||[]).filter(r=>String(r.id)!==String(yonDetay.kayitId))}:p);
                   dbSil("kayitlar",yonDetay.kayitId);
                 } else if(yonDetay.yeniKayit){
@@ -10380,8 +10391,11 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
             if(!m) return null;
             const temizT = v => String(v||"").replace(/\D/g,"");
             const musTel = temizT(m.tel);
-            // Bu müşteriye ait tüm kayıtlar (records + bekleyen + gecmis) — telefon eşleşmesiyle
-            const tumKayitlar = [...(records||[]),...(bekleyen||[]),...(gecmis||[])];
+            // Bu müşteriye ait tüm kayıtlar — ID bazında tekilleştirilmiş
+            const tumKayitlar = Object.values(
+              [...(records||[]),...(bekleyen||[]),...(gecmis||[])]
+              .reduce((acc,r)=>{ if(r?.id) acc[r.id]=r; return acc; },{})
+            );
             const musteriKayitlar = tumKayitlar.filter(r=>{
               if(!r) return false;
               const rTel = temizT(r.tel);
@@ -11481,7 +11495,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
             ),
 
             // KART: Kayıtlar
-            div({onClick:()=>setPanelAdim("kayitlar"),style:{
+            div({onClick:()=>{ setPanelAdim("kayitlar"); setAsek("kayitlar"); },style:{
               background:"linear-gradient(160deg,#EAFFF2,#D4F7E3)",
               border:"1.5px solid rgba(52,199,89,.18)",
               borderRadius:20,padding:"22px 8px 18px",
@@ -11667,29 +11681,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
           )
         ),
 
-        // ══════════════════════════════════════════
-        // ADIM 2b — KAYITLAR ALT BAŞLIKLARI
-        // ══════════════════════════════════════════
-        panelAdim==="kayitlar"&&!asek&&div({style:{padding:"8px 14px"}},
-          [
-            ["rgba(52,199,89,.10)","🔍","Kayıt Sorgula",()=>setAsek("kayitlar")],
-          ].map(([bg,ikon,lb,fn],i)=>
-            div({key:i,onClick:fn,style:{
-              display:"flex",alignItems:"center",gap:14,
-              background:"#fff",border:"1px solid rgba(0,0,0,.07)",
-              borderRadius:14,padding:"13px 16px",
-              marginBottom:9,cursor:"pointer",
-              boxShadow:"0 1px 6px rgba(0,0,0,.05)"
-            }},
-              div({style:{
-                width:48,height:48,borderRadius:14,background:bg,
-                display:"flex",alignItems:"center",justifyContent:"center",
-                fontSize:26,flexShrink:0
-              }},ikon),
-              div({style:{fontSize:15,fontWeight:600,color:"#1D1D1F",flex:1}},lb)
-            )
-          )
-        ),
+        // (Kayıt Sorgula ara ekranı kaldırıldı — direkt sorgu paneli açılıyor)
 
         // Listeler alt-başlıklar menüsü
         panelAdim==="ayarlar"&&panelAltSek==="listeler"&&!asek&&div({style:{padding:"12px 14px 8px"}},
