@@ -1898,6 +1898,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [sdDuzPartiId, setSdDuzPartiId] = React.useState(null);
   const [sdDuzAdet, setSdDuzAdet] = React.useState("");
   const [sdDuzAlisF, setSdDuzAlisF] = React.useState("");
+  const [sdDuzTarih, setSdDuzTarih] = React.useState("");
   const [sdSilOnay, setSdSilOnay] = React.useState(null); // silinecek parti objesi
 
   // Stok özeti hesapla
@@ -2843,7 +2844,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     background:duzMod?"rgba(0,113,227,.08)":"transparent",color:duzMod?"#0071E3":"var(--mu)"},
                     onClick:()=>{
                       if(duzMod) setSdDuzPartiId(null);
-                      else { setSdSilOnay(null); setSdDuzPartiId(p.id||pi); setSdDuzAdet(String(p.adet)); setSdDuzAlisF(String(p.alisF||"")); }
+                      else { setSdSilOnay(null); setSdDuzPartiId(p.id||pi); setSdDuzAdet(String(p.adet)); setSdDuzAlisF(String(p.alisF||"")); setSdDuzTarih(p.tarih||""); }
                     }},duzMod?"✕":"✏"),
                   // Silme butonu
                   !duzMod&&btn({style:{flexShrink:0,padding:"4px 10px",borderRadius:8,fontSize:12,cursor:"pointer",
@@ -2855,7 +2856,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 duzMod&&div({style:{borderTop:"1px solid rgba(0,113,227,.2)",padding:"12px 14px",
                   background:"rgba(0,113,227,.04)",border:"1px solid rgba(0,113,227,.4)",
                   borderTop:"none",borderRadius:"0 0 10px 10px",marginBottom:6}},
-                  div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                  div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}},
                     div(null,
                       div({style:{fontSize:11,color:"var(--mu)",marginBottom:4,letterSpacing:1,textTransform:"uppercase"}},"Adet"),
                       inp({className:"fi",type:"number",min:"0",step:"1",value:sdDuzAdet,
@@ -2865,6 +2866,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       div({style:{fontSize:11,color:"var(--mu)",marginBottom:4,letterSpacing:1,textTransform:"uppercase"}},"Alış Fiyatı"),
                       inp({className:"fi",type:"number",min:"0",step:"0.01",value:sdDuzAlisF,
                         onChange:e=>setSdDuzAlisF(e.target.value)})
+                    ),
+                    div(null,
+                      div({style:{fontSize:11,color:"var(--mu)",marginBottom:4,letterSpacing:1,textTransform:"uppercase"}},"Tarih"),
+                      inp({className:"fi",type:"date",value:sdDuzTarih,
+                        onChange:e=>setSdDuzTarih(e.target.value)})
                     )
                   ),
                   div({style:{fontSize:12,color:"var(--mu)",marginBottom:10,padding:"6px 10px",background:"var(--bg3)",borderRadius:6}},
@@ -2876,25 +2882,27 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     btn({style:{flex:2,padding:"9px 0",borderRadius:8,border:"none",background:"#1D1D1F",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"},
                       onClick:()=>{
                         const yeniAdet=toN(sdDuzAdet), yeniAlisF=toN(sdDuzAlisF);
+                        const yeniTarih=sdDuzTarih||p.tarih;
                         if(yeniAdet<0){showToast("Adet 0'dan küçük olamaz","uy");return;}
+                        if(!yeniTarih){showToast("Tarih boş olamaz","uy");return;}
                         const df=yeniAdet-p.adet;
                         // 1) stokPartiler
                         setStokPartiler(prev=>prev.map(sp=>{
                           const esles = p.id ? sp.id===p.id : sp===p;
                           if(!esles) return sp;
-                          return {...sp,adet:yeniAdet,kalan:Math.max(0,sp.kalan+df),alisF:yeniAlisF};
+                          return {...sp,adet:yeniAdet,kalan:Math.max(0,sp.kalan+df),alisF:yeniAlisF,tarih:yeniTarih};
                         }));
                         // 2) hareketler
                         setHareketler(prev=>prev.map(hv=>{
                           if(hv.barkod===p.barkod&&hv.faturaN===p.faturaN&&hv.tarih===p.tarih&&hv.tip==="giris")
-                            return {...hv,adet:yeniAdet};
+                            return {...hv,adet:yeniAdet,tarih:yeniTarih};
                           return hv;
                         }));
                         // 3) mkArsiv
                         setMkArsiv(prev=>{
                           const guncellendi=prev.map(ar=>{
                             if(ar.faturaN!==p.faturaN||ar.tarih!==p.tarih) return ar;
-                            return {...ar,urunler:ar.urunler.map(uu=>{
+                            return {...ar,tarih:yeniTarih,urunler:ar.urunler.map(uu=>{
                               if(uu.barkod!==p.barkod) return uu;
                               const b=yeniAdet*yeniAlisF;
                               const iskT=b*(uu.iskontoOran||0)/100;
