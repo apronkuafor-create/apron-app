@@ -7671,6 +7671,11 @@ function App() {
   const [resetDurum, setResetDurum]   = useState(""); // ""|"gonderildi"|"hata"
   const [perPin, setPerPin]            = useState("");    // personel text pin
   const [perPinHata, setPerPinHata]   = useState("");
+  const [pinDeneme, setPinDeneme]     = useState(()=>{ try{ return parseInt(localStorage.getItem("apron_pin_deneme")||"0"); }catch(e){return 0;} });
+  const [pinBloke, setPinBloke]       = useState(()=>localStorage.getItem("apron_pin_bloke")==="1");
+  const [biyoOneriGoster, setBiyoOneriGoster] = useState(false); // başarılı PIN sonrası biyometrik öneri modalı
+  const [biyoKaydediliyor, setBiyoKaydediliyor] = useState(false);
+  const [biyoPendingKul, setBiyoPendingKul] = useState(null); // kayıt için bekleyen personel obj
   const [devUyari, setDevUyari]       = useState(false);
   const [devSec, setDevSec]           = useState("");
   const [devDiger, setDevDiger]       = useState("");
@@ -8431,6 +8436,12 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
 
   // Personel text-pin girişi
   const perPinGiris = async () => {
+    // Bloke kontrol
+    if(pinBloke){
+      setPerPinHata("🔒 Şifreniz bloke oldu. Deneme yapamazsınız. Lütfen yöneticinizle iletişime geçin.");
+      setPerPin("");
+      return;
+    }
     if(!perPin){ setPerPinHata("Şifrenizi girin."); return; }
     if(perPin.length<6){ setPerPinHata("Şifre en az 6 karakter olmalı."); return; }
     let liste = personeller;
@@ -8450,9 +8461,120 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
         }
       } catch(e){}
     }
-    if(!k){ setPerPinHata("Hatalı şifre. Yöneticinizle iletişime geçin."); setTimeout(()=>{setPerPin("");setPerPinHata("");},2000); return; }
+    if(!k){
+      const yeniDeneme = pinDeneme + 1;
+      setPinDeneme(yeniDeneme);
+      localStorage.setItem("apron_pin_deneme", String(yeniDeneme));
+      if(yeniDeneme >= 3){
+        // 3. yanlış → bloke
+        setPinBloke(true);
+        localStorage.setItem("apron_pin_bloke","1");
+        setPerPinHata("🔒 Pin kodunuz bloke oldu. Yöneticinizle iletişime geçin.");
+      } else if(yeniDeneme === 2){
+        // 2. yanlış → uyarı
+        setPerPinHata("⚠️ Bir kez daha yanlış girerseniz pin kodunuz bloke olacak ve yöneticinizden yeni pin kodu isteyeceksiniz.");
+      } else {
+        // 1. yanlış → yöneticiyle iletişim bilgisi
+        setPerPinHata("❌ Hatalı şifre. Şifrenizi unuttuysanız yöneticinizle iletişime geçin.");
+      }
+      setPerPin("");
+      return;
+    }
+    // Başarılı giriş → sayacı sıfırla
+    setPinDeneme(0); localStorage.removeItem("apron_pin_deneme");
     setKul(k); setPerPin(""); setPerPinHata(""); setLoginMod("secim");
-    kapidanGir("personel");
+    // Biyometrik öneri: daha önce "hayır/sorma" demediyse ve cihaz destekliyorsa ve kayıt yoksa
+    const bioRed = localStorage.getItem("apron_bio_red")==="1";
+    const bioKayitli = JSON.parse(localStorage.getItem("apron_bio_creds")||"[]").some(c=>String(c.staffId)===String(k.id));
+    const destekliyor = !!(window.PublicKeyCredential);
+    if(!bioRed && !bioKayitli && destekliyor){
+      setBiyoPendingKul(k);
+      setBiyoOneriGoster(true);
+    } else {
+      kapidanGir("personel");
+    }
+  };
+
+  // Biyometrik giriş (WebAuthn / FaceID / Parmak İzi)
+  const biyometrikGiris = async () => {
+    if(pinBloke){ setPerPinHata("🔒 Şifreniz bloke oldu. Lütfen yöneticinizle iletişime geçin."); return; }
+    if(!window.PublicKeyCredential){ setPerPinHata("Bu cihaz biyometrik girişi desteklemiyor."); return; }
+    try {
+      // Kayıtlı credential id var mı?
+      const savedCreds = JSON.parse(localStorage.getItem("apron_bio_creds")||"[]");
+      if(!savedCreds.length){ setPerPinHata("Biyometrik giriş kayıtlı değil. Önce PIN ile giriş yapın."); return; }
+      const credIds = savedCreds.map(c=>({
+        id: Uint8Array.from(atob(c.id.replace(/-/g,"+").replace(/_/g,"/")), ch=>ch.charCodeAt(0)),
+        type:"public-key"
+      }));
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+      const assertion = await navigator.credentials.get({
+        publicKey:{
+          challenge,
+          allowCredentials: credIds,
+          userVerification:"required",
+          timeout:60000
+        }
+      });
+      if(!assertion){ setPerPinHata("Biyometrik doğrulama başarısız."); return; }
+      // Hangi personele ait bul
+      const matchedCred = savedCreds.find(c=>c.id===btoa(String.fromCharCode(...new Uint8Array(assertion.rawId))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=/g,""));
+      if(!matchedCred){ setPerPinHata("Biyometrik kimlik eşleşmedi."); return; }
+      let liste = personeller;
+      if(!liste.length && DB){
+        try{
+          const { data } = await DB.from("ayarlar").select("deger").eq("id","personeller").maybeSingle();
+          if(data && Array.isArray(data.deger)) liste = data.deger;
+        }catch(e){}
+      }
+      const k = liste.find(x=>String(x.id)===String(matchedCred.staffId) && x.aktif && x.rol!=="yonetici");
+      if(!k){ setPerPinHata("Personel bulunamadı veya hesap pasif."); return; }
+      setPinDeneme(0); localStorage.removeItem("apron_pin_deneme");
+      setKul(k); setPerPin(""); setPerPinHata(""); setLoginMod("secim");
+      kapidanGir("personel");
+    } catch(err){
+      if(err.name==="NotAllowedError"){ setPerPinHata("Biyometrik doğrulama iptal edildi."); }
+      else { setPerPinHata("Biyometrik giriş başarısız: "+err.message); }
+    }
+  };
+
+  // Biyometrik kayıt (WebAuthn register)
+  const biyometrikKaydet = async (kisi) => {
+    if(!window.PublicKeyCredential){ showToast("Bu cihaz biyometrik girişi desteklemiyor.","re"); return false; }
+    setBiyoKaydediliyor(true);
+    try {
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+      const userId = new Uint8Array(16);
+      crypto.getRandomValues(userId);
+      const credential = await navigator.credentials.create({
+        publicKey:{
+          challenge,
+          rp:{ name:"APRON BUSINESS", id: location.hostname||"localhost" },
+          user:{ id:userId, name:kisi.ad, displayName:kisi.ad },
+          pubKeyCredParams:[{alg:-7,type:"public-key"},{alg:-257,type:"public-key"}],
+          authenticatorSelection:{ userVerification:"required", residentKey:"preferred" },
+          timeout:60000
+        }
+      });
+      if(!credential){ setBiyoKaydediliyor(false); return false; }
+      // rawId'yi base64url olarak sakla
+      const b64id = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)))
+        .replace(/\+/g,"-").replace(/\//g,"_").replace(/=/g,"");
+      const mevcutlar = JSON.parse(localStorage.getItem("apron_bio_creds")||"[]");
+      // Aynı personelin eski kaydını temizle, yenisini ekle
+      const yeniler = mevcutlar.filter(c=>String(c.staffId)!==String(kisi.id));
+      yeniler.push({ id:b64id, staffId:String(kisi.id) });
+      localStorage.setItem("apron_bio_creds", JSON.stringify(yeniler));
+      setBiyoKaydediliyor(false);
+      return true;
+    } catch(err){
+      setBiyoKaydediliyor(false);
+      if(err.name==="NotAllowedError") showToast("Biyometrik kayıt iptal edildi.","re");
+      else showToast("Kayıt başarısız: "+err.message,"re");
+      return false;
+    }
   };
 
   // Eski numpad pinGir (IBAN onayı için hâlâ kullanılıyor)
@@ -9657,30 +9779,99 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
       ),
 
       // ── PERSONEL GİRİŞİ ──
-      loginMod==="per"&&div({style:{width:"100%",maxWidth:320}},
-        div({style:{fontSize:11,color:"#86868B",letterSpacing:2,textTransform:"uppercase",
-          marginBottom:16,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Personel Girişi"),
-        div({style:{marginBottom:12}},
-          lbl({className:"fl",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Şifreniz"),
-          inp({className:"fi",type:"password",placeholder:"••••••",value:perPin,
-            style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",letterSpacing:2},
-            onChange:e=>setPerPin(e.target.value),
-            onKeyDown:e=>{if(e.key==="Enter") perPinGiris();}})
-        ),
-        perPinHata&&div({style:{background:"rgba(255,59,48,.08)",border:"1px solid rgba(255,59,48,.25)",
-          borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13,color:"#FF3B30",
-          fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"⚠ "+perPinHata),
-        div({style:{background:"rgba(0,113,227,.06)",border:"1px solid rgba(0,113,227,.15)",
-          borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#0071E3",
-          fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"💡 Şifrenizi unuttuysanız yöneticinizle iletişime geçin."),
-        btn({style:{width:"100%",padding:"14px 0",borderRadius:12,border:"none",
-          background:"#1D1D1F",color:"#FFFFFF",fontSize:15,fontWeight:700,cursor:"pointer",
-          fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},onClick:perPinGiris},"Giriş Yap"),
-        btn({style:{width:"100%",marginTop:10,padding:"11px 0",borderRadius:12,
-          border:"1px solid #E5E5EA",background:"transparent",color:"#86868B",
-          fontSize:14,cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
-          onClick:()=>{setLoginMod("secim");setPerPin("");setPerPinHata("");}},
-          "‹ Geri")
+      loginMod==="per"&&(()=>{
+        const bioKayitli = JSON.parse(localStorage.getItem("apron_bio_creds")||"[]").length > 0;
+        const bioDestekli = !!(window.PublicKeyCredential);
+        return div({style:{width:"100%",maxWidth:320}},
+          div({style:{fontSize:11,color:"#86868B",letterSpacing:2,textTransform:"uppercase",
+            marginBottom:16,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Personel Girişi"),
+          // Biyometrik giriş butonu (kayıt varsa göster)
+          bioKayitli&&bioDestekli&&!pinBloke&&btn({
+            style:{width:"100%",padding:"14px 0",borderRadius:12,border:"1.5px solid #0071E3",
+              background:"rgba(0,113,227,.07)",color:"#0071E3",fontSize:15,fontWeight:700,
+              cursor:"pointer",marginBottom:14,display:"flex",alignItems:"center",
+              justifyContent:"center",gap:10,
+              fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+            onClick:biyometrikGiris},
+            h("span",{style:{fontSize:22,lineHeight:1}},"⬡"),
+            "Parmak İzi / Yüz Tanıma ile Giriş"
+          ),
+          // Bloke durumunda sadece hata göster
+          pinBloke
+            ? div({style:{background:"rgba(255,59,48,.08)",border:"1px solid rgba(255,59,48,.3)",
+                borderRadius:12,padding:"14px 16px",marginBottom:14,fontSize:13,
+                color:"#FF3B30",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
+                textAlign:"center",lineHeight:1.5}},
+                "🔒 Pin kodunuz bloke oldu.",
+                h("br",null),
+                "Lütfen yöneticinizle iletişime geçin."
+              )
+            : div(null,
+                div({style:{marginBottom:12}},
+                  lbl({className:"fl",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Şifreniz"),
+                  inp({className:"fi",type:"password",placeholder:"••••••",value:perPin,
+                    style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",letterSpacing:2},
+                    onChange:e=>setPerPin(e.target.value),
+                    onKeyDown:e=>{if(e.key==="Enter") perPinGiris();}})
+                ),
+                perPinHata&&div({style:{background: pinDeneme>=3?"rgba(255,59,48,.10)":"rgba(255,149,0,.08)",
+                  border:"1px solid "+(pinDeneme>=3?"rgba(255,59,48,.35)":"rgba(255,149,0,.3)"),
+                  borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13,
+                  color: pinDeneme>=3?"#FF3B30":"#FF9500",lineHeight:1.5,
+                  fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},perPinHata),
+                btn({style:{width:"100%",padding:"14px 0",borderRadius:12,border:"none",
+                  background:"#1D1D1F",color:"#FFFFFF",fontSize:15,fontWeight:700,cursor:"pointer",
+                  fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},onClick:perPinGiris},"Giriş Yap")
+              ),
+          btn({style:{width:"100%",marginTop:10,padding:"11px 0",borderRadius:12,
+            border:"1px solid #E5E5EA",background:"transparent",color:"#86868B",
+            fontSize:14,cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+            onClick:()=>{setLoginMod("secim");setPerPin("");setPerPinHata("");}},
+            "‹ Geri")
+        );
+      })(),
+
+      // ── BİYOMETRİK ÖNERİ MODALI ──
+      biyoOneriGoster&&div({style:{position:"fixed",inset:0,zIndex:200,
+        background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",
+        justifyContent:"center",padding:"0 20px"}},
+        div({style:{background:"#FFFFFF",borderRadius:22,width:"100%",maxWidth:340,
+          padding:"28px 24px",boxShadow:"0 24px 64px rgba(0,0,0,.25)",textAlign:"center"}},
+          div({style:{fontSize:48,marginBottom:12,lineHeight:1}},"🔐"),
+          div({style:{fontSize:17,fontWeight:700,color:"#1D1D1F",marginBottom:8,
+            fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+            "Biyometrik Giriş"),
+          div({style:{fontSize:14,color:"#86868B",marginBottom:24,lineHeight:1.55,
+            fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+            "Bundan sonraki girişlerinizde ",
+            h("strong",{style:{color:"#1D1D1F"}},"parmak izi veya yüz tanıma"),
+            " ile hızlıca giriş yapmak ister misiniz?"),
+          biyoKaydediliyor
+            ? div({style:{padding:"14px 0",fontSize:14,color:"#86868B",
+                fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+                "⏳ Lütfen cihazınızda doğrulayın...")
+            : div({style:{display:"flex",flexDirection:"column",gap:10}},
+                btn({style:{width:"100%",padding:"14px 0",borderRadius:12,border:"none",
+                  background:"#1D1D1F",color:"#FFFFFF",fontSize:15,fontWeight:700,
+                  cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+                  onClick:async()=>{
+                    const tamam = await biyometrikKaydet(biyoPendingKul);
+                    setBiyoOneriGoster(false);
+                    if(tamam) showToast("Biyometrik giriş kaydedildi ✓","ba");
+                    kapidanGir("personel");
+                  }},
+                  "✓ Evet, Kullanmak İstiyorum"),
+                btn({style:{width:"100%",padding:"12px 0",borderRadius:12,
+                  border:"1px solid #E5E5EA",background:"transparent",color:"#86868B",
+                  fontSize:14,cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+                  onClick:()=>{
+                    localStorage.setItem("apron_bio_red","1");
+                    setBiyoOneriGoster(false);
+                    kapidanGir("personel");
+                  }},
+                  "Hayır, Teşekkürler")
+              )
+        )
       ),
     ),
 
