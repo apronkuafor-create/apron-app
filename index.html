@@ -56,7 +56,13 @@ window.addEventListener('error', function(e){
 <script>
 /* Body başında da yakala — CDN hatalarının hiçbiri konsola düşmesin */
 window.onerror = function(msg, src, line, col, err){
-  if(msg==='Script error.'||msg==='Script error') return true;
+  if(!msg) return false;
+  var m = String(msg);
+  // Cross-origin maskelenmiş hata
+  if(m === 'Script error.' || m === 'Script error') return true;
+  // CDN kaynaklı hatalar
+  if(src && (src.indexOf('cdn.jsdelivr') !== -1 || src.indexOf('cdnjs.cloudflare') !== -1 ||
+     src.indexOf('unpkg.com') !== -1)) return true;
   return false;
 };
 </script>
@@ -65,8 +71,8 @@ window.onerror = function(msg, src, line, col, err){
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/dist/html5-qrcode.min.js" crossorigin="anonymous" onerror="console.warn('html5-qrcode yüklenemedi')"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous" onerror="console.warn('pdf.js yüklenemedi')"></script>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/dist/html5-qrcode.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
 <script>if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
 
 <script>
@@ -4663,6 +4669,51 @@ function BarkodTarayici({onOku, onKapat}) {
     let zoomTimer = null;
 
     const taraBaslat = async () => {
+      // ── Önce Html5Qrcode dene, yoksa native BarcodeDetector kullan ──
+      const nativeDetector = window.BarcodeDetector && typeof window.BarcodeDetector !== "undefined";
+      const html5QrOk = typeof Html5Qrcode !== "undefined";
+
+      if(!html5QrOk && !nativeDetector){ setHata("genel"); return; }
+
+      // Native BarcodeDetector (iOS 17+, Android Chrome) yolu
+      if(!html5QrOk && nativeDetector){
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+          const video = document.createElement("video");
+          video.srcObject = stream;
+          video.setAttribute("playsinline","true");
+          await video.play();
+          const container = document.getElementById(divId);
+          if(container){ container.innerHTML=""; container.appendChild(video);
+            video.style.cssText="width:100%;height:100%;object-fit:cover;"; }
+          const detector = new BarcodeDetector({formats:["qr_code","ean_13","ean_8","code_128","code_39"]});
+          let active = true;
+          const scan = async () => {
+            if(!active || kapandiRef.current) return;
+            try {
+              const results = await detector.detect(video);
+              if(results.length > 0){
+                active=false;
+                stream.getTracks().forEach(t=>t.stop());
+                bip(); onOku(results[0].rawValue);
+                return;
+              }
+            } catch(e){}
+            if(active) requestAnimationFrame(scan);
+          };
+          requestAnimationFrame(scan);
+          scannerRef.current = { stop: ()=>{ active=false; stream.getTracks().forEach(t=>t.stop()); return Promise.resolve(); } };
+          return;
+        } catch(err){
+          const ad=(err&&err.name)||"";
+          if(ad==="NotAllowedError"||ad==="PermissionDeniedError") setHata("izin");
+          else if(ad==="NotFoundError"||ad==="DevicesNotFoundError") setHata("bulunamadi");
+          else setHata("genel");
+          return;
+        }
+      }
+
+      // Html5Qrcode yolu (mevcut)
       if(typeof Html5Qrcode === "undefined") { setHata("genel"); return; }
       try {
         const scanner = new Html5Qrcode(divId);
