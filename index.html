@@ -46,22 +46,20 @@ color: #e2ecea;
    uygulamayı etkilemez; konsola düşmesini engelle. Uygulamanın kendi (same-origin) hataları
    normal şekilde görünmeye devam eder. */
 window.addEventListener('error', function(e){
-  if(e && e.message === 'Script error.' && !e.filename){ e.preventDefault(); }
+  if(e && (e.message === 'Script error.' || e.message === 'Script error') && !e.filename){ e.preventDefault(); return false; }
 }, true);
 </script>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" crossorigin="anonymous"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
-<script>if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
 
 </head>
 <body>
 <div id="root"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js" crossorigin></script>
-
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
+<script>if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
 
 <script>
 class ErrorBoundary extends React.Component {
@@ -70,16 +68,17 @@ class ErrorBoundary extends React.Component {
     this.state = {hasError:false, error:null};
   }
   static getDerivedStateFromError(error) {
-    // WebSocket / insecure hatalarını yut — uygulamayı çökertme
+    // WebSocket / insecure / cross-origin script hatalarını yut — uygulamayı çökertme
     const msg = error?.message || '';
-    if(msg.includes('WebSocket') || msg.includes('insecure') || msg.includes('WebSocket not available')) {
+    if(msg.includes('WebSocket') || msg.includes('insecure') || msg.includes('WebSocket not available')
+       || msg === 'Script error' || msg === 'Script error.') {
       return {hasError:false, error:null};
     }
     return {hasError:true, error};
   }
   componentDidCatch(error, info) {
     const msg = error?.message || '';
-    if(msg.includes('WebSocket') || msg.includes('insecure')) return;
+    if(msg.includes('WebSocket') || msg.includes('insecure') || msg === 'Script error' || msg === 'Script error.') return;
     console.error('React hata:', error, info);
   }
   render() {
@@ -1853,6 +1852,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [mkArsiv, setMkArsiv] = React.useState([]);
   const [mkAlt, setMkAlt] = React.useState("liste"); // liste | arsiv
   const [arsivAc, setArsivAc] = React.useState(null); // arşiv detay index
+  const [arsivDuzMod, setArsivDuzMod] = React.useState(false); // inline düzenleme modu
+  const [arsivDuzUrunler, setArsivDuzUrunler] = React.useState([]); // düzenlenen ürün listesi
   const [sdAramaF, setSdAramaF] = React.useState(""); // stok durumu arama
   const [cariSek, setCariSek] = React.useState("borclarim");
   const [cariOdeSec, setCariOdeSec] = React.useState(null); // seçili fatura ödemesi için
@@ -2165,7 +2166,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 onClick:()=>onAnaPanel&&onAnaPanel(),title:"Ana panele dön"
               }, h("img",{src:AKTIF_LOGO,style:{height:"100%",maxHeight:38,minHeight:24,width:"auto",objectFit:"contain",display:"block"}})),
               h("button",{style:{background:"rgba(127,184,232,.18)",border:"none",flexShrink:0,color:"#7FB8E8",fontSize:14,cursor:"pointer",padding:"0 14px",height:40,borderRadius:10,fontWeight:700,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4},
-                onClick:()=>setArsivAc(null)
+                onClick:()=>{setArsivAc(null);setArsivDuzMod(false);}
               },"‹ Geri"),
               h("div",{style:{flex:1,fontSize:13,minWidth:0,overflow:"hidden",display:"flex",alignItems:"center",gap:4,flexWrap:"nowrap"}},
                 h("span",{style:{color:"#95B5A0",whiteSpace:"nowrap"}},"Yönetici / Muhasebe / Ürün Muhasebesi / Mal Kabul / "),
@@ -2176,25 +2177,54 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}},
                 div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:17,color:"var(--g)"}},"📁 Arşiv Detayı"),
                 div({style:{display:"flex",gap:8}},
-                  btn({style:{padding:"6px 14px",borderRadius:8,border:"1px solid var(--br)",
+                  !arsivDuzMod&&btn({style:{padding:"6px 14px",borderRadius:8,border:"1px solid var(--br)",
                     background:"rgba(37,99,168,.06)",color:"var(--g)",fontSize:12,cursor:"pointer"},
                     onClick:()=>{
-                      setMkTedarikci(ar.tedarikci||"");setMkFatura(ar.faturaN||"");
-                      setMkFaturaTarih(ar.faturaTarih||"");setMkIrsaliye(ar.irsaliyeN||"");
-                      setMkTarih(ar.tarih||TODAY());setMkFaturaImg(ar.faturaImg||"");setMkVade(ar.vade||"");
-                      setMkUrunler(ar.urunler.map(u=>({barkod:u.barkod,urunAd:u.urunAd,marka:u.marka||"",ml:"",
-                        adet:String(u.adet||""),birimF:String(u.birimF||""),
-                        iskontoOran:String(u.iskontoOran||"0"),kdvOran:String(u.kdvOran||"20")})));
-                      const yeni=mkArsiv.filter((_,j)=>j!==origIdx);
-                      setMkArsiv(yeni);try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeni));}catch(e){}
-                      setArsivAc(null);setMkForm(true);
+                      setArsivDuzUrunler(ar.urunler.map(u=>({...u,
+                        _adet:String(u.adet||""),
+                        _birimF:String(u.birimF||""),
+                        _iskontoOran:String(u.iskontoOran||"0")})));
+                      setArsivDuzMod(true);
                     }},"✏ Düzenle"),
-                  btn({style:{padding:"6px 14px",borderRadius:8,border:"1px solid #3a1010",
+                  arsivDuzMod&&btn({style:{padding:"6px 14px",borderRadius:8,border:"1px solid rgba(52,199,89,.4)",
+                    background:"rgba(52,199,89,.09)",color:"#1a7a34",fontSize:12,fontWeight:700,cursor:"pointer"},
+                    onClick:()=>{
+                      // Yeni ürün listesi hesapla
+                      const yeniUrunler = arsivDuzUrunler.map(u=>{
+                        const adet=toN(u._adet);
+                        const birimF=toN(u._birimF);
+                        const isk=birimF*(toN(u._iskontoOran||"0")/100);
+                        const b=adet*birimF;
+                        const iskT=b*(toN(u._iskontoOran||"0")/100);
+                        const matrah=b-iskT;
+                        const kdvT=matrah*(toN(u.kdvOran||"20")/100);
+                        return {...u,adet,birimF,iskontoOran:toN(u._iskontoOran||"0"),
+                          iskontoTutar:iskT,kdvTutar:kdvT,toplamF:matrah+kdvT,
+                          alisF:birimF-isk};
+                      });
+                      // mkArsiv güncelle
+                      const yeniArsiv=mkArsiv.map((x,j)=>j===origIdx?{...x,urunler:yeniUrunler}:x);
+                      setMkArsiv(yeniArsiv);
+                      try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
+                      // stokPartiler: faturaN + barkod eşleşen partileri güncelle
+                      setStokPartiler(p=>p.map(part=>{
+                        const match=yeniUrunler.find(u=>u.barkod===part.barkod&&part.faturaN===ar.faturaN&&part.tarih===ar.tarih);
+                        if(!match) return part;
+                        const fark=match.adet - (ar.urunler.find(u=>u.barkod===part.barkod)?.adet||0);
+                        return {...part,adet:match.adet,kalan:Math.max(0,part.kalan+fark),alisF:match.alisF};
+                      }));
+                      setArsivDuzMod(false);
+                      showToast("Değişiklikler kaydedildi ✓","ba");
+                    }},"💾 Kaydet"),
+                  arsivDuzMod&&btn({style:{padding:"6px 14px",borderRadius:8,border:"1px solid var(--br)",
+                    background:"transparent",color:"var(--mu)",fontSize:12,cursor:"pointer"},
+                    onClick:()=>setArsivDuzMod(false)},"İptal"),
+                  !arsivDuzMod&&btn({style:{padding:"6px 14px",borderRadius:8,border:"1px solid #3a1010",
                     background:"rgba(160,40,40,.06)",color:"#c05050",fontSize:12,cursor:"pointer"},
                     onClick:()=>{
                       const yeni=mkArsiv.filter((_,j)=>j!==origIdx);
                       setMkArsiv(yeni);try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeni));}catch(e){}
-                      setArsivAc(null);showToast("Kayıt silindi","uy");
+                      setArsivAc(null);setArsivDuzMod(false);showToast("Kayıt silindi","uy");
                     }},"Sil")
                 )
               ),
@@ -2206,6 +2236,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 div({style:{color:"var(--mu)"}},"Geliş: ",h("span",{style:{color:"var(--tx)"}},fmtT(ar.tarih)||"—"))
               )
             ),
+            arsivDuzMod&&div({style:{background:"rgba(0,113,227,.08)",borderBottom:"1px solid rgba(0,113,227,.2)",
+              padding:"8px 14px",flexShrink:0,display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#0071E3"}},"✏️ Düzenleme modu — Birim Fiyat, Adet ve İskonto alanlarını değiştirebilirsiniz. Bitince Kaydet'e basın."),
             div({style:{flex:1,overflowY:"auto",overflowX:"auto"}},
               div({style:{minWidth:760}},
                 div({style:{display:"grid",gridTemplateColumns:"38px 1fr 110px 80px 55px 55px 85px 50px 90px 90px",
@@ -2216,7 +2248,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       borderRight:ci<9?"1px solid var(--br)":"none"}},lb2)
                   )
                 ),
-                ar.urunler.map((u,j)=>
+                (arsivDuzMod ? arsivDuzUrunler : ar.urunler).map((u,j)=>
                   div({key:j,style:{display:"grid",
                     gridTemplateColumns:"38px 1fr 110px 80px 55px 55px 85px 50px 90px 90px",
                     borderBottom:"1px solid var(--br)",
@@ -2227,9 +2259,36 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       u.marka&&div({style:{fontSize:10,color:"var(--di)"}},u.marka)
                     ),
                     div({style:{padding:"9px 5px",fontSize:10,color:"var(--mu)",textAlign:"center",wordBreak:"break-all",lineHeight:1.3,borderRight:"1px solid var(--br)"}},u.barkod||"—"),
-                    div({style:{padding:"9px 5px",textAlign:"center",fontSize:13,color:"var(--tx)",borderRight:"1px solid var(--br)"}},fmt(u.birimF||0)),
-                    div({style:{padding:"9px 5px",textAlign:"center",fontSize:13,color:"var(--tx)",borderRight:"1px solid var(--br)"}},(u.adet||0)),
-                    div({style:{padding:"9px 5px",textAlign:"center",fontSize:12,color:toN(u.iskontoOran)>0?"#e06060":"var(--di)",borderRight:"1px solid var(--br)"}},(u.iskontoOran||0)+"%"),
+                    // Birim Fiyat
+                    div({style:{padding:"4px 5px",textAlign:"center",borderRight:"1px solid var(--br)"}},
+                      arsivDuzMod
+                        ? h("input",{type:"number",min:"0",step:"0.01",
+                            style:{width:"100%",border:"1px solid rgba(0,113,227,.4)",borderRadius:6,
+                              padding:"4px 5px",fontSize:12,textAlign:"center",background:"var(--bg2)",color:"var(--tx)"},
+                            value:u._birimF,
+                            onChange:e=>setArsivDuzUrunler(p=>p.map((x,i)=>i===j?{...x,_birimF:e.target.value}:x))})
+                        : div({style:{fontSize:13,color:"var(--tx)",padding:"5px 0"}},fmt(u.birimF||0))
+                    ),
+                    // Adet
+                    div({style:{padding:"4px 5px",textAlign:"center",borderRight:"1px solid var(--br)"}},
+                      arsivDuzMod
+                        ? h("input",{type:"number",min:"0",step:"1",
+                            style:{width:"100%",border:"1px solid rgba(0,113,227,.4)",borderRadius:6,
+                              padding:"4px 5px",fontSize:12,textAlign:"center",background:"var(--bg2)",color:"var(--tx)"},
+                            value:u._adet,
+                            onChange:e=>setArsivDuzUrunler(p=>p.map((x,i)=>i===j?{...x,_adet:e.target.value}:x))})
+                        : div({style:{fontSize:13,color:"var(--tx)",padding:"5px 0"}},(u.adet||0))
+                    ),
+                    // İskonto
+                    div({style:{padding:"4px 5px",textAlign:"center",borderRight:"1px solid var(--br)"}},
+                      arsivDuzMod
+                        ? h("input",{type:"number",min:"0",max:"100",step:"0.1",
+                            style:{width:"100%",border:"1px solid rgba(0,113,227,.4)",borderRadius:6,
+                              padding:"4px 5px",fontSize:12,textAlign:"center",background:"var(--bg2)",color:"var(--tx)"},
+                            value:u._iskontoOran,
+                            onChange:e=>setArsivDuzUrunler(p=>p.map((x,i)=>i===j?{...x,_iskontoOran:e.target.value}:x))})
+                        : div({style:{fontSize:12,color:toN(u.iskontoOran)>0?"#e06060":"var(--di)",padding:"5px 0"}},(u.iskontoOran||0)+"%")
+                    ),
                     div({style:{padding:"9px 5px",textAlign:"center",fontSize:12,color:toN(u.iskontoTutar)>0?"#e06060":"var(--di)",borderRight:"1px solid var(--br)"}},toN(u.iskontoTutar)>0?("-"+fmt(u.iskontoTutar)):"—"),
                     div({style:{padding:"9px 5px",textAlign:"center",fontSize:12,color:"var(--mu)",borderRight:"1px solid var(--br)"}},(u.kdvOran||20)+"%"),
                     div({style:{padding:"9px 5px",textAlign:"center",fontSize:12,color:"var(--mu)",borderRight:"1px solid var(--br)"}},fmt(u.kdvTutar||0)),
