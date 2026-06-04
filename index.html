@@ -7679,6 +7679,10 @@ function App() {
   const [biyoKaydediliyor, setBiyoKaydediliyor] = useState(false);
   const [biyoPendingKul, setBiyoPendingKul] = useState(null); // kayıt için bekleyen personel obj
   const [biyoOtoDeneniyor, setBiyoOtoDeneniyor] = useState(false); // otomatik tetikleme bekliyor
+  const [yonBiyoOneri, setYonBiyoOneri] = useState(false);
+  const [yonBiyoOto, setYonBiyoOto]     = useState(false);
+  const [yonBiyoKaydediliyor, setYonBiyoKaydediliyor] = useState(false);
+  const [yonBiyoPendingEmail, setYonBiyoPendingEmail] = useState("");
   const [devUyari, setDevUyari]       = useState(false);
   const [devSec, setDevSec]           = useState("");
   const [devDiger, setDevDiger]       = useState("");
@@ -8396,9 +8400,86 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
       else { localStorage.removeItem("apron_hatirla"); localStorage.removeItem("apron_saved_email"); }
       const yon = personeller.find(p=>p.rol==="yonetici") || YONETICI;
       setKul(yon); setLoginMod("secim"); setLoginSifre(""); setLoginHata("");
-      setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); kapidanGir("yonetici");
+      setAsek(""); setPanelAdim("ana"); setPanelAltSek("");
+      // Biyometrik öneri: daha önce "hayır" demediyse, kayıt yoksa, cihaz destekliyorsa
+      const emailGiris = loginEmail.trim();
+      const yonBioRed = localStorage.getItem("apron_yon_bio_red")==="1";
+      const yonBioKayitli = JSON.parse(localStorage.getItem("apron_yon_bio_creds")||"[]").some(c=>c.email===emailGiris);
+      if(!yonBioRed && !yonBioKayitli && !!(window.PublicKeyCredential)){
+        setYonBiyoPendingEmail(emailGiris);
+        setYonBiyoOneri(true);
+      } else {
+        kapidanGir("yonetici");
+      }
     } catch(e){ setLoginHata("Bağlantı hatası."); }
     setLoginYuk(false);
+  };
+
+  // Yönetici biyometrik giriş
+  const yonBiyometrikGiris = async (otomatik=false) => {
+    if(!window.PublicKeyCredential){ if(!otomatik) setLoginHata("Bu cihaz biyometrik girişi desteklemiyor."); return; }
+    const savedCreds = JSON.parse(localStorage.getItem("apron_yon_bio_creds")||"[]");
+    if(!savedCreds.length){ if(!otomatik) setLoginHata("Biyometrik giriş kayıtlı değil. Önce email+şifre ile giriş yapın."); return; }
+    if(!otomatik) setLoginHata("");
+    setYonBiyoOto(true);
+    try {
+      const credIds = savedCreds.map(c=>({
+        id: Uint8Array.from(atob(c.id.replace(/-/g,"+").replace(/_/g,"/")), ch=>ch.charCodeAt(0)),
+        type:"public-key"
+      }));
+      const challenge = new Uint8Array(32); crypto.getRandomValues(challenge);
+      const assertion = await navigator.credentials.get({
+        publicKey:{ challenge, allowCredentials:credIds, userVerification:"required", timeout: otomatik?30000:60000 }
+      });
+      setYonBiyoOto(false);
+      if(!assertion){ if(!otomatik) setLoginHata("Biyometrik doğrulama başarısız."); return; }
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(assertion.rawId))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=/g,"");
+      const matched = savedCreds.find(c=>c.id===b64);
+      if(!matched){ if(!otomatik) setLoginHata("Biyometrik kimlik eşleşmedi."); return; }
+      const yon = personeller.find(p=>p.rol==="yonetici") || YONETICI;
+      setKul(yon); setLoginMod("secim"); setLoginHata("");
+      setAsek(""); setPanelAdim("ana"); setPanelAltSek("");
+      kapidanGir("yonetici");
+    } catch(err){
+      setYonBiyoOto(false);
+      if(!otomatik){
+        if(err.name==="NotAllowedError") setLoginHata("Biyometrik doğrulama iptal edildi.");
+        else setLoginHata("Biyometrik giriş başarısız: "+err.message);
+      }
+    }
+  };
+
+  // Yönetici biyometrik kayıt
+  const yonBiyometrikKaydet = async (email) => {
+    if(!window.PublicKeyCredential){ showToast("Bu cihaz biyometrik girişi desteklemiyor.","re"); return false; }
+    setYonBiyoKaydediliyor(true);
+    try {
+      const challenge = new Uint8Array(32); crypto.getRandomValues(challenge);
+      const userId = new Uint8Array(16); crypto.getRandomValues(userId);
+      const credential = await navigator.credentials.create({
+        publicKey:{
+          challenge,
+          rp:{ name:"APRON BUSINESS", id: location.hostname||"localhost" },
+          user:{ id:userId, name:email, displayName:"Yönetici" },
+          pubKeyCredParams:[{alg:-7,type:"public-key"},{alg:-257,type:"public-key"}],
+          authenticatorSelection:{ userVerification:"required", residentKey:"preferred" },
+          timeout:60000
+        }
+      });
+      if(!credential){ setYonBiyoKaydediliyor(false); return false; }
+      const b64id = btoa(String.fromCharCode(...new Uint8Array(credential.rawId))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=/g,"");
+      const mevcutlar = JSON.parse(localStorage.getItem("apron_yon_bio_creds")||"[]");
+      const yeniler = mevcutlar.filter(c=>c.email!==email);
+      yeniler.push({ id:b64id, email });
+      localStorage.setItem("apron_yon_bio_creds", JSON.stringify(yeniler));
+      setYonBiyoKaydediliyor(false);
+      return true;
+    } catch(err){
+      setYonBiyoKaydediliyor(false);
+      if(err.name==="NotAllowedError") showToast("Biyometrik kayıt iptal edildi.","re");
+      else showToast("Kayıt başarısız: "+err.message,"re");
+      return false;
+    }
   };
 
   // Üye ol
@@ -8438,8 +8519,18 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
     const saved = JSON.parse(localStorage.getItem("apron_bio_creds")||"[]");
     if(!saved.length) return;
     if(!window.PublicKeyCredential) return;
-    // Kısa gecikme: ekran render'ı tamamlansın, sonra tetikle
     const t = setTimeout(()=>{ biyometrikGiris(true); }, 300);
+    return ()=>clearTimeout(t);
+  // eslint-disable-next-line
+  }, [loginMod]);
+
+  // Yönetici giriş formu açıldığında biyometrik kayıt varsa otomatik tetikle
+  useEffect(()=>{
+    if(loginMod !== "yon_giris") return;
+    const saved = JSON.parse(localStorage.getItem("apron_yon_bio_creds")||"[]");
+    if(!saved.length) return;
+    if(!window.PublicKeyCredential) return;
+    const t = setTimeout(()=>{ yonBiyometrikGiris(true); }, 300);
     return ()=>clearTimeout(t);
   // eslint-disable-next-line
   }, [loginMod]);
@@ -9697,70 +9788,145 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
       ),
 
       // ── YÖNETİCİ GİRİŞ FORMU ──
-      loginMod==="yon_giris"&&div({style:{width:"100%",maxWidth:320}},
-        // Şifremi unuttum modal
-        sifremiUnuttum&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:999,
-          display:"flex",alignItems:"center",justifyContent:"center",padding:16}},
-          div({style:{background:"#FFFFFF",borderRadius:18,padding:24,width:"100%",maxWidth:340}},
-            div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F",marginBottom:4,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Şifre Sıfırlama"),
-            div({style:{fontSize:13,color:"#86868B",marginBottom:16,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Email adresinize sıfırlama bağlantısı göndereceğiz."),
-            resetDurum==="gonderildi"
-              ? div({style:{background:"rgba(52,199,89,.1)",border:"1px solid rgba(52,199,89,.3)",
-                  borderRadius:12,padding:14,textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:14,color:"#1A7A34"}},
-                  "✅ Sıfırlama maili gönderildi. Mailinizi kontrol edin.")
-              : div(null,
-                  inp({className:"fi",type:"email",placeholder:"Email adresiniz",value:resetMail,
-                    style:{marginBottom:8,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},onChange:e=>setResetMail(e.target.value)}),
-                  resetDurum==="hata"&&div({style:{color:"#FF3B30",fontSize:12,marginBottom:8,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Geçerli bir email girin."),
-                  div({style:{display:"flex",gap:8}},
-                    btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid #E5E5EA",
-                      background:"#F5F5F7",color:"#1D1D1F",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
-                      onClick:()=>{setSifremiUnuttum(false);setResetMail("");setResetDurum("");}},"İptal"),
-                    btn({style:{flex:2,padding:"11px 0",borderRadius:10,border:"none",
-                      background:"#1D1D1F",color:"#FFFFFF",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
-                      onClick:sifreReset},"Mail Gönder")
+      loginMod==="yon_giris"&&(()=>{
+        const yonBioKayitli = JSON.parse(localStorage.getItem("apron_yon_bio_creds")||"[]").length > 0;
+        const bioDestekli = !!(window.PublicKeyCredential);
+        return div({style:{width:"100%",maxWidth:320}},
+          // Şifremi unuttum modal
+          sifremiUnuttum&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:999,
+            display:"flex",alignItems:"center",justifyContent:"center",padding:16}},
+            div({style:{background:"#FFFFFF",borderRadius:18,padding:24,width:"100%",maxWidth:340}},
+              div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F",marginBottom:4,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Şifre Sıfırlama"),
+              div({style:{fontSize:13,color:"#86868B",marginBottom:16,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Email adresinize sıfırlama bağlantısı göndereceğiz."),
+              resetDurum==="gonderildi"
+                ? div({style:{background:"rgba(52,199,89,.1)",border:"1px solid rgba(52,199,89,.3)",
+                    borderRadius:12,padding:14,textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:14,color:"#1A7A34"}},
+                    "✅ Sıfırlama maili gönderildi. Mailinizi kontrol edin.")
+                : div(null,
+                    inp({className:"fi",type:"email",placeholder:"Email adresiniz",value:resetMail,
+                      style:{marginBottom:8,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},onChange:e=>setResetMail(e.target.value)}),
+                    resetDurum==="hata"&&div({style:{color:"#FF3B30",fontSize:12,marginBottom:8,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Geçerli bir email girin."),
+                    div({style:{display:"flex",gap:8}},
+                      btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid #E5E5EA",
+                        background:"#F5F5F7",color:"#1D1D1F",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+                        onClick:()=>{setSifremiUnuttum(false);setResetMail("");setResetDurum("");}},"İptal"),
+                      btn({style:{flex:2,padding:"11px 0",borderRadius:10,border:"none",
+                        background:"#1D1D1F",color:"#FFFFFF",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+                        onClick:sifreReset},"Mail Gönder")
+                    )
                   )
-                )
-          )
-        ),
-        div({style:{fontSize:11,color:"#86868B",letterSpacing:2,textTransform:"uppercase",
-          marginBottom:14,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Yönetici Girişi"),
-        div({style:{marginBottom:10}},
-          lbl({className:"fl",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Email"),
-          inp({className:"fi",type:"email",placeholder:"ornek@mail.com",value:loginEmail,
-            style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},onChange:e=>setLoginEmail(e.target.value),
-            onKeyDown:e=>{if(e.key==="Enter") yoneticiGiris();}})),
-        div({style:{marginBottom:14}},
-          lbl({className:"fl",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Şifre"),
-          inp({className:"fi",type:"password",placeholder:"••••••••",value:loginSifre,
-            style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},onChange:e=>setLoginSifre(e.target.value),
-            onKeyDown:e=>{if(e.key==="Enter") yoneticiGiris();}})),
-        div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}},
-          div({style:{display:"flex",alignItems:"center",gap:8,cursor:"pointer"},onClick:()=>setBeniHatirla(p=>!p)},
-            div({style:{width:18,height:18,borderRadius:5,flexShrink:0,transition:"all .15s",
-              border:"1.5px solid "+(beniHatirla?"#1D1D1F":"#C7C7CC"),
-              background:beniHatirla?"#1D1D1F":"transparent",
-              display:"flex",alignItems:"center",justifyContent:"center"}},
-              beniHatirla&&h("span",{style:{color:"#FFFFFF",fontSize:12,fontWeight:700}},"✓")
-            ),
-            h("span",{style:{fontSize:13,color:"#1D1D1F",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Beni hatırla")
+            )
           ),
-          btn({style:{background:"transparent",border:"none",color:"#0071E3",fontSize:13,
-            cursor:"pointer",padding:0,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontWeight:500},
-            onClick:()=>{setSifremiUnuttum(true);setResetMail(loginEmail);setResetDurum("");}},"Şifremi unuttum")
-        ),
-        loginHata&&div({style:{background:"rgba(255,59,48,.08)",border:"1px solid rgba(255,59,48,.25)",
-          borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13,color:"#FF3B30",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"⚠ "+loginHata),
-        btn({style:{width:"100%",padding:"14px 0",borderRadius:12,border:"none",
-          background:"#1D1D1F",color:"#FFFFFF",fontSize:15,fontWeight:700,cursor:"pointer",
-          fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",opacity:loginYukleniyor?0.7:1},
-          onClick:yoneticiGiris,disabled:loginYukleniyor},
-          loginYukleniyor?"Giriş yapılıyor...":"Giriş Yap"),
-        btn({style:{width:"100%",marginTop:10,padding:"11px 0",borderRadius:12,
-          border:"1px solid #E5E5EA",background:"transparent",color:"#86868B",
-          fontSize:14,cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
-          onClick:()=>{setLoginMod("yon");setLoginHata("");}},
-          "‹ Geri")
+          div({style:{fontSize:11,color:"#86868B",letterSpacing:2,textTransform:"uppercase",
+            marginBottom:14,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Yönetici Girişi"),
+
+          // Otomatik biyometrik bekleme
+          yonBiyoOto
+            ? div({style:{textAlign:"center",padding:"32px 0 24px"}},
+                div({style:{fontSize:52,marginBottom:14,lineHeight:1,animation:"pulse 1.5s ease-in-out infinite"}},"⬡"),
+                div({style:{fontSize:15,fontWeight:600,color:"#1D1D1F",marginBottom:6,
+                  fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Kimliğiniz doğrulanıyor…"),
+                div({style:{fontSize:13,color:"#86868B",marginBottom:20,
+                  fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Cihazınızın sensörüne bakın veya parmağınızı okutun"),
+                btn({style:{padding:"10px 24px",borderRadius:10,border:"1px solid #E5E5EA",
+                  background:"transparent",color:"#86868B",fontSize:13,cursor:"pointer",
+                  fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+                  onClick:()=>setYonBiyoOto(false)},
+                  "Şifre ile giriş yap")
+              )
+            : div(null,
+                // Biyometrik buton (kayıt varsa)
+                yonBioKayitli&&bioDestekli&&btn({
+                  style:{width:"100%",padding:"14px 0",borderRadius:12,border:"1.5px solid #0071E3",
+                    background:"rgba(0,113,227,.07)",color:"#0071E3",fontSize:15,fontWeight:700,
+                    cursor:"pointer",marginBottom:14,display:"flex",alignItems:"center",
+                    justifyContent:"center",gap:10,
+                    fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+                  onClick:()=>yonBiyometrikGiris(false)},
+                  h("span",{style:{fontSize:22,lineHeight:1}},"⬡"),
+                  "Parmak İzi / Yüz Tanıma ile Giriş"
+                ),
+                div({style:{marginBottom:10}},
+                  lbl({className:"fl",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Email"),
+                  inp({className:"fi",type:"email",placeholder:"ornek@mail.com",value:loginEmail,
+                    style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},onChange:e=>setLoginEmail(e.target.value),
+                    onKeyDown:e=>{if(e.key==="Enter") yoneticiGiris();}})),
+                div({style:{marginBottom:14}},
+                  lbl({className:"fl",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Şifre"),
+                  inp({className:"fi",type:"password",placeholder:"••••••••",value:loginSifre,
+                    style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},onChange:e=>setLoginSifre(e.target.value),
+                    onKeyDown:e=>{if(e.key==="Enter") yoneticiGiris();}})),
+                div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}},
+                  div({style:{display:"flex",alignItems:"center",gap:8,cursor:"pointer"},onClick:()=>setBeniHatirla(p=>!p)},
+                    div({style:{width:18,height:18,borderRadius:5,flexShrink:0,transition:"all .15s",
+                      border:"1.5px solid "+(beniHatirla?"#1D1D1F":"#C7C7CC"),
+                      background:beniHatirla?"#1D1D1F":"transparent",
+                      display:"flex",alignItems:"center",justifyContent:"center"}},
+                      beniHatirla&&h("span",{style:{color:"#FFFFFF",fontSize:12,fontWeight:700}},"✓")
+                    ),
+                    h("span",{style:{fontSize:13,color:"#1D1D1F",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Beni hatırla")
+                  ),
+                  btn({style:{background:"transparent",border:"none",color:"#0071E3",fontSize:13,
+                    cursor:"pointer",padding:0,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontWeight:500},
+                    onClick:()=>{setSifremiUnuttum(true);setResetMail(loginEmail);setResetDurum("");}},"Şifremi unuttum")
+                ),
+                loginHata&&div({style:{background:"rgba(255,59,48,.08)",border:"1px solid rgba(255,59,48,.25)",
+                  borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13,color:"#FF3B30",
+                  fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"⚠ "+loginHata),
+                btn({style:{width:"100%",padding:"14px 0",borderRadius:12,border:"none",
+                  background:"#1D1D1F",color:"#FFFFFF",fontSize:15,fontWeight:700,cursor:"pointer",
+                  fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",opacity:loginYukleniyor?0.7:1},
+                  onClick:yoneticiGiris,disabled:loginYukleniyor},
+                  loginYukleniyor?"Giriş yapılıyor...":"Giriş Yap")
+              ),
+          btn({style:{width:"100%",marginTop:10,padding:"11px 0",borderRadius:12,
+            border:"1px solid #E5E5EA",background:"transparent",color:"#86868B",
+            fontSize:14,cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+            onClick:()=>{setYonBiyoOto(false);setLoginMod("yon");setLoginHata("");}},
+            "‹ Geri")
+        );
+      })(),
+
+      // ── YÖNETİCİ BİYOMETRİK ÖNERİ MODALI ──
+      yonBiyoOneri&&div({style:{position:"fixed",inset:0,zIndex:200,
+        background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",
+        justifyContent:"center",padding:"0 20px"}},
+        div({style:{background:"#FFFFFF",borderRadius:22,width:"100%",maxWidth:340,
+          padding:"28px 24px",boxShadow:"0 24px 64px rgba(0,0,0,.25)",textAlign:"center"}},
+          div({style:{fontSize:48,marginBottom:12,lineHeight:1}},"🔐"),
+          div({style:{fontSize:17,fontWeight:700,color:"#1D1D1F",marginBottom:8,
+            fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Biyometrik Giriş"),
+          div({style:{fontSize:14,color:"#86868B",marginBottom:24,lineHeight:1.55,
+            fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+            "Bundan sonraki girişlerinizde ",
+            h("strong",{style:{color:"#1D1D1F"}},"parmak izi veya yüz tanıma"),
+            " ile hızlıca giriş yapmak ister misiniz?"),
+          yonBiyoKaydediliyor
+            ? div({style:{padding:"14px 0",fontSize:14,color:"#86868B",
+                fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+                "⏳ Lütfen cihazınızda doğrulayın...")
+            : div({style:{display:"flex",flexDirection:"column",gap:10}},
+                btn({style:{width:"100%",padding:"14px 0",borderRadius:12,border:"none",
+                  background:"#1D1D1F",color:"#FFFFFF",fontSize:15,fontWeight:700,
+                  cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+                  onClick:async()=>{
+                    const tamam = await yonBiyometrikKaydet(yonBiyoPendingEmail);
+                    setYonBiyoOneri(false);
+                    if(tamam) showToast("Biyometrik giriş kaydedildi ✓","ba");
+                    kapidanGir("yonetici");
+                  }},
+                  "✓ Evet, Kullanmak İstiyorum"),
+                btn({style:{width:"100%",padding:"12px 0",borderRadius:12,
+                  border:"1px solid #E5E5EA",background:"transparent",color:"#86868B",
+                  fontSize:14,cursor:"pointer",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+                  onClick:()=>{
+                    localStorage.setItem("apron_yon_bio_red","1");
+                    setYonBiyoOneri(false);
+                    kapidanGir("yonetici");
+                  }},
+                  "Hayır, Teşekkürler")
+              )
+        )
       ),
 
       // ── ÜYE OL FORMU ──
