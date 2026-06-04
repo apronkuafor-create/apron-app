@@ -1898,6 +1898,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [sdDuzPartiId, setSdDuzPartiId] = React.useState(null);
   const [sdDuzAdet, setSdDuzAdet] = React.useState("");
   const [sdDuzAlisF, setSdDuzAlisF] = React.useState("");
+  const [sdSilOnay, setSdSilOnay] = React.useState(null); // silinecek parti objesi
 
   // Stok özeti hesapla
   const stokOzet = React.useMemo(()=>{
@@ -1933,10 +1934,23 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     });
   },[stokOzet]);
 
-  // Arşivi localStorage'dan yükle
+  // Arşivi önce localStorage'dan, sonra Supabase'den yükle
   React.useEffect(()=>{
-    try{const a=JSON.parse(localStorage.getItem("apron_mk_arsiv")||"[]");setMkArsiv(a);}catch(e){}
+    try{const a=JSON.parse(localStorage.getItem("apron_mk_arsiv")||"[]"); if(a.length) setMkArsiv(a);}catch(e){}
+    // Supabase'den taze veriyi çek (localStorage'dan daha güncel olabilir)
+    if(DB){
+      DB.from("ayarlar").select("deger").eq("id","mkArsiv").maybeSingle()
+        .then(({data})=>{ if(data?.deger?.length) { setMkArsiv(data.deger); try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(data.deger));}catch(e){} } })
+        .catch(()=>{});
+    }
   },[]);
+
+  // mkArsiv Supabase sync
+  React.useEffect(()=>{
+    if(!DB||!mkArsiv) return;
+    DB.from("ayarlar").upsert({id:"mkArsiv",deger:mkArsiv}).then(()=>{}).catch(()=>{});
+    try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(mkArsiv));}catch(e){}
+  },[mkArsiv]);
 
   // UrunAramaBilesen dışarıda tanımlı (klavye kapanma sorunu için)
 
@@ -2754,6 +2768,59 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:16}},
             div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},
               "📦 Parti Detayları ("+u.partiler.length+" parti)"),
+
+            // ── Silme onay modalı ──
+            sdSilOnay&&div({style:{background:"rgba(192,40,40,.07)",border:"1px solid rgba(192,40,40,.25)",
+              borderRadius:12,padding:"14px 16px",marginBottom:12}},
+              div({style:{fontSize:13,fontWeight:600,color:"#c05050",marginBottom:6}},
+                "🗑 Bu partiyi silmek istediğinizden emin misiniz?"),
+              div({style:{fontSize:12,color:"var(--mu)",marginBottom:12,lineHeight:1.5}},
+                h("strong",null,fmtT(sdSilOnay.tarih)),
+                (sdSilOnay.faturaN?" · "+sdSilOnay.faturaN:""),
+                (sdSilOnay.tip==="acilis"?" · 🏁 Açılış/Devir":""),
+                h("br",null),
+                sdSilOnay.adet+" adet × "+fmt(sdSilOnay.alisF||0)+
+                "  ·  Kalan: "+sdSilOnay.kalan+" adet"
+              ),
+              sdSilOnay.kalan>0&&div({style:{fontSize:12,color:"#c05050",marginBottom:10,
+                padding:"6px 10px",background:"rgba(192,40,40,.06)",borderRadius:6}},
+                "⚠️ Bu partide "+sdSilOnay.kalan+" adet stok var. Silince bu stok da silinecek."),
+              div({style:{display:"flex",gap:8}},
+                btn({style:{flex:2,padding:"9px 0",borderRadius:8,border:"none",
+                  background:"#c05050",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"},
+                  onClick:()=>{
+                    const p = sdSilOnay;
+                    // 1) stokPartiler — bu partiyi çıkar
+                    setStokPartiler(prev=>prev.filter(sp=>{
+                      const esles = p.id ? sp.id===p.id : sp===p;
+                      return !esles;
+                    }));
+                    // 2) hareketler — bu partinin giriş hareketini sil
+                    setHareketler(prev=>prev.filter(hv=>
+                      !(hv.barkod===p.barkod&&hv.faturaN===p.faturaN&&hv.tarih===p.tarih&&hv.tip==="giris")
+                    ));
+                    // 3) mkArsiv — bu faturadaki ilgili ürünü sil
+                    setMkArsiv(prev=>{
+                      const guncellendi=prev.map(ar=>{
+                        if(ar.faturaN!==p.faturaN||ar.tarih!==p.tarih) return ar;
+                        const yeniUrunler=ar.urunler.filter(uu=>uu.barkod!==p.barkod);
+                        // Faturada başka ürün kalmadıysa arşivden de sil
+                        if(yeniUrunler.length===0) return null;
+                        return {...ar,urunler:yeniUrunler};
+                      }).filter(Boolean);
+                      try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(guncellendi));}catch(ex){}
+                      return guncellendi;
+                    });
+                    setSdSilOnay(null);
+                    showToast("Parti silindi","uy");
+                  }},"Evet, Sil"),
+                btn({style:{flex:1,padding:"9px 0",borderRadius:8,
+                  border:"1px solid var(--br)",background:"transparent",color:"var(--mu)",
+                  fontSize:13,cursor:"pointer"},
+                  onClick:()=>setSdSilOnay(null)},"Vazgeç")
+              )
+            ),
+
             u.partiler.sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||"")).map((p,pi)=>{
               const duzMod = sdDuzPartiId === (p.id||pi);
               const fark = toN(sdDuzAdet) - p.adet;
@@ -2770,13 +2837,20 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   div({style:{textAlign:"right",flexShrink:0,marginRight:8}},
                     div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt((p.kalan||0)*(p.alisF||0)))
                   ),
+                  // Düzenleme butonu
                   btn({style:{flexShrink:0,padding:"4px 10px",borderRadius:8,fontSize:12,cursor:"pointer",
                     border:"1px solid "+(duzMod?"rgba(0,113,227,.5)":"var(--br)"),
                     background:duzMod?"rgba(0,113,227,.08)":"transparent",color:duzMod?"#0071E3":"var(--mu)"},
                     onClick:()=>{
                       if(duzMod) setSdDuzPartiId(null);
-                      else { setSdDuzPartiId(p.id||pi); setSdDuzAdet(String(p.adet)); setSdDuzAlisF(String(p.alisF||"")); }
-                    }},duzMod?"✕":"✏")
+                      else { setSdSilOnay(null); setSdDuzPartiId(p.id||pi); setSdDuzAdet(String(p.adet)); setSdDuzAlisF(String(p.alisF||"")); }
+                    }},duzMod?"✕":"✏"),
+                  // Silme butonu
+                  !duzMod&&btn({style:{flexShrink:0,padding:"4px 10px",borderRadius:8,fontSize:12,cursor:"pointer",
+                    border:"1px solid rgba(192,40,40,.3)",
+                    background:"rgba(192,40,40,.06)",color:"#c05050"},
+                    onClick:()=>{ setSdDuzPartiId(null); setSdSilOnay(sdSilOnay&&(sdSilOnay===p||(p.id&&sdSilOnay.id===p.id))?null:p); }
+                  },"🗑")
                 ),
                 duzMod&&div({style:{borderTop:"1px solid rgba(0,113,227,.2)",padding:"12px 14px",
                   background:"rgba(0,113,227,.04)",border:"1px solid rgba(0,113,227,.4)",
@@ -8202,6 +8276,9 @@ ayarlarRaw.forEach(a=>{
   if(a.id==="bolumStilleri") setBolumStilleri(a.deger||{});
   if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(a.deger);
   if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(a.deger);
+  if(a.id==="stokPartiler" && Array.isArray(a.deger) && a.deger.length) setStokPartiler(a.deger);
+  if(a.id==="hareketler" && Array.isArray(a.deger) && a.deger.length) setHareketler(a.deger);
+  if(a.id==="mkArsiv" && Array.isArray(a.deger) && a.deger.length){ setMkArsiv(a.deger); try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(a.deger));}catch(e){} }
 });
         const [k,m,d] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
@@ -8355,6 +8432,8 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
   useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"zamGecmisi",deger:zamGecmisi}).then(()=>{}).catch(()=>{}); },[zamGecmisi]);
   useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"giderler",deger:giderler}).then(()=>{}).catch(()=>{}); },[giderler]);
   useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"giderKategoriler",deger:giderKategoriler}).then(()=>{}).catch(()=>{}); },[giderKategoriler]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"stokPartiler",deger:stokPartiler}).then(()=>{}).catch(()=>{}); },[stokPartiler]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"hareketler",deger:hareketler}).then(()=>{}).catch(()=>{}); },[hareketler]);
 
 
 
