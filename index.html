@@ -42,23 +42,31 @@ color: #e2ecea;
 </style>
 
 <script>
-/* Dış (cross-origin) scriptlerin tarayıcı tarafından maskelenen "Script error." mesajları
-   uygulamayı etkilemez; konsola düşmesini engelle. Uygulamanın kendi (same-origin) hataları
-   normal şekilde görünmeye devam eder. */
+/* Cross-origin "Script error." mesajlarını ve yüklenemeyen CDN script hatalarını yut */
 window.addEventListener('error', function(e){
-  if(e && (e.message === 'Script error.' || e.message === 'Script error') && !e.filename){ e.preventDefault(); return false; }
+  if(!e) return;
+  if(e.message==='Script error.'||e.message==='Script error') { e.preventDefault(); return false; }
+  var t = e.target || e.srcElement;
+  if(t && t.tagName==='SCRIPT') { e.preventDefault(); return false; }
 }, true);
 </script>
 
 </head>
 <body>
+<script>
+/* Body başında da yakala — CDN hatalarının hiçbiri konsola düşmesin */
+window.onerror = function(msg, src, line, col, err){
+  if(msg==='Script error.'||msg==='Script error') return true;
+  return false;
+};
+</script>
 <div id="root"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js" crossorigin></script>
-<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" crossorigin="anonymous"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/dist/html5-qrcode.min.js" crossorigin="anonymous" onerror="console.warn('html5-qrcode yüklenemedi')"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous" onerror="console.warn('pdf.js yüklenemedi')"></script>
 <script>if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
 
 <script>
@@ -1873,6 +1881,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [sdSecili, setSdSecili] = React.useState(null);
   const [sdSatisFiyat, setSdSatisFiyat] = React.useState("");
   const [sdBarkod, setSdBarkod] = React.useState("");
+  const [sdDuzPartiId, setSdDuzPartiId] = React.useState(null);
+  const [sdDuzAdet, setSdDuzAdet] = React.useState("");
+  const [sdDuzAlisF, setSdDuzAlisF] = React.useState("");
 
   // Stok özeti hesapla
   const stokOzet = React.useMemo(()=>{
@@ -2729,22 +2740,93 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:16}},
             div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},
               "📦 Parti Detayları ("+u.partiler.length+" parti)"),
-            u.partiler.sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||"")).map((p,i)=>
-              div({key:p.id||i,style:{display:"flex",alignItems:"center",gap:10,
-                padding:"10px 12px",background:"var(--bg)",borderRadius:10,marginBottom:6,border:"1px solid var(--br)"}},
-                div({style:{width:6,height:36,borderRadius:3,flexShrink:0,
-                  background:p.kalan>0?"var(--gr)":"var(--br)"}}),
-                div({style:{flex:1,minWidth:0}},
-                  div({style:{fontSize:13,color:"var(--tx)"}},fmtT(p.tarih)+(p.faturaN?" · "+p.faturaN:"")),
-                  div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},
-                    p.adet+" adet × "+fmt(p.alisF||0)+" · Kalan: "+p.kalan)
+            u.partiler.sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||"")).map((p,pi)=>{
+              const duzMod = sdDuzPartiId === (p.id||pi);
+              const fark = toN(sdDuzAdet) - p.adet;
+              return div({key:p.id||pi},
+                div({style:{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+                  background:"var(--bg)",borderRadius:duzMod?"10px 10px 0 0":"10px",
+                  marginBottom:duzMod?0:6,
+                  border:"1px solid "+(duzMod?"rgba(0,113,227,.4)":"var(--br)")}},
+                  div({style:{width:6,height:36,borderRadius:3,flexShrink:0,background:p.kalan>0?"var(--gr)":"var(--br)"}}),
+                  div({style:{flex:1,minWidth:0}},
+                    div({style:{fontSize:13,color:"var(--tx)"}},fmtT(p.tarih)+(p.faturaN?" · "+p.faturaN:"")+(p.tip==="acilis"?" · 🏁 Açılış/Devir":"")),
+                    div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},p.adet+" adet × "+fmt(p.alisF||0)+" · Kalan: "+p.kalan)
+                  ),
+                  div({style:{textAlign:"right",flexShrink:0,marginRight:8}},
+                    div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt((p.kalan||0)*(p.alisF||0)))
+                  ),
+                  btn({style:{flexShrink:0,padding:"4px 10px",borderRadius:8,fontSize:12,cursor:"pointer",
+                    border:"1px solid "+(duzMod?"rgba(0,113,227,.5)":"var(--br)"),
+                    background:duzMod?"rgba(0,113,227,.08)":"transparent",color:duzMod?"#0071E3":"var(--mu)"},
+                    onClick:()=>{
+                      if(duzMod) setSdDuzPartiId(null);
+                      else { setSdDuzPartiId(p.id||pi); setSdDuzAdet(String(p.adet)); setSdDuzAlisF(String(p.alisF||"")); }
+                    }},duzMod?"✕":"✏")
                 ),
-                div({style:{textAlign:"right",flexShrink:0}},
-                  div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:"var(--g)",fontWeight:700}},
-                    fmt((p.kalan||0)*(p.alisF||0)))
+                duzMod&&div({style:{borderTop:"1px solid rgba(0,113,227,.2)",padding:"12px 14px",
+                  background:"rgba(0,113,227,.04)",border:"1px solid rgba(0,113,227,.4)",
+                  borderTop:"none",borderRadius:"0 0 10px 10px",marginBottom:6}},
+                  div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                    div(null,
+                      div({style:{fontSize:11,color:"var(--mu)",marginBottom:4,letterSpacing:1,textTransform:"uppercase"}},"Adet"),
+                      inp({className:"fi",type:"number",min:"0",step:"1",value:sdDuzAdet,
+                        onChange:e=>setSdDuzAdet(e.target.value)})
+                    ),
+                    div(null,
+                      div({style:{fontSize:11,color:"var(--mu)",marginBottom:4,letterSpacing:1,textTransform:"uppercase"}},"Alış Fiyatı"),
+                      inp({className:"fi",type:"number",min:"0",step:"0.01",value:sdDuzAlisF,
+                        onChange:e=>setSdDuzAlisF(e.target.value)})
+                    )
+                  ),
+                  div({style:{fontSize:12,color:"var(--mu)",marginBottom:10,padding:"6px 10px",background:"var(--bg3)",borderRadius:6}},
+                    "Mevcut: ",h("strong",null,p.adet+" adet"),
+                    "  →  Yeni: ",h("strong",{style:{color:"#0071E3"}},sdDuzAdet||"0"),
+                    "  (Fark: ",h("strong",{style:{color:fark>=0?"var(--gr)":"#c05050"}},(fark>=0?"+":"")+fark),")"
+                  ),
+                  div({style:{display:"flex",gap:8}},
+                    btn({style:{flex:2,padding:"9px 0",borderRadius:8,border:"none",background:"#1D1D1F",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"},
+                      onClick:()=>{
+                        const yeniAdet=toN(sdDuzAdet), yeniAlisF=toN(sdDuzAlisF);
+                        if(yeniAdet<0){showToast("Adet 0'dan küçük olamaz","uy");return;}
+                        const df=yeniAdet-p.adet;
+                        // 1) stokPartiler
+                        setStokPartiler(prev=>prev.map(sp=>{
+                          const esles = p.id ? sp.id===p.id : sp===p;
+                          if(!esles) return sp;
+                          return {...sp,adet:yeniAdet,kalan:Math.max(0,sp.kalan+df),alisF:yeniAlisF};
+                        }));
+                        // 2) hareketler
+                        setHareketler(prev=>prev.map(hv=>{
+                          if(hv.barkod===p.barkod&&hv.faturaN===p.faturaN&&hv.tarih===p.tarih&&hv.tip==="giris")
+                            return {...hv,adet:yeniAdet};
+                          return hv;
+                        }));
+                        // 3) mkArsiv
+                        setMkArsiv(prev=>{
+                          const guncellendi=prev.map(ar=>{
+                            if(ar.faturaN!==p.faturaN||ar.tarih!==p.tarih) return ar;
+                            return {...ar,urunler:ar.urunler.map(uu=>{
+                              if(uu.barkod!==p.barkod) return uu;
+                              const b=yeniAdet*yeniAlisF;
+                              const iskT=b*(uu.iskontoOran||0)/100;
+                              const matrah=b-iskT;
+                              const kdvT=matrah*(uu.kdvOran||20)/100;
+                              return {...uu,adet:yeniAdet,birimF:yeniAlisF,iskontoTutar:iskT,kdvTutar:kdvT,toplamF:matrah+kdvT};
+                            })};
+                          });
+                          try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(guncellendi));}catch(ex){}
+                          return guncellendi;
+                        });
+                        setSdDuzPartiId(null);
+                        showToast("Parti güncellendi ✓","ba");
+                      }},"💾 Kaydet"),
+                    btn({style:{flex:1,padding:"9px 0",borderRadius:8,border:"1px solid var(--br)",background:"transparent",color:"var(--mu)",fontSize:13,cursor:"pointer"},
+                      onClick:()=>setSdDuzPartiId(null)},"İptal")
+                  )
                 )
-              )
-            )
+              );
+            })
           )
         );
       })()
