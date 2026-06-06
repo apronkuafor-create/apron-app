@@ -1081,7 +1081,16 @@ function BulutDurumu(){
         acilisSay=data.deger.filter(h=>h&&h.tip==="giris"&&h.faturaN==="AÇILIŞ").length;
       }
     }catch(e){}
-    setDur({say,stokParti,hareketBulut,acilisSay}); setBekleyen(bekleyenSay()); setYukle(false);
+    // İşlem kayıtlarının gönderilmiş/bekleyen dağılımı (yönetici paneli sadece gönderilmişi gösterir)
+    let gonderilmisSay="—", bekleyenSay2="—";
+    try{
+      const {data,error}=await DB.from("kayitlar").select("gonderildi");
+      if(!error&&Array.isArray(data)){
+        gonderilmisSay=data.filter(r=>r.gonderildi===true).length;
+        bekleyenSay2=data.filter(r=>r.gonderildi!==true).length;
+      }
+    }catch(e){}
+    setDur({say,stokParti,hareketBulut,acilisSay,gonderilmisSay,bekleyenSay2}); setBekleyen(bekleyenSay()); setYukle(false);
   };
   const yerelParti=(()=>{ try{ const l=JSON.parse(localStorage.getItem("apron_v3")||"null"); return (l&&Array.isArray(l.stokPartiler))?l.stokPartiler.length:0; }catch(e){ return 0; } })();
   const yerelHareket=(()=>{ try{ const l=JSON.parse(localStorage.getItem("apron_v3")||"null"); return (l&&Array.isArray(l.hareketler))?l.hareketler.length:0; }catch(e){ return 0; } })();
@@ -1160,6 +1169,8 @@ function BulutDurumu(){
     dur&&dur.hata&&div({style:{fontSize:13,color:"#e06060"}},dur.hata),
     dur&&dur.say&&div(null,
       satir("İşlem kayıtları", dur.say.kayitlar),
+      satir("  → Gönderilmiş (yönetici görür)", dur.gonderilmisSay),
+      satir("  → Bekleyen (personelde)", dur.bekleyenSay2),
       satir("Stok partileri (asıl stok)", dur.stokParti),
       satir("Yerel stok partileri (bu cihaz)", yerelParti),
       satir("Açılış girişi — bulut", dur.acilisSay),
