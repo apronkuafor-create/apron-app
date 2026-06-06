@@ -1113,6 +1113,34 @@ function BulutDurumu(){
     }catch(e){ alert("Kurtarma sırasında hata oluştu."); setKurtarYukle(false); }
   };
   React.useEffect(()=>{ kontrol(); },[]);
+  const [sifirlaYukle,setSifirlaYukle]=React.useState(false);
+  const verileriSifirla=async()=>{
+    if(!DB){ alert("Supabase bağlantısı yok. Sıfırlama yapılamaz."); return; }
+    if(!confirm("DİKKAT: Tüm STOK ve İŞLEM KAYITLARI (hizmet + ürün satışları) kalıcı olarak silinecek.\n\nPersoneller, gruplar, ürün kataloğu, fiyatlar ve diğer ayarlar KORUNACAK.\nMüşteriler ve devamsızlık kayıtları da KORUNACAK.\n\nBu işlem geri alınamaz. Devam etmek istiyor musunuz?")) return;
+    const onay=prompt("Onaylamak için büyük harflerle SIFIRLA yazın:");
+    if(onay!=="SIFIRLA"){ alert("İşlem iptal edildi."); return; }
+    setSifirlaYukle(true);
+    try{
+      // 1) Supabase tablolarını temizle
+      try{ await DB.from("kayitlar").delete().neq("id","___hepsi___"); }catch(e){}
+      try{ await DB.from("stok").delete().neq("id","___hepsi___"); }catch(e){}
+      try{ await DB.from("stok_hareketleri").delete().neq("id","___hepsi___"); }catch(e){}
+      // 2) ayarlar'daki stok partileri ve hareketleri boşalt
+      try{ await DB.from("ayarlar").upsert({id:"stokPartiler",deger:[]}); }catch(e){}
+      try{ await DB.from("ayarlar").upsert({id:"hareketler",deger:[]}); }catch(e){}
+      // 3) localStorage'daki ilgili alanları temizle (diğer her şey korunur)
+      try{
+        const l=JSON.parse(localStorage.getItem("apron_v3")||"{}");
+        l.records=[]; l.bekleyen=[]; l.gecmis=[];
+        l.stokPartiler=[]; l.hareketler=[];
+        localStorage.setItem("apron_v3",JSON.stringify(l));
+      }catch(e){}
+      // 4) Bekleyen senkron kuyruğunu temizle (silinecek eski işlemler geri yazılmasın)
+      try{ localStorage.setItem("apron_sync_queue","[]"); }catch(e){}
+      alert("Stok ve işlem kayıtları sıfırlandı. Sayfa yenilenecek, temiz başlayabilirsiniz.");
+      location.reload();
+    }catch(e){ alert("Sıfırlama sırasında hata oluştu."); setSifirlaYukle(false); }
+  };
   const satir=(lb,val)=>div({key:lb,style:{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid rgba(0,0,0,.05)"}},
     span({style:{fontSize:13,color:"#555"}},lb),
     span({style:{fontSize:14,fontWeight:600,color:(val==="yok/erişilemiyor")?"#e06060":"#248A3D"}},String(val)));
@@ -1141,7 +1169,12 @@ function BulutDurumu(){
     ),
     bekleyen>0&&div({style:{marginTop:10,padding:10,background:"#FFF4E5",border:"1px solid #FFD8A8",borderRadius:10,fontSize:12,color:"#8a5010"}},
       "⏳ "+bekleyen+" işlem buluta yazılmayı bekliyor. Bağlantı/izin düzelince otomatik gönderilecek."),
-    bekleyen===0&&dur&&dur.say&&div({style:{marginTop:10,fontSize:12,color:"#248A3D"}},"✓ Bekleyen senkron yok.")
+    bekleyen===0&&dur&&dur.say&&div({style:{marginTop:10,fontSize:12,color:"#248A3D"}},"✓ Bekleyen senkron yok."),
+    div({style:{marginTop:14,paddingTop:14,borderTop:"1px dashed rgba(224,60,60,.3)"}},
+      div({style:{fontSize:13,fontWeight:700,color:"#c0392b",marginBottom:6}},"⚠️ Yeniden Başla"),
+      div({style:{fontSize:11,color:"#888",marginBottom:10,lineHeight:1.4}},"Tüm stok ve işlem kayıtlarını (hizmet + ürün satışları) siler. Personeller, ürün kataloğu, fiyatlar ve ayarlar korunur. Geri alınamaz."),
+      btn({onClick:verileriSifirla,disabled:sifirlaYukle,style:{width:"100%",background:sifirlaYukle?"#ccc":"#fff",border:"1.5px solid #e06060",borderRadius:9,color:"#c0392b",fontSize:13,fontWeight:700,padding:11,cursor:sifirlaYukle?"default":"pointer"}},sifirlaYukle?"Sıfırlanıyor...":"Stok + işlem kayıtlarını sıfırla")
+    )
   );
 }
 
