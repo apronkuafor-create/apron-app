@@ -129,7 +129,7 @@ const SAAT  = () => new Date().toTimeString().slice(0,5);
 const fmtT  = d => { if(!d) return ""; const p=(d+"").split("-"); return p.length===3 ? p[2]+"."+p[1]+"."+p[0] : d; };
 const fmt   = n => Number(n||0).toLocaleString("tr-TR") + " \u20ba";
 const toN   = v => { const x=parseFloat(String(v||0).replace(",",".")); return isNaN(x)?0:x; };
-const uid   = () => Date.now()+Math.floor(Math.random()*9999);
+const uid   = () => ""+(Date.now()+Math.floor(Math.random()*9999));
 const normText = s => String(s||"").toLowerCase()
   .replace(/\u0131/g,"i").replace(/\u015f/g,"s").replace(/\u011f/g,"g")
   .replace(/\u00fc/g,"u").replace(/\u00f6/g,"o").replace(/\u00e7/g,"c")
@@ -230,6 +230,12 @@ const dbUpsert = (t,rows,c) => {
 };
 // Liste birleştirme: yereldeki ve buluttaki kayıtları kaybetmeden union'lar
 // (string dizileri değere göre, id'li nesneler id'ye göre, diğerleri içeriğe göre)
+// Kayıtları id'ye göre tekilleştir + id'yi metne normalize et (sayı/metin tip çiftlenmesini önler)
+const kayitDedup = (arr) => {
+  const m = {};
+  (arr||[]).forEach(r=>{ if(r&&r.id!=null){ const k=String(r.id); if(!m[k]) m[k]={...r,id:k}; } });
+  return Object.values(m);
+};
 const birlestirListe = (yerel, bulut) => {
   const a = Array.isArray(yerel)?yerel:[];
   const b = Array.isArray(bulut)?bulut:[];
@@ -8397,8 +8403,8 @@ function App() {
       try {
         const local = JSON.parse(localStorage.getItem("apron_v3")||"null");
         if(local){
-          if(local.records) setRecords(local.records);
-          if(local.bekleyen) setBekleyen(local.bekleyen);
+          if(local.records) setRecords(kayitDedup(local.records));
+          if(local.bekleyen) setBekleyen(kayitDedup(local.bekleyen));
           if(local.musteriDB) setMusteriDB(local.musteriDB);
           if(local.personeller?.length){
   // DEFAULT ile merge et - yeni eklenen personeller kaybolmasın, eksik alanlar tamamlansın
@@ -8411,7 +8417,7 @@ function App() {
   setPersoneller([...merged, ...extras]);
 }
           if(local.devDB) setDevDB(local.devDB);
-          if(local.gecmis) setGecmis(local.gecmis);
+          if(local.gecmis) setGecmis(kayitDedup(local.gecmis));
     if(local.stokPartiler?.length) { stokPartilerYuklendi.current=true; setStokPartiler(local.stokPartiler); }
     if(!local._bildirimTemizlendi){ setHatirlatmalar([]); } else if(local.hatirlatmalar?.length) setHatirlatmalar(local.hatirlatmalar);
     if(local.randevular?.length) setRandevular(local.randevular);
@@ -8525,8 +8531,8 @@ ayarlarRaw.forEach(a=>{
           });
           const bulutGonderilmis = (k||[]).filter(r=>r.gonderildi).map(mapR);
           const bulutBekleyen    = (k||[]).filter(r=>!r.gonderildi).map(mapR);
-          const tumGonderilmis = [...bulutGonderilmis, ...eksikler.filter(r=>r.gonderildi)];
-          const tumBekleyen    = [...bulutBekleyen,    ...eksikler.filter(r=>!r.gonderildi)];
+          const tumGonderilmis = kayitDedup([...bulutGonderilmis, ...eksikler.filter(r=>r.gonderildi)]);
+          const tumBekleyen    = kayitDedup([...bulutBekleyen,    ...eksikler.filter(r=>!r.gonderildi)]);
           if(tumGonderilmis.length || tumBekleyen.length){
             setRecords(tumGonderilmis);
             setGecmis(tumGonderilmis);
@@ -8760,34 +8766,34 @@ if(DB) dbUpsert("ayarlar",{id:"tema", deger:tema},"id");
         .on("postgres_changes",{event:"INSERT",schema:"public",table:"kayitlar"},payload=>{
           const r = mapR(payload.new);
           if(payload.new.gonderildi){
-            setRecords(p=>[r, ...p.filter(x=>x.id!==r.id)]);
-            setGecmis(p=>[r, ...p.filter(x=>x.id!==r.id)]);
-            setBekleyen(p=>p.filter(x=>x.id!==r.id));
+            setRecords(p=>[r, ...p.filter(x=>String(x.id)!==String(r.id))]);
+            setGecmis(p=>[r, ...p.filter(x=>String(x.id)!==String(r.id))]);
+            setBekleyen(p=>p.filter(x=>String(x.id)!==String(r.id)));
           } else {
-            setBekleyen(p=>[r, ...p.filter(x=>x.id!==r.id)]);
-            setRecords(p=>p.filter(x=>x.id!==r.id));
-            setGecmis(p=>p.filter(x=>x.id!==r.id));
+            setBekleyen(p=>[r, ...p.filter(x=>String(x.id)!==String(r.id))]);
+            setRecords(p=>p.filter(x=>String(x.id)!==String(r.id)));
+            setGecmis(p=>p.filter(x=>String(x.id)!==String(r.id)));
           }
         })
         .on("postgres_changes",{event:"UPDATE",schema:"public",table:"kayitlar"},payload=>{
           const r = mapR(payload.new);
           if(payload.new.gonderildi){
-            setBekleyen(p=>p.filter(x=>x.id!==r.id));
-            setRecords(p=>{ const ex=p.some(x=>x.id===r.id); return ex?p.map(x=>x.id===r.id?r:x):[r,...p]; });
-            setGecmis(p=>{ const ex=p.some(x=>x.id===r.id); return ex?p.map(x=>x.id===r.id?r:x):[r,...p]; });
+            setBekleyen(p=>p.filter(x=>String(x.id)!==String(r.id)));
+            setRecords(p=>{ const ex=p.some(x=>String(x.id)===String(r.id)); return ex?p.map(x=>String(x.id)===String(r.id)?r:x):[r,...p]; });
+            setGecmis(p=>{ const ex=p.some(x=>String(x.id)===String(r.id)); return ex?p.map(x=>String(x.id)===String(r.id)?r:x):[r,...p]; });
           } else {
-            setRecords(p=>p.filter(x=>x.id!==r.id));
-            setGecmis(p=>p.filter(x=>x.id!==r.id));
-            setBekleyen(p=>{ const ex=p.some(x=>x.id===r.id); return ex?p.map(x=>x.id===r.id?r:x):[r,...p]; });
+            setRecords(p=>p.filter(x=>String(x.id)!==String(r.id)));
+            setGecmis(p=>p.filter(x=>String(x.id)!==String(r.id)));
+            setBekleyen(p=>{ const ex=p.some(x=>String(x.id)===String(r.id)); return ex?p.map(x=>String(x.id)===String(r.id)?r:x):[r,...p]; });
           }
           setKayitPanelSonuc(p=>p?{...p,kayitlar:(p.kayitlar||[]).map(k=>String(k.id)===String(r.id)?r:k)}:p);
         })
         .on("postgres_changes",{event:"DELETE",schema:"public",table:"kayitlar"},payload=>{
           const id = payload.old && payload.old.id;
           if(!id) return;
-          setRecords(p=>p.filter(x=>x.id!==id));
-          setGecmis(p=>p.filter(x=>x.id!==id));
-          setBekleyen(p=>p.filter(x=>x.id!==id));
+          setRecords(p=>p.filter(x=>String(x.id)!==String(id)));
+          setGecmis(p=>p.filter(x=>String(x.id)!==String(id)));
+          setBekleyen(p=>p.filter(x=>String(x.id)!==String(id)));
           setIbanBildirimler(p=>p.filter(b=>String(b.kayitId)!==String(id)));
           setKayitPanelSonuc(p=>p?{...p,kayitlar:(p.kayitlar||[]).filter(r=>String(r.id)!==String(id))}:p);
         })
