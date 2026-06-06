@@ -130,6 +130,10 @@ const fmtT  = d => { if(!d) return ""; const p=(d+"").split("-"); return p.lengt
 const fmt   = n => Number(n||0).toLocaleString("tr-TR") + " \u20ba";
 const toN   = v => { const x=parseFloat(String(v||0).replace(",",".")); return isNaN(x)?0:x; };
 const uid   = () => ""+(Date.now()+Math.floor(Math.random()*9999));
+try{
+  window.addEventListener("error", e=>{ try{ window.__apronSonHata=((e.error&&e.error.stack)||e.message||"bilinmeyen hata"); }catch(_){} });
+  window.addEventListener("unhandledrejection", e=>{ try{ window.__apronSonHata="Promise: "+((e.reason&&e.reason.stack)||(e.reason&&e.reason.message)||String(e.reason)); }catch(_){} });
+}catch(_){}
 const normText = s => String(s||"").toLowerCase()
   .replace(/\u0131/g,"i").replace(/\u015f/g,"s").replace(/\u011f/g,"g")
   .replace(/\u00fc/g,"u").replace(/\u00f6/g,"o").replace(/\u00e7/g,"c")
@@ -1173,6 +1177,7 @@ function BulutDurumu({yukluGonderilmis,yukluToplam}){
     div({style:{fontSize:11,color:"#888",marginBottom:10,lineHeight:1.4}},"Bu sayılar Supabase'de kalıcı kayıtlı veri adedidir. 'yok/erişilemiyor' görürseniz o tablo eksik ya da erişim (RLS) engelli demektir."),
     !dur&&div({style:{fontSize:13,color:"#888",padding:"8px 0"}},"Kontrol ediliyor..."),
     dur&&dur.hata&&div({style:{fontSize:13,color:"#e06060"}},dur.hata),
+    (typeof window!=="undefined"&&window.__apronSonHata)&&div({style:{marginTop:8,padding:8,background:"#FFF0F0",border:"1px solid #f0b0b0",borderRadius:8,fontSize:10,color:"#a02020",fontFamily:"monospace",wordBreak:"break-word"}},"Yakalanan hata: "+String(window.__apronSonHata).slice(0,300)),
     dur&&dur.say&&div(null,
       satir("İşlem kayıtları", dur.say.kayitlar),
       satir("  → Gönderilmiş (yönetici görür)", dur.gonderilmisSay),
@@ -8464,7 +8469,7 @@ function App() {
     }
         }
         const ayarlarRaw = await dbAl("ayarlar");
-ayarlarRaw.forEach(a=>{
+ayarlarRaw.forEach(a=>{ try {
   if(!a.deger||!Object.keys(a.deger).length) return;
   if(a.id==="tema") setTema(a.deger);
   if(a.id==="isletme") { const _d={logoHeight:80,...a.deger}; setIsletme(_d); try{ localStorage.setItem("apron_isletme", JSON.stringify(_d)); }catch(e){} }
@@ -8523,7 +8528,7 @@ ayarlarRaw.forEach(a=>{
     });
   }
   if(a.id==="mkArsiv" && Array.isArray(a.deger) && a.deger.length){ setMkArsiv(a.deger); try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(a.deger));}catch(e){} }
-});
+} catch(eAyar){} });
         const [k,m,d] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
           dbAl("musteriler"),
