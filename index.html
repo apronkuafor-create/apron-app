@@ -190,10 +190,44 @@ const dbAl = async (t,opts={}) => {
     return data||[];
   } catch(e){ return []; }
 };
-const dbEkle = (t,r) => DB&&DB.from(t).insert(r).then(()=>{}).catch(()=>{});
-const dbGnc  = (t,r,id) => DB&&DB.from(t).update(r).eq("id",id).then(()=>{}).catch(()=>{});
+// ── Senkron kuyruğu: buluta yazılamayan işlemler localStorage'da saklanır, sonra tekrar denenir (veri kaybı önlenir) ──
+const SK_KEY = "apron_sync_queue";
+const skOku = () => { try { return JSON.parse(localStorage.getItem(SK_KEY)||"[]"); } catch(e){ return []; } };
+const skYaz = (q) => { try { localStorage.setItem(SK_KEY, JSON.stringify(q)); } catch(e){} };
+const skEkle = (item) => { const q = skOku(); q.push(item); skYaz(q); };
+const skBosalt = async () => {
+  if(!DB) return;
+  let q = skOku();
+  if(!q.length) return;
+  const kalan = [];
+  for(const it of q){
+    try {
+      let res;
+      if(it.op==="insert")      res = await DB.from(it.t).insert(it.r);
+      else if(it.op==="update") res = await DB.from(it.t).update(it.r).eq("id",it.id);
+      else if(it.op==="upsert") res = await DB.from(it.t).upsert(it.r,{onConflict:it.c});
+      else if(it.op==="delete") res = await DB.from(it.t).delete().eq("id",it.id);
+      if(res && res.error) kalan.push(it);
+    } catch(e){ kalan.push(it); }
+  }
+  skYaz(kalan);
+};
+const dbEkle = (t,r) => {
+  if(!DB){ skEkle({op:"insert",t,r}); return Promise.resolve(false); }
+  return DB.from(t).insert(r).then(({error})=>{ if(error){ skEkle({op:"insert",t,r}); return false; } return true; })
+    .catch(()=>{ skEkle({op:"insert",t,r}); return false; });
+};
+const dbGnc  = (t,r,id) => {
+  if(!DB){ skEkle({op:"update",t,r,id}); return Promise.resolve(false); }
+  return DB.from(t).update(r).eq("id",id).then(({error})=>{ if(error){ skEkle({op:"update",t,r,id}); return false; } return true; })
+    .catch(()=>{ skEkle({op:"update",t,r,id}); return false; });
+};
 const dbSil  = (t,id) => DB&&DB.from(t).delete().eq("id",id).then(()=>{}).catch(()=>{});
-const dbUpsert = (t,rows,c) => DB&&DB.from(t).upsert(rows,{onConflict:c}).then(()=>{}).catch(()=>{});
+const dbUpsert = (t,rows,c) => {
+  if(!DB){ skEkle({op:"upsert",t,r:rows,c}); return Promise.resolve(false); }
+  return DB.from(t).upsert(rows,{onConflict:c}).then(({error})=>{ if(error){ skEkle({op:"upsert",t,r:rows,c}); return false; } return true; })
+    .catch(()=>{ skEkle({op:"upsert",t,r:rows,c}); return false; });
+};
 const mapR = r => ({
   id:r.id, staffId:r.staff_id, staffAd:r.staff_name,
   musteri:r.musteri, tel:r.telefon||"",
@@ -8351,6 +8385,8 @@ ayarlarRaw.forEach(a=>{
         }
       } catch(e){}
       setYukleniyor(false);
+      // Buluta yazılamamış bekleyen kayıtları senkronize et (veri kaybını önler)
+      try { await skBosalt(); } catch(e){}
     })();
   },[]);
 
@@ -8634,6 +8670,14 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
     return ()=>{
       channels.forEach(ch=>{ try{ DB.removeChannel(ch); }catch(e){} });
     };
+  },[]);
+  // Senkron kuyruğunu periyodik ve sekme tekrar görünür olunca boşalt
+  useEffect(()=>{
+    if(!DB) return;
+    const iv = setInterval(()=>{ skBosalt().catch(()=>{}); }, 30000);
+    const onVis = ()=>{ if(document.visibilityState==="visible") skBosalt().catch(()=>{}); };
+    document.addEventListener("visibilitychange", onVis);
+    return ()=>{ clearInterval(iv); document.removeEventListener("visibilitychange", onVis); };
   },[]);
   useEffect(()=>{
     if(yukleniyor) return;
