@@ -1030,6 +1030,59 @@ function PersonelPerformansAnalizi({persListe,enCokSatan,stokOzet,periyotEtiket,
 
 
 // ── ÜRÜN SATIŞLARI MUHASEBESİ ──────────────────────────────────────────────
+function BulutDurumu(){
+  const [dur,setDur]=React.useState(null);
+  const [yukle,setYukle]=React.useState(false);
+  const bekleyenSay=()=>{ try{return JSON.parse(localStorage.getItem("apron_sync_queue")||"[]").length;}catch(e){return 0;} };
+  const [bekleyen,setBekleyen]=React.useState(bekleyenSay());
+  const kontrol=async()=>{
+    if(!DB){ setDur({hata:"Supabase bağlantısı yok."}); return; }
+    setYukle(true);
+    const say={};
+    for(const t of ["kayitlar","stok","stok_hareketleri","musteriler","devamsizliklar"]){
+      try{
+        const {count,error}=await DB.from(t).select("*",{count:"exact",head:true});
+        say[t]=error?"yok/erişilemiyor":(count==null?0:count);
+      }catch(e){ say[t]="yok/erişilemiyor"; }
+    }
+    // Asıl stok verisi: ayarlar tablosundaki stokPartiler
+    let stokParti="—";
+    try{
+      const {data,error}=await DB.from("ayarlar").select("deger").eq("id","stokPartiler").maybeSingle();
+      if(error) stokParti="yok/erişilemiyor";
+      else if(data&&Array.isArray(data.deger)) stokParti=data.deger.length;
+      else stokParti=0;
+    }catch(e){ stokParti="yok/erişilemiyor"; }
+    setDur({say,stokParti}); setBekleyen(bekleyenSay()); setYukle(false);
+  };
+  const yerelParti=(()=>{ try{ const l=JSON.parse(localStorage.getItem("apron_v3")||"null"); return (l&&Array.isArray(l.stokPartiler))?l.stokPartiler.length:0; }catch(e){ return 0; } })();
+  React.useEffect(()=>{ kontrol(); },[]);
+  const satir=(lb,val)=>div({key:lb,style:{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid rgba(0,0,0,.05)"}},
+    span({style:{fontSize:13,color:"#555"}},lb),
+    span({style:{fontSize:14,fontWeight:600,color:(val==="yok/erişilemiyor")?"#e06060":"#248A3D"}},String(val)));
+  return div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:16,marginBottom:12,boxShadow:"0 1px 6px rgba(0,0,0,.05)"}},
+    div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}},
+      div({style:{fontSize:14,fontWeight:700,color:"#1D1D1F"}},"☁️ Bulut Durumu"),
+      btn({onClick:kontrol,disabled:yukle,style:{background:"#f0f0f3",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer",color:"#333"}},yukle?"...":"Yenile")
+    ),
+    div({style:{fontSize:11,color:"#888",marginBottom:10,lineHeight:1.4}},"Bu sayılar Supabase'de kalıcı kayıtlı veri adedidir. 'yok/erişilemiyor' görürseniz o tablo eksik ya da erişim (RLS) engelli demektir."),
+    !dur&&div({style:{fontSize:13,color:"#888",padding:"8px 0"}},"Kontrol ediliyor..."),
+    dur&&dur.hata&&div({style:{fontSize:13,color:"#e06060"}},dur.hata),
+    dur&&dur.say&&div(null,
+      satir("İşlem kayıtları", dur.say.kayitlar),
+      satir("Stok partileri (asıl stok)", dur.stokParti),
+      satir("Yerel stok partileri (bu cihaz)", yerelParti),
+      satir("Stok sayacı (ikincil)", dur.say.stok),
+      satir("Stok hareketleri", dur.say.stok_hareketleri),
+      satir("Müşteriler", dur.say.musteriler),
+      satir("Devamsızlık", dur.say.devamsizliklar)
+    ),
+    bekleyen>0&&div({style:{marginTop:10,padding:10,background:"#FFF4E5",border:"1px solid #FFD8A8",borderRadius:10,fontSize:12,color:"#8a5010"}},
+      "⏳ "+bekleyen+" işlem buluta yazılmayı bekliyor. Bağlantı/izin düzelince otomatik gönderilecek."),
+    bekleyen===0&&dur&&dur.say&&div({style:{marginTop:10,fontSize:12,color:"#248A3D"}},"✓ Bekleyen senkron yok.")
+  );
+}
+
 function UrunSatislariMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, onAnaPanel, onGeri, isletme}){
   const seciliP = personeller.find(p=>p.id===muhAlt) || null;
   const [filAy, setFilAy] = React.useState("");
@@ -6276,7 +6329,7 @@ function StokGiris({stokDB, setStokDB, stokHar, setStokHar, kul, showToast, akti
               const harId=uid();
               harlar.push({id:harId,barkod,urun_ad:urun?.a||"",tip:"giris",adet,tarih:TODAY(),staff_id:kul.id,staff_name:kul.ad});
               dbEkle("stok_hareketleri",{id:harId,barkod,urun_ad:urun?.a||"",tip:"giris",adet,tarih:TODAY(),staff_id:kul.id,staff_name:kul.ad});
-              dbGnc("stok",{qty:yeniQty,son_guncelleme:TODAY()},barkod).catch(()=>dbEkle("stok",{id:barkod,barkod,urun_ad:urun?.a||"",marka:urun?.m||"",qty:yeniQty,son_guncelleme:TODAY()}));
+              dbUpsert("stok",{id:barkod,barkod,urun_ad:urun?.a||"",marka:urun?.m||"",qty:yeniQty,son_guncelleme:TODAY()},"id");
             });
             setStokHar(p=>[...harlar,...p]);
             setGB({});
@@ -8335,7 +8388,14 @@ ayarlarRaw.forEach(a=>{
   if(a.id==="bolumStilleri") setBolumStilleri(a.deger||{});
   if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(a.deger);
   if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(a.deger);
-  if(a.id==="stokPartiler" && Array.isArray(a.deger) && a.deger.length) { stokPartilerYuklendi.current=true; setStokPartiler(a.deger); }
+  if(a.id==="stokPartiler" && Array.isArray(a.deger)) {
+    stokPartilerYuklendi.current=true;
+    setStokPartiler(prev=>{
+      const harita={};
+      [...(prev||[]), ...a.deger].forEach(x=>{ if(x&&x.id) harita[x.id]=x; });
+      return Object.values(harita);
+    });
+  }
   if(a.id==="hareketler" && Array.isArray(a.deger) && a.deger.length) setHareketler(a.deger);
   if(a.id==="mkArsiv" && Array.isArray(a.deger) && a.deger.length){ setMkArsiv(a.deger); try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(a.deger));}catch(e){} }
 });
@@ -8344,11 +8404,40 @@ ayarlarRaw.forEach(a=>{
           dbAl("musteriler"),
           dbAl("devamsizliklar"),
         ]);
-        if(k.length){
-          const gonderilmis = k.filter(r=>r.gonderildi).map(mapR);
-          setRecords(gonderilmis);
-          setGecmis(gonderilmis);
-          setBekleyen(k.filter(r=>!r.gonderildi).map(mapR));
+        // ── Backfill: yerelde olup bulutta olmayan kayıtları kurtar ve buluta yükle ──
+        try {
+          const yerelKayitlar = [];
+          const lk = JSON.parse(localStorage.getItem("apron_v3")||"null");
+          if(lk){
+            [...(lk.records||[]),...(lk.bekleyen||[]),...(lk.gecmis||[])].forEach(r=>{
+              if(r && r.id && !yerelKayitlar.find(x=>String(x.id)===String(r.id))) yerelKayitlar.push(r);
+            });
+          }
+          const bulutIdSet = new Set((k||[]).map(r=>String(r.id)));
+          const eksikler = yerelKayitlar.filter(r=>!bulutIdSet.has(String(r.id)));
+          // Eksik kayıtları buluta yükle (başarısız olursa senkron kuyruğu korur)
+          eksikler.forEach(r=>{
+            dbEkle("kayitlar",{id:r.id,staff_id:r.staffId,staff_name:r.staffAd,musteri:r.musteri,telefon:r.tel,
+              hizmetler:r.hizler||[],hiz_kk:r.hizKK||0,hiz_ib:r.hizIB||0,hiz_nk:r.hizNK||0,
+              urunler:r.urunler||[],urun_kk:r.uKK||0,urun_ib:r.uIB||0,urun_nk:r.uNK||0,
+              toplam:r.toplam||0,tarih:r.tarih,saat:r.saat,gonderildi:r.gonderildi||false});
+          });
+          const bulutGonderilmis = (k||[]).filter(r=>r.gonderildi).map(mapR);
+          const bulutBekleyen    = (k||[]).filter(r=>!r.gonderildi).map(mapR);
+          const tumGonderilmis = [...bulutGonderilmis, ...eksikler.filter(r=>r.gonderildi)];
+          const tumBekleyen    = [...bulutBekleyen,    ...eksikler.filter(r=>!r.gonderildi)];
+          if(tumGonderilmis.length || tumBekleyen.length){
+            setRecords(tumGonderilmis);
+            setGecmis(tumGonderilmis);
+            setBekleyen(tumBekleyen);
+          }
+        } catch(e){
+          if(k.length){
+            const gonderilmis = k.filter(r=>r.gonderildi).map(mapR);
+            setRecords(gonderilmis);
+            setGecmis(gonderilmis);
+            setBekleyen(k.filter(r=>!r.gonderildi).map(mapR));
+          }
         }
         if(m.length) setMusteriDB(m.map(x=>({id:x.id,ad:x.ad,tel:x.tel||"",sahipId:x.sahip_id||"",sahipAd:x.sahip_ad||"",ilkGiris:x.ilk_giris||"",dogumTarihi:x.dogum_tarihi||"",cinsiyet:x.cinsiyet||"",adres:x.adres||"",notlar:x.notlar||""})));
         // Stok yükle
@@ -9263,7 +9352,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
             staffId:y.staffId,staffAd:y.staffAd,kayitId:y.id,urunAd:u.a,olusturma:Date.now()},
             ...p]);
           // Supabase güncelle
-          dbGnc("stok",{qty:(stokDB[u.b]||0)-adet},u.b).catch(()=>{});
+          dbUpsert("stok",{id:u.b,barkod:u.b,urun_ad:u.a,qty:Math.max(0,(stokDB[u.b]||0)-adet),son_guncelleme:TODAY()},"id");
           dbEkle("stok_hareketleri",{id:harId,barkod:u.b,urun_ad:u.a,tip:"cikis",
             adet,tarih:y.tarih,staff_id:y.staffId,staff_name:y.staffAd,kayit_id:y.id});
         });
@@ -12678,6 +12767,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
         // ADIM 2c — AYARLAR ALT BAŞLIKLARI
         // ══════════════════════════════════════════
         panelAdim==="ayarlar"&&!panelAltSek&&!asek&&div({style:{padding:"4px 14px"}},
+          h(BulutDurumu),
           [
             // Listeler — belgeler/kayıtlar → lacivert
             ["rgba(30,60,160,.13)","📑","Listeler","listeler",null],
