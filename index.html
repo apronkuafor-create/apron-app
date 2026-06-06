@@ -188,7 +188,13 @@ const dbAl = async (t,opts={}) => {
     const {data,error} = await q;
     if(error) throw error;
     return data||[];
-  } catch(e){ return []; }
+  } catch(e){
+    // Sıralama kolonu (ör. created_at) yoksa sıralamasız tekrar dene — veri yine de yüklensin
+    if(opts.order){
+      try { const {data,error}=await DB.from(t).select("*"); if(!error) return data||[]; } catch(e2){}
+    }
+    return [];
+  }
 };
 // ── Senkron kuyruğu: buluta yazılamayan işlemler localStorage'da saklanır, sonra tekrar denenir (veri kaybı önlenir) ──
 const SK_KEY = "apron_sync_queue";
@@ -1049,7 +1055,7 @@ function PersonelPerformansAnalizi({persListe,enCokSatan,stokOzet,periyotEtiket,
 
 
 // ── ÜRÜN SATIŞLARI MUHASEBESİ ──────────────────────────────────────────────
-function BulutDurumu(){
+function BulutDurumu({yukluGonderilmis,yukluToplam}){
   const [dur,setDur]=React.useState(null);
   const [yukle,setYukle]=React.useState(false);
   const bekleyenSay=()=>{ try{return JSON.parse(localStorage.getItem("apron_sync_queue")||"[]").length;}catch(e){return 0;} };
@@ -1171,6 +1177,7 @@ function BulutDurumu(){
       satir("İşlem kayıtları", dur.say.kayitlar),
       satir("  → Gönderilmiş (yönetici görür)", dur.gonderilmisSay),
       satir("  → Bekleyen (personelde)", dur.bekleyenSay2),
+      satir("  → Şu an uygulamada yüklü", (yukluGonderilmis==null?"—":yukluGonderilmis)),
       satir("Stok partileri (asıl stok)", dur.stokParti),
       satir("Yerel stok partileri (bu cihaz)", yerelParti),
       satir("Açılış girişi — bulut", dur.acilisSay),
@@ -12885,7 +12892,7 @@ if(DB) dbUpsert("ayarlar",{id:"tema", deger:tema},"id");
         // ADIM 2c — AYARLAR ALT BAŞLIKLARI
         // ══════════════════════════════════════════
         panelAdim==="ayarlar"&&!panelAltSek&&!asek&&div({style:{padding:"4px 14px"}},
-          h(BulutDurumu),
+          h(BulutDurumu,{yukluGonderilmis:(records||[]).filter(r=>r.gonderildi!==false).length, yukluToplam:(records||[]).length}),
           [
             // Listeler — belgeler/kayıtlar → lacivert
             ["rgba(30,60,160,.13)","📑","Listeler","listeler",null],
