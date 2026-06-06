@@ -228,6 +228,19 @@ const dbUpsert = (t,rows,c) => {
   return DB.from(t).upsert(rows,{onConflict:c}).then(({error})=>{ if(error){ skEkle({op:"upsert",t,r:rows,c}); return false; } return true; })
     .catch(()=>{ skEkle({op:"upsert",t,r:rows,c}); return false; });
 };
+// Liste birleştirme: yereldeki ve buluttaki kayıtları kaybetmeden union'lar
+// (string dizileri değere göre, id'li nesneler id'ye göre, diğerleri içeriğe göre)
+const birlestirListe = (yerel, bulut) => {
+  const a = Array.isArray(yerel)?yerel:[];
+  const b = Array.isArray(bulut)?bulut:[];
+  const m = {};
+  [...a,...b].forEach(x=>{
+    if(x==null) return;
+    const k = (typeof x==="object") ? (x.id!=null?("id:"+x.id):("o:"+JSON.stringify(x))) : ("v:"+String(x));
+    m[k]=x;
+  });
+  return Object.values(m);
+};
 const mapR = r => ({
   id:r.id, staffId:r.staff_id, staffAd:r.staff_name,
   musteri:r.musteri, tel:r.telefon||"",
@@ -1053,9 +1066,52 @@ function BulutDurumu(){
       else if(data&&Array.isArray(data.deger)) stokParti=data.deger.length;
       else stokParti=0;
     }catch(e){ stokParti="yok/erişilemiyor"; }
-    setDur({say,stokParti}); setBekleyen(bekleyenSay()); setYukle(false);
+    // Hareketler (bulut) + açılış girişi sayısı
+    let hareketBulut=0, acilisSay=0;
+    try{
+      const {data}=await DB.from("ayarlar").select("deger").eq("id","hareketler").maybeSingle();
+      if(data&&Array.isArray(data.deger)){
+        hareketBulut=data.deger.length;
+        acilisSay=data.deger.filter(h=>h&&h.tip==="giris"&&h.faturaN==="AÇILIŞ").length;
+      }
+    }catch(e){}
+    setDur({say,stokParti,hareketBulut,acilisSay}); setBekleyen(bekleyenSay()); setYukle(false);
   };
   const yerelParti=(()=>{ try{ const l=JSON.parse(localStorage.getItem("apron_v3")||"null"); return (l&&Array.isArray(l.stokPartiler))?l.stokPartiler.length:0; }catch(e){ return 0; } })();
+  const yerelHareket=(()=>{ try{ const l=JSON.parse(localStorage.getItem("apron_v3")||"null"); return (l&&Array.isArray(l.hareketler))?l.hareketler.length:0; }catch(e){ return 0; } })();
+  const yerelAcilis=(()=>{ try{ const l=JSON.parse(localStorage.getItem("apron_v3")||"null"); return (l&&Array.isArray(l.hareketler))?l.hareketler.filter(h=>h&&h.tip==="giris"&&h.faturaN==="AÇILIŞ").length:0; }catch(e){ return 0; } })();
+  const [kurtarYukle,setKurtarYukle]=React.useState(false);
+  const stokKurtar=async()=>{
+    if(!DB){ alert("Bağlantı yok."); return; }
+    if(!confirm("Açılış stok girişleri (bulut + bu cihaz) taranıp eksik stok partileri yeniden oluşturulacak. Devam edilsin mi?\n\nNot: Açılış hareketlerinde alış fiyatı saklanmadığı için fiyatlar 0 gelir, sonradan düzeltebilirsiniz.")) return;
+    setKurtarYukle(true);
+    try{
+      // Hareketleri topla (bulut + yerel)
+      let hareketler=[];
+      try{ const {data}=await DB.from("ayarlar").select("deger").eq("id","hareketler").maybeSingle(); if(data&&Array.isArray(data.deger)) hareketler=data.deger.slice(); }catch(e){}
+      try{ const l=JSON.parse(localStorage.getItem("apron_v3")||"null"); if(l&&Array.isArray(l.hareketler)){ const s=new Set(hareketler.map(h=>h&&h.id)); l.hareketler.forEach(h=>{ if(h&&h.id&&!s.has(h.id)) hareketler.push(h); }); } }catch(e){}
+      // Partileri topla (bulut + yerel)
+      let partiler=[];
+      try{ const {data}=await DB.from("ayarlar").select("deger").eq("id","stokPartiler").maybeSingle(); if(data&&Array.isArray(data.deger)) partiler=data.deger.slice(); }catch(e){}
+      try{ const l=JSON.parse(localStorage.getItem("apron_v3")||"null"); if(l&&Array.isArray(l.stokPartiler)){ const s=new Set(partiler.map(p=>p&&p.id)); l.stokPartiler.forEach(p=>{ if(p&&p.id&&!s.has(p.id)) partiler.push(p); }); } }catch(e){}
+      // Açılış girişleri → eksik partileri oluştur (daha önce kurtarılanları atla)
+      const acilis=hareketler.filter(h=>h&&h.tip==="giris"&&h.faturaN==="AÇILIŞ");
+      const kurtarilmis=new Set(partiler.map(p=>p&&p._kaynakHareket).filter(Boolean));
+      const yeni=[];
+      acilis.forEach(h=>{
+        if(h.id&&kurtarilmis.has(h.id)) return;
+        yeni.push({id:uid(),barkod:h.barkod,urunAd:h.urun_ad||h.urunAd||"",marka:"",
+          adet:h.adet||0,kalan:h.adet||0,alisF:0,kdvOran:0,
+          tarih:h.tarih||TODAY(),faturaN:"AÇILIŞ (kurtarıldı)",tip:"acilis",_kaynakHareket:h.id});
+      });
+      if(!yeni.length){ alert("Kurtarılacak yeni açılış girişi bulunamadı. (Hareketlerde AÇILIŞ kaydı yok ya da hepsi zaten kurtarılmış.)"); setKurtarYukle(false); return; }
+      const birlesik=[...partiler,...yeni];
+      const {error}=await DB.from("ayarlar").upsert({id:"stokPartiler",deger:birlesik});
+      if(error){ alert("Buluta yazılamadı: "+(error.message||"hata")); setKurtarYukle(false); return; }
+      alert(yeni.length+" ürün açılış stoğu kurtarıldı (toplam "+birlesik.length+" parti). Sayfa yenilenecek; alış fiyatlarını Stok ekranından kontrol edin.");
+      location.reload();
+    }catch(e){ alert("Kurtarma sırasında hata oluştu."); setKurtarYukle(false); }
+  };
   React.useEffect(()=>{ kontrol(); },[]);
   const satir=(lb,val)=>div({key:lb,style:{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid rgba(0,0,0,.05)"}},
     span({style:{fontSize:13,color:"#555"}},lb),
@@ -1072,10 +1128,16 @@ function BulutDurumu(){
       satir("İşlem kayıtları", dur.say.kayitlar),
       satir("Stok partileri (asıl stok)", dur.stokParti),
       satir("Yerel stok partileri (bu cihaz)", yerelParti),
-      satir("Stok sayacı (ikincil)", dur.say.stok),
-      satir("Stok hareketleri", dur.say.stok_hareketleri),
+      satir("Açılış girişi — bulut", dur.acilisSay),
+      satir("Açılış girişi — bu cihaz", yerelAcilis),
+      satir("Hareketler (bulut)", dur.hareketBulut),
+      satir("Hareketler (bu cihaz)", yerelHareket),
       satir("Müşteriler", dur.say.musteriler),
       satir("Devamsızlık", dur.say.devamsizliklar)
+    ),
+    dur&&dur.say&&((dur.acilisSay>0||yerelAcilis>0))&&(dur.stokParti===0||dur.stokParti<(dur.acilisSay||0)||dur.stokParti<yerelAcilis)&&div({style:{marginTop:12,padding:12,background:"#EAF6EE",border:"1px solid #A8E0B8",borderRadius:10}},
+      div({style:{fontSize:12,color:"#248A3D",marginBottom:8,lineHeight:1.4}},"Açılış stok girişleri bulundu ama stok partilerinden fazla. Eksik stoğu açılış girişlerinden geri kurabilirsiniz."),
+      btn({onClick:stokKurtar,disabled:kurtarYukle,style:{width:"100%",background:"linear-gradient(135deg,#34C759,#248A3D)",border:"none",borderRadius:9,color:"#fff",fontSize:13,fontWeight:700,padding:11,cursor:"pointer"}},kurtarYukle?"Kurtarılıyor...":"🔧 Stoğu açılış girişlerinden kurtar")
     ),
     bekleyen>0&&div({style:{marginTop:10,padding:10,background:"#FFF4E5",border:"1px solid #FFD8A8",borderRadius:10,fontSize:12,color:"#8a5010"}},
       "⏳ "+bekleyen+" işlem buluta yazılmayı bekliyor. Bağlantı/izin düzelince otomatik gönderilecek."),
@@ -2042,7 +2104,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   // mkArsiv Supabase sync
   React.useEffect(()=>{
     if(!DB||!mkArsiv||!mkArsiv.length) return;
-    DB.from("ayarlar").upsert({id:"mkArsiv",deger:mkArsiv}).then(()=>{}).catch(()=>{});
+    dbUpsert("ayarlar",{id:"mkArsiv",deger:mkArsiv},"id");
     try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(mkArsiv));}catch(e){}
   },[mkArsiv]);
 
@@ -8369,7 +8431,7 @@ ayarlarRaw.forEach(a=>{
       } catch(e) { setPersoneller(a.deger); }
     })();
   }
-  if(a.id==="pGruplar") setPGruplar(a.deger);
+  if(a.id==="pGruplar") setPGruplar(prev=>birlestirListe(prev,a.deger));
   if(a.id==="hizListeleri") setHizListeleri(a.deger);
   if(a.id==="giderKategoriler" && a.deger) setGiderKategoriler(a.deger);
   if(a.id==="urunler" && Array.isArray(a.deger)) {
@@ -8381,13 +8443,13 @@ ayarlarRaw.forEach(a=>{
     Object.keys(a.deger).forEach(k => { HIZ_LISTE_FIYAT[k] = a.deger[k]; });
     triggerUrunRender();
   }
-  if(a.id==="bankalar") setBankalar(a.deger);
-  if(a.id==="tedarikciler") setTedarikciler(a.deger);
+  if(a.id==="bankalar") setBankalar(prev=>birlestirListe(prev,a.deger));
+  if(a.id==="tedarikciler") setTedarikciler(prev=>birlestirListe(prev,a.deger));
   if(a.id==="yonBildirim") setYonBildirim(Array.isArray(a.deger)?a.deger:[]);
   if(a.id==="devirBildirim") setDevirBildirim(Array.isArray(a.deger)?a.deger:[]);
   if(a.id==="bolumStilleri") setBolumStilleri(a.deger||{});
-  if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(a.deger);
-  if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(a.deger);
+  if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(prev=>birlestirListe(prev,a.deger));
+  if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(prev=>birlestirListe(prev,a.deger));
   if(a.id==="stokPartiler" && Array.isArray(a.deger)) {
     stokPartilerYuklendi.current=true;
     setStokPartiler(prev=>{
@@ -8396,7 +8458,13 @@ ayarlarRaw.forEach(a=>{
       return Object.values(harita);
     });
   }
-  if(a.id==="hareketler" && Array.isArray(a.deger) && a.deger.length) setHareketler(a.deger);
+  if(a.id==="hareketler" && Array.isArray(a.deger)) {
+    setHareketler(prev=>{
+      const harita={};
+      [...(prev||[]), ...a.deger].forEach(x=>{ if(x&&x.id) harita[x.id]=x; });
+      return Object.values(harita);
+    });
+  }
   if(a.id==="mkArsiv" && Array.isArray(a.deger) && a.deger.length){ setMkArsiv(a.deger); try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(a.deger));}catch(e){} }
 });
         const [k,m,d] = await Promise.all([
@@ -8562,28 +8630,28 @@ ayarlarRaw.forEach(a=>{
     const fonts = {"Jost":"'Jost',system-ui,sans-serif","Inter":"'Inter',system-ui,sans-serif","Playfair":"'Playfair Display',Georgia,serif"};
     document.body.style.fontFamily = fonts[tema.font]||fonts["Jost"];
     localStorage.setItem("apron_tema", JSON.stringify(tema));
-if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=>{});
+if(DB) dbUpsert("ayarlar",{id:"tema", deger:tema},"id");
   }, [tema]);
 
   // İşletme bilgilerini kaydet
   useEffect(()=>{
     localStorage.setItem("apron_isletme", JSON.stringify(isletme));
-    if(DB && !yukleniyor) DB.from("ayarlar").upsert({id:"isletme", deger:isletme}).then(()=>{}).catch(()=>{});
+    if(DB && !yukleniyor) dbUpsert("ayarlar",{id:"isletme", deger:isletme},"id");
   }, [isletme, yukleniyor]);
-  useEffect(()=>{ if(yukleniyor||!DB||!personellerHazirRef.current) return; DB.from("ayarlar").upsert({id:"personeller",deger:personeller}).then(()=>{}).catch(()=>{}); },[personeller]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"pGruplar",deger:pGruplar}).then(()=>{}).catch(()=>{}); },[pGruplar]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"hizListeleri",deger:hizListeleri}).then(()=>{}).catch(()=>{}); },[hizListeleri]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"bankalar",deger:bankalar}).then(()=>{}).catch(()=>{}); },[bankalar]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"tedarikciler",deger:tedarikciler}).then(()=>{}).catch(()=>{}); },[tedarikciler]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"yonBildirim",deger:yonBildirim}).then(()=>{}).catch(()=>{}); },[yonBildirim]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"devirBildirim",deger:devirBildirim}).then(()=>{}).catch(()=>{}); },[devirBildirim]);
-  useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; DB.from("ayarlar").upsert({id:"urunler",deger:URUN_DB}).then(()=>{}).catch(()=>{}); },[urunDBVer]);
-  useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; DB.from("ayarlar").upsert({id:"hizFiyatlar",deger:HIZ_LISTE_FIYAT}).then(()=>{}).catch(()=>{}); },[urunDBVer]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"zamGecmisi",deger:zamGecmisi}).then(()=>{}).catch(()=>{}); },[zamGecmisi]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"giderler",deger:giderler}).then(()=>{}).catch(()=>{}); },[giderler]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; DB.from("ayarlar").upsert({id:"giderKategoriler",deger:giderKategoriler}).then(()=>{}).catch(()=>{}); },[giderKategoriler]);
-  useEffect(()=>{ if(yukleniyor||!DB||!stokPartilerYuklendi.current) return; DB.from("ayarlar").upsert({id:"stokPartiler",deger:stokPartiler}).then(()=>{}).catch(()=>{}); },[stokPartiler]);
-  useEffect(()=>{ if(yukleniyor||!DB||!hareketler.length) return; DB.from("ayarlar").upsert({id:"hareketler",deger:hareketler}).then(()=>{}).catch(()=>{}); },[hareketler]);
+  useEffect(()=>{ if(yukleniyor||!DB||!personellerHazirRef.current) return; dbUpsert("ayarlar",{id:"personeller",deger:personeller},"id"); },[personeller]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"pGruplar",deger:pGruplar},"id"); },[pGruplar]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"hizListeleri",deger:hizListeleri},"id"); },[hizListeleri]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"bankalar",deger:bankalar},"id"); },[bankalar]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"tedarikciler",deger:tedarikciler},"id"); },[tedarikciler]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"yonBildirim",deger:yonBildirim},"id"); },[yonBildirim]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"devirBildirim",deger:devirBildirim},"id"); },[devirBildirim]);
+  useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; dbUpsert("ayarlar",{id:"urunler",deger:URUN_DB},"id"); },[urunDBVer]);
+  useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; dbUpsert("ayarlar",{id:"hizFiyatlar",deger:HIZ_LISTE_FIYAT},"id"); },[urunDBVer]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"zamGecmisi",deger:zamGecmisi},"id"); },[zamGecmisi]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"giderler",deger:giderler},"id"); },[giderler]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"giderKategoriler",deger:giderKategoriler},"id"); },[giderKategoriler]);
+  useEffect(()=>{ if(yukleniyor||!DB||!stokPartilerYuklendi.current) return; dbUpsert("ayarlar",{id:"stokPartiler",deger:stokPartiler},"id"); },[stokPartiler]);
+  useEffect(()=>{ if(yukleniyor||!DB||!hareketler.length) return; dbUpsert("ayarlar",{id:"hareketler",deger:hareketler},"id"); },[hareketler]);
 
 
 
@@ -8631,7 +8699,7 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
       if(!a || !a.id) return;
       if(a.id==="isletme") { const _d2={logoHeight:80,...a.deger}; setIsletme(_d2); try{ localStorage.setItem("apron_isletme", JSON.stringify(_d2)); }catch(e){} }
       if(a.id==="personeller" && Array.isArray(a.deger)) { personellerHazirRef.current = true; setPersoneller(a.deger); }
-      if(a.id==="pGruplar" && Array.isArray(a.deger)) setPGruplar(a.deger);
+      if(a.id==="pGruplar" && Array.isArray(a.deger)) setPGruplar(prev=>birlestirListe(prev,a.deger));
       if(a.id==="hizListeleri" && Array.isArray(a.deger)) setHizListeleri(a.deger);
       if(a.id==="giderKategoriler" && a.deger) setGiderKategoriler(a.deger);
       if(a.id==="urunler" && Array.isArray(a.deger)) {
@@ -8643,13 +8711,13 @@ if(DB) DB.from("ayarlar").upsert({id:"tema", deger:tema}).then(()=>{}).catch(()=
         Object.keys(a.deger).forEach(k => { HIZ_LISTE_FIYAT[k] = a.deger[k]; });
         triggerUrunRender();
       }
-      if(a.id==="bankalar" && Array.isArray(a.deger)) setBankalar(a.deger);
-      if(a.id==="tedarikciler" && Array.isArray(a.deger)) setTedarikciler(a.deger);
+      if(a.id==="bankalar" && Array.isArray(a.deger)) setBankalar(prev=>birlestirListe(prev,a.deger));
+      if(a.id==="tedarikciler" && Array.isArray(a.deger)) setTedarikciler(prev=>birlestirListe(prev,a.deger));
       if(a.id==="yonBildirim") setYonBildirim(Array.isArray(a.deger)?a.deger:[]);
       if(a.id==="devirBildirim") setDevirBildirim(Array.isArray(a.deger)?a.deger:[]);
       if(a.id==="bolumStilleri") setBolumStilleri(a.deger||{});
-      if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(a.deger);
-      if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(a.deger);
+      if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(prev=>birlestirListe(prev,a.deger));
+      if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(prev=>birlestirListe(prev,a.deger));
       if(a.id==="tema" && a.deger && typeof a.deger==="object") setTema(a.deger);
     };
 
