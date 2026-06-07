@@ -12708,8 +12708,21 @@ if(DB) dbUpsert("ayarlar",{id:"tema", deger:tema},"id");
               }).reduce((s,g)=>s+(parseFloat(g.tutar||0)),0);
               const giderDelta = giderGA > 0 ? Math.round((giderBA - giderGA)/giderGA*100) : null;
 
-              // ── Kar / Zarar ──
-              const kar = gelirBA - giderBA;
+              // ── Personel maaşları (çalışanlar — ortak payı alanlar hariç) ──
+              const _calisanlar = (personeller||[]).filter(p=>p.aktif && p.rol==="personel"
+                && !(Array.isArray(p.maasFormulu) && p.maasFormulu.some(b=>b.tip==="ortakPayi")));
+              const _maasDonem = (kyt,gd) => _calisanlar.reduce((s,p)=>{
+                if(!(Array.isArray(p.maasFormulu) && p.maasFormulu.length>0)) return s;
+                try { return s + (parseFloat(hesaplaMaas(p, kyt, {tumPersoneller:personeller, tumKayitlar:tumK, toplamGider:gd}).toplam)||0); }
+                catch(e){ return s; }
+              }, 0);
+              const maasBA = _maasDonem(kayitlarBA, giderBA);
+              const maasGA = _maasDonem(kayitlarGA, giderGA);
+              const toplamGiderBA = giderBA + maasBA;
+              const toplamGiderGA = giderGA + maasGA;
+
+              // ── Kar / Zarar (işletme) ──
+              const kar = gelirBA - toplamGiderBA;
 
               // ── Stok ──
               const stokAlarm = (stokPartiler||[]).filter(p=>(p.kalan||0) <= 3 && p.kalan >= 0);
@@ -12787,17 +12800,15 @@ if(DB) dbUpsert("ayarlar",{id:"tema", deger:tema},"id");
                   }),
                   KartSatir({
                     emoji:"🔴",baslik:"Bu Ay Gider",
-                    deger:`${fmt(giderBA)} ₺`,
-                    altyazi: giderDelta !== null
-                      ? `Geçen ay: ${fmt(giderGA)} ₺  (${giderDelta >= 0 ? "+" : ""}${giderDelta}%)`
-                      : `Geçen ay: ${fmt(giderGA)} ₺`,
-                    vurgu: giderBA <= giderGA ? "#22863a" : "#E53E3E"
+                    deger:`${fmt(toplamGiderBA)} ₺`,
+                    altyazi:`Personel ${fmt(maasBA)} ₺ + İşletme ${fmt(giderBA)} ₺`,
+                    vurgu: toplamGiderBA <= toplamGiderGA ? "#22863a" : "#E53E3E"
                   }),
                   KartSatir({
                     emoji: kar >= 0 ? "🏆" : "📉",
                     baslik:"Bu Ay Net Kar/Zarar",
                     deger:`${kar >= 0 ? "+" : ""}${fmt(kar)} ₺`,
-                    altyazi:"Gelir eksi gider",
+                    altyazi:"Gelir − (personel maaşı + işletme gideri)",
                     vurgu: kar >= 0 ? "#22863a" : "#E53E3E"
                   }),
                   KartSatir({
@@ -12806,6 +12817,24 @@ if(DB) dbUpsert("ayarlar",{id:"tema", deger:tema},"id");
                     altyazi:`${fmt(stokAdet)} adet toplam ürün${stokAlarm.length > 0 ? ` · ⚠️ ${stokAlarm.length} kritik` : ""}`,
                     vurgu: stokAlarm.length > 0 ? "#D69E2E" : "var(--fg,#111)"
                   }),
+                ),
+
+                // İşletme Kâr/Zarar tablosu
+                div({style:{background:"var(--bg2,#fff)",border:"1px solid rgba(0,0,0,.07)",borderRadius:16,padding:"14px 16px",marginBottom:14,boxShadow:"0 2px 12px rgba(0,0,0,.05)"}},
+                  div({style:{fontSize:13,fontWeight:700,color:"var(--fg,#111)",marginBottom:10}}, `📊 İşletme Kâr/Zarar — ${ayAd(buAy)} ${buYil}`),
+                  div({style:{display:"flex",justifyContent:"space-between",fontSize:13,padding:"5px 0",color:"var(--fg,#111)"}},
+                    div(null,"Gelir (toplam ciro)"),
+                    div({style:{fontWeight:600,color:"#22863a"}}, `+${fmt(gelirBA)} ₺`)),
+                  div({style:{display:"flex",justifyContent:"space-between",fontSize:13,padding:"5px 0",color:"var(--fg,#111)"}},
+                    div(null,"Personel Maaşları"),
+                    div({style:{fontWeight:600,color:"#E53E3E"}}, `−${fmt(maasBA)} ₺`)),
+                  div({style:{display:"flex",justifyContent:"space-between",fontSize:13,padding:"5px 0",color:"var(--fg,#111)"}},
+                    div(null,"İşletme Giderleri"),
+                    div({style:{fontWeight:600,color:"#E53E3E"}}, `−${fmt(giderBA)} ₺`)),
+                  div({style:{height:1,background:"rgba(0,0,0,.08)",margin:"8px 0"}}),
+                  div({style:{display:"flex",justifyContent:"space-between",fontSize:15,fontWeight:700,padding:"3px 0"}},
+                    div({style:{color:"var(--fg,#111)"}}, kar>=0?"Net Kâr":"Net Zarar"),
+                    div({style:{color: kar>=0?"#22863a":"#E53E3E"}}, `${kar>=0?"+":""}${fmt(kar)} ₺`))
                 ),
 
                 // Personel performansı
