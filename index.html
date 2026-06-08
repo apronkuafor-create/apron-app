@@ -202,8 +202,75 @@ const dbAl = async (t,opts={}) => {
 };
 // ── Senkron kuyruğu: buluta yazılamayan işlemler localStorage'da saklanır, sonra tekrar denenir (veri kaybı önlenir) ──
 const SK_KEY = "apron_sync_queue";
+// ── localStorage kota koruması ─────────────────────────────────────────────
+const lsSet = (key, val) => {
+  try { localStorage.setItem(key, val); return true; }
+  catch(e){ console.warn("localStorage yazılamadı:", key, e && e.message ? e.message : e); return false; }
+};
+const lsSetJSON = (key, val) => lsSet(key, JSON.stringify(val));
+const sonKayitlar = (arr, limit) => {
+  if(!Array.isArray(arr)) return [];
+  const a = arr.slice();
+  a.sort((x,y)=>String((y&&y.tarih)||"").localeCompare(String((x&&x.tarih)||"")) || String((y&&y.saat)||"").localeCompare(String((x&&x.saat)||"")));
+  return a.slice(0, limit);
+};
+const sonListe = (arr, limit) => Array.isArray(arr) ? arr.slice(0, limit) : [];
+const localSnapshotHazirla = (d, seviye=0) => {
+  const records = sonKayitlar(d.records, seviye>=2 ? 350 : 1200);
+  const bekleyen = sonKayitlar(d.bekleyen, 300);
+  const snap = {
+    records,
+    bekleyen,
+    // gecmis records ile aynı verinin ikinci kopyasıydı; kotayı ikiye katlamasın.
+    gecmis: [],
+    musteriDB: sonListe(d.musteriDB, seviye>=2 ? 600 : 1500),
+    personeller: d.personeller||[],
+    devDB: d.devDB||{},
+    stokPartiler: sonListe(d.stokPartiler, seviye>=1 ? 1200 : 3000),
+    hatirlatmalar: sonListe(d.hatirlatmalar, 200),
+    randevular: sonListe(d.randevular, 500),
+    tedarikciler: sonListe(d.tedarikciler, 500),
+    faturalar: sonListe(d.faturalar, seviye>=1 ? 500 : 1200),
+    odemeler: sonListe(d.odemeler, seviye>=1 ? 500 : 1200),
+    hareketler: sonListe(d.hareketler, seviye>=1 ? 700 : 1800),
+    oduncler: sonListe(d.oduncler, 500),
+    komsular: sonListe(d.komsular, 500),
+    giderler: sonListe(d.giderler, 800),
+    avanslar: sonListe(d.avanslar, 800),
+    ibanBildirimler: sonListe(d.ibanBildirimler, 300),
+    bankalar: sonListe(d.bankalar, 200),
+    hesapSaglama: d.hesapSaglama||{},
+    pGruplar: sonListe(d.pGruplar, 200),
+    yonBildirim: sonListe(d.yonBildirim, 300),
+    devirBildirim: sonListe(d.devirBildirim, 300),
+    // urunler ve hizFiyatlar zaten kod/Supabase ayarlar kaynağından yükleniyor; apron_v3 içinde tekrar saklanmaz.
+    _bildirimTemizlendi:true,
+    _compact:true,
+    _compactLevel:seviye,
+    _savedAt:new Date().toISOString()
+  };
+  if(seviye>=2){
+    snap.stokPartiler = sonListe(d.stokPartiler, 500);
+    snap.hareketler = sonListe(d.hareketler, 300);
+    snap.faturalar = sonListe(d.faturalar, 250);
+    snap.odemeler = sonListe(d.odemeler, 250);
+  }
+  return snap;
+};
+const apronV3Yaz = (d) => {
+  for(let seviye=0; seviye<=2; seviye++){
+    if(lsSetJSON("apron_v3", localSnapshotHazirla(d, seviye))) return true;
+  }
+  // Son çare: sadece açılış/kurtarma için kritik küçük veri seti.
+  return lsSetJSON("apron_v3", {
+    records:sonKayitlar(d.records,120), bekleyen:sonKayitlar(d.bekleyen,120), gecmis:[],
+    personeller:d.personeller||[], devDB:d.devDB||{}, musteriDB:sonListe(d.musteriDB,200),
+    stokPartiler:[], hareketler:[], _bildirimTemizlendi:true, _compact:true, _compactLevel:3,
+    _savedAt:new Date().toISOString()
+  });
+};
 const skOku = () => { try { return JSON.parse(localStorage.getItem(SK_KEY)||"[]"); } catch(e){ return []; } };
-const skYaz = (q) => { try { localStorage.setItem(SK_KEY, JSON.stringify(q)); } catch(e){} };
+const skYaz = (q) => { lsSetJSON(SK_KEY, (Array.isArray(q)?q:[]).slice(-300)); };
 const skEkle = (item) => { const q = skOku(); q.push(item); skYaz(q); };
 const skBosalt = async () => {
   if(!DB) return;
@@ -1161,10 +1228,10 @@ function BulutDurumu({yukluGonderilmis,yukluToplam}){
         const l=JSON.parse(localStorage.getItem("apron_v3")||"{}");
         l.records=[]; l.bekleyen=[]; l.gecmis=[];
         l.stokPartiler=[]; l.hareketler=[];
-        localStorage.setItem("apron_v3",JSON.stringify(l));
+        apronV3Yaz(l);
       }catch(e){}
       // 4) Bekleyen senkron kuyruğunu temizle (silinecek eski işlemler geri yazılmasın)
-      try{ localStorage.setItem("apron_sync_queue","[]"); }catch(e){}
+      lsSetJSON("apron_sync_queue",[]);
       alert("Stok ve işlem kayıtları sıfırlandı. Sayfa yenilenecek, temiz başlayabilirsiniz.");
       location.reload();
     }catch(e){ alert("Sıfırlama sırasında hata oluştu."); setSifirlaYukle(false); }
@@ -4862,6 +4929,30 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const _poz = aktifKullanici?.pozisyon||"";
   const _isManikurist = _poz==="Manikurist"||_poz==="Pedikürist"||_poz==="Pedikurist";
   const _hizListesi = _isManikurist ? (hizListeleri?.manikurist?.length ? hizListeleri.manikurist : MANIKURIST_HIZMETLER_VARSAYILAN) : (hizListeleri?.ustaKalfa?.length ? hizListeleri.ustaKalfa : USTA_KALFA_HIZMETLER_VARSAYILAN);
+  const varsayilanOdemeTipi = (kk, ib, nk) => {
+    // Eski kayıtlarda satır bazlı ödeme tipi yoksa, toplam ödeme alanlarından güvenli varsayılan üretir.
+    if(toN(kk)>0 && toN(ib)<=0 && toN(nk)<=0) return "kk";
+    if(toN(ib)>0 && toN(kk)<=0 && toN(nk)<=0) return "ib";
+    if(toN(nk)>0 && toN(kk)<=0 && toN(ib)<=0) return "nk";
+    return "";
+  };
+  const ilkHizOdeme = varsayilanOdemeTipi(ilk?.hizKK, ilk?.hizIB, ilk?.hizNK);
+  const ilkUrunOdeme = varsayilanOdemeTipi(ilk?.uKK, ilk?.uIB, ilk?.uNK);
+  const normalizeIlkHizmet = h => ({
+    ...h,
+    id:h?.id||uid(),
+    listef:h?.listef||HIZ_LISTE_FIYAT[h?.n]||0,
+    odeme:h?.odeme||ilkHizOdeme||""
+  });
+  const normalizeIlkUrun = u => ({
+    ...u,
+    id:u?.id||uid(),
+    b:u?.b||u?.barkod||"",
+    a:u?.a||u?.ad||u?.urunAd||u?.urun_ad||"",
+    qty:u?.qty||u?.adet||u?.miktar||1,
+    sf:u?.sf||u?.sp||u?.satisF||u?.satis_fiyat||"",
+    odeme:u?.odeme||ilkUrunOdeme||""
+  });
   const [musteri,  setMusteri]  = useState(ilk?.musteri||"");
   const [tel,      setTel]      = useState(ilk?.tel||"");
   const [formTarih, setFormTarih] = useState(ilk?.tarih || TODAY());
@@ -4871,10 +4962,10 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [hatirlatmaUyari, setHatirlatmaUyari] = useState(false);
   const [hizler,   setHizler]   = useState(
     ilk?.hizler?.length
-      ? ilk.hizler.map(h=>({...h,listef:h.listef||HIZ_LISTE_FIYAT[h.n]||0,odeme:h.odeme||""}))
+      ? ilk.hizler.map(normalizeIlkHizmet)
       : [{id:uid(),n:"",f:"",listef:0,odeme:"",pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""}]
   );
-  const [urunler,  setUrunler]  = useState((ilk?.urunler||[]).map(u=>({...u,odeme:u.odeme||""})));
+  const [urunler,  setUrunler]  = useState((ilk?.urunler||[]).map(normalizeIlkUrun));
   const [hKK,setHKK] = useState(String(ilk?.hizKK||""));
   const [hIB,setHIB] = useState(String(ilk?.hizIB||""));
   const [hNK,setHNK] = useState(String(ilk?.hizNK||""));
@@ -8163,7 +8254,7 @@ function App() {
       try {
         const local = JSON.parse(localStorage.getItem("apron_v3")||"null");
         if(local){
-          if(local.records) setRecords(kayitDedup(local.records));
+          if(local.records) { const _lr=kayitDedup(local.records); setRecords(_lr); if(!local.gecmis) setGecmis(_lr); }
           if(local.bekleyen) setBekleyen(kayitDedup(local.bekleyen));
           if(local.musteriDB) setMusteriDB(local.musteriDB);
           if(local.personeller?.length){
@@ -8650,7 +8741,7 @@ if(DB) dbUpsert("ayarlar",{id:"tema", deger:tema},"id");
 
   useEffect(()=>{
     if(yukleniyor) return;
-    localStorage.setItem("apron_v3",JSON.stringify({records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,giderler,avanslar,ibanBildirimler,bankalar,hesapSaglama,pGruplar,yonBildirim,devirBildirim,urunler:URUN_DB,hizFiyatlar:HIZ_LISTE_FIYAT,_bildirimTemizlendi:true}));
+    apronV3Yaz({records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,giderler,avanslar,ibanBildirimler,bankalar,hesapSaglama,pGruplar,yonBildirim,devirBildirim});
   },[records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,giderler,avanslar,ibanBildirimler,bankalar,hesapSaglama,pGruplar,yonBildirim,devirBildirim,yukleniyor,urunDBVer]);
 
   // ── Oturum Persistance — sayfa yenilenince kullanıcı aynı sayfada devam etsin ──
@@ -9107,6 +9198,93 @@ if(DB) dbUpsert("ayarlar",{id:"tema", deger:tema},"id");
     showToast("Kayit bekleyen listesine eklendi!");
   };
 
+  const urunMiktarHaritasi = (urunler=[]) => {
+    const adetler = {}, adlar = {};
+    (urunler||[]).forEach(u=>{
+      const b = String(u?.b||u?.barkod||"").trim();
+      if(!b) return;
+      const adet = Math.max(0, toN(u.qty ?? u.adet ?? u.miktar ?? 1));
+      adetler[b] = (adetler[b]||0) + adet;
+      adlar[b] = u.a || u.urunAd || u.urun_ad || u.ad || adlar[b] || "";
+    });
+    return {adetler, adlar};
+  };
+
+  const kayitUrunFarklariniHesapla = (oncekiUrunler=[], yeniUrunler=[]) => {
+    const onceki = urunMiktarHaritasi(oncekiUrunler);
+    const yeni = urunMiktarHaritasi(yeniUrunler);
+    const barkodlar = new Set([...Object.keys(onceki.adetler), ...Object.keys(yeni.adetler)]);
+    const farklar = {}, adlar = {};
+    barkodlar.forEach(b=>{
+      const fark = (yeni.adetler[b]||0) - (onceki.adetler[b]||0);
+      if(fark) {
+        farklar[b] = fark;
+        adlar[b] = yeni.adlar[b] || onceki.adlar[b] || "";
+      }
+    });
+    return {farklar, adlar};
+  };
+
+  const stokPartiFarkUygula = (partiler=[], farklar={}) => {
+    const yeni = (partiler||[]).map(p=>({...p, kalan:toN(p.kalan), adet:toN(p.adet)}));
+    Object.keys(farklar||{}).forEach(barkod=>{
+      const fark = toN(farklar[barkod]);
+      if(!fark) return;
+      if(fark > 0){
+        // Ürün adedi artırıldı: satış farkını FIFO ile stoktan düş.
+        let dusulecek = fark;
+        for(let i=0; i<yeni.length && dusulecek>0; i++){
+          if(String(yeni[i].barkod)!==String(barkod) || toN(yeni[i].kalan)<=0) continue;
+          const dusen = Math.min(toN(yeni[i].kalan), dusulecek);
+          yeni[i] = {...yeni[i], kalan:toN(yeni[i].kalan)-dusen};
+          dusulecek -= dusen;
+        }
+      } else {
+        // Ürün adedi azaltıldı/çıkarıldı: daha önce düşmüş stok miktarını partiye geri koy.
+        let eklenecek = Math.abs(fark);
+        const idxler = yeni.map((p,i)=>String(p.barkod)===String(barkod)?i:-1).filter(i=>i>=0).reverse();
+        idxler.forEach(i=>{
+          if(eklenecek<=0) return;
+          const kapasite = Math.max(0, toN(yeni[i].adet)-toN(yeni[i].kalan));
+          const ek = Math.min(kapasite || eklenecek, eklenecek);
+          yeni[i] = {...yeni[i], kalan:toN(yeni[i].kalan)+ek};
+          eklenecek -= ek;
+        });
+      }
+    });
+    return yeni;
+  };
+
+  const kayitDuzenlemeStokFarkiUygula = (oncekiKayit={}, yeniKayit={}) => {
+    // Bekleyen kayıtlar henüz asıl stokPartiler'den düşmediği için burada stok oynatılmaz;
+    // gün sonu gönderiminde final ürün listesi üzerinden tek sefer FIFO düşer.
+    if(!oncekiKayit.gonderildi && !yeniKayit.gonderildi) return;
+    const {farklar, adlar} = kayitUrunFarklariniHesapla(oncekiKayit.urunler||[], yeniKayit.urunler||[]);
+    const barkodlar = Object.keys(farklar);
+    if(!barkodlar.length) return;
+    stokPartilerYuklendi.current = true;
+    setStokPartiler(prev=>stokPartiFarkUygula(prev, farklar));
+    const sonrakiStokDB = {...(stokDB||{})};
+    barkodlar.forEach(b=>{
+      sonrakiStokDB[b] = Math.max(0, toN(sonrakiStokDB[b])-toN(farklar[b]));
+    });
+    setStokDB(sonrakiStokDB);
+    const yeniHar = barkodlar.map(b=>({
+      id:uid(), barkod:b, urun_ad:adlar[b]||"", urunAd:adlar[b]||"",
+      tip:farklar[b]>0?"duzenleme_cikis":"duzenleme_iade",
+      adet:Math.abs(toN(farklar[b])), tarih:yeniKayit.tarih||TODAY(),
+      staffId:yeniKayit.staffId||"", staffAd:yeniKayit.staffAd||"",
+      kayitId:yeniKayit.id, olusturma:Date.now(),
+      notlar:"Kayıt düzenleme ürün farkı"
+    }));
+    setStokHar(p=>[...yeniHar, ...(p||[])]);
+    yeniHar.forEach(har=>{
+      dbEkle("stok_hareketleri",{id:har.id,barkod:har.barkod,urun_ad:har.urun_ad,tip:har.tip,
+        adet:har.adet,tarih:har.tarih,staff_id:har.staffId,staff_name:har.staffAd,kayit_id:har.kayitId});
+      dbUpsert("stok",{id:har.barkod,barkod:har.barkod,urun_ad:har.urun_ad,qty:sonrakiStokDB[har.barkod]||0,son_guncelleme:TODAY()},"id");
+    });
+  };
+
   const kayitKaydet = f => {
     const hKK=toN(f.hizKK),hIB=toN(f.hizIB),hNK=toN(f.hizNK);
     const uKK=toN(f.uKK),uIB=toN(f.uIB),uNK=toN(f.uNK);
@@ -9164,6 +9342,7 @@ if(DB) dbUpsert("ayarlar",{id:"tema", deger:tema},"id");
       setRecords(p=>p.map(r=>r.id===gn.id?gn:r));
       setGecmis(p=>p.map(r=>r.id===gn.id?gn:r));
       setKayitPanelSonuc(p=>p?{...p,kayitlar:(p.kayitlar||[]).map(r=>String(r.id)===String(gn.id)?gn:r)}:p);
+      kayitDuzenlemeStokFarkiUygula(eskiKayit, gn);
       dbGnc("kayitlar",{musteri:gn.musteri,telefon:gn.tel,hizmetler:gn.hizler,hiz_kk:hKK,hiz_ib:hIB,hiz_nk:hNK,
         urunler:gn.urunler,urun_kk:uKK,urun_ib:uIB,urun_nk:uNK,toplam:top},gn.id);
       if(bildirimliDuzenleme){
