@@ -3702,13 +3702,18 @@ function OduncModul({oduncler,setOduncler,komsular,setKomsular,stokPartiler,setS
 
 
 // ── GELİR/GİDER MODÜLÜ ─────────────────────────────────────────────────────
-function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, setAvanslar, ibanBildirimler, showToast, aktifSekme}) {
+function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, setAvanslar, ibanBildirimler, showToast, aktifSekme, giderKategoriler}) {
   const [sekmeLocal, setSekmeLocal] = React.useState("ozet");
   const sekme = aktifSekme || sekmeLocal;
   const setSekme = aktifSekme ? (()=>{}) : setSekmeLocal;
   const [secAy, setSecAy] = React.useState(new Date().toISOString().slice(0,7));
   const [giderFrm, setGiderFrm] = React.useState(null);
-  const GID_KATEGORILER = ["Kira","Elektrik","Su","Doğalgaz","Maaş","SGK/Sigorta","Malzeme","Temizlik","Vergi","Avans Ödemesi","Diğer"];
+  // Kategori listesi: Ayarlar→Listeler→Gider Listesi'nden beslenir, fallback sabit liste
+  const GID_KATEGORILER = React.useMemo(()=>{
+    var k = Array.isArray(giderKategoriler) ? giderKategoriler
+          : [].concat((giderKategoriler&&giderKategoriler.kdvli)||[],(giderKategoriler&&giderKategoriler.kdvsiz)||[]);
+    return k.length > 0 ? k : ["Kira","Elektrik","Su","Doğalgaz","Maaş","SGK/Sigorta","Malzeme","Temizlik","Vergi","Avans Ödemesi","Diğer"];
+  }, [giderKategoriler]);
 
   // Seçilen ay kayıtları
   const ayKayitlar = (tumK||[]).filter(r=>r.tarih?.startsWith(secAy)&&r.gonderildi!==false);
@@ -4055,10 +4060,13 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
 // Şahıs şirketi için 2026 kademeli gelir vergisi tarifesi
 // Matrah = KDV hariç seçili ciro − KDV hariç giderler
 // Gelir vergisi YILLIK beyan edilir, bu yüzden yıllık kümülatif gösteriyoruz
-function VergiMuhasebesiModul({tumK, faturalar, giderler}) {
+function VergiMuhasebesiModul({tumK, faturalar}) {
   const [secAy, setSecAy] = React.useState(new Date().toISOString().slice(0,7));
   const [kdvOran, setKdvOran] = React.useState(20);
   const [secimler, setSecimler] = React.useState({kk:true, ib:true, nk:true});
+  // Vergi muhasebesi kendi gider listesini yönetir (Muhasebe→Giderler'den bağımsız)
+  const [vergiGiderler, setVergiGiderler] = React.useState([]);
+  const giderler = vergiGiderler;
 
   const oran = Math.max(0, toN(kdvOran)) / 100;
   const kdvIcinden = React.useCallback((brut)=>{
@@ -7598,88 +7606,141 @@ function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast, tumPe
   );
 }
 
-// ── GİDERLER MODÜLÜ (Masraflar) ────────────────────────────────────────────
-function GiderlerModul({giderler, setGiderler, giderKategoriler, setGiderKategoriler, showToast}) {
-  var FONT = "'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif";
-  var kdvliKatlar  = giderKategoriler&&giderKategoriler.kdvli  ? giderKategoriler.kdvli  : [];
-  var kdvsizKatlar = giderKategoriler&&giderKategoriler.kdvsiz ? giderKategoriler.kdvsiz : [];
 
-  const [filtreMode,      setFiltreMode]      = React.useState("ay");
-  const [filtreAy,        setFiltreAy]        = React.useState(function(){ var d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); });
-  const [filtreBaslangic, setFiltreBaslangic] = React.useState("");
-  const [filtreBitis,     setFiltreBitis]     = React.useState("");
-  const [filtreTip,       setFiltreTip]       = React.useState("hepsi");
-  const [yeniGider,       setYeniGider]       = React.useState(null);
-  const [formTip,         setFormTip]         = React.useState("kdvli");
+
+// ── GİDERLER MODÜLÜ (yeniden yazıldı) ──────────────────────────────────────
+// Tek tip gider (KDV ayrımı yok), Ayarlar→Listeler→Gider Listesi'nden beslenir,
+// Supabase retry kuyruğuyla senkronize olur.
+function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast}) {
+  var FONT = "'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+  // Tüm kategoriler (kdvli + kdvsiz birleştirilmiş — tek liste)
+  var tumKatlar = React.useMemo(function(){
+    var a = Array.isArray(giderKategoriler) ? giderKategoriler
+          : [].concat(
+              (giderKategoriler&&giderKategoriler.kdvli)||[],
+              (giderKategoriler&&giderKategoriler.kdvsiz)||[]
+            );
+    return a.filter(Boolean);
+  }, [giderKategoriler]);
+
+  var ODEME_TIPLERI = ["Nakit","Kredi Kartı","IBAN","Diğer"];
+
+  var [filtreMode,      setFiltreMode]      = React.useState("ay");
+  var [filtreAy,        setFiltreAy]        = React.useState(function(){ var d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); });
+  var [filtreBaslangic, setFiltreBaslangic] = React.useState("");
+  var [filtreBitis,     setFiltreBitis]     = React.useState("");
+  var [yeniGider,       setYeniGider]       = React.useState(null);
 
   var bugun = (function(){ var d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); })();
-  var aylarSec = (function(){
+
+  var aylarSec = React.useMemo(function(){
     var s=new Set((giderler||[]).map(function(g){return (g.tarih||"").slice(0,7);}).filter(Boolean));
     var a=Array.from(s).sort().reverse();
     var c=bugun.slice(0,7);
-    if(a.indexOf(c)===-1) a.unshift(c); return a;
-  })();
-  var ayEt = function(ym){ if(!ym||ym==="tum") return "Tüm Aylar"; var p=ym.split("-"); return new Date(parseInt(p[0]),parseInt(p[1])-1,1).toLocaleString("tr-TR",{month:"long",year:"numeric"}); };
+    if(a.indexOf(c)===-1) a.unshift(c);
+    return a;
+  }, [giderler, bugun]);
 
-  var filtreliGiderler = (giderler||[]).filter(function(g){
-    var tarihOk=true;
-    if(filtreMode==="ay"){ if(filtreAy&&filtreAy!=="tum") tarihOk=(g.tarih||"").startsWith(filtreAy); }
-    else { if(filtreBaslangic) tarihOk=tarihOk&&(g.tarih||"")>=filtreBaslangic; if(filtreBitis) tarihOk=tarihOk&&(g.tarih||"")<=filtreBitis; }
-    return tarihOk&&(filtreTip==="hepsi"||g.tip===filtreTip);
-  }).sort(function(a,b){return (b.tarih||"").localeCompare(a.tarih||"");});
+  var ayEt = function(ym){
+    if(!ym||ym==="tum") return "Tüm Aylar";
+    var p=ym.split("-");
+    return new Date(parseInt(p[0]),parseInt(p[1])-1,1).toLocaleString("tr-TR",{month:"long",year:"numeric"});
+  };
 
-  var kdvliF  = filtreliGiderler.filter(function(g){return g.tip==="kdvli";});
-  var kdvsizF = filtreliGiderler.filter(function(g){return g.tip==="kdvsiz";});
-  var topK=kdvliF.reduce(function(s,g){return s+toN(g.tutar);},0);
-  var topS=kdvsizF.reduce(function(s,g){return s+toN(g.tutar);},0);
+  var filtreliGiderler = React.useMemo(function(){
+    return (giderler||[]).filter(function(g){
+      var tarihOk=true;
+      if(filtreMode==="ay"){ if(filtreAy&&filtreAy!=="tum") tarihOk=(g.tarih||"").startsWith(filtreAy); }
+      else { if(filtreBaslangic) tarihOk=tarihOk&&(g.tarih||"")>=filtreBaslangic; if(filtreBitis) tarihOk=tarihOk&&(g.tarih||"")<=filtreBitis; }
+      return tarihOk;
+    }).sort(function(a,b){return (b.tarih||"").localeCompare(a.tarih||"");});
+  }, [giderler, filtreMode, filtreAy, filtreBaslangic, filtreBitis]);
 
-  var giderEkle=function(){
-    if(!yeniGider||!yeniGider.tarih||!yeniGider.kategori||!yeniGider.tutar){showToast("Tarih, kategori ve tutar zorunlu","uy");return;}
-    var t=toN(yeniGider.tutar); if(t<=0){showToast("Tutar 0'dan büyük olmalı","uy");return;}
-    var k={id:Date.now()+"-"+Math.random().toString(36).slice(2,8),tarih:yeniGider.tarih,kategori:yeniGider.kategori,tip:yeniGider.tip||formTip,tutar:t,aciklama:yeniGider.aciklama||"",olusturulma:new Date().toISOString()};
-    if(yeniGider._editId){setGiderler(function(p){return p.map(function(g){return g.id===yeniGider._editId?Object.assign({},k,{id:yeniGider._editId}):g;});});showToast("Gider güncellendi","ba");}
-    else{setGiderler(function(p){return [k].concat(p||[]);});showToast("Gider eklendi","ba");}
+  var toplamTutar = filtreliGiderler.reduce(function(s,g){return s+toN(g.tutar);},0);
+
+  // Kategori dağılımı
+  var katDagilim = React.useMemo(function(){
+    var m={};
+    filtreliGiderler.forEach(function(g){
+      var k=g.kategori||"Diğer";
+      if(!m[k]) m[k]=0;
+      m[k]+=toN(g.tutar);
+    });
+    return Object.entries(m).sort(function(a,b){return b[1]-a[1];});
+  }, [filtreliGiderler]);
+
+  // Ödeme tipi dağılımı
+  var odemeDagilim = React.useMemo(function(){
+    var m={};
+    filtreliGiderler.forEach(function(g){
+      var k=g.odemeTipi||"Belirtilmemiş";
+      if(!m[k]) m[k]=0;
+      m[k]+=toN(g.tutar);
+    });
+    return Object.entries(m).sort(function(a,b){return b[1]-a[1];});
+  }, [filtreliGiderler]);
+
+  var giderKaydet = function(){
+    if(!yeniGider||!yeniGider.tarih||!yeniGider.kategori||!yeniGider.tutar){
+      showToast("Tarih, kategori ve tutar zorunlu","uy"); return;
+    }
+    var t=toN(yeniGider.tutar);
+    if(t<=0){showToast("Tutar 0'dan büyük olmalı","uy"); return;}
+    var kayit = {
+      id: yeniGider._editId || uid(),
+      tarih: yeniGider.tarih,
+      kategori: yeniGider.kategori,
+      tutar: t,
+      aciklama: yeniGider.aciklama||"",
+      odemeTipi: yeniGider.odemeTipi||"",
+      olusturulma: new Date().toISOString()
+    };
+    if(yeniGider._editId){
+      setGiderler(function(p){return p.map(function(g){return g.id===yeniGider._editId?kayit:g;});});
+      // Supabase sync (retry kuyruğuyla)
+      if(DB) dbUpsert("ayarlar",{id:"giderler",deger:null},"id"); // tetikleyici useEffect halleder
+      showToast("Gider güncellendi","ba");
+    } else {
+      setGiderler(function(p){return [kayit].concat(p||[]);});
+      showToast("Gider eklendi","ba");
+    }
     setYeniGider(null);
   };
-  var giderSil=function(id){ if(!confirm("Bu gideri silmek istediğinize emin misiniz?")) return; setGiderler(function(p){return p.filter(function(g){return g.id!==id;});}); showToast("Gider silindi","ba"); };
-  var giderDuzenle=function(g){ setFormTip(g.tip||"kdvli"); setYeniGider({tarih:g.tarih,kategori:g.kategori,tip:g.tip||"kdvli",tutar:g.tutar,aciklama:g.aciklama,_editId:g.id}); };
-  var giderBasla=function(tip){ setFormTip(tip||"kdvli"); setYeniGider({tarih:bugun,kategori:"",tip:tip||"kdvli",tutar:"",aciklama:""}); };
 
-  var aktifKatlar=formTip==="kdvli"?kdvliKatlar:kdvsizKatlar;
-  var katBos=!kdvliKatlar.length&&!kdvsizKatlar.length;
+  var giderSil = function(id){
+    if(!confirm("Bu gideri silmek istediğinize emin misiniz?")) return;
+    setGiderler(function(p){return p.filter(function(g){return g.id!==id;});});
+    showToast("Gider silindi","ba");
+  };
 
-  // Tek tip kart stili (a,b,c,d hepsi aynı)
-  var kartStil = {background:"#FFFFFF",border:"1px solid #E5E5EA",borderRadius:12,padding:"12px 10px",textAlign:"center",fontFamily:FONT};
-  var kartBaslik = {fontSize:10,color:"#1D1D1F",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:4,fontFamily:FONT};
-  var kartTutar = {fontSize:18,fontWeight:800,color:"#1D1D1F",lineHeight:1.2,fontFamily:FONT};
-  var kartAlt = {fontSize:10,color:"#86868B",marginTop:2,fontFamily:FONT};
+  var giderDuzenle = function(g){
+    setYeniGider({tarih:g.tarih,kategori:g.kategori,tutar:g.tutar,aciklama:g.aciklama||"",odemeTipi:g.odemeTipi||"",_editId:g.id});
+  };
+
+  var katBos = tumKatlar.length===0;
 
   return div({style:{padding:"4px 0",fontFamily:FONT}},
 
     // ── FORM MODAL ──
     yeniGider&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:1000,
-      display:"flex",alignItems:"center",justifyContent:"center",padding:16}},
-      div({style:{background:"#FFFFFF",borderRadius:18,padding:22,width:"100%",maxWidth:400,
-        boxShadow:"0 24px 64px rgba(0,0,0,.28)",fontFamily:FONT}},
+      display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto"}},
+      div({style:{background:"var(--bg2)",borderRadius:18,padding:22,width:"100%",maxWidth:400,
+        boxShadow:"0 24px 64px rgba(0,0,0,.28)",fontFamily:FONT,margin:"auto"}},
 
-        // Baslik - hangi butondan acildiysa o isim sabit
-        div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F",marginBottom:18,fontFamily:FONT}},
-          yeniGider._editId
-            ? "Gider Düzenle"
-            : (formTip==="kdvli" ? "Yeni KDV'li Gider" : "Yeni KDV'siz Gider")
-        ),
+        div({style:{fontSize:16,fontWeight:700,color:"var(--tx)",marginBottom:18,fontFamily:FONT}},
+          yeniGider._editId ? "Gider Düzenle" : "Yeni Gider"),
 
         // Tarih + Tutar
         div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}},
           div(null,
             lbl({className:"fl",style:{fontFamily:FONT}},"Tarih *"),
-            inp({className:"fi",type:"date",value:yeniGider.tarih||"",
-              style:{fontFamily:FONT},
-              onChange:function(e){setYeniGider(function(p){return Object.assign({},p,{tarih:e.target.value});}); }})
+            h("input",{className:"fi",type:"date",value:yeniGider.tarih||"",
+              style:{fontFamily:FONT,width:"100%"},
+              onChange:function(e){setYeniGider(function(p){return Object.assign({},p,{tarih:e.target.value});});}})
           ),
           div(null,
             lbl({className:"fl",style:{fontFamily:FONT}},"Tutar (₺) *"),
-            inp({className:"fi",type:"number",placeholder:"0",value:yeniGider.tutar||"",
+            inp({className:"fi",type:"number",inputMode:"decimal",placeholder:"0",value:yeniGider.tutar||"",
               style:{fontFamily:FONT},
               onChange:function(e){setYeniGider(function(p){return Object.assign({},p,{tutar:e.target.value});}); }})
           )
@@ -7691,14 +7752,25 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, setGiderKategor
           sel({className:"fi",value:yeniGider.kategori||"",
             style:{fontFamily:FONT},
             onChange:function(e){setYeniGider(function(p){return Object.assign({},p,{kategori:e.target.value});}); }},
-            opt("","Marka seçin"),
-            aktifKatlar.map(function(k){return opt(k,k);})
+            opt("","Kategori seçin"),
+            tumKatlar.map(function(k){return opt(k,k);})
           )
         ),
         katBos&&div({style:{fontSize:11,color:"#FF9500",marginBottom:8,fontFamily:FONT}},
           "⚠ Kategori listesi boş. Ayarlar → Listeler → Gider Listesi'nden ekleyin."),
 
-        // Aciklama
+        // Ödeme Yöntemi (opsiyonel)
+        div({style:{marginBottom:12}},
+          lbl({className:"fl",style:{fontFamily:FONT}},"Ödeme Yöntemi"),
+          sel({className:"fi",value:yeniGider.odemeTipi||"",
+            style:{fontFamily:FONT},
+            onChange:function(e){setYeniGider(function(p){return Object.assign({},p,{odemeTipi:e.target.value});}); }},
+            opt("","Belirtilmemiş"),
+            ODEME_TIPLERI.map(function(k){return opt(k,k);})
+          )
+        ),
+
+        // Açıklama
         div({style:{marginBottom:18}},
           lbl({className:"fl",style:{fontFamily:FONT}},"Açıklama"),
           inp({className:"fi",placeholder:"Opsiyonel...",value:yeniGider.aciklama||"",
@@ -7706,130 +7778,112 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, setGiderKategor
             onChange:function(e){setYeniGider(function(p){return Object.assign({},p,{aciklama:e.target.value});}); }})
         ),
 
-        // Butonlar
         div({style:{display:"flex",gap:10}},
-          btn({style:{flex:1,padding:"12px 0",borderRadius:10,border:"1px solid #E5E5EA",
-            background:"#F5F5F7",color:"#1D1D1F",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:FONT},
+          btn({style:{flex:1,padding:"12px 0",borderRadius:10,border:"1px solid var(--br)",
+            background:"var(--bg3)",color:"var(--mu)",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:FONT},
             onClick:function(){setYeniGider(null);}
           },"İptal"),
           btn({style:{flex:2,padding:"12px 0",borderRadius:10,border:"none",
-            background:"#1D1D1F",color:"#FFFFFF",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:FONT},
-            onClick:giderEkle
+            background:"var(--g)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:FONT},
+            onClick:giderKaydet
           },yeniGider._editId?"Güncelle":"Kaydet")
         )
       )
     ),
 
-    // ── ÖZET (a, b, c — hepsi aynı stil) ──
-    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}},
-      div({style:kartStil},
-        div({style:kartBaslik},"KDV'Lİ"),
-        div({style:kartTutar},fmt(topK)),
-        div({style:kartAlt},kdvliF.length+" kayıt")
+    // ── ÖZET KARTLARI ──
+    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}},
+      div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:"12px 10px",textAlign:"center"}},
+        div({style:{fontSize:10,color:"var(--mu)",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}},"TOPLAM GİDER"),
+        div({style:{fontSize:20,fontWeight:800,color:"#e06060",fontFamily:"'Inter',sans-serif"}},fmt(toplamTutar)),
+        div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},filtreliGiderler.length+" kayıt")
       ),
-      div({style:kartStil},
-        div({style:kartBaslik},"KDV'SİZ"),
-        div({style:kartTutar},fmt(topS)),
-        div({style:kartAlt},kdvsizF.length+" kayıt")
-      ),
-      div({style:kartStil},
-        div({style:kartBaslik},"TOPLAM"),
-        div({style:kartTutar},fmt(topK+topS)),
-        div({style:kartAlt},filtreliGiderler.length+" kayıt")
+      div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:"12px 10px"}},
+        div({style:{fontSize:10,color:"var(--mu)",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:6}},"KATEGORİ DAĞILIMI"),
+        katDagilim.slice(0,3).map(function(ent){
+          return div({key:ent[0],style:{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--tx)",marginBottom:2}},
+            div({style:{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"60%"}},ent[0]),
+            div({style:{fontWeight:600,color:"#e06060",flexShrink:0,fontFamily:"'Inter',sans-serif"}},fmt(ent[1]))
+          );
+        }),
+        katDagilim.length===0&&div({style:{fontSize:11,color:"var(--mu)",textAlign:"center",padding:"8px 0"}},"—")
       )
     ),
 
     // ── FİLTRE ──
-    div({style:{background:"#FFFFFF",border:"1px solid #E5E5EA",borderRadius:12,padding:14,marginBottom:12,fontFamily:FONT}},
-      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}},
+    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:12}},
+      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
         btn({style:{padding:"9px 0",borderRadius:9,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:FONT,
-          border:"1.5px solid "+(filtreMode==="ay"?"#1D1D1F":"#E5E5EA"),
-          background:filtreMode==="ay"?"#1D1D1F":"transparent",
-          color:filtreMode==="ay"?"#FFFFFF":"#86868B"},
+          border:"1.5px solid "+(filtreMode==="ay"?"var(--g)":"var(--br)"),
+          background:filtreMode==="ay"?"var(--g)":"transparent",
+          color:filtreMode==="ay"?"#fff":"var(--mu)"},
           onClick:function(){setFiltreMode("ay");}
-        },"Aylık Filtre"),
+        },"Aylık"),
         btn({style:{padding:"9px 0",borderRadius:9,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:FONT,
-          border:"1.5px solid "+(filtreMode==="tarih"?"#1D1D1F":"#E5E5EA"),
-          background:filtreMode==="tarih"?"#1D1D1F":"transparent",
-          color:filtreMode==="tarih"?"#FFFFFF":"#86868B"},
+          border:"1.5px solid "+(filtreMode==="tarih"?"var(--g)":"var(--br)"),
+          background:filtreMode==="tarih"?"var(--g)":"transparent",
+          color:filtreMode==="tarih"?"#fff":"var(--mu)"},
           onClick:function(){setFiltreMode("tarih");}
         },"Tarih Aralığı")
       ),
       filtreMode==="ay"&&sel({className:"fi",value:filtreAy,
         onChange:function(e){setFiltreAy(e.target.value);},
-        style:{margin:"0 0 12px",fontSize:13,fontFamily:FONT}},
+        style:{fontSize:13,fontFamily:FONT}},
         opt("tum","Tüm Aylar"),
         aylarSec.map(function(a){return opt(a,ayEt(a));})
       ),
-      filtreMode==="tarih"&&div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}},
+      filtreMode==="tarih"&&div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
         div(null,
           lbl({className:"fl",style:{fontFamily:FONT}},"Başlangıç"),
-          inp({className:"fi",type:"date",value:filtreBaslangic,style:{fontFamily:FONT},onChange:function(e){setFiltreBaslangic(e.target.value);}})
+          h("input",{className:"fi",type:"date",value:filtreBaslangic,style:{fontFamily:FONT,width:"100%"},onChange:function(e){setFiltreBaslangic(e.target.value);}})
         ),
         div(null,
           lbl({className:"fl",style:{fontFamily:FONT}},"Bitiş"),
-          inp({className:"fi",type:"date",value:filtreBitis,style:{fontFamily:FONT},onChange:function(e){setFiltreBitis(e.target.value);}})
+          h("input",{className:"fi",type:"date",value:filtreBitis,style:{fontFamily:FONT,width:"100%"},onChange:function(e){setFiltreBitis(e.target.value);}})
         )
-      ),
-      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}},
-        ["hepsi","kdvli","kdvsiz"].map(function(t){
-          var lb=t==="hepsi"?"Hepsi":t==="kdvli"?"KDV'li":"KDV'siz";
-          return btn({key:t,style:{padding:"8px 0",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:FONT,
-            border:"1.5px solid "+(filtreTip===t?"#1D1D1F":"#E5E5EA"),
-            background:filtreTip===t?"#1D1D1F":"transparent",
-            color:filtreTip===t?"#FFFFFF":"#86868B"},
-            onClick:function(){setFiltreTip(t);}},lb);
-        })
       )
     ),
 
-    // ── EKLE BUTONLARI (d — aynı stil) ──
-    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}},
-      btn({style:{padding:"12px 0",borderRadius:10,border:"1px solid #E5E5EA",
-        background:"#FFFFFF",color:"#1D1D1F",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:FONT},
-        onClick:function(){giderBasla("kdvli");}
-      },"+ KDV'li Gider"),
-      btn({style:{padding:"12px 0",borderRadius:10,border:"1px solid #E5E5EA",
-        background:"#FFFFFF",color:"#1D1D1F",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:FONT},
-        onClick:function(){giderBasla("kdvsiz");}
-      },"+ KDV'siz Gider")
-    ),
+    // ── EKLE BUTONU ──
+    btn({style:{width:"100%",marginBottom:14,padding:"13px 0",borderRadius:11,border:"none",
+      background:"var(--g)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:FONT},
+      onClick:function(){setYeniGider({tarih:bugun,kategori:"",tutar:"",aciklama:"",odemeTipi:""});}
+    },"+ Yeni Gider Ekle"),
 
     // ── LİSTE ──
-    div({style:{background:"#FFFFFF",border:"1px solid #E5E5EA",borderRadius:12,padding:14,fontFamily:FONT}},
-      div({style:{fontSize:11,fontWeight:700,color:"#1D1D1F",letterSpacing:1.5,
+    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14}},
+      div({style:{fontSize:11,fontWeight:700,color:"var(--g)",letterSpacing:1.5,
         textTransform:"uppercase",marginBottom:12,fontFamily:FONT}},
         "GİDER LİSTESİ ("+filtreliGiderler.length+")"),
       filtreliGiderler.length===0
-        ? div({style:{textAlign:"center",padding:"30px 10px",color:"#86868B",fontSize:13,fontFamily:FONT}},
+        ? div({style:{textAlign:"center",padding:"30px 10px",color:"var(--mu)",fontSize:13,fontFamily:FONT}},
             "Seçilen kriterlere uygun gider bulunamadı.")
         : filtreliGiderler.map(function(g){
-            return div({key:g.id,style:{padding:"12px",border:"1px solid #F2F2F7",
-              borderRadius:10,marginBottom:6,background:"#FBFBFD",
-              borderLeft:"3px solid "+(g.tip==="kdvli"?"#1D1D1F":"#C7C7CC")}},
+            var odemRenk = g.odemeTipi==="Nakit"?"#34C759":g.odemeTipi==="Kredi Kartı"?"#0071E3":g.odemeTipi==="IBAN"?"#5856D6":"var(--mu)";
+            return div({key:g.id,style:{padding:"12px",border:"1px solid var(--br)",
+              borderRadius:10,marginBottom:6,background:"var(--bg3)",
+              borderLeft:"3px solid #e06060"}},
               div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}},
                 div({style:{flex:1,minWidth:0}},
                   div({style:{display:"flex",alignItems:"center",gap:7,marginBottom:4,flexWrap:"wrap"}},
-                    h("span",{style:{fontSize:11,padding:"2px 7px",borderRadius:5,fontWeight:600,fontFamily:FONT,
-                      background:g.tip==="kdvli"?"#1D1D1F":"#F2F2F7",
-                      color:g.tip==="kdvli"?"#FFFFFF":"#86868B"}},
-                      g.tip==="kdvli"?"KDV'li":"KDV'siz"),
-                    h("span",{style:{fontSize:13,fontWeight:600,color:"#1D1D1F",fontFamily:FONT}},g.kategori),
-                    h("span",{style:{fontSize:11,color:"#86868B",fontFamily:FONT}},
-                      new Date(g.tarih+"T12:00:00").toLocaleDateString("tr-TR",{day:"numeric",month:"short",year:"numeric"}))
+                    h("span",{style:{fontSize:13,fontWeight:600,color:"var(--tx)",fontFamily:FONT}},g.kategori||"—"),
+                    h("span",{style:{fontSize:11,color:"var(--mu)",fontFamily:FONT}},
+                      new Date(g.tarih+"T12:00:00").toLocaleDateString("tr-TR",{day:"numeric",month:"short",year:"numeric"})),
+                    g.odemeTipi&&h("span",{style:{fontSize:10,padding:"1px 6px",borderRadius:5,fontWeight:600,
+                      background:"rgba(0,0,0,.06)",color:odemRenk,fontFamily:FONT}},g.odemeTipi)
                   ),
-                  g.aciklama&&div({style:{fontSize:12,color:"#86868B",fontStyle:"italic",fontFamily:FONT}},g.aciklama)
+                  g.aciklama&&div({style:{fontSize:12,color:"var(--di)",fontStyle:"italic",fontFamily:FONT}},g.aciklama)
                 ),
-                div({style:{fontSize:15,fontWeight:700,color:"#1D1D1F",flexShrink:0,fontFamily:FONT}},
+                div({style:{fontSize:16,fontWeight:700,color:"#e06060",flexShrink:0,fontFamily:"'Inter',sans-serif"}},
                   "-"+fmt(g.tutar))
               ),
               div({style:{display:"flex",gap:6,marginTop:8}},
-                btn({style:{padding:"5px 12px",borderRadius:7,border:"1px solid #E5E5EA",
-                  background:"#F5F5F7",color:"#1D1D1F",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:FONT},
+                btn({style:{padding:"5px 12px",borderRadius:7,border:"1px solid var(--br)",
+                  background:"var(--bg2)",color:"var(--mu)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:FONT},
                   onClick:function(){giderDuzenle(g);}
-                },"Düzenle"),
-                btn({style:{padding:"5px 12px",borderRadius:7,border:"1px solid #FFD6D6",
-                  background:"#FFF5F5",color:"#FF3B30",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:FONT},
+                },"✏ Düzenle"),
+                btn({style:{padding:"5px 12px",borderRadius:7,border:"1px solid rgba(255,59,48,.2)",
+                  background:"rgba(255,59,48,.06)",color:"#FF3B30",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:FONT},
                   onClick:function(){var gid=g.id;giderSil(gid);}
                 },"Sil")
               )
@@ -12672,9 +12726,9 @@ if(DB) dbUpsert("ayarlar",{id:"tema", deger:tema},"id");
               onAnaPanel:()=>{ setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); setMuhSek(""); setMuhAlt(""); setMuhAltAcik(""); setHesapFull(false); setVergiFull(false); },
               isletme
             }),
-            false&&muhSek==="vergiMuhasebesi"&&h(VergiMuhasebesiModul,{tumK,faturalar,giderler}),
+            false&&muhSek==="vergiMuhasebesi"&&h(VergiMuhasebesiModul,{tumK,faturalar}),
             muhSek==="indirimZam"&&h(IndirimZamModul,{zamGecmisi,setZamGecmisi,triggerUrunRender,hizListeleri,setHizListeleri,showToast}),
-            false&&muhSek==="giderler"&&h(GiderlerModul,{giderler,setGiderler,giderKategoriler,setGiderKategoriler,showToast}),
+            muhSek==="giderler"&&h(GiderlerModul,{giderler,setGiderler,giderKategoriler,showToast}),
             muhSek==="ozet"&&(()=>{
               // ── Yardımcı: tarih bilgisi ──
               const bugun = new Date();
@@ -13862,148 +13916,84 @@ if(DB) dbUpsert("ayarlar",{id:"tema", deger:tema},"id");
 
 
     aySek==="listeler"&&ayListeSek==="giderListesi"&&(function(){
-    var kdvliK  = giderKategoriler&&giderKategoriler.kdvli  ? giderKategoriler.kdvli  : [];
-    var kdvsizK = giderKategoriler&&giderKategoriler.kdvsiz ? giderKategoriler.kdvsiz : [];
-    var setKdvliK  = function(fn){ var v=typeof fn==="function"?fn(kdvliK):fn; setGiderKategoriler(function(p){return Object.assign({},p,{kdvli:v});}); };
-    var setKdvsizK = function(fn){ var v=typeof fn==="function"?fn(kdvsizK):fn; setGiderKategoriler(function(p){return Object.assign({},p,{kdvsiz:v});}); };
+    // Tek liste — KDV ayrımı yok.
+    // giderKategoriler eski {kdvli:[],kdvsiz:[]} formatında gelebilir → düz diziye normalize et
+    var tumKat = Array.isArray(giderKategoriler) ? giderKategoriler.slice()
+               : [].concat((giderKategoriler&&giderKategoriler.kdvli)||[],(giderKategoriler&&giderKategoriler.kdvsiz)||[]);
+    var setTumKat = function(fn){
+      var v = typeof fn==="function" ? fn(tumKat) : fn;
+      setGiderKategoriler(v); // düz dizi olarak sakla
+    };
 
     return div({style:{marginTop:10}},
-
-    // ── KDV'Lİ KATEGORİLER ──
-    div({style:{fontSize:15,color:"var(--tx)",fontWeight:600,marginBottom:12}},"KDV'li Gider Listesi"),
-    kdvliK.map(function(k,i){
-    var duzAcik = giderDuzIdx&&giderDuzIdx.tip==="kdvli"&&giderDuzIdx.idx===i;
-    return div({key:i},
-    div({style:{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",
-      marginBottom:duzAcik?0:6,
-      background:"var(--bg2)",
-      borderRadius:duzAcik?"10px 10px 0 0":10,
-      border:"1px solid var(--br)",
-      borderBottom:duzAcik?"none":undefined}},
-      div({style:{flex:1,fontSize:15,color:"var(--tx)",fontFamily:"'Inter',-apple-system,sans-serif"}},k),
-      duzAcik
-        ? btn({style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(160,40,40,.2)",borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
-            onClick:function(){setGiderDuzIdx(null);}},"İptal")
-        : btn({style:{background:"rgba(37,99,168,.08)",border:"1px solid rgba(37,99,168,.2)",borderRadius:6,color:"var(--g)",fontSize:13,padding:"4px 10px",cursor:"pointer"},
-            onClick:function(){setGiderDuzIdx({tip:"kdvli",idx:i,ad:k});}},"✏ Düzenle"),
-      btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
-        onClick:function(){var kk=k;setKdvliK(function(p){return p.filter(function(x){return x!==kk;});});}},"Sil")
-    ),
-    duzAcik&&div({style:{background:"rgba(37,99,168,.06)",border:"1px solid var(--br)",borderTop:"none",
-      borderRadius:"0 0 10px 10px",padding:13,marginBottom:6}},
-      div({style:{marginBottom:10}},
-        lbl({className:"fl"},"Kategori Adı"),
-        inp({className:"fi",value:giderDuzIdx.ad,
-          onChange:function(e){setGiderDuzIdx(function(p){return Object.assign({},p,{ad:e.target.value});});}})
+      div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+        div(null,
+          div({style:{fontSize:15,color:"var(--tx)",fontWeight:600}},"Gider Kategorileri"),
+          div({style:{fontSize:13,color:"var(--mu)",marginTop:2}},tumKat.length+" kategori")
+        )
       ),
-      div({className:"btn-r"},
-        btn({className:"btn-i",onClick:function(){setGiderDuzIdx(null);}},"İptal"),
-        btn({className:"btn-k",onClick:function(){
-          var yeniAd=giderDuzIdx.ad.trim();
-          if(!yeniAd) return;
-          setKdvliK(function(p){var arr=p.slice();arr[giderDuzIdx.idx]=yeniAd;return arr;});
-          setGiderDuzIdx(null);
-          showToast("Kategori güncellendi");
-        }},"Kaydet")
-      )
-    )
-    );
-    }),
-    !giderYeniAcik
-    ? btn({style:{width:"100%",marginTop:10,padding:"12px 0",borderRadius:11,
-      border:"1.5px dashed rgba(37,99,168,.3)",background:"rgba(37,99,168,.04)",
-      color:"var(--g)",fontSize:15,cursor:"pointer",textAlign:"center",
-      fontFamily:"'Inter',-apple-system,sans-serif"},
-      onClick:function(){setGiderYeniAcik("kdvli");setGiderYeniAd("");}},
-      "+ Yeni KDV'li Kategori Ekle")
-    : giderYeniAcik==="kdvli"&&div({style:{background:"rgba(37,99,168,.06)",
-      border:"1px solid rgba(37,99,168,.2)",borderRadius:11,padding:13,marginTop:10}},
-      div({style:{fontSize:13,color:"var(--g)",marginBottom:10}},"Yeni Kategori"),
-      div({style:{marginBottom:10}},
-        lbl({className:"fl"},"Kategori Adı *"),
-        inp({className:"fi",placeholder:"Kategori adı...",
-          value:giderYeniAd,onChange:function(e){setGiderYeniAd(e.target.value);}})  
-      ),
-      div({className:"btn-r"},
-        btn({className:"btn-i",onClick:function(){setGiderYeniAcik(false);}},"İptal"),
-        btn({className:"btn-k",disabled:!giderYeniAd.trim(),
-          onClick:function(){
-            var v=giderYeniAd.trim();
-            setKdvliK(function(p){return p.indexOf(v)===-1?p.concat([v]):p;});
-            setGiderYeniAcik(false);setGiderYeniAd("");
-            showToast("Kategori eklendi");
-          }},"Ekle")
-      )
-    ),
-
-    // ── KDV'SİZ KATEGORİLER ──
-    div({style:{borderTop:"1px solid var(--br)",margin:"20px 0 14px"}}),
-    div({style:{fontSize:15,color:"var(--tx)",fontWeight:600,marginBottom:12}},"KDV'siz Gider Listesi"),
-    div({style:{fontSize:13,color:"var(--di)",marginBottom:12}},kdvsizK.length+" kategori"),
-    kdvsizK.map(function(k,i){
-    var duzAcik = giderDuzIdx&&giderDuzIdx.tip==="kdvsiz"&&giderDuzIdx.idx===i;
-    return div({key:i},
-    div({style:{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",
-      marginBottom:duzAcik?0:6,
-      background:"var(--bg2)",
-      borderRadius:duzAcik?"10px 10px 0 0":10,
-      border:"1px solid var(--br)",
-      borderBottom:duzAcik?"none":undefined}},
-      div({style:{flex:1,fontSize:15,color:"var(--tx)",fontFamily:"'Inter',-apple-system,sans-serif"}},k),
-      duzAcik
-        ? btn({style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(160,40,40,.2)",borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
-            onClick:function(){setGiderDuzIdx(null);}},"İptal")
-        : btn({style:{background:"rgba(37,99,168,.08)",border:"1px solid rgba(37,99,168,.2)",borderRadius:6,color:"var(--g)",fontSize:13,padding:"4px 10px",cursor:"pointer"},
-            onClick:function(){setGiderDuzIdx({tip:"kdvsiz",idx:i,ad:k});}},"✏ Düzenle"),
-      btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
-        onClick:function(){var kk=k;setKdvsizK(function(p){return p.filter(function(x){return x!==kk;});});}},"Sil")
-    ),
-    duzAcik&&div({style:{background:"rgba(37,99,168,.06)",border:"1px solid var(--br)",borderTop:"none",
-      borderRadius:"0 0 10px 10px",padding:13,marginBottom:6}},
-      div({style:{marginBottom:10}},
-        lbl({className:"fl"},"Kategori Adı"),
-        inp({className:"fi",value:giderDuzIdx.ad,
-          onChange:function(e){setGiderDuzIdx(function(p){return Object.assign({},p,{ad:e.target.value});});}})
-      ),
-      div({className:"btn-r"},
-        btn({className:"btn-i",onClick:function(){setGiderDuzIdx(null);}},"İptal"),
-        btn({className:"btn-k",onClick:function(){
-          var yeniAd=giderDuzIdx.ad.trim();
-          if(!yeniAd) return;
-          setKdvsizK(function(p){var arr=p.slice();arr[giderDuzIdx.idx]=yeniAd;return arr;});
-          setGiderDuzIdx(null);
-          showToast("Kategori güncellendi");
-        }},"Kaydet")
-      )
-    )
-    );
-    }),
-    !giderYeniAcik
-    ? btn({style:{width:"100%",marginTop:10,padding:"12px 0",borderRadius:11,
-      border:"1.5px dashed rgba(37,99,168,.3)",background:"rgba(37,99,168,.04)",
-      color:"var(--g)",fontSize:15,cursor:"pointer",textAlign:"center",
-      fontFamily:"'Inter',-apple-system,sans-serif"},
-      onClick:function(){setGiderYeniAcik("kdvsiz");setGiderYeniAd("");}},
-      "+ Yeni KDV'siz Kategori Ekle")
-    : giderYeniAcik==="kdvsiz"&&div({style:{background:"rgba(37,99,168,.06)",
-      border:"1px solid rgba(37,99,168,.2)",borderRadius:11,padding:13,marginTop:10}},
-      div({style:{fontSize:13,color:"var(--g)",marginBottom:10}},"Yeni Kategori"),
-      div({style:{marginBottom:10}},
-        lbl({className:"fl"},"Kategori Adı *"),
-        inp({className:"fi",placeholder:"Kategori adı...",
-          value:giderYeniAd,onChange:function(e){setGiderYeniAd(e.target.value);}})  
-      ),
-      div({className:"btn-r"},
-        btn({className:"btn-i",onClick:function(){setGiderYeniAcik(false);}},"İptal"),
-        btn({className:"btn-k",disabled:!giderYeniAd.trim(),
-          onClick:function(){
-            var v=giderYeniAd.trim();
-            setKdvsizK(function(p){return p.indexOf(v)===-1?p.concat([v]):p;});
-            setGiderYeniAcik(false);setGiderYeniAd("");
-            showToast("Kategori eklendi");
-          }},"Ekle")
-      )
-    )
+      tumKat.map(function(k,i){
+        var duzAcik = giderDuzIdx&&giderDuzIdx.idx===i;
+        return div({key:i},
+          div({style:{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",
+            marginBottom:duzAcik?0:6,background:"var(--bg2)",
+            borderRadius:duzAcik?"10px 10px 0 0":10,border:"1px solid var(--br)",
+            borderBottom:duzAcik?"none":undefined}},
+            div({style:{flex:1,fontSize:15,color:"var(--tx)",fontFamily:"'Inter',-apple-system,sans-serif"}},k),
+            duzAcik
+              ? btn({style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(160,40,40,.2)",borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
+                  onClick:function(){setGiderDuzIdx(null);}},"İptal")
+              : btn({style:{background:"rgba(37,99,168,.08)",border:"1px solid rgba(37,99,168,.2)",borderRadius:6,color:"var(--g)",fontSize:13,padding:"4px 10px",cursor:"pointer"},
+                  onClick:function(){setGiderDuzIdx({idx:i,ad:k});}},"✏ Düzenle"),
+            btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
+              onClick:function(){var kk=k;setTumKat(function(p){return p.filter(function(x){return x!==kk;});});}},"Sil")
+          ),
+          duzAcik&&div({style:{background:"rgba(37,99,168,.06)",border:"1px solid var(--br)",borderTop:"none",
+            borderRadius:"0 0 10px 10px",padding:13,marginBottom:6}},
+            div({style:{marginBottom:10}},
+              lbl({className:"fl"},"Kategori Adı"),
+              inp({className:"fi",value:giderDuzIdx.ad,
+                onChange:function(e){setGiderDuzIdx(function(p){return Object.assign({},p,{ad:e.target.value});}); }})
+            ),
+            div({className:"btn-r"},
+              btn({className:"btn-i",onClick:function(){setGiderDuzIdx(null);}},"İptal"),
+              btn({className:"btn-k",onClick:function(){
+                var yeniAd=giderDuzIdx.ad.trim();
+                if(!yeniAd) return;
+                setTumKat(function(p){var arr=p.slice();arr[giderDuzIdx.idx]=yeniAd;return arr;});
+                setGiderDuzIdx(null);
+                showToast("Kategori güncellendi");
+              }},"Kaydet")
+            )
+          )
+        );
+      }),
+      !giderYeniAcik
+        ? btn({style:{width:"100%",marginTop:10,padding:"12px 0",borderRadius:11,
+            border:"1.5px dashed rgba(37,99,168,.3)",background:"rgba(37,99,168,.04)",
+            color:"var(--g)",fontSize:15,cursor:"pointer",textAlign:"center",
+            fontFamily:"'Inter',-apple-system,sans-serif"},
+            onClick:function(){setGiderYeniAcik(true);setGiderYeniAd("");}},
+            "+ Yeni Kategori Ekle")
+        : div({style:{background:"rgba(37,99,168,.06)",border:"1px solid rgba(37,99,168,.2)",
+            borderRadius:11,padding:13,marginTop:10}},
+            div({style:{fontSize:13,color:"var(--g)",marginBottom:10}},"Yeni Kategori"),
+            div({style:{marginBottom:10}},
+              lbl({className:"fl"},"Kategori Adı *"),
+              inp({className:"fi",placeholder:"Kategori adı...",
+                value:giderYeniAd,onChange:function(e){setGiderYeniAd(e.target.value);}})
+            ),
+            div({className:"btn-r"},
+              btn({className:"btn-i",onClick:function(){setGiderYeniAcik(false);}},"İptal"),
+              btn({className:"btn-k",disabled:!giderYeniAd.trim(),
+                onClick:function(){
+                  var v=giderYeniAd.trim();
+                  setTumKat(function(p){return p.indexOf(v)===-1?p.concat([v]):p;});
+                  setGiderYeniAcik(false);setGiderYeniAd("");
+                  showToast("Kategori eklendi");
+                }},"Ekle")
+            )
+          )
     );
     })(),
 
@@ -14753,13 +14743,13 @@ div({style:{fontSize:15,color:"var(--tx)",fontWeight:600,marginBottom:12}},"🏦
 
     vergiFull&&div({style:{position:"fixed",inset:0,zIndex:15,background:"var(--bg)",overflowY:"auto",paddingTop:220}},
       div({style:{padding:"0 14px 80px"}},
-        h(VergiMuhasebesiModul,{tumK,faturalar,giderler})
+        h(VergiMuhasebesiModul,{tumK,faturalar})
       )
     ),
 
     asek==="ozet"&&muhSek==="giderler"&&div({style:{position:"fixed",inset:0,zIndex:15,background:"var(--bg)",overflowY:"auto",paddingTop:220}},
       div({style:{padding:"0 14px 80px"}},
-        h(GiderlerModul,{giderler,setGiderler,giderKategoriler,setGiderKategoriler,showToast})
+        h(GiderlerModul,{giderler,setGiderler,giderKategoriler,showToast})
       )
     ),
 
