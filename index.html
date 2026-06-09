@@ -3,7 +3,7 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="1779443822">
+  <meta name="version" content="1781007216">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -323,6 +323,25 @@ const birlestirListe = (yerel, bulut) => {
     m[k]=x;
   });
   return Object.values(m);
+};
+// ── Ayarlar yazma + realtime yankı bastırma ───────────────────────────
+// Sorun: bir ayar (gider listesi, bildirimler vb.) değişince [state] bağımlı
+// useEffect onu Supabase'e yazar; realtime kanal bu yazıyı geri yankılar ve
+// handler yeni bir dizi referansıyla setState yapar -> aynı useEffect tekrar
+// tetiklenir -> tekrar yazılır -> sonsuz döngü (titreme, bildirim sayısının
+// oynaması, "tamam dediğin verinin geri gelmesi"). Çözüm: yazdığımız içeriğin
+// imzasını saklarız; gelen realtime yankısı bu imzayla aynıysa uygulamayız.
+const _ayarSig = {};
+const _canonAyar = (v) => {
+  if(v===null || typeof v!=="object") return v;
+  if(Array.isArray(v)) return v.map(_canonAyar);
+  const o={}; Object.keys(v).sort().forEach(k=>{ o[k]=_canonAyar(v[k]); }); return o;
+};
+const _ayarImza = (deger) => { try { return JSON.stringify(_canonAyar(deger)); } catch(e){ return null; } };
+const dbUpsertAyar = (id, deger) => {
+  const s = _ayarImza(deger);
+  if(s!==null) _ayarSig[id] = s;
+  return dbUpsert("ayarlar",{id, deger},"id");
 };
 const mapR = r => ({
   id:r.id, staffId:r.staff_id, staffAd:r.staff_name,
@@ -1917,7 +1936,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   // mkArsiv Supabase sync
   React.useEffect(()=>{
     if(!DB||!mkArsiv||!mkArsiv.length) return;
-    dbUpsert("ayarlar",{id:"mkArsiv",deger:mkArsiv},"id");
+    dbUpsertAyar("mkArsiv",mkArsiv);
     try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(mkArsiv));}catch(e){}
   },[mkArsiv]);
 
@@ -7788,8 +7807,7 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast}) {
     };
     if(yeniGider._editId){
       setGiderler(function(p){return p.map(function(g){return g.id===yeniGider._editId?kayit:g;});});
-      // Supabase sync (retry kuyruğuyla)
-      if(DB) dbUpsert("ayarlar",{id:"giderler",deger:null},"id"); // tetikleyici useEffect halleder
+      // Supabase sync: [giderler] bağımlı useEffect kalıcılığı zaten halleder.
       showToast("Gider güncellendi","ba");
     } else {
       setGiderler(function(p){return [kayit].concat(p||[]);});
@@ -8299,6 +8317,7 @@ function App() {
         const ayarlarRaw = await dbAl("ayarlar");
 ayarlarRaw.forEach(a=>{ try {
   if(!a.deger||!Object.keys(a.deger).length) return;
+  try{ const _si=_ayarImza(a.deger); if(_si!==null) _ayarSig[a.id]=_si; }catch(eSig){} // ilk yüklenen değerin imzası -> ilk yankı bastırılır
   if(a.id==="tema") setTema(a.deger);
   if(a.id==="isletme") { const _d={logoHeight:80,...a.deger}; setIsletme(_d); try{ localStorage.setItem("apron_isletme", JSON.stringify(_d)); }catch(e){} }
   if(a.id==="personeller") {
@@ -8520,28 +8539,28 @@ ayarlarRaw.forEach(a=>{ try {
     const fonts = {"Jost":"'Jost',system-ui,sans-serif","Inter":"'Inter',system-ui,sans-serif","Playfair":"'Playfair Display',Georgia,serif"};
     document.body.style.fontFamily = fonts[tema.font]||fonts["Jost"];
     localStorage.setItem("apron_tema", JSON.stringify(tema));
-if(DB) dbUpsert("ayarlar",{id:"tema", deger:tema},"id");
+if(DB) dbUpsertAyar("tema",tema);
   }, [tema]);
 
   // İşletme bilgilerini kaydet
   useEffect(()=>{
     localStorage.setItem("apron_isletme", JSON.stringify(isletme));
-    if(DB && !yukleniyor) dbUpsert("ayarlar",{id:"isletme", deger:isletme},"id");
+    if(DB && !yukleniyor) dbUpsertAyar("isletme",isletme);
   }, [isletme, yukleniyor]);
-  useEffect(()=>{ if(yukleniyor||!DB||!personellerHazirRef.current) return; dbUpsert("ayarlar",{id:"personeller",deger:personeller},"id"); },[personeller]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"pGruplar",deger:pGruplar},"id"); },[pGruplar]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"hizListeleri",deger:hizListeleri},"id"); },[hizListeleri]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"bankalar",deger:bankalar},"id"); },[bankalar]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"tedarikciler",deger:tedarikciler},"id"); },[tedarikciler]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"yonBildirim",deger:yonBildirim},"id"); },[yonBildirim]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"devirBildirim",deger:devirBildirim},"id"); },[devirBildirim]);
-  useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; dbUpsert("ayarlar",{id:"urunler",deger:URUN_DB},"id"); },[urunDBVer]);
-  useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; dbUpsert("ayarlar",{id:"hizFiyatlar",deger:HIZ_LISTE_FIYAT},"id"); },[urunDBVer]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"zamGecmisi",deger:zamGecmisi},"id"); },[zamGecmisi]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"giderler",deger:giderler},"id"); },[giderler]);
-  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsert("ayarlar",{id:"giderKategoriler",deger:giderKategoriler},"id"); },[giderKategoriler]);
-  useEffect(()=>{ if(yukleniyor||!DB||!stokPartilerYuklendi.current) return; dbUpsert("ayarlar",{id:"stokPartiler",deger:stokPartiler},"id"); },[stokPartiler]);
-  useEffect(()=>{ if(yukleniyor||!DB||!hareketler.length) return; dbUpsert("ayarlar",{id:"hareketler",deger:hareketler},"id"); },[hareketler]);
+  useEffect(()=>{ if(yukleniyor||!DB||!personellerHazirRef.current) return; dbUpsertAyar("personeller",personeller); },[personeller]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("pGruplar",pGruplar); },[pGruplar]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("hizListeleri",hizListeleri); },[hizListeleri]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("bankalar",bankalar); },[bankalar]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("tedarikciler",tedarikciler); },[tedarikciler]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("yonBildirim",yonBildirim); },[yonBildirim]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("devirBildirim",devirBildirim); },[devirBildirim]);
+  useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; dbUpsertAyar("urunler",URUN_DB); },[urunDBVer]);
+  useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; dbUpsertAyar("hizFiyatlar",HIZ_LISTE_FIYAT); },[urunDBVer]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("zamGecmisi",zamGecmisi); },[zamGecmisi]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("giderler",giderler); },[giderler]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("giderKategoriler",giderKategoriler); },[giderKategoriler]);
+  useEffect(()=>{ if(yukleniyor||!DB||!stokPartilerYuklendi.current) return; dbUpsertAyar("stokPartiler",stokPartiler); },[stokPartiler]);
+  useEffect(()=>{ if(yukleniyor||!DB||!hareketler.length) return; dbUpsertAyar("hareketler",hareketler); },[hareketler]);
 
 
 
@@ -8587,6 +8606,10 @@ if(DB) dbUpsert("ayarlar",{id:"tema", deger:tema},"id");
     const musteriMap = (x) => ({id:x.id,ad:x.ad,tel:x.tel||"",sahipId:x.sahip_id||"",sahipAd:x.sahip_ad||"",ilkGiris:x.ilk_giris||"",dogumTarihi:x.dogum_tarihi||"",cinsiyet:x.cinsiyet||"",adres:x.adres||"",notlar:x.notlar||""});
     const ayarUygula = (a) => {
       if(!a || !a.id) return;
+      // Kendi yazdığımız değerin realtime yankısıysa uygulama (sonsuz döngü / titreme önlenir).
+      const _s = _ayarImza(a.deger);
+      if(_s!==null && _ayarSig[a.id]===_s) return;
+      if(_s!==null) _ayarSig[a.id]=_s;
       if(a.id==="isletme") { const _d2={logoHeight:80,...a.deger}; setIsletme(_d2); try{ localStorage.setItem("apron_isletme", JSON.stringify(_d2)); }catch(e){} }
       if(a.id==="personeller" && Array.isArray(a.deger)) { personellerHazirRef.current = true; setPersoneller(a.deger); }
       if(a.id==="pGruplar" && Array.isArray(a.deger)) setPGruplar(prev=>birlestirListe(prev,a.deger));
