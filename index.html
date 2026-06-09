@@ -3,7 +3,7 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="1781007216">
+  <meta name="version" content="1781030168">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -8606,32 +8606,40 @@ if(DB) dbUpsertAyar("tema",tema);
     const musteriMap = (x) => ({id:x.id,ad:x.ad,tel:x.tel||"",sahipId:x.sahip_id||"",sahipAd:x.sahip_ad||"",ilkGiris:x.ilk_giris||"",dogumTarihi:x.dogum_tarihi||"",cinsiyet:x.cinsiyet||"",adres:x.adres||"",notlar:x.notlar||""});
     const ayarUygula = (a) => {
       if(!a || !a.id) return;
-      // Kendi yazdığımız değerin realtime yankısıysa uygulama (sonsuz döngü / titreme önlenir).
+      // 1) Kendi yazdığımız değerin realtime yankısıysa erken çık.
       const _s = _ayarImza(a.deger);
       if(_s!==null && _ayarSig[a.id]===_s) return;
       if(_s!==null) _ayarSig[a.id]=_s;
-      if(a.id==="isletme") { const _d2={logoHeight:80,...a.deger}; setIsletme(_d2); try{ localStorage.setItem("apron_isletme", JSON.stringify(_d2)); }catch(e){} }
-      if(a.id==="personeller" && Array.isArray(a.deger)) { personellerHazirRef.current = true; setPersoneller(a.deger); }
-      if(a.id==="pGruplar" && Array.isArray(a.deger)) setPGruplar(prev=>birlestirListe(prev,a.deger));
-      if(a.id==="hizListeleri" && Array.isArray(a.deger)) setHizListeleri(a.deger);
-      if(a.id==="giderKategoriler" && a.deger) setGiderKategoriler(a.deger);
+      // 2) GARANTÖR: içerik mevcut state ile aynıysa setState'i no-op yap (aynı referansı döndür).
+      //    Böylece React yeniden render etmez, [state] bağımlı kaydetme effect'i TEKRAR tetiklenmez
+      //    ve yaz→yankı→yaz titreme döngüsü Supabase serialize farkından bağımsız olarak kırılır.
+      const _ay = (prev, yeni) => _ayarImza(prev)===_ayarImza(yeni) ? prev : yeni;
+      if(a.id==="isletme") { const _d2={logoHeight:80,...a.deger}; setIsletme(prev=>_ay(prev,_d2)); try{ localStorage.setItem("apron_isletme", JSON.stringify(_d2)); }catch(e){} }
+      if(a.id==="personeller" && Array.isArray(a.deger)) { personellerHazirRef.current = true; setPersoneller(prev=>_ay(prev,a.deger)); }
+      if(a.id==="pGruplar" && Array.isArray(a.deger)) setPGruplar(prev=>_ay(prev,birlestirListe(prev,a.deger)));
+      if(a.id==="hizListeleri" && Array.isArray(a.deger)) setHizListeleri(prev=>_ay(prev,a.deger));
+      if(a.id==="giderKategoriler" && a.deger) setGiderKategoriler(prev=>_ay(prev,a.deger));
       if(a.id==="urunler" && Array.isArray(a.deger)) {
-        URUN_DB.length = 0;
-        a.deger.forEach(u => URUN_DB.push(u));
-        triggerUrunRender();
+        if(_ayarImza(URUN_DB)!==_ayarImza(a.deger)){
+          URUN_DB.length = 0;
+          a.deger.forEach(u => URUN_DB.push(u));
+          triggerUrunRender();
+        }
       }
       if(a.id==="hizFiyatlar" && a.deger && typeof a.deger==="object") {
-        Object.keys(a.deger).forEach(k => { HIZ_LISTE_FIYAT[k] = a.deger[k]; });
-        triggerUrunRender();
+        if(_ayarImza(HIZ_LISTE_FIYAT)!==_ayarImza(a.deger)){
+          Object.keys(a.deger).forEach(k => { HIZ_LISTE_FIYAT[k] = a.deger[k]; });
+          triggerUrunRender();
+        }
       }
-      if(a.id==="bankalar" && Array.isArray(a.deger)) setBankalar(prev=>birlestirListe(prev,a.deger));
-      if(a.id==="tedarikciler" && Array.isArray(a.deger)) setTedarikciler(prev=>birlestirListe(prev,a.deger));
-      if(a.id==="yonBildirim") setYonBildirim(Array.isArray(a.deger)?a.deger:[]);
-      if(a.id==="devirBildirim") setDevirBildirim(Array.isArray(a.deger)?a.deger:[]);
-      if(a.id==="bolumStilleri") setBolumStilleri(a.deger||{});
-      if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(prev=>birlestirListe(prev,a.deger));
-      if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(prev=>birlestirListe(prev,a.deger));
-      if(a.id==="tema" && a.deger && typeof a.deger==="object") setTema(a.deger);
+      if(a.id==="bankalar" && Array.isArray(a.deger)) setBankalar(prev=>_ay(prev,birlestirListe(prev,a.deger)));
+      if(a.id==="tedarikciler" && Array.isArray(a.deger)) setTedarikciler(prev=>_ay(prev,birlestirListe(prev,a.deger)));
+      if(a.id==="yonBildirim") setYonBildirim(prev=>_ay(prev,Array.isArray(a.deger)?a.deger:[]));
+      if(a.id==="devirBildirim") setDevirBildirim(prev=>_ay(prev,Array.isArray(a.deger)?a.deger:[]));
+      if(a.id==="bolumStilleri") setBolumStilleri(prev=>_ay(prev,a.deger||{}));
+      if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(prev=>_ay(prev,birlestirListe(prev,a.deger)));
+      if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(prev=>_ay(prev,birlestirListe(prev,a.deger)));
+      if(a.id==="tema" && a.deger && typeof a.deger==="object") setTema(prev=>_ay(prev,a.deger));
     };
 
     // 1) kayitlar — INSERT/UPDATE/DELETE
@@ -8752,7 +8760,7 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{
     if(yukleniyor) return;
     localStorage.setItem("apron_bolum_stilleri", JSON.stringify(bolumStilleri||{}));
-    if(DB) DB.from("ayarlar").upsert({id:"bolumStilleri",deger:bolumStilleri||{}}).then(()=>{}).catch(()=>{});
+    if(DB) dbUpsertAyar("bolumStilleri", bolumStilleri||{});
   },[bolumStilleri,yukleniyor]);
 
   // Sekme isimlerini kaydet
