@@ -3,7 +3,7 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="1781106759">
+  <meta name="version" content="1781128249">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -488,7 +488,7 @@ input[type="date"]::-webkit-inner-spin-button{display:none}
 .kka{display:flex;border-top:1px solid rgba(0,0,0,.05)}
 .kab{flex:1;background:transparent;border:none;font-size:12px;padding:10px 4px;cursor:pointer;color:var(--di);letter-spacing:.1px;transition:background .14s;font-weight:600}
 .kab:hover{background:rgba(0,0,0,.04)}
-.conf-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:600;display:flex;align-items:flex-end;justify-content:center;padding:0 0 16px}
+.conf-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:600;display:flex;align-items:center;justify-content:center;padding:16px}
 .conf-k{background:#FAF9F6;border:1px solid rgba(0,0,0,.07);border-radius:24px;padding:28px 24px 22px;max-width:320px;width:100%;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.18)}
 .gs-k{background:#FAF9F6;border:1px solid rgba(52,199,89,.2);border-radius:24px;padding:26px 22px 20px;max-width:320px;width:100%;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.18)}
 .dev-ov{position:fixed;inset:0;background:rgba(0,0,0,.96);z-index:700;display:flex;align-items:center;justify-content:center;padding:18px}
@@ -5019,7 +5019,9 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [hatirlatmaUyari, setHatirlatmaUyari] = useState(false);
   const [hizler,   setHizler]   = useState(
     ilk?.hizler?.length
-      ? ilk.hizler.map(normalizeIlkHizmet)
+      ? (()=>{ const arr = ilk.hizler.map(normalizeIlkHizmet);
+               // Düzenlemede de yeni hizmet eklenebilmesi için sona boş satır garanti et.
+               return arr.some(x=>!x.n) ? arr : [...arr,{id:uid(),n:"",f:"",listef:0,odeme:"",pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""}]; })()
       : [{id:uid(),n:"",f:"",listef:0,odeme:"",pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""}]
   );
   const [urunler,  setUrunler]  = useState((ilk?.urunler||[]).map(normalizeIlkUrun));
@@ -7759,7 +7761,7 @@ function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast, tumPe
 // ── GİDERLER MODÜLÜ (yeniden yazıldı) ──────────────────────────────────────
 // Tek tip gider (KDV ayrımı yok), Ayarlar→Listeler→Gider Listesi'nden beslenir,
 // Supabase retry kuyruğuyla senkronize olur.
-function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast}) {
+function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bankalar}) {
   var FONT = "'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif";
   // Tüm kategoriler (kdvli + kdvsiz birleştirilmiş — tek liste)
   var tumKatlar = React.useMemo(function(){
@@ -7834,13 +7836,19 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast}) {
     }
     var t=toN(yeniGider.tutar);
     if(t<=0){showToast("Tutar 0'dan büyük olmalı","uy"); return;}
+    // Çoklu ödeme: odemeler dizisini normalleştir
+    var odmArr = (yeniGider.odemeler||[]).filter(function(o){return o.tip&&toN(o.tutar)>0;})
+      .map(function(o){return {tip:o.tip,tutar:toN(o.tutar),banka:o.banka||""};});
+    // Geriye dönük uyumluluk için odemeTipi alanı
+    var legacyTip = odmArr.length===1 ? odmArr[0].tip : odmArr.length>1 ? "Karma" : "";
     var kayit = {
       id: yeniGider._editId || uid(),
       tarih: yeniGider.tarih,
       kategori: yeniGider.kategori,
       tutar: t,
       aciklama: yeniGider.aciklama||"",
-      odemeTipi: yeniGider.odemeTipi||"",
+      odemeTipi: legacyTip,
+      odemeler: odmArr,
       olusturulma: new Date().toISOString()
     };
     if(yeniGider._editId){
@@ -7861,7 +7869,11 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast}) {
   };
 
   var giderDuzenle = function(g){
-    setYeniGider({tarih:g.tarih,kategori:g.kategori,tutar:g.tutar,aciklama:g.aciklama||"",odemeTipi:g.odemeTipi||"",_editId:g.id});
+    setYeniGider({tarih:g.tarih,kategori:g.kategori,tutar:g.tutar,aciklama:g.aciklama||"",
+      odemeTipi:g.odemeTipi||"",
+      odemeler: g.odemeler && g.odemeler.length ? g.odemeler
+        : (g.odemeTipi ? [{tip:g.odemeTipi,tutar:g.tutar,banka:g.banka||""}] : []),
+      _editId:g.id});
   };
 
   var katBos = tumKatlar.length===0;
@@ -7906,16 +7918,87 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast}) {
         katBos&&div({style:{fontSize:11,color:"#FF9500",marginBottom:8,fontFamily:FONT}},
           "⚠ Kategori listesi boş. Ayarlar → Listeler → Gider Listesi'nden ekleyin."),
 
-        // Ödeme Yöntemi (opsiyonel)
-        div({style:{marginBottom:12}},
-          lbl({className:"fl",style:{fontFamily:FONT}},"Ödeme Yöntemi"),
-          sel({className:"fi",value:yeniGider.odemeTipi||"",
-            style:{fontFamily:FONT},
-            onChange:function(e){setYeniGider(function(p){return Object.assign({},p,{odemeTipi:e.target.value});}); }},
-            opt("","Belirtilmemiş"),
-            ODEME_TIPLERI.map(function(k){return opt(k,k);})
-          )
-        ),
+        // ── Ödeme Yöntemleri (çoklu) ──
+        (function(){
+          var odmList = yeniGider.odemeler||[];
+          var toplamTutar = parseFloat(yeniGider.tutar)||0;
+          var odmToplam = odmList.reduce(function(s,o){return s+(parseFloat(o.tutar)||0);},0);
+          var fark = Math.round((toplamTutar - odmToplam)*100)/100;
+          var setOdm = function(yeni){setYeniGider(function(p){return Object.assign({},p,{odemeler:yeni});});};
+          return div({style:{marginBottom:12}},
+            div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}},
+              lbl({className:"fl",style:{fontFamily:FONT,margin:0}},"Ödeme Yöntemleri"),
+              h("button",{
+                style:{background:"rgba(37,99,168,.1)",border:"1px solid rgba(37,99,168,.25)",
+                  borderRadius:8,color:"var(--g)",fontSize:12,fontWeight:600,cursor:"pointer",
+                  padding:"3px 10px",fontFamily:FONT},
+                onClick:function(){setOdm(odmList.concat([{tip:"",tutar:"",banka:"",ibanNo:""}]));}
+              },"+ Yöntem Ekle")
+            ),
+            odmList.length===0&&div({style:{fontSize:11,color:"var(--mu)",fontStyle:"italic",fontFamily:FONT,
+              padding:"8px 10px",background:"var(--bg3)",borderRadius:8,border:"1px solid var(--br)"}},
+              "Ödeme yöntemi eklenmedi (opsiyonel)"),
+            odmList.map(function(odm,i){
+              return div({key:i,style:{background:"var(--bg3)",borderRadius:10,
+                border:"1px solid var(--br)",padding:"10px",marginBottom:6}},
+                div({style:{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,marginBottom:odm.tip==="IBAN"?8:0}},
+                  sel({className:"fi",style:{fontFamily:FONT,fontSize:13},
+                    value:odm.tip||"",
+                    onChange:function(e){
+                      var yeni=[].concat(odmList);
+                      yeni[i]=Object.assign({},yeni[i],{tip:e.target.value,banka:"",ibanNo:""});
+                      setOdm(yeni);
+                    }},
+                    opt("","Yöntem seçin"),
+                    ODEME_TIPLERI.map(function(k){return opt(k,k);})
+                  ),
+                  h("input",{className:"fi",type:"number",inputMode:"decimal",
+                    placeholder:"Tutar (₺)",style:{fontFamily:FONT,fontSize:13},
+                    value:odm.tutar||"",
+                    onChange:function(e){
+                      var yeni=[].concat(odmList);
+                      yeni[i]=Object.assign({},yeni[i],{tutar:e.target.value});
+                      setOdm(yeni);
+                    }}),
+                  h("button",{
+                    style:{background:"transparent",border:"none",color:"#c05050",
+                      fontSize:18,cursor:"pointer",padding:"0 4px",lineHeight:1,flexShrink:0},
+                    onClick:function(){setOdm(odmList.filter(function(_,j){return j!==i;}));}
+                  },"✕")
+                ),
+                odm.tip==="IBAN"&&div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:6}},
+                  sel({className:"fi",style:{fontFamily:FONT,fontSize:13},
+                    value:odm.banka||"",
+                    onChange:function(e){
+                      var yeni=[].concat(odmList);
+                      yeni[i]=Object.assign({},yeni[i],{banka:e.target.value});
+                      setOdm(yeni);
+                    }},
+                    opt("","Banka seçin"),
+                    (bankalar||["Garanti","Ziraat","İş Bankası","Yapı Kredi","Akbank"]).map(function(b){return opt(b,b);})
+                  ),
+                  h("input",{className:"fi",placeholder:"IBAN no (opsiyonel)",
+                    style:{fontFamily:FONT,fontSize:12},
+                    value:odm.ibanNo||"",
+                    onChange:function(e){
+                      var yeni=[].concat(odmList);
+                      yeni[i]=Object.assign({},yeni[i],{ibanNo:e.target.value});
+                      setOdm(yeni);
+                    }})
+                )
+              );
+            }),
+            odmList.length>0&&toplamTutar>0&&Math.abs(fark)>0.005&&div({
+              style:{fontSize:11,color:fark>0?"#FF9500":"#e06060",fontFamily:FONT,
+                marginTop:4,padding:"5px 9px",
+                background:fark>0?"rgba(255,149,0,.08)":"rgba(224,96,96,.08)",
+                borderRadius:7,border:"1px solid "+(fark>0?"rgba(255,149,0,.25)":"rgba(224,96,96,.25)")}},
+              fark>0
+                ? "⚠ "+fmt(Math.abs(fark))+"₺ henüz dağıtılmadı"
+                : "⚠ Ödeme toplamı gider tutarını "+fmt(Math.abs(fark))+"₺ aşıyor"
+            )
+          );
+        })(),
 
         // Açıklama
         div({style:{marginBottom:18}},
@@ -7994,7 +8077,7 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast}) {
     // ── EKLE BUTONU ──
     btn({style:{width:"100%",marginBottom:14,padding:"13px 0",borderRadius:11,border:"none",
       background:"var(--g)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:FONT},
-      onClick:function(){setYeniGider({tarih:bugun,kategori:"",tutar:"",aciklama:"",odemeTipi:""});}
+      onClick:function(){setYeniGider({tarih:bugun,kategori:"",tutar:"",aciklama:"",odemeTipi:"",odemeler:[]});}
     },"+ Yeni Gider Ekle"),
 
     // ── LİSTE ──
@@ -8016,8 +8099,16 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast}) {
                     h("span",{style:{fontSize:13,fontWeight:600,color:"var(--tx)",fontFamily:FONT}},g.kategori||"—"),
                     h("span",{style:{fontSize:11,color:"var(--mu)",fontFamily:FONT}},
                       new Date(g.tarih+"T12:00:00").toLocaleDateString("tr-TR",{day:"numeric",month:"short",year:"numeric"})),
-                    g.odemeTipi&&h("span",{style:{fontSize:10,padding:"1px 6px",borderRadius:5,fontWeight:600,
-                      background:"rgba(0,0,0,.06)",color:odemRenk,fontFamily:FONT}},g.odemeTipi)
+                    (function(){
+                      var odmlar = g.odemeler&&g.odemeler.length ? g.odemeler
+                        : g.odemeTipi ? [{tip:g.odemeTipi,banka:g.banka||""}] : [];
+                      return odmlar.map(function(o,oi){
+                        var rk = o.tip==="Nakit"?"#34C759":o.tip==="Kredi Kartı"?"#0071E3":o.tip==="IBAN"?"#5856D6":"var(--mu)";
+                        var lbl2 = o.tip+(o.banka?" / "+o.banka:"")+(o.tutar&&odmlar.length>1?" "+fmt(o.tutar):"");
+                        return h("span",{key:oi,style:{fontSize:10,padding:"1px 6px",borderRadius:5,fontWeight:600,
+                          background:"rgba(0,0,0,.06)",color:rk,fontFamily:FONT,whiteSpace:"nowrap"}},lbl2);
+                      });
+                    })()
                   ),
                   g.aciklama&&div({style:{fontSize:12,color:"var(--di)",fontStyle:"italic",fontFamily:FONT}},g.aciklama)
                 ),
@@ -9425,7 +9516,7 @@ if(DB) dbUpsertAyar("tema",tema);
       setKayitPanelSonuc(p=>p?{...p,kayitlar:(p.kayitlar||[]).map(r=>String(r.id)===String(gn.id)?gn:r)}:p);
       kayitDuzenlemeStokFarkiUygula(eskiKayit, gn);
       dbGnc("kayitlar",{musteri:gn.musteri,telefon:gn.tel,hizmetler:gn.hizler,hiz_kk:hKK,hiz_ib:hIB,hiz_nk:hNK,
-        urunler:gn.urunler,urun_kk:uKK,urun_ib:uIB,urun_nk:uNK,toplam:top},gn.id);
+        urunler:gn.urunler,urun_kk:uKK,urun_ib:uIB,urun_nk:uNK,toplam:top,tarih:gn.tarih,saat:gn.saat},gn.id);
       if(bildirimliDuzenleme){
         setYonBildirim(p=>p.map(b=>b.id===f._yonBildirimId
           ?{...b,durum:"duzenlendi",yonGordu:false,personelYanit:"Düzenleme yapıldı",duzenlemeTarihi:TODAY(),duzenlemeSaat:SAAT(),yeniKayit:gn}:b));
@@ -11833,11 +11924,20 @@ if(DB) dbUpsertAyar("tema",tema);
           const hizCiro=hizKK+hizIB+hizNK;
           const urunCiro=uKK+uIB+uNK;
           const genelTop=hizCiro+urunCiro;
-          // K.K / IBAN / Nakit mini kırılım satırı (₺'siz kompakt; 0 olanlar soluk)
+          // K.K / IBAN / Nakit mini kırılım satırı — "Yeni Kayıt" alanındaki SVG ikonlarla
           const fmtP=v=>Number(v||0).toLocaleString("tr-TR");
-          const odemeMini=(kk,ib,nk)=>div({style:{display:"flex",justifyContent:"center",flexWrap:"wrap",gap:"2px 8px",marginTop:6}},
-            [["💳",kk],["🏦",ib],["💵",nk]].map(([ik,v],i)=>
-              h("span",{key:i,style:{fontSize:10.5,fontWeight:600,color:v>0?"#3a3a3c":"#b8b8bd"}}, ik+" "+fmtP(v))
+          const svgKK=()=>h("svg",{width:13,height:13,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
+            h("rect",{x:1,y:4,width:22,height:16,rx:2,ry:2}),h("line",{x1:1,y1:10,x2:23,y2:10}));
+          const svgIB=()=>h("svg",{width:13,height:13,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
+            h("line",{x1:3,y1:22,x2:21,y2:22}),h("line",{x1:6,y1:18,x2:6,y2:11}),h("line",{x1:10,y1:18,x2:10,y2:11}),h("line",{x1:14,y1:18,x2:14,y2:11}),h("line",{x1:18,y1:18,x2:18,y2:11}),h("polygon",{points:"12 2 20 7 4 7"}));
+          const svgNK=()=>h("svg",{width:13,height:13,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
+            h("rect",{x:1,y:4,width:22,height:16,rx:2,ry:2}),h("circle",{cx:12,cy:12,r:3}));
+          const odemeMini=(kk,ib,nk)=>div({style:{display:"flex",justifyContent:"center",flexWrap:"wrap",gap:"3px 10px",marginTop:6}},
+            [[svgKK,"K.K",kk],[svgIB,"Iban",ib],[svgNK,"Nakit",nk]].map(([mk,lb,v],i)=>
+              h("span",{key:i,style:{display:"inline-flex",alignItems:"center",gap:3,fontSize:11,fontWeight:600,color:v>0?"#3a3a3c":"#b8b8bd"}},
+                h("span",{style:{display:"inline-flex",color:v>0?"#0071E3":"#cbd5e0"}},mk()),
+                h("span",{style:{color:v>0?"#6b7280":"#c0c0c5",fontWeight:600}},lb),
+                fmtP(v))
             )
           );
           return div({className:"gozetim"},
@@ -11893,7 +11993,7 @@ if(DB) dbUpsertAyar("tema",tema);
             myBekleyen.length>0&&div({className:"bkb"},
               div(null,
                 div({style:{fontSize:14,color:"#1A7A34",fontWeight:600}},"⏳ "+myBekleyen.length+" kayıt gönderilmeyi bekliyor"),
-                div({style:{fontSize:12,color:"#2A8A44",marginTop:2}},"Gün sonunda gönder butonuna basın")
+                div({style:{fontSize:12.5,color:"#1A7A34",marginTop:3,fontWeight:600,lineHeight:1.5}},"Lütfen tüm işlemleri gözden geçirip doğruluğundan emin olduktan sonra gönderiniz.")
               ),
               btn({className:"gsbtn",onClick:()=>setGsOnay(true)},"Gönder")
             ),
@@ -13004,7 +13104,7 @@ if(DB) dbUpsertAyar("tema",tema);
             }),
             false&&muhSek==="vergiMuhasebesi"&&h(VergiMuhasebesiModul,{tumK,faturalar}),
             muhSek==="indirimZam"&&h(IndirimZamModul,{zamGecmisi,setZamGecmisi,triggerUrunRender,hizListeleri,setHizListeleri,showToast}),
-            muhSek==="giderler"&&h(GiderlerModul,{giderler,setGiderler,giderKategoriler,showToast}),
+            muhSek==="giderler"&&h(GiderlerModul,{giderler,setGiderler,giderKategoriler,showToast,bankalar}),
             muhSek==="ozet"&&(()=>{
               // ── Yardımcı: tarih bilgisi ──
               const bugun = new Date();
@@ -15132,7 +15232,7 @@ div({style:{fontSize:15,color:"var(--tx)",fontWeight:600,marginBottom:12}},"🏦
 
     asek==="ozet"&&muhSek==="giderler"&&div({style:{position:"fixed",inset:0,zIndex:15,background:"var(--bg)",overflowY:"auto",paddingTop:220}},
       div({style:{padding:"0 14px 80px"}},
-        h(GiderlerModul,{giderler,setGiderler,giderKategoriler,showToast})
+        h(GiderlerModul,{giderler,setGiderler,giderKategoriler,showToast,bankalar})
       )
     ),
 
