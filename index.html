@@ -3,7 +3,7 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="1781096881">
+  <meta name="version" content="1781102825">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -8176,6 +8176,7 @@ function App() {
   const [urunListeSek, setUrunListeSek] = useState("satilabilen");
   const [bankalar, setBankalar]         = useState(["Garanti","Ziraat","İş Bankası","Yapı Kredi","Akbank"]);
   const [hesapSaglama, setHesapSaglama] = useState({}); // {tarih: {kk:{banka:tutar},iban,nakit,durum}}
+  const hesapSenkRef = useRef(false); // localStorage'daki eski hesap verilerini buluta bir kez taşımak için
   const [yeniMarkaAdi, setYeniMarkaAdi] = useState("");
   const [yeniTedarikciAdi, setYeniTedarikciAdi] = useState("");
   const [tedarikciDuzIdx, setTedarikciDuzIdx]   = useState(null); // {idx, ad}
@@ -8382,6 +8383,7 @@ ayarlarRaw.forEach(a=>{ try {
   if(a.id==="bolumStilleri") setBolumStilleri(a.deger||{});
   if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(prev=>birlestirListe(prev,a.deger));
   if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(prev=>birlestirListe(prev,a.deger));
+  if(a.id==="hesapSaglama" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglama(prev=>({...prev, ...a.deger})); // yerel + bulut (çakışmada bulut güncel)
   if(a.id==="stokPartiler" && Array.isArray(a.deger)) {
     stokPartilerYuklendi.current=true;
     setStokPartiler(prev=>{
@@ -8576,6 +8578,13 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("bankalar",bankalar); },[bankalar]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("tedarikciler",tedarikciler); },[tedarikciler]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("yonBildirim",yonBildirim); },[yonBildirim]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("hesapSaglama",hesapSaglama); },[hesapSaglama]);
+  // Eski sürümlerde sadece localStorage'da tutulan hesap verilerini, yükleme bitince buluta bir kez taşı.
+  useEffect(()=>{
+    if(yukleniyor||!DB||hesapSenkRef.current) return;
+    hesapSenkRef.current = true;
+    if(hesapSaglama && Object.keys(hesapSaglama).length) dbUpsertAyar("hesapSaglama", hesapSaglama);
+  },[yukleniyor]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("devirBildirim",devirBildirim); },[devirBildirim]);
   useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; dbUpsertAyar("urunler",URUN_DB); },[urunDBVer]);
   useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; dbUpsertAyar("hizFiyatlar",HIZ_LISTE_FIYAT); },[urunDBVer]);
@@ -8662,6 +8671,7 @@ if(DB) dbUpsertAyar("tema",tema);
       if(a.id==="bolumStilleri") setBolumStilleri(prev=>_ay(prev,a.deger||{}));
       if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(prev=>_ay(prev,birlestirListe(prev,a.deger)));
       if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(prev=>_ay(prev,birlestirListe(prev,a.deger)));
+      if(a.id==="hesapSaglama" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglama(prev=>_ay(prev,{...prev,...a.deger}));
       if(a.id==="tema" && a.deger && typeof a.deger==="object") setTema(prev=>_ay(prev,a.deger));
     };
 
