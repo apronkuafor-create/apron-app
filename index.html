@@ -39,6 +39,12 @@ color: #e2ecea;
 .sc-h .fi::placeholder{color:var(–svc-placeholder-color,var(–br))!important}
 
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.12)}}
+@keyframes urunHlPulse {
+  0%   { background: rgba(52,199,89,.3) !important; box-shadow: 0 0 0 3px rgba(52,199,89,.4); }
+  50%  { background: rgba(52,199,89,.15) !important; }
+  100% { background: transparent; box-shadow: none; }
+}
+.urun-hl-anim { animation: urunHlPulse 2s ease-out forwards !important; }
 </style>
 
 <script>
@@ -13794,7 +13800,75 @@ if(DB) dbUpsertAyar("tema",tema);
     // Dinamik marka listesi - URUN_DB'den + eklenmiş markalar
     const markaListesi = [...new Set([...URUN_DB.filter(u=>u.tip!=="sarf").map(u=>u.m), ...ekMarkalar])].filter(m=>m&&m!=="__SARF__").sort();
     const sarfMarkaListesi = [...new Set([...URUN_DB.filter(u=>u.tip==="sarf").map(u=>u.m).filter(m=>m&&m!=="__SARF__"), ...sarfEkMarkalar])].sort();
+    // Arama state'i bu scope'ta kullanılıyor
+    const _uArama = (urunArama||"").trim();
+    const _uOneri = _uArama.length>=2
+      ? URUN_DB.filter(u=>{
+          const q=normText(_uArama);
+          return normText(u.a).includes(q)||u.b.includes(_uArama);
+        }).slice(0,8)
+      : [];
     return div(null,
+    // Arama kutusu
+    div({style:{position:"relative",marginBottom:12,marginTop:8}},
+      div({style:{position:"relative"}},
+        h("span",{style:{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",
+          fontSize:16,pointerEvents:"none",opacity:.5}},"🔍"),
+        inp({className:"fi",placeholder:"Ürün adı veya barkod ile ara...",
+          value:urunArama,
+          style:{paddingLeft:38,fontSize:14},
+          onChange:e=>setUrunArama(e.target.value),
+          onKeyDown:e=>{if(e.key==="Escape")setUrunArama("");}})
+      ),
+      _uOneri.length>0&&div({style:{position:"absolute",top:"100%",left:0,right:0,
+        background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,
+        zIndex:80,overflow:"hidden",marginTop:4,
+        boxShadow:"0 8px 24px rgba(0,0,0,.35)"}},
+        _uOneri.map(u=>{
+          const isSarf = u.tip==="sarf";
+          return div({key:u.b,
+            style:{padding:"10px 14px",cursor:"pointer",
+              borderBottom:"1px solid var(--br)",
+              display:"flex",alignItems:"center",gap:10,
+              transition:"background .15s"},
+            onMouseEnter:e=>e.currentTarget.style.background="var(--bg3)",
+            onMouseLeave:e=>e.currentTarget.style.background="",
+            onClick:()=>{
+              // Sekmeyi değiştir
+              setUrunListeSek(isSarf?"sarf":"satilabilen");
+              // Highlight et ve scroll yap
+              setUrunHighlight(u.b);
+              setUrunArama("");
+              // Kısa gecikme ile scroll (DOM güncellensin)
+              setTimeout(()=>{
+                const el=document.getElementById("urun-"+u.b);
+                if(el){
+                  el.scrollIntoView({behavior:"smooth",block:"center"});
+                  el.classList.add("urun-hl-anim");
+                  setTimeout(()=>el.classList.remove("urun-hl-anim"),2000);
+                }
+              },80);
+              // 3 saniye sonra highlight kaldır
+              setTimeout(()=>setUrunHighlight(null),3200);
+            }},
+            div({style:{width:28,height:28,borderRadius:7,flexShrink:0,
+              background:isSarf?"rgba(255,149,0,.15)":"rgba(52,199,89,.12)",
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}},
+              isSarf?"🧪":"🛍️"),
+            div({style:{flex:1,minWidth:0}},
+              div({style:{fontSize:13,fontWeight:600,color:"var(--tx)",
+                overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},u.a),
+              div({style:{fontSize:11,color:"var(--mu)",marginTop:1}},
+                u.b+(u.ml?" · "+u.ml:"")+(u.m?" · "+u.m:""))
+            ),
+            div({style:{fontSize:10,padding:"2px 7px",borderRadius:5,flexShrink:0,
+              background:isSarf?"rgba(255,149,0,.12)":"rgba(52,199,89,.1)",
+              color:isSarf?"#FF9500":"#34C759",fontWeight:700}},
+              isSarf?"SARF":"SATIŞ")
+          );
+        })
+      )
+    ),
     // Tab başlıkları (c: marginTop ile üstten ayrı)
     div({style:{display:"flex",gap:0,borderBottom:"2px solid var(--br)",marginBottom:16,marginTop:10}},
       [
@@ -14103,9 +14177,11 @@ if(DB) dbUpsertAyar("tema",tema);
           div({style:{fontSize:12,color:"var(--di)"}},mUrunler.length+" ürün")
         ),
         mUrunler.map(u=>
-          div({key:u.b,style:{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",
-            marginBottom:4,background:"var(--bg2)",borderRadius:9,cursor:"pointer",
-            border:"1px solid "+(urunDuzId===u.b?"#6a5010":"var(--bg3)")},
+          div({key:u.b,id:"urun-"+u.b,style:{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",
+            marginBottom:4,borderRadius:9,cursor:"pointer",
+            background:urunHighlight===u.b?"rgba(52,199,89,.12)":"var(--bg2)",
+            border:"1px solid "+(urunHighlight===u.b?"#34C759":urunDuzId===u.b?"#6a5010":"var(--bg3)"),
+            transition:"background .4s,border-color .4s"},
             onClick:()=>{setUrunDuzId(u.b);setUrunDuzData({...u});}},
             div({style:{flex:1,minWidth:0}},
               div({style:{fontSize:14,color:"var(--tx)"}},u.a),
@@ -14161,9 +14237,11 @@ if(DB) dbUpsertAyar("tema",tema);
               )
             ),
             mUrunler.map(u=>
-              div({key:u.b,style:{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",
-                marginBottom:4,background:"var(--bg2)",borderRadius:9,cursor:"pointer",
-                border:"1px solid "+(urunDuzId===u.b?"rgba(255,149,0,.4)":"var(--bg3)")},
+              div({key:u.b,id:"urun-"+u.b,style:{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",
+                marginBottom:4,borderRadius:9,cursor:"pointer",
+                background:urunHighlight===u.b?"rgba(255,149,0,.13)":"var(--bg2)",
+                border:"1px solid "+(urunHighlight===u.b?"#FF9500":urunDuzId===u.b?"rgba(255,149,0,.4)":"var(--bg3)"),
+                transition:"background .4s,border-color .4s"},
                 onClick:()=>{setUrunDuzId(u.b);setUrunDuzData({...u});}},
                 div({style:{width:30,height:30,borderRadius:7,background:"rgba(255,149,0,.15)",
                   display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}},"🧪"),
@@ -14193,9 +14271,11 @@ if(DB) dbUpsertAyar("tema",tema);
           div({style:{fontSize:11,color:"var(--di)",letterSpacing:2,textTransform:"uppercase",
             marginBottom:6,paddingBottom:4,borderBottom:"1px solid var(--br)"}},"Markasız"),
           sarfMarkasiz.map(u=>
-            div({key:u.b,style:{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",
-              marginBottom:4,background:"var(--bg2)",borderRadius:9,cursor:"pointer",
-              border:"1px solid "+(urunDuzId===u.b?"rgba(255,149,0,.4)":"var(--bg3)")},
+            div({key:u.b,id:"urun-"+u.b,style:{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",
+              marginBottom:4,borderRadius:9,cursor:"pointer",
+              background:urunHighlight===u.b?"rgba(255,149,0,.13)":"var(--bg2)",
+              border:"1px solid "+(urunHighlight===u.b?"#FF9500":urunDuzId===u.b?"rgba(255,149,0,.4)":"var(--bg3)"),
+              transition:"background .4s,border-color .4s"},
               onClick:()=>{setUrunDuzId(u.b);setUrunDuzData({...u});}},
               div({style:{width:30,height:30,borderRadius:7,background:"rgba(255,149,0,.15)",
                 display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}},"🧪"),
