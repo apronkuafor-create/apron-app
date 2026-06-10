@@ -3,7 +3,7 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="1781105810">
+  <meta name="version" content="1781106759">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -11813,14 +11813,27 @@ if(DB) dbUpsertAyar("tema",tema);
 
         // ── GÜNLÜK KAYIT sekmesi ──────────────────────────────────────
         bugunAltSek==="kayit"&&(()=>{
-          const bugun=TODAY();
-          const myRecords=records.filter(r=>r.staffId===kul.id&&r.tarih===bugun&&!r.gonderildi);
-          const todayBekleyen=myBekleyen.filter(r=>r.tarih===bugun);
-          const seenIds=new Set(todayBekleyen.map(r=>r.id));
-          const todayK=[...todayBekleyen,...myRecords.filter(r=>!seenIds.has(r.id))];
-          const hizCiro=todayK.reduce((s,r)=>s+(r.hizKK||0)+(r.hizIB||0)+(r.hizNK||0),0);
-          const urunCiro=todayK.reduce((s,r)=>s+(r.uKK||0)+(r.uIB||0)+(r.uNK||0),0);
+          // Özet, "Kayıtlarım"da görünen kayıtlarla AYNI kümeyi toplar (myBekleyen + records'taki
+          // gönderilmemiş ekstralar). Böylece geçmiş tarihli kayıt girilince de toplamı buraya yansır.
+          const myRecords=records.filter(r=>r.staffId===kul.id&&!r.gonderildi);
+          const seenIds=new Set(myBekleyen.map(r=>r.id));
+          const todayK=[...myBekleyen,...myRecords.filter(r=>!seenIds.has(r.id))];
+          const hizKK=todayK.reduce((s,r)=>s+(r.hizKK||0),0);
+          const hizIB=todayK.reduce((s,r)=>s+(r.hizIB||0),0);
+          const hizNK=todayK.reduce((s,r)=>s+(r.hizNK||0),0);
+          const uKK=todayK.reduce((s,r)=>s+(r.uKK||0),0);
+          const uIB=todayK.reduce((s,r)=>s+(r.uIB||0),0);
+          const uNK=todayK.reduce((s,r)=>s+(r.uNK||0),0);
+          const hizCiro=hizKK+hizIB+hizNK;
+          const urunCiro=uKK+uIB+uNK;
           const genelTop=hizCiro+urunCiro;
+          // K.K / IBAN / Nakit mini kırılım satırı (₺'siz kompakt; 0 olanlar soluk)
+          const fmtP=v=>Number(v||0).toLocaleString("tr-TR");
+          const odemeMini=(kk,ib,nk)=>div({style:{display:"flex",justifyContent:"center",flexWrap:"wrap",gap:"2px 8px",marginTop:6}},
+            [["💳",kk],["🏦",ib],["💵",nk]].map(([ik,v],i)=>
+              h("span",{key:i,style:{fontSize:10.5,fontWeight:600,color:v>0?"#3a3a3c":"#b8b8bd"}}, ik+" "+fmtP(v))
+            )
+          );
           return div({className:"gozetim"},
             div({className:"gozetim-baslik"},"Günlük Özetim"),
             div({style:{
@@ -11838,16 +11851,19 @@ if(DB) dbUpsertAyar("tema",tema);
                 ),
                 div({style:{textAlign:"center",padding:"4px 0",borderLeft:"1px solid rgba(0,0,0,.08)",borderRight:"1px solid rgba(0,0,0,.08)"}},
                   div({style:{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"#86868B",fontWeight:600,marginBottom:6}},"Hizmet Ciro"),
-                  div({style:{fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,fontWeight:700,color:"#1D1D1F",letterSpacing:"-0.3px",lineHeight:1}},fmt(hizCiro))
+                  div({style:{fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,fontWeight:700,color:"#1D1D1F",letterSpacing:"-0.3px",lineHeight:1}},fmt(hizCiro)),
+                  odemeMini(hizKK,hizIB,hizNK)
                 ),
                 div({style:{textAlign:"center",padding:"4px 0"}},
                   div({style:{fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"#86868B",fontWeight:600,marginBottom:6}},"Ürün Ciro"),
-                  div({style:{fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,fontWeight:700,color:"#1D1D1F",letterSpacing:"-0.3px",lineHeight:1}},fmt(urunCiro))
+                  div({style:{fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,fontWeight:700,color:"#1D1D1F",letterSpacing:"-0.3px",lineHeight:1}},fmt(urunCiro)),
+                  odemeMini(uKK,uIB,uNK)
                 )
               ),
               div({style:{borderTop:"1px solid rgba(0,0,0,.07)",paddingTop:13,textAlign:"center"}},
                 div({style:{fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"#86868B",fontWeight:600,marginBottom:5}},"Genel Toplam"),
-                div({style:{fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:28,fontWeight:800,color:"#C9A84C",letterSpacing:"-0.5px",lineHeight:1}},fmt(genelTop))
+                div({style:{fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:28,fontWeight:800,color:"#C9A84C",letterSpacing:"-0.5px",lineHeight:1}},fmt(genelTop)),
+                odemeMini(hizKK+uKK,hizIB+uIB,hizNK+uNK)
               )
             ),
             btn({className:"ybt",onClick:()=>setKayitForm({})},
