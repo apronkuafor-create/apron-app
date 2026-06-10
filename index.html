@@ -13826,18 +13826,60 @@ if(DB) dbUpsertAyar("tema",tema);
           btn({className:"xbtn",onClick:()=>{setUrunDuzId(null);setUrunDuzData(null);}},"✕")
         ),
         div({style:{padding:16,maxWidth:500,margin:"0 auto"}},
-          div({style:{marginBottom:10}},
-            lbl({className:"fl"},"Barkod No *"),
-            inp({className:"fi",placeholder:"EAN-13 barkod...",
-              value:urunDuzData.b||"",readOnly:urunDuzId!=="yeni",
-              style:{opacity:urunDuzId!=="yeni"?0.5:1},
-              onChange:e=>setUrunDuzData(p=>({...p,b:e.target.value}))})
-          ),
-          div({style:{marginBottom:10}},
-            lbl({className:"fl"},"Ürün Adı *"),
-            inp({className:"fi",placeholder:"Ürün adı...",value:urunDuzData.a||"",
-              onChange:e=>setUrunDuzData(p=>({...p,a:e.target.value}))})
-          ),
+          (()=>{
+            const bVal=(urunDuzData.b||"").trim();
+            const aVal=(urunDuzData.a||"").trim();
+            const barkodCakisma = urunDuzId==="yeni" && bVal.length>0 && URUN_DB.some(u=>u.b===bVal);
+            const barkodOnerileri = urunDuzId==="yeni" && bVal.length>=3 && !barkodCakisma
+              ? URUN_DB.filter(u=>u.b.includes(bVal)||normText(u.a).includes(normText(bVal))).slice(0,5)
+              : [];
+            const adOnerileri = aVal.length>=2
+              ? URUN_DB.filter(u=>normText(u.a).includes(normText(aVal))||u.b.includes(aVal)).slice(0,5)
+              : [];
+            return h(React.Fragment,null,
+              div({style:{marginBottom:10,position:"relative"}},
+                lbl({className:"fl"},"Barkod No *"),
+                inp({className:"fi",placeholder:"EAN-13 barkod...",
+                  value:urunDuzData.b||"",readOnly:urunDuzId!=="yeni",
+                  style:{opacity:urunDuzId!=="yeni"?0.5:1,
+                    borderColor:barkodCakisma?"#FF3B30":undefined,
+                    boxShadow:barkodCakisma?"0 0 0 2px rgba(255,59,48,.25)":undefined},
+                  onChange:e=>setUrunDuzData(p=>({...p,b:e.target.value}))}),
+                barkodCakisma&&div({style:{marginTop:5,padding:"7px 10px",background:"rgba(255,59,48,.12)",
+                  border:"1px solid rgba(255,59,48,.3)",borderRadius:8,color:"#FF3B30",fontSize:12,fontWeight:600}},
+                  "⚠️  Bu barkod numaralı ürün listede zaten var: "+
+                  (URUN_DB.find(u=>u.b===bVal)?.a||"")
+                ),
+                barkodOnerileri.length>0&&div({style:{position:"absolute",top:"100%",left:0,right:0,
+                  background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:10,
+                  zIndex:50,overflow:"hidden",marginTop:3,boxShadow:"0 4px 16px rgba(0,0,0,.3)"}},
+                  barkodOnerileri.map(u=>div({key:u.b,
+                    style:{padding:"9px 12px",cursor:"pointer",borderBottom:"1px solid var(--br)",
+                      display:"flex",flexDirection:"column",gap:2},
+                    onClick:()=>setUrunDuzData(p=>({...p,b:u.b,a:u.a,m:u.m,ml:u.ml,bp:u.bp,ap:u.ap||u.bp,sp:u.sp}))},
+                    div({style:{fontSize:12,fontWeight:600,color:"var(--g)"}},u.a+" ("+u.ml+")"),
+                    div({style:{fontSize:11,color:"var(--mu)"}},"🏷️ "+u.b+" · "+u.m)
+                  ))
+                )
+              ),
+              div({style:{marginBottom:10,position:"relative"}},
+                lbl({className:"fl"},"Ürün Adı *"),
+                inp({className:"fi",placeholder:"Ürün adı...",value:urunDuzData.a||"",
+                  onChange:e=>setUrunDuzData(p=>({...p,a:e.target.value}))}),
+                adOnerileri.length>0&&div({style:{position:"absolute",top:"100%",left:0,right:0,
+                  background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:10,
+                  zIndex:50,overflow:"hidden",marginTop:3,boxShadow:"0 4px 16px rgba(0,0,0,.3)"}},
+                  adOnerileri.map(u=>div({key:u.b,
+                    style:{padding:"9px 12px",cursor:"pointer",borderBottom:"1px solid var(--br)",
+                      display:"flex",flexDirection:"column",gap:2},
+                    onClick:()=>setUrunDuzData(p=>({...p,b:urunDuzId==="yeni"?u.b:p.b,a:u.a,m:u.m,ml:u.ml,bp:u.bp,ap:u.ap||u.bp,sp:u.sp}))},
+                    div({style:{fontSize:12,fontWeight:600,color:"var(--g)"}},u.a+" ("+u.ml+")"),
+                    div({style:{fontSize:11,color:"var(--mu)"}},"🏷️ "+u.b+" · "+u.m)
+                  ))
+                )
+              )
+            );
+          })(),
           div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
             div(null,
               lbl({className:"fl"},"Marka"),
@@ -13880,7 +13922,7 @@ if(DB) dbUpsertAyar("tema",tema);
                 showToast("Ürün silindi","uy");
               }},"Sil"),
             btn({className:"btn-k",
-              disabled:!(urunDuzData.a||"").trim()||!(urunDuzData.sp),
+              disabled:!(urunDuzData.a||"").trim()||!(urunDuzData.sp)||(urunDuzId==="yeni"&&(urunDuzData.b||"").trim().length>0&&URUN_DB.some(u=>u.b===(urunDuzData.b||"").trim())),
               onClick:()=>{
                 if(urunDuzId==="yeni"){
                   if(!urunDuzData.b?.trim()){ showToast("Barkod zorunlu","uy"); return; }
