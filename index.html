@@ -3,7 +3,7 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="1781102825">
+  <meta name="version" content="1781105810">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -338,9 +338,20 @@ const _canonAyar = (v) => {
   const o={}; Object.keys(v).sort().forEach(k=>{ o[k]=_canonAyar(v[k]); }); return o;
 };
 const _ayarImza = (deger) => { try { return JSON.stringify(_canonAyar(deger)); } catch(e){ return null; } };
+// Tek "son imza" yetmez: üst üste hızlı yazmalarda önceki yazmanın gecikmeli yankısı
+// güncel imzaya uymaz, "kendi yazımız" sayılmaz ve state'i geriye alıp ping-pong (titreme)
+// yaratır. Bu yüzden id başına SON birkaç yazımın imzasını bir pencerede tutarız.
+const _ayarSigGec = {};
+const _ayarYazimImza = (id, s) => {
+  if(s===null) return;
+  _ayarSig[id] = s;
+  const arr = _ayarSigGec[id] || (_ayarSigGec[id]=[]);
+  if(!arr.includes(s)) arr.push(s);
+  while(arr.length>30) arr.shift();
+};
+const _ayarYakinYazim = (id, s) => s!==null && (_ayarSigGec[id]||[]).includes(s);
 const dbUpsertAyar = (id, deger) => {
-  const s = _ayarImza(deger);
-  if(s!==null) _ayarSig[id] = s;
+  _ayarYazimImza(id, _ayarImza(deger));
   return dbUpsert("ayarlar",{id, deger},"id");
 };
 const mapR = r => ({
@@ -8341,7 +8352,7 @@ function App() {
         const ayarlarRaw = await dbAl("ayarlar");
 ayarlarRaw.forEach(a=>{ try {
   if(!a.deger||!Object.keys(a.deger).length) return;
-  try{ const _si=_ayarImza(a.deger); if(_si!==null) _ayarSig[a.id]=_si; }catch(eSig){} // ilk yüklenen değerin imzası -> ilk yankı bastırılır
+  try{ _ayarYazimImza(a.id, _ayarImza(a.deger)); }catch(eSig){} // ilk yüklenen değerin imzası -> ilk yankı bastırılır
   if(a.id==="tema") setTema(a.deger);
   if(a.id==="isletme") { const _d={logoHeight:80,...a.deger}; setIsletme(_d); try{ localStorage.setItem("apron_isletme", JSON.stringify(_d)); }catch(e){} }
   if(a.id==="personeller") {
@@ -8638,10 +8649,10 @@ if(DB) dbUpsertAyar("tema",tema);
     const musteriMap = (x) => ({id:x.id,ad:x.ad,tel:x.tel||"",sahipId:x.sahip_id||"",sahipAd:x.sahip_ad||"",ilkGiris:x.ilk_giris||"",dogumTarihi:x.dogum_tarihi||"",cinsiyet:x.cinsiyet||"",adres:x.adres||"",notlar:x.notlar||""});
     const ayarUygula = (a) => {
       if(!a || !a.id) return;
-      // 1) Kendi yazdığımız değerin realtime yankısıysa erken çık.
+      // 1) Kendi (yakın) yazdığımız değerin realtime yankısıysa erken çık — üst üste hızlı
+      //    yazmalarda gecikmeli/bayat yankılar da bu pencerede yakalanır (ping-pong/titreme önlenir).
       const _s = _ayarImza(a.deger);
-      if(_s!==null && _ayarSig[a.id]===_s) return;
-      if(_s!==null) _ayarSig[a.id]=_s;
+      if(_ayarYakinYazim(a.id, _s)) return;
       // 2) GARANTÖR: içerik mevcut state ile aynıysa setState'i no-op yap (aynı referansı döndür).
       //    Böylece React yeniden render etmez, [state] bağımlı kaydetme effect'i TEKRAR tetiklenmez
       //    ve yaz→yankı→yaz titreme döngüsü Supabase serialize farkından bağımsız olarak kırılır.
