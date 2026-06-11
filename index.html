@@ -4340,6 +4340,20 @@ function VergiMuhasebesiModul({tumK, faturalar}) {
     );
   };
 
+  // ── TOPLAM (kk+ib+nk) — B alanı için anlık hesap (veri saklanmaz) ──
+  const toplamlar = (function(){
+    const o = ayHesap.odeme;
+    let tahsilat = 0, net = 0, kdv = 0, gv = 0;
+    ["kk","ib","nk"].forEach(function(id){
+      const x = o[id];
+      tahsilat += x.toplam;
+      net      += x.net;
+      kdv      += x.kdv;
+      gv       += hesaplaGV(x.net).vergi;
+    });
+    return {tahsilat, net, kdv, gv};
+  })();
+
   return div(null,
     // BAŞLIK
     div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:16,marginBottom:12}},
@@ -4358,28 +4372,37 @@ function VergiMuhasebesiModul({tumK, faturalar}) {
       )
     ),
 
-    // ÖZET KARTLAR
-    div({style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginBottom:12}},
-      div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:13,padding:13}},
-        div({style:{fontSize:11,color:"var(--di)",letterSpacing:1,textTransform:"uppercase"}},"Aylık KDV"),
-        div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:26,color:"#f0a060",fontWeight:700}},fmt(ayHesap.odenecekKdv))
-      ),
-      div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:13,padding:13}},
-        div({style:{fontSize:11,color:"var(--di)",letterSpacing:1,textTransform:"uppercase"}},"Aylık Matrah (KDV hariç)"),
-        div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:26,color:"var(--g)",fontWeight:700}},fmt(ayHesap.aylikMatrah))
-      ),
-      div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:13,padding:13}},
-        div({style:{fontSize:11,color:"var(--di)",letterSpacing:1,textTransform:"uppercase"}},"Aylık GV (tahmini)"),
-        div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:26,color:"#e06060",fontWeight:700}},fmt(ayHesap.aylikGV.vergi))
-      )
-    ),
-
     // ÖDEME TÜRÜ KARTLARI
     div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:14,marginBottom:12}},
-      div({style:{fontSize:14,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:700,marginBottom:10}},"💳 Ödeme Türüne Göre Aylık Vergi"),
+      div({style:{display:"flex",alignItems:"center",gap:9,marginBottom:10}},
+        h("svg",{width:19,height:19,viewBox:"0 0 24 24",fill:"none",stroke:"var(--g)",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
+          h("line",{x1:3,y1:21,x2:21,y2:21}),
+          h("rect",{x:5,y:11,width:3.4,height:7,rx:1}),
+          h("rect",{x:10.3,y:6.5,width:3.4,height:11.5,rx:1}),
+          h("rect",{x:15.6,y:14,width:3.4,height:4,rx:1})
+        ),
+        div({style:{fontSize:14,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:700}},"Ödeme Türüne Göre Aylık Vergi")
+      ),
       h(Kart,{id:"kk"}),
       h(Kart,{id:"ib"}),
-      h(Kart,{id:"nk"})
+      h(Kart,{id:"nk"}),
+      // B — TOPLAM SATIRI (kk+ib+nk)
+      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginTop:4}},
+        [
+          {lb:"Toplam Tahsilat",      v:fmt(toplamlar.tahsilat), c:"#0071E3"},
+          {lb:"Toplam KDV Hariç",     v:fmt(toplamlar.net),      c:"var(--tx)"},
+          {lb:"Toplam KDV",           v:fmt(toplamlar.kdv),      c:"#f0a060"},
+          {lb:"Toplam Gelir Vergisi", v:fmt(toplamlar.gv),       c:"#e06060"}
+        ].map(function(item,i){
+          return div({key:i,style:{background:"rgba(0,113,227,.05)",border:"1px solid rgba(0,113,227,.13)",
+            borderRadius:10,padding:"11px 6px",textAlign:"center"}},
+            div({style:{fontSize:10.5,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,
+              marginBottom:5,fontWeight:600,fontFamily:"'Inter',-apple-system,sans-serif"}},item.lb),
+            div({style:{fontSize:18,color:item.c,fontWeight:700,
+              fontFamily:"'Inter',-apple-system,sans-serif"}},item.v)
+          );
+        })
+      )
     ),
 
     // AYLIK ÖZET TABLO
