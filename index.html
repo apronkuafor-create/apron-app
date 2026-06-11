@@ -7881,13 +7881,22 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
   return div({style:{padding:"4px 0",fontFamily:FONT}},
 
     // ── FORM MODAL ──
-    yeniGider&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:1000,
-      display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto"}},
-      div({style:{background:"var(--bg2)",borderRadius:18,padding:22,width:"100%",maxWidth:400,
-        boxShadow:"0 24px 64px rgba(0,0,0,.28)",fontFamily:FONT,margin:"auto"}},
-
-        div({style:{fontSize:16,fontWeight:700,color:"var(--tx)",marginBottom:18,fontFamily:FONT}},
-          yeniGider._editId ? "Gider Düzenle" : "Yeni Gider"),
+    yeniGider&&ReactDOM.createPortal(
+      div({style:{position:"fixed",top:0,left:0,right:0,bottom:0,
+        background:"rgba(0,0,0,.55)",zIndex:99999,
+        display:"flex",alignItems:"center",justifyContent:"center",
+        padding:"16px",boxSizing:"border-box"}},
+        div({style:{background:"var(--bg2)",borderRadius:18,
+          width:"100%",maxWidth:400,
+          boxShadow:"0 24px 64px rgba(0,0,0,.28)",fontFamily:FONT,
+          display:"flex",flexDirection:"column",
+          maxHeight:"calc(100vh - 32px)",overflow:"hidden"}},
+        div({style:{padding:"20px 22px 14px",flexShrink:0,
+          borderBottom:"1px solid var(--br)"}},
+          div({style:{fontSize:16,fontWeight:700,color:"var(--tx)",fontFamily:FONT}},
+            yeniGider._editId ? "Gider Düzenle" : "Yeni Gider")
+        ),
+        div({style:{overflowY:"auto",flex:1,padding:"16px 22px"}},
 
         // Tarih + Tutar
         div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}},
@@ -7932,7 +7941,7 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
                 style:{background:"rgba(37,99,168,.1)",border:"1px solid rgba(37,99,168,.25)",
                   borderRadius:8,color:"var(--g)",fontSize:12,fontWeight:600,cursor:"pointer",
                   padding:"3px 10px",fontFamily:FONT},
-                onClick:function(){setOdm(odmList.concat([{tip:"",tutar:"",banka:"",ibanNo:""}]));}
+                onClick:function(){setOdm(odmList.concat([{tip:"",tutar:"",banka:"",ibanNo:"",kaynak:""}]));}
               },"+ Yöntem Ekle")
             ),
             odmList.length===0&&div({style:{fontSize:11,color:"var(--mu)",fontStyle:"italic",fontFamily:FONT,
@@ -7946,7 +7955,7 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
                     value:odm.tip||"",
                     onChange:function(e){
                       var yeni=[].concat(odmList);
-                      yeni[i]=Object.assign({},yeni[i],{tip:e.target.value,banka:"",ibanNo:""});
+                      yeni[i]=Object.assign({},yeni[i],{tip:e.target.value,banka:"",ibanNo:"",kaynak:""});
                       setOdm(yeni);
                     }},
                     opt("","Yöntem seçin"),
@@ -7985,6 +7994,18 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
                       yeni[i]=Object.assign({},yeni[i],{ibanNo:e.target.value});
                       setOdm(yeni);
                     }})
+                ),
+                // Kaynak / Açıklama alanı
+                div({style:{marginTop:8}},
+                  h("input",{className:"fi",
+                    placeholder:"Kaynak (opsiyonel) — örn: Ahmet'ten 15.06'ya kadar geri ödemek şartıyla aldım",
+                    style:{fontFamily:FONT,fontSize:12,color:"var(--mu)",width:"100%",boxSizing:"border-box"},
+                    value:odm.kaynak||"",
+                    onChange:function(e){
+                      var yeni=[].concat(odmList);
+                      yeni[i]=Object.assign({},yeni[i],{kaynak:e.target.value});
+                      setOdm(yeni);
+                    }})
                 )
               );
             }),
@@ -8006,20 +8027,26 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
           inp({className:"fi",placeholder:"Opsiyonel...",value:yeniGider.aciklama||"",
             style:{fontFamily:FONT},
             onChange:function(e){setYeniGider(function(p){return Object.assign({},p,{aciklama:e.target.value});}); }})
-        ),
+        )
+        ), // scroll div sonu
 
-        div({style:{display:"flex",gap:10}},
-          btn({style:{flex:1,padding:"12px 0",borderRadius:10,border:"1px solid var(--br)",
-            background:"var(--bg3)",color:"var(--mu)",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:FONT},
-            onClick:function(){setYeniGider(null);}
-          },"İptal"),
-          btn({style:{flex:2,padding:"12px 0",borderRadius:10,border:"none",
-            background:"var(--g)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:FONT},
-            onClick:giderKaydet
-          },yeniGider._editId?"Güncelle":"Kaydet")
+        // Sabit footer
+        div({style:{padding:"14px 22px 20px",flexShrink:0,
+          borderTop:"1px solid var(--br)"}},
+          div({style:{display:"flex",gap:10}},
+            btn({style:{flex:1,padding:"12px 0",borderRadius:10,border:"1px solid var(--br)",
+              background:"var(--bg3)",color:"var(--mu)",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:FONT},
+              onClick:function(){setYeniGider(null);}
+            },"İptal"),
+            btn({style:{flex:2,padding:"12px 0",borderRadius:10,border:"none",
+              background:"var(--g)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:FONT},
+              onClick:giderKaydet
+            },yeniGider._editId?"Güncelle":"Kaydet")
+          )
         )
       )
-    ),
+    )
+    ,document.body),
 
     // ── ÖZET KARTLARI ──
     div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}},
@@ -8105,8 +8132,12 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
                       return odmlar.map(function(o,oi){
                         var rk = o.tip==="Nakit"?"#34C759":o.tip==="Kredi Kartı"?"#0071E3":o.tip==="IBAN"?"#5856D6":"var(--mu)";
                         var lbl2 = o.tip+(o.banka?" / "+o.banka:"")+(o.tutar&&odmlar.length>1?" "+fmt(o.tutar):"");
-                        return h("span",{key:oi,style:{fontSize:10,padding:"1px 6px",borderRadius:5,fontWeight:600,
-                          background:"rgba(0,0,0,.06)",color:rk,fontFamily:FONT,whiteSpace:"nowrap"}},lbl2);
+                        return div({key:oi,style:{display:"flex",flexDirection:"column",gap:2}},
+                          h("span",{style:{fontSize:10,padding:"1px 6px",borderRadius:5,fontWeight:600,
+                            background:"rgba(0,0,0,.06)",color:rk,fontFamily:FONT,whiteSpace:"nowrap",display:"inline-block"}},lbl2),
+                          o.kaynak&&h("span",{style:{fontSize:10,color:"var(--mu)",fontStyle:"italic",
+                            paddingLeft:6,fontFamily:FONT}},"↳ "+o.kaynak)
+                        );
                       });
                     })()
                   ),
