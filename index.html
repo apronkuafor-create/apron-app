@@ -1878,6 +1878,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [arsivAc, setArsivAc] = React.useState(null); // arşiv detay index
   const [arsivDuzMod, setArsivDuzMod] = React.useState(false); // inline düzenleme modu
   const [arsivDuzUrunler, setArsivDuzUrunler] = React.useState([]); // düzenlenen ürün listesi
+  const mkArsivYuklendiRef = React.useRef(false); // ilk yükleme bitti mi → boş diziyi buluta yazmayı güvenli kılar (silme-boş kalıcı olur, açılışta bulut silinmez)
+  const mkArsivKirliRef = React.useRef(false);    // mount sonrası yerel silme/düzenleme oldu mu → geç gelen bulut çekimi bunu EZMESİN (diriltmeyi önler)
   const [sdAramaF, setSdAramaF] = React.useState(""); // stok durumu arama
   const [cariSek, setCariSek] = React.useState("borclarim");
   const [cariOdeSec, setCariOdeSec] = React.useState(null); // seçili fatura ödemesi için
@@ -1939,20 +1941,30 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
 
   // Arşivi önce localStorage'dan, sonra Supabase'den yükle
   React.useEffect(()=>{
-    try{const a=JSON.parse(localStorage.getItem("apron_mk_arsiv")||"[]"); if(a.length) setMkArsiv(a);}catch(e){}
+    // Eksik id'leri tamamla (eski kayıtlar id'siz olabilir) → silme/düzenleme id ile sağlam çalışsın
+    const _bfId = arr => (Array.isArray(arr)?arr:[]).map(x => (x && typeof x==="object" && !x.id) ? {...x, id: uid()} : x);
+    try{const a=JSON.parse(localStorage.getItem("apron_mk_arsiv")||"[]"); if(a.length){ const b=_bfId(a); setMkArsiv(b); try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(b));}catch(e){} } }catch(e){}
     // Supabase'den taze veriyi çek (localStorage'dan daha güncel olabilir)
     if(DB){
       DB.from("ayarlar").select("deger").eq("id","mkArsiv").maybeSingle()
-        .then(({data})=>{ if(data?.deger?.length) { setMkArsiv(data.deger); try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(data.deger));}catch(e){} } })
-        .catch(()=>{});
+        .then(({data})=>{
+          // Mount sonrası yerelde silme/düzenleme yapıldıysa bayat bulutu UYGULAMA (silineni diriltmeyi önler)
+          if(mkArsivKirliRef.current) return;
+          if(data && Array.isArray(data.deger)){ const b=_bfId(data.deger); setMkArsiv(b); try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(b));}catch(e){} }
+        })
+        .catch(()=>{})
+        .finally(()=>{ mkArsivYuklendiRef.current = true; });
+    } else {
+      mkArsivYuklendiRef.current = true;
     }
   },[]);
 
-  // mkArsiv Supabase sync
+  // mkArsiv Supabase sync — boş dizi de yazılır (silince bulut da boşalır), ama ilk yükleme
+  // bitmeden çalışmaz ki açılıştaki başlangıç [] buluttaki veriyi SİLMESİN.
   React.useEffect(()=>{
-    if(!DB||!mkArsiv||!mkArsiv.length) return;
-    dbUpsertAyar("mkArsiv",mkArsiv);
-    try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(mkArsiv));}catch(e){}
+    if(!DB || !mkArsivYuklendiRef.current) return;
+    dbUpsertAyar("mkArsiv", mkArsiv||[]);
+    try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(mkArsiv||[]));}catch(e){}
   },[mkArsiv]);
 
   // UrunAramaBilesen dışarıda tanımlı (klavye kapanma sorunu için)
@@ -2244,10 +2256,12 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                           iskontoTutar:iskT,kdvTutar:kdvT,toplamF:matrah+kdvT,
                           alisF:birimF-isk};
                       });
-                      // mkArsiv güncelle
-                      const yeniArsiv=mkArsiv.map((x,j)=>j===origIdx?{...x,urunler:yeniUrunler}:x);
+                      // mkArsiv güncelle (id ile eşle → doğru kayıt güncellenir)
+                      mkArsivKirliRef.current=true;
+                      const yeniArsiv=mkArsiv.map(x=>(ar.id?x.id===ar.id:x===ar)?{...x,urunler:yeniUrunler}:x);
                       setMkArsiv(yeniArsiv);
                       try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
+                      if(DB) dbUpsertAyar("mkArsiv", yeniArsiv); // anında bulut yazımı
                       // stokPartiler: faturaN + barkod eşleşen partileri güncelle
                       setStokPartiler(p=>p.map(part=>{
                         const match=yeniUrunler.find(u=>u.barkod===part.barkod&&part.faturaN===ar.faturaN&&part.tarih===ar.tarih);
@@ -2264,8 +2278,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   !arsivDuzMod&&btn({style:{padding:"6px 14px",borderRadius:8,border:"1px solid #3a1010",
                     background:"rgba(160,40,40,.06)",color:"#c05050",fontSize:12,cursor:"pointer"},
                     onClick:()=>{
-                      const yeni=mkArsiv.filter((_,j)=>j!==origIdx);
+                      mkArsivKirliRef.current=true;
+                      // id ile sil (id yoksa referansa düş); index'e güvenme → her zaman doğru kaydı siler
+                      const yeni=mkArsiv.filter(x => ar.id ? x.id!==ar.id : x!==ar);
                       setMkArsiv(yeni);try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeni));}catch(e){}
+                      if(DB) dbUpsertAyar("mkArsiv", yeni); // otoriter, ANINDA bulut yazımı (guard/remount yarışına takılmaz)
                       setArsivAc(null);setArsivDuzMod(false);showToast("Kayıt silindi","uy");
                     }},"Sil")
                 )
@@ -2671,7 +2688,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                           tip:"giris",adet:ad,tarih:mkTarih,faturaN:mkFatura,staff_id:"yonetici",staff_name:"Yönetici"}]);
                       });
                       stokPartilerYuklendi.current=true;
-                      const arsivKayit={tarih:mkTarih,faturaTarih:mkFaturaTarih,faturaN:mkFatura,irsaliyeN:mkIrsaliye,tedarikci:mkTedarikci,vade:mkVade,malKabulTarihi:mkMalKabulTarihi,tip:mkTip,
+                      const arsivKayit={id:uid(),tarih:mkTarih,faturaTarih:mkFaturaTarih,faturaN:mkFatura,irsaliyeN:mkIrsaliye,tedarikci:mkTedarikci,vade:mkVade,malKabulTarihi:mkMalKabulTarihi,tip:mkTip,
                         faturaImg:(Array.isArray(mkFaturaImg)?mkFaturaImg:[mkFaturaImg]).filter(Boolean),
                         urunler:mkUrunler.map(u=>{
                           const b=toN(u.adet)*toN(u.birimF);
@@ -2684,8 +2701,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                             kdvOran:toN(u.kdvOran||"20"),kdvTutar:kdvT,toplamF:matrah+kdvT};
                         })};
                       const yeniArsiv=[arsivKayit,...mkArsiv];
+                      mkArsivKirliRef.current=true;
                       setMkArsiv(yeniArsiv);
                       try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
+                      if(DB) dbUpsertAyar("mkArsiv", yeniArsiv);
                       showToast(mkUrunler.length+" ürün stoğa eklendi");
                       setMkForm(false);setMkTipSecim(false);setMkTip("");setMkUrunler([]);setMkFatura("");setMkFaturaTarih("");setMkIrsaliye("");setMkTarih(TODAY());setMkFaturaImg("");setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());
                     }},"✅ Stoğa Ekle")
