@@ -364,7 +364,10 @@ const mapR = r => ({
   hizler:r.hizmetler||[], hizKK:r.hiz_kk||0, hizIB:r.hiz_ib||0, hizNK:r.hiz_nk||0,
   urunler:r.urunler||[], uKK:r.urun_kk||0, uIB:r.urun_ib||0, uNK:r.urun_nk||0,
   toplam:r.toplam||0, tarih:r.tarih, saat:r.saat, gonderildi:r.gonderildi,
-  musteriKaydet:!!r.musteri_kaydet
+  musteriKaydet:!!r.musteri_kaydet,
+  hizIbanId:r.hiz_iban_id||"", hizIbanAd:r.hiz_iban_ad||"",
+  urunIbanId:r.urun_iban_id||"", urunIbanAd:r.urun_iban_ad||"",
+  anaPersonelId:r.ana_personel_id||"", anaPersonelAd:r.ana_personel_ad||""
 });
 
 // ── CSS ───────────────────────────────────────────────────────────────
@@ -7252,7 +7255,7 @@ function MaasFormulEditoru({formul, onChange, tumPersoneller}) {
 // Tam ekran modal - Brüt - Kesintiler = Net tablosu + alt detay sayfaları
 function HakedisDetayModal({kul, tumK, giderler, avanslar, personeller,
   periyot, setPeriyot, yil, setYil, ay, setAy,
-  onClose, altDetay, setAltDetay}) {
+  onClose, altDetay, setAltDetay, ibanBildirimler}) {
 
   // ── Periyot başlangıç/bitiş hesapla ──
   const {pBas, pBitis, pBaslik} = React.useMemo(()=>{
@@ -7290,12 +7293,35 @@ function HakedisDetayModal({kul, tumK, giderler, avanslar, personeller,
   });
   const brutHak = toN(sonuc.toplam);
 
+  // ibanBildirimler'den kayitId→hedefId haritası (eski kayıtlar için fallback)
+  const ibanBilMap = React.useMemo(()=>{
+    const m={};
+    (ibanBildirimler||[]).forEach(b=>{
+      if(!m[b.kayitId]) m[b.kayitId]={};
+      // tip alanı yeni kayıtlarda var, eski kayıtlarda hizmetAd ile anlaşılır
+      const isUrun = b.tip==="urun" || b.hizmetAd==="Ürün satışı";
+      if(isUrun) m[b.kayitId].urunIbanId=b.hedefId;
+      else m[b.kayitId].hizIbanId=b.hedefId;
+    });
+    return m;
+  },[ibanBildirimler]);
+
+  // tumKayit'i iban fallback ile zenginleştir
+  const tumKayitZengin = React.useMemo(()=>tumKayit.map(r=>{
+    const bil=ibanBilMap[r.id]||{};
+    return {
+      ...r,
+      hizIbanId: r.hizIbanId || bil.hizIbanId || "",
+      urunIbanId: r.urunIbanId || bil.urunIbanId || ""
+    };
+  }),[tumKayit,ibanBilMap]);
+
   // İbanıma gelen hizmet
-  const ibanHizmetKayitlar = tumKayit.filter(r=>r.hizIbanId===kul.id && toN(r.hizIB)>0);
+  const ibanHizmetKayitlar = tumKayitZengin.filter(r=>r.hizIbanId===kul.id && toN(r.hizIB)>0);
   const ibanHizmetTop = ibanHizmetKayitlar.reduce((s,r)=>s+toN(r.hizIB),0);
 
   // İbanıma gelen ürün
-  const ibanUrunKayitlar = tumKayit.filter(r=>r.urunIbanId===kul.id && toN(r.uIB)>0);
+  const ibanUrunKayitlar = tumKayitZengin.filter(r=>r.urunIbanId===kul.id && toN(r.uIB)>0);
   const ibanUrunTop = ibanUrunKayitlar.reduce((s,r)=>s+toN(r.uIB),0);
 
   // Çekilen avanslar
@@ -8627,7 +8653,9 @@ ayarlarRaw.forEach(a=>{ try {
               hizmetler:r.hizler||[],hiz_kk:r.hizKK||0,hiz_ib:r.hizIB||0,hiz_nk:r.hizNK||0,
               urunler:r.urunler||[],urun_kk:r.uKK||0,urun_ib:r.uIB||0,urun_nk:r.uNK||0,
               toplam:r.toplam||0,tarih:r.tarih,saat:r.saat,gonderildi:r.gonderildi||false,
-              musteri_kaydet:!!r.musteriKaydet});
+              musteri_kaydet:!!r.musteriKaydet,
+              hiz_iban_id:r.hizIbanId||"",hiz_iban_ad:r.hizIbanAd||"",
+              urun_iban_id:r.urunIbanId||"",urun_iban_ad:r.urunIbanAd||""});
           });
           const bulutGonderilmis = (k||[]).filter(r=>r.gonderildi).map(mapR);
           const bulutBekleyen    = (k||[]).filter(r=>!r.gonderildi).map(mapR);
@@ -9436,7 +9464,7 @@ if(DB) dbUpsertAyar("tema",tema);
     const ibanBildirimYeni = [];
     if(y.hizIB>0 && y.hizIbanId && y.hizIbanId !== kul.id){
       ibanBildirimYeni.push({
-        id:uid(), kayitId:y.id,
+        id:uid(), kayitId:y.id, tip:"hizmet",
         manKulId:kul.id, manKulAd:kul.ad,
         hedefId:y.hizIbanId, hedefAd:y.hizIbanAd||"",
         musteriAd:y.musteri||"", hizmetAd:(y.hizler||[]).map(h=>h.n||h.ad||h).join(", ")||"Hizmet",
@@ -9445,7 +9473,7 @@ if(DB) dbUpsertAyar("tema",tema);
     }
     if(y.uIB>0 && y.urunIbanId && y.urunIbanId !== kul.id){
       ibanBildirimYeni.push({
-        id:uid(), kayitId:y.id,
+        id:uid(), kayitId:y.id, tip:"urun",
         manKulId:kul.id, manKulAd:kul.ad,
         hedefId:y.urunIbanId, hedefAd:y.urunIbanAd||"",
         musteriAd:y.musteri||"", hizmetAd:"Ürün satışı",
@@ -9458,7 +9486,9 @@ if(DB) dbUpsertAyar("tema",tema);
       hizmetler:y.hizler,hiz_kk:y.hizKK,hiz_ib:y.hizIB,hiz_nk:y.hizNK,
       urunler:y.urunler,urun_kk:y.uKK,urun_ib:y.uIB,urun_nk:y.uNK,
       toplam:y.toplam,tarih:y.tarih,saat:y.saat,gonderildi:false,
-      musteri_kaydet:!!y.musteriKaydet});
+      musteri_kaydet:!!y.musteriKaydet,
+      hiz_iban_id:y.hizIbanId||"",hiz_iban_ad:y.hizIbanAd||"",
+      urun_iban_id:y.urunIbanId||"",urun_iban_ad:y.urunIbanAd||""});
     // O tarih için "çalıştı" işareti (mazeret değil, sadece kayıt verildi)
     setDevDB(p=>({...p,[ds+"_"+kul.id]:"Calistim - sonradan girildi"}));
     // Müşteri sistem kaydı burada yapılmaz. İşaretli kayıtlar gün sonunda yöneticiye gönderilirken müşteri havuzuna eklenir.
@@ -9657,7 +9687,9 @@ if(DB) dbUpsertAyar("tema",tema);
       dbEkle("kayitlar",{id:y.id,staff_id:y.staffId,staff_name:y.staffAd,musteri:y.musteri,telefon:y.tel,
         hizmetler:y.hizler,hiz_kk:y.hizKK,hiz_ib:y.hizIB,hiz_nk:y.hizNK,urunler:y.urunler,
         urun_kk:y.uKK,urun_ib:y.uIB,urun_nk:y.uNK,toplam:y.toplam,tarih:y.tarih,saat:y.saat,gonderildi:false,
-        musteri_kaydet:!!y.musteriKaydet});
+        musteri_kaydet:!!y.musteriKaydet,
+        hiz_iban_id:y.hizIbanId||"",hiz_iban_ad:y.hizIbanAd||"",
+        urun_iban_id:y.urunIbanId||"",urun_iban_ad:y.urunIbanAd||""});
       // Stok otomatik çıkış
       if(y.urunler&&y.urunler.length>0){
         y.urunler.forEach(u=>{
@@ -12234,7 +12266,8 @@ if(DB) dbUpsertAyar("tema",tema);
               ay:hakedisAy, setAy:setHakedisAy,
               onClose:()=>{ setHakedisAcik(false); setHakedisAltDetay(null); },
               altDetay:hakedisAltDetay,
-              setAltDetay:setHakedisAltDetay
+              setAltDetay:setHakedisAltDetay,
+              ibanBildirimler:ibanBildirimler
             })
           );
         })()
