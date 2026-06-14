@@ -275,7 +275,14 @@ const apronV3Yaz = (d) => {
 };
 const skOku = () => { try { return JSON.parse(localStorage.getItem(SK_KEY)||"[]"); } catch(e){ return []; } };
 const skYaz = (q) => { lsSetJSON(SK_KEY, (Array.isArray(q)?q:[]).slice(-300)); };
-const skEkle = (item) => { const q = skOku(); q.push(item); skYaz(q); };
+const skEkle = (item) => {
+  const q = skOku();
+  // Aynı tablo + op + id kombinasyonu zaten kuyruktaysa tekrar ekleme
+  const itemId = item&&item.r&&item.r.id!=null ? String(item.r.id) : null;
+  if(itemId && q.some(x=>x.t===item.t && x.op===item.op && x.r&&String(x.r.id)===itemId)) return;
+  q.push(item);
+  skYaz(q);
+};
 const skBosalt = async () => {
   if(!DB) return;
   let q = skOku();
@@ -1306,14 +1313,25 @@ function BulutDurumu({yukluGonderilmis,yukluToplam}){
     ),
     bekleyen>0&&div({style:{marginTop:10,padding:10,background:"#FFF4E5",border:"1px solid #FFD8A8",borderRadius:10,fontSize:12,color:"#8a5010"}},
       "⏳ "+bekleyen+" işlem buluta yazılmayı bekliyor. Bağlantı/izin düzelince otomatik gönderilecek.",
-      btn({onClick:()=>{
-        try{
-          const q=JSON.parse(localStorage.getItem("apron_sync_queue")||"[]");
-          const ozet=q.map((x,i)=>(i+1)+". Tablo:"+x.t+" İşlem:"+x.op+(x.r&&x.r.id?" id:"+x.r.id:"")).join("\n");
-          alert("Senkron Kuyruğu ("+q.length+" işlem):\n\n"+(ozet||"Boş"));
-        }catch(e){alert("Hata: "+e.message);}
-      },style:{marginTop:8,display:"block",width:"100%",background:"#fff",border:"1px solid #e6b86a",borderRadius:7,padding:"7px 0",fontSize:11,color:"#7a4010",cursor:"pointer",fontWeight:600}},
-      "Kuyruğu Görüntüle")),
+      div({style:{display:"flex",gap:8,marginTop:8}},
+        btn({onClick:()=>{
+          try{
+            const q=JSON.parse(localStorage.getItem("apron_sync_queue")||"[]");
+            const ozet=q.map((x,i)=>(i+1)+". Tablo:"+x.t+" İşlem:"+x.op+(x.r&&x.r.id?" id:"+x.r.id:"")).join("\n");
+            alert("Senkron Kuyruğu ("+q.length+" işlem):\n\n"+(ozet||"Boş"));
+          }catch(e){alert("Hata: "+e.message);}
+        },style:{flex:1,background:"#fff",border:"1px solid #e6b86a",borderRadius:7,padding:"7px 0",fontSize:11,color:"#7a4010",cursor:"pointer",fontWeight:600}},
+        "Kuyruğu Görüntüle"),
+        btn({onClick:()=>{
+          if(!confirm("Senkron kuyruğu temizlenecek. Buluta yazılamayan "+bekleyen+" işlem iptal edilecek. Emin misiniz?")) return;
+          try{
+            localStorage.removeItem("apron_sync_queue");
+            setBekleyen(0);
+            alert("Kuyruk temizlendi.");
+          }catch(e){alert("Hata: "+e.message);}
+        },style:{flex:1,background:"#fff",border:"1px solid #e06060",borderRadius:7,padding:"7px 0",fontSize:11,color:"#c0392b",cursor:"pointer",fontWeight:600}},
+        "Kuyruğu Temizle")
+      )),
     bekleyen===0&&dur&&dur.say&&div({style:{marginTop:10,fontSize:12,color:"#248A3D"}},"✓ Bekleyen senkron yok."),
     div({style:{marginTop:14,paddingTop:14,borderTop:"1px dashed rgba(224,60,60,.3)"}},
       div({style:{fontSize:13,fontWeight:700,color:"#c0392b",marginBottom:6}},"⚠️ Yeniden Başla"),
