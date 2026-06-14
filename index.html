@@ -190,14 +190,35 @@ const YONETICI = {id:"ad",ad:"Yonetici",pin:"",rol:"yonetici",aktif:true};
 // ── DB ────────────────────────────────────────────────────────────────
 const dbAl = async (t,opts={}) => {
   if(!DB) return [];
+  // Sayfalama ile tüm kayıtları çek (Supabase varsayılan 1000 limit'ini aş)
+  const PAGE = 1000;
+  const fetchPage = async (from, to, withOrder) => {
+    try {
+      let q = DB.from(t).select("*").range(from, to);
+      if(withOrder && opts.order) q = q.order(opts.order,{ascending:!!opts.asc});
+      const {data,error} = await q;
+      if(error) throw error;
+      return data||[];
+    } catch(e){ return null; }
+  };
   try {
-    let q = DB.from(t).select("*");
-    if(opts.order) q = q.order(opts.order,{ascending:!!opts.asc});
-    const {data,error} = await q;
-    if(error) throw error;
-    return data||[];
+    let all = [];
+    let from = 0;
+    while(true) {
+      const page = await fetchPage(from, from+PAGE-1, true);
+      if(page===null) {
+        // Sıralama başarısız — sıralamasız dene
+        if(opts.order && all.length===0) {
+          try { const {data,error}=await DB.from(t).select("*"); if(!error) return data||[]; } catch(e2){}
+        }
+        break;
+      }
+      all = all.concat(page);
+      if(page.length < PAGE) break; // Son sayfa
+      from += PAGE;
+    }
+    return all;
   } catch(e){
-    // Sıralama kolonu (ör. created_at) yoksa sıralamasız tekrar dene — veri yine de yüklensin
     if(opts.order){
       try { const {data,error}=await DB.from(t).select("*"); if(!error) return data||[]; } catch(e2){}
     }
