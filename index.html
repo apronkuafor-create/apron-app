@@ -6060,7 +6060,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                       div({style:{position:"relative",flex:1,minWidth:0}},
                         inp({type:"number",inputMode:"numeric",value:deger||"",placeholder:"0",
                           onChange:e=>hSet(h.id,alan,e.target.value),
-                          style:{width:"100%",minWidth:0,height:34,textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:14,color:genelToplamBolumStili.titleColor||"var(--g)",fontWeight:700,padding:"4px 16px 4px 4px",background:hizmetBolumStili.serviceBoxBackground||"var(--bg3)",border:"1px solid "+(hizmetBolumStili.serviceBoxBorderColor||"var(--br)"),borderRadius:6,boxSizing:"border-box"}}),
+                          style:{width:"100%",minWidth:0,height:34,textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:14,color:"var(--tx)",fontWeight:700,padding:"4px 16px 4px 4px",background:hizmetBolumStili.serviceBoxBackground||"var(--bg3)",border:"1px solid "+(hizmetBolumStili.serviceBoxBorderColor||"var(--br)"),borderRadius:6,boxSizing:"border-box"}}),
                         toN(deger)>0&&btn({type:"button",title:"Temizle",
                           style:{position:"absolute",right:2,top:"50%",transform:"translateY(-50%)",background:"transparent",border:"none",color:"#7b0b0b",fontSize:14,fontWeight:800,lineHeight:1,cursor:"pointer",padding:"1px 2px"},
                           onClick:()=>hSet(h.id,alan,"")},"×")
@@ -6187,7 +6187,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                   div({style:{position:"relative",flex:1,minWidth:0}},
                     inp({type:"number",inputMode:"numeric",value:deger||"",placeholder:"0",
                       onChange:e=>uSet(u.id,alan,e.target.value),
-                      style:{width:"100%",minWidth:0,height:30,textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:13,color:genelToplamBolumStili.titleColor||"var(--g)",fontWeight:700,padding:"3px 14px 3px 3px",background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:6,boxSizing:"border-box"}}),
+                      style:{width:"100%",minWidth:0,height:30,textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:13,color:"var(--tx)",fontWeight:700,padding:"3px 14px 3px 3px",background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:6,boxSizing:"border-box"}}),
                     toN(deger)>0&&btn({type:"button",title:"Temizle",
                       style:{position:"absolute",right:1,top:"50%",transform:"translateY(-50%)",background:"transparent",border:"none",color:"#7b0b0b",fontSize:13,fontWeight:800,lineHeight:1,cursor:"pointer",padding:"1px 2px"},
                       onClick:()=>uSet(u.id,alan,"")},"×")
@@ -8515,6 +8515,12 @@ function App() {
   const [stokDB, setStokDB]           = useState({}); // {barkod: qty}
   const [stokHar, setStokHar]         = useState([]); // hareket geçmişi
   const [stokPartiler, setStokPartiler] = useState([]); // {id,barkod,urunAd,marka,adet,kalan,alisF,tarih,faturaN,tip}
+  // Kayıt Formu stok rozeti, Stok Durumu ekranıyla AYNI kaynağı kullansın diye parti kalanlarını barkod bazında topla.
+  const stokKalanMap = React.useMemo(()=>{
+    const m={};
+    (stokPartiler||[]).forEach(p=>{ if(!p||!p.barkod) return; m[p.barkod]=(m[p.barkod]||0)+toN(p.kalan); });
+    return m;
+  },[stokPartiler]);
   const [muhSek, setMuhSek]           = useState("");
   const [muhAlt, setMuhAlt]           = useState("");
   const [muhAltAcik, setMuhAltAcik]   = useState("");
@@ -10223,7 +10229,7 @@ if(DB) dbUpsertAyar("tema",tema);
     devUnuttum&&kul&&(()=>{
       const ds = eksikGunTarih || (()=>{ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; })();
       const dl = new Date(ds+"T12:00:00").toLocaleDateString("tr-TR",{day:"2-digit",month:"long",year:"numeric"});
-      return h(KayitForm,{bolumStilleri,ilk:{tarih:ds},musteriDB,personeller,aktifKullanici:kul,stokDB,
+      return h(KayitForm,{bolumStilleri,ilk:{tarih:ds},musteriDB,personeller,aktifKullanici:kul,stokDB:stokKalanMap,
         baslik:dl+" Tarihli Kayit",
         devirBildirim,setDevirBildirim,showToast,pGruplar,
         gotoMusteriKart:gotoMusteriKartGenel,
@@ -10313,7 +10319,7 @@ if(DB) dbUpsertAyar("tema",tema);
           // Adım: düzenleme formu
           yonDuzForm.adim==="duzenle"&&h(KayitForm,{bolumStilleri,
             ilk:yonDuzForm.kayit,
-            musteriDB, personeller, aktifKullanici:kul, stokDB,
+            musteriDB, personeller, aktifKullanici:kul, stokDB:stokKalanMap,
             baslik:"Kayıt Düzenle (Yönetici)",
             devirBildirim,setDevirBildirim,showToast,pGruplar,
             gotoMusteriKart:gotoMusteriKartGenel,
@@ -10709,7 +10715,7 @@ if(DB) dbUpsertAyar("tema",tema);
     ),
 
     // Kayit formu
-    kayitForm&&h(KayitForm,{bolumStilleri,ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,stokDB,hizListeleri,buttonText:(kayitForm._yonBildirimId||kayitForm._talepOnayId)?"Güncelle ve Gönder":kayitForm._yonDirektDuzenle?"Güncelle":undefined,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null),hatirlatmalar,setHatirlatmalar,devirBildirim,setDevirBildirim,showToast,pGruplar,gotoMusteriKart:(mid)=>{setKayitForm(null);gotoMusteriKartGenel(mid);}}),
+    kayitForm&&h(KayitForm,{bolumStilleri,ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,stokDB:stokKalanMap,hizListeleri,buttonText:(kayitForm._yonBildirimId||kayitForm._talepOnayId)?"Güncelle ve Gönder":kayitForm._yonDirektDuzenle?"Güncelle":undefined,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null),hatirlatmalar,setHatirlatmalar,devirBildirim,setDevirBildirim,showToast,pGruplar,gotoMusteriKart:(mid)=>{setKayitForm(null);gotoMusteriKartGenel(mid);}}),
 
     // Personel ekle modal
     pEkle&&h(PersonelFormModal,{title:"Yeni Personel",data:yeniP,setData:setYeniP,hata:pHata,gruplar:pGruplar,onKaydet:pEkleKaydet,onIptal:()=>{setPEkle(false);setPHata("");},showDurum:false}),
