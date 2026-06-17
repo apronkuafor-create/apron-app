@@ -1599,6 +1599,8 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
   const [filAy, setFilAy] = React.useState("");
   const [filYil, setFilYil] = React.useState(new Date().getFullYear().toString());
   const [detayTarih, setDetayTarih] = React.useState(null);
+  const [hmSilMod, setHmSilMod] = React.useState(false); // gün-tablosunda seçerek silme modu
+  const [hmSecim, setHmSecim] = React.useState({}); // {tarih:true}
 
   const gelirGrupId = (pGruplar||[]).find(g=>g.ad.toLowerCase().includes("gelire"))?.id;
   const gelirPersoneller = gelirGrupId
@@ -1846,13 +1848,39 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
     ),
 
     h("div",{style:{padding:"0 14px 10px"}},
-      h("button",{onClick:()=>{
-        const pk=(tumK||[]).filter(r=>seciliP&&(r.staffId===seciliP.id||r.staffAd===seciliP.ad)).map(r=>r.id);
-        if(pk.length===0){ window.alert("Bu personele ait silinecek kayıt yok."); return; }
-        if(window.confirm((seciliP?seciliP.ad:"Bu personel")+" adlı personelin TÜM hizmet kayıtları ("+pk.length+" adet) kalıcı olarak silinecek. Geri alınamaz. Emin misiniz?")){
-          onKayitlarSil && onKayitlarSil(pk); setDetayTarih(null);
-        }
-      },style:{width:"100%",padding:"11px 0",borderRadius:10,border:"1px solid rgba(209,17,17,.35)",background:"rgba(209,17,17,.07)",color:"#d11",fontSize:13,fontWeight:700,cursor:"pointer"}},"🗑 Bu personelin tüm hizmet kayıtlarını sil")
+      !hmSilMod
+        ? h("div",{style:{display:"flex",gap:8}},
+            h("button",{onClick:()=>{ setHmSilMod(true); setHmSecim({}); },
+              style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid rgba(209,17,17,.3)",background:"rgba(209,17,17,.05)",color:"#d11",fontSize:13,fontWeight:700,cursor:"pointer"}},"🗑 Seçerek Sil"),
+            h("button",{onClick:()=>{
+                const pk=(tumK||[]).filter(r=>seciliP&&(r.staffId===seciliP.id||r.staffAd===seciliP.ad)).map(r=>r.id);
+                if(pk.length===0){ window.alert("Bu personele ait silinecek kayıt yok."); return; }
+                if(window.confirm((seciliP?seciliP.ad:"Bu personel")+" adlı personelin TÜM hizmet kayıtları ("+pk.length+" adet) kalıcı olarak silinecek. Geri alınamaz. Emin misiniz?")){
+                  onKayitlarSil && onKayitlarSil(pk); setDetayTarih(null);
+                }
+              },style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid rgba(209,17,17,.35)",background:"rgba(209,17,17,.07)",color:"#d11",fontSize:13,fontWeight:700,cursor:"pointer"}},"🗑 Tümünü Sil")
+          )
+        : (()=>{
+            const gunler=(satirlar||[]).map(s=>s.tarih);
+            const secsay=gunler.filter(t=>hmSecim[t]).length;
+            const hepsi=gunler.length>0 && gunler.every(t=>hmSecim[t]);
+            return h("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:"rgba(209,17,17,.05)",border:"1px solid rgba(209,17,17,.2)",borderRadius:10,padding:"8px 10px"}},
+              h("button",{onClick:()=>setHmSecim(prev=>{ const n={...prev}; if(hepsi){gunler.forEach(t=>delete n[t]);}else{gunler.forEach(t=>{n[t]=true;});} return n; }),
+                style:{background:"#fff",border:"1px solid var(--br)",borderRadius:8,color:"var(--tx)",fontSize:12,fontWeight:700,padding:"6px 10px",cursor:"pointer"}},hepsi?"Tümünü Bırak":"Tümünü Seç"),
+              h("span",{style:{fontSize:12.5,fontWeight:700,color:secsay>0?"#d11":"var(--mu)"}},secsay+" gün seçili"),
+              h("div",{style:{flex:1}}),
+              h("button",{disabled:secsay===0,onClick:()=>{
+                  const ids=[];
+                  (satirlar||[]).forEach(s=>{ if(hmSecim[s.tarih]){ (s.kayitlar||[]).forEach(r=>{ if(r&&r.id) ids.push(r.id); }); } });
+                  if(ids.length===0){ window.alert("Seçili günlerde kayıt yok."); return; }
+                  if(window.confirm("Seçili "+secsay+" günün TÜM hizmet kayıtları ("+ids.length+" adet) kalıcı olarak silinecek. Geri alınamaz. Emin misiniz?")){
+                    onKayitlarSil && onKayitlarSil(ids); setHmSilMod(false); setHmSecim({}); setDetayTarih(null);
+                  }
+                },style:{background:secsay===0?"var(--bg3)":"linear-gradient(135deg,#FF453A,#C81E14)",border:"none",borderRadius:8,color:secsay===0?"var(--mu)":"#fff",fontSize:12.5,fontWeight:800,padding:"7px 14px",cursor:secsay===0?"default":"pointer"}},"🗑 Seçilenleri Sil"),
+              h("button",{onClick:()=>{ setHmSilMod(false); setHmSecim({}); },
+                style:{background:"#fff",border:"1px solid var(--br)",borderRadius:8,color:"var(--mu)",fontSize:12.5,fontWeight:700,padding:"7px 12px",cursor:"pointer"}},"Vazgeç")
+            );
+          })()
     ),
 
     // ── TABLO ──
@@ -1895,8 +1923,11 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
                 // Normal hizmet satırı
                 const top=s.kk+s.ib+s.nk;
                 return h("tr",{key:s.tarih,
-                  style:{background:i%2===0?"var(--bg)":"rgba(255,255,255,.02)"}},
-                  h("td",{style:tdS(false,true,"var(--g)")},fmtT(s.tarih)),
+                  style:{background:(hmSilMod&&hmSecim[s.tarih])?"rgba(209,17,17,.10)":(i%2===0?"var(--bg)":"rgba(255,255,255,.02)")}},
+                  h("td",{onClick: hmSilMod?(()=>setHmSecim(prev=>({...prev,[s.tarih]:!prev[s.tarih]}))):undefined,
+                    style:{...tdS(false,true,"var(--g)"), cursor:hmSilMod?"pointer":undefined}},
+                    hmSilMod ? h("span",{style:{marginRight:8,fontSize:16,color:hmSecim[s.tarih]?"#d11":"var(--di)"}}, hmSecim[s.tarih]?"☑":"☐") : null,
+                    fmtT(s.tarih)),
                   h("td",{style:tdS(false,false,"var(--tx)")},s.hizSay),
                   h("td",{style:tdS(true,false,s.kk>0?"var(--g)":"var(--di)")},s.kk>0?fmt(s.kk):"—"),
                   h("td",{style:tdS(true,false,s.ib>0?"var(--g)":"var(--di)")},s.ib>0?fmt(s.ib):"—"),
