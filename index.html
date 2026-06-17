@@ -565,6 +565,8 @@ input[type="date"]::-webkit-inner-spin-button{display:none}
 .toast.ba{background:#E8F5EE;border:1px solid #B5DCC4;color:#1F6435}
 .toast.ha{background:#FCE8E6;border:1px solid #F4B5B0;color:#A0231C}
 .toast.uy{background:#FFF4D6;border:1px solid #F0D08A;color:#8A5C00}
+.toast.dikkat{background:linear-gradient(135deg,#FF453A,#C81E14);border:none;color:#fff;font-size:16px;font-weight:800;white-space:normal;max-width:min(440px,90vw);text-align:center;line-height:1.4;padding:14px 22px;box-shadow:0 12px 34px rgba(200,30,20,.5);animation:tin .3s ease, toastSars .55s ease .3s 2}
+@keyframes toastSars{0%,100%{transform:translateX(-50%)}15%{transform:translateX(calc(-50% - 8px))}30%{transform:translateX(calc(-50% + 8px))}45%{transform:translateX(calc(-50% - 5px))}60%{transform:translateX(calc(-50% + 5px))}75%{transform:translateX(calc(-50% - 2px))}}
 @keyframes tin{from{transform:translateX(-50%) translateY(-18px);opacity:0}}
 .bos{text-align:center;padding:44px 18px;color:var(--di)}
 .fi[type=month],.fi[type=date]{width:100% !important;max-width:100% !important;box-sizing:border-box !important;min-width:0 !important;display:block !important}
@@ -1292,9 +1294,16 @@ function BulutDurumu({yukluGonderilmis,yukluToplam}){
     setSifirlaYukle(true);
     try{
       // 1) Supabase tablolarını temizle
-      try{ await DB.from("kayitlar").delete().neq("id","___hepsi___"); }catch(e){}
-      try{ await DB.from("stok").delete().neq("id","___hepsi___"); }catch(e){}
-      try{ await DB.from("stok_hareketleri").delete().neq("id","___hepsi___"); }catch(e){}
+      const _sifirSorun = {};
+      for(const _t of ["kayitlar","stok","stok_hareketleri"]){
+        try{ const {error}=await DB.from(_t).delete().neq("id","___hepsi___"); if(error) _sifirSorun[_t]="silme reddedildi ("+(error.message||error.code||"izin/RLS")+")"; }
+        catch(e){ _sifirSorun[_t]="silme hatası"; }
+      }
+      // Silme GERÇEKTEN oldu mu? Bulutta kalan satır sayısını doğrula (RLS DELETE engelini yakalar).
+      for(const _t of ["kayitlar","stok","stok_hareketleri"]){
+        try{ const {count,error}=await DB.from(_t).select("id",{count:"exact",head:true}); if(!error && (Number(count)||0)>0) _sifirSorun[_t]=(_sifirSorun[_t]?_sifirSorun[_t]+"; ":"")+(Number(count)||0)+" kayıt hâlâ bulutta"; }
+        catch(e){}
+      }
       // 2) ayarlar'daki stok partileri ve hareketleri boşalt
       try{ await DB.from("ayarlar").upsert({id:"stokPartiler",deger:[]}); }catch(e){}
       try{ await DB.from("ayarlar").upsert({id:"hareketler",deger:[]}); }catch(e){}
@@ -1307,7 +1316,14 @@ function BulutDurumu({yukluGonderilmis,yukluToplam}){
       }catch(e){}
       // 4) Bekleyen senkron kuyruğunu temizle (silinecek eski işlemler geri yazılmasın)
       lsSetJSON("apron_sync_queue",[]);
-      alert("Stok ve işlem kayıtları sıfırlandı. Sayfa yenilenecek, temiz başlayabilirsiniz.");
+      // Yerel önbelleğin kayıtları diriltmemesi için temiz-başlangıç bayrağı
+      try{ localStorage.setItem("apron_fresh_start","1"); }catch(e){}
+      const _kalanlar = Object.keys(_sifirSorun).filter(k=>_sifirSorun[k]);
+      if(_kalanlar.length){
+        alert("⚠️ Bulut tarafı TAM temizlenemedi:\n\n"+_kalanlar.map(k=>"• "+k+": "+_sifirSorun[k]).join("\n")+"\n\nNedeni neredeyse kesin: bu tablolarda RLS DELETE izni yok; silme 0 satır siliyor ve sayfa yenilenince bulut verisi geri geliyor.\n\nKESİN ÇÖZÜM — Supabase → SQL Editor'de şunu çalıştırın:\n\ndelete from kayitlar;\ndelete from stok;\ndelete from stok_hareketleri;\nupdate ayarlar set deger='[]' where id in ('stokPartiler','hareketler');\n\nSonra sayfayı yenileyin. (Yerel veriler şimdi temizlendi.)");
+      } else {
+        alert("✅ Stok ve işlem kayıtları sıfırlandı ve bulutta BOŞ olduğu doğrulandı. Sayfa yenilenecek, temiz başlayabilirsiniz.");
+      }
       location.reload();
     }catch(e){ alert("Sıfırlama sırasında hata oluştu."); setSifirlaYukle(false); }
   };
@@ -1898,7 +1914,8 @@ function UrunMuhasebe({
   stokGirisTip,setStokGirisTip,stokDetay,setStokDetay,
   tedarikciler,setTedarikciler,faturalar,setFaturalar,
   odemeler,setOdemeler,hareketler,setHareketler,
-  umDetay,setUmDetay,tumK,showToast,personeller,stokPartilerYuklendi,aktifSekme,onSekmeChange,onAnaPanel,isletme
+  umDetay,setUmDetay,tumK,showToast,personeller,stokPartilerYuklendi,aktifSekme,onSekmeChange,onAnaPanel,isletme,
+  onSiparisler,onSiparisKarsila
 }) {
 const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [showMenu, setShowMenu] = React.useState(!aktifSekme);
@@ -1917,6 +1934,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [sipNot, setSipNot] = React.useState("");
   const [sipBarkod, setSipBarkod] = React.useState("");
   const [sipArama, setSipArama] = React.useState("");
+  const [sipKarsilaAdet, setSipKarsilaAdet] = React.useState({}); // {onSiparisId: teslim edilecek adet}
 
   // Mal kabul state
   const [mkForm, setMkForm] = React.useState(false);
@@ -2123,6 +2141,44 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
       ),
       div({style:{flex:1,overflowY:"auto",padding:"14px"}},
       div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},"📋 Sipariş Listesi"),
+
+      // ── Müşteri Ön Siparişleri (peşin alındı, stok gelince teslim) ──
+      (()=>{
+        const bekleyenSip = (onSiparisler||[]).filter(o=>o.durum!=="karsilandi" && toN(o.kalan_adet)>0);
+        return div({style:{background:"rgba(220,110,0,.07)",border:"1px solid rgba(220,110,0,.35)",borderRadius:12,padding:14,marginBottom:14}},
+          div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:bekleyenSip.length?10:0}},
+            div({style:{fontSize:13,fontWeight:800,color:"#c25e00"}},"📦 Müşteri Ön Siparişleri (Peşin Alındı)"),
+            div({style:{fontSize:12,fontWeight:800,color:"#c25e00",background:"rgba(220,110,0,.14)",borderRadius:20,padding:"2px 10px"}},bekleyenSip.length+" bekliyor")
+          ),
+          bekleyenSip.length===0
+            ? div({style:{fontSize:12.5,color:"var(--mu)",marginTop:8}},"Bekleyen ön sipariş yok.")
+            : div({style:{display:"flex",flexDirection:"column",gap:9}},
+                bekleyenSip.map(o=>{
+                  const kalan = toN(o.kalan_adet);
+                  const girilen = sipKarsilaAdet[o.id] ?? kalan;
+                  return div({key:o.id,style:{background:"#fff",border:"1px solid var(--br)",borderRadius:10,padding:"10px 11px"}},
+                    div({style:{fontSize:13.5,fontWeight:700,color:"var(--tx)",lineHeight:1.3}},o.urun_ad||o.barkod),
+                    div({style:{fontSize:11.5,color:"var(--mu)",marginTop:3,marginBottom:8}},
+                      (o.musteri?("👤 "+o.musteri+" · "):""), "Bekleyen: ", span({style:{fontWeight:800,color:"#c25e00"}},kalan+" adet"), (o.staff_name?(" · "+o.staff_name):"")),
+                    div({style:{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}},
+                      span({style:{fontSize:11.5,color:"var(--mu)"}},"Gelen/teslim:"),
+                      inp({type:"number",inputMode:"numeric",value:String(girilen),
+                        onChange:e=>{ const v=e.target.value; setSipKarsilaAdet(p=>({...p,[o.id]:v===""?"":Math.max(0,Math.min(kalan,toN(v)))})); },
+                        style:{width:64,height:34,textAlign:"center",fontSize:14,fontWeight:700,color:"var(--tx)",border:"1px solid var(--br)",borderRadius:8,background:"var(--bg3)",padding:"4px"}}),
+                      btn({style:{background:"linear-gradient(135deg,#34C759,#1e9e46)",border:"none",borderRadius:9,color:"#fff",fontSize:13,fontWeight:800,padding:"8px 14px",cursor:"pointer",flex:1,minWidth:120},
+                        onClick:()=>{
+                          const adet = toN(girilen);
+                          if(adet<=0){ showToast("Teslim adedi girin","uy"); return; }
+                          onSiparisKarsila && onSiparisKarsila(o.id, adet);
+                          setSipKarsilaAdet(p=>{ const n={...p}; delete n[o.id]; return n; });
+                          showToast(adet+" adet teslim edildi, stoktan düşüldü","ba");
+                        }},"✓ Karşıla (Teslim Et)")
+                    )
+                  );
+                })
+              )
+        );
+      })(),
 
       // Tedarikçi telefon + rehber ikonu
       div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:12}},
@@ -5228,6 +5284,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [manikuristBildirimSec, setManikuristBildirimSec] = useState(null); // {ad, hedefId}
   const [hizmetOdemeUyariId, setHizmetOdemeUyariId] = useState("");
   const [urunOdemeUyariId, setUrunOdemeUyariId] = useState("");
+  const [siparisSor, setSiparisSor] = useState(null); // {u, mevcut, istenen} — stok yetersizken ön sipariş sorusu
   const hizmetBolumRef = useRef(null);
   const urunBolumRef = useRef(null);
 
@@ -5433,6 +5490,18 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
     return next;
   });
 
+  const urunEkleUygula = (u, onSiparis=false) => {
+    setUrunler(p=>{
+      const ex=p.find(x=>x.b===u.b);
+      const next = ex
+        ? p.map(x=>x.b===u.b?{...x,qty:toN(x.qty||1)+1, onSiparis:(x.onSiparis||onSiparis)}:x)
+        : [...p,{...u,id:uid(),qty:1,sf:String(u.sp),fkk:"",fib:"",fnk:"",odeme:"",onSiparis:onSiparis,saticiId:aktifKullanici?.id||"",saticiAd:aktifKullanici?.ad||""}];
+      urunOdemeToplamlariniYaz(next);
+      return next;
+    });
+    setUrunArama("");
+  };
+
   const sEkle = u => {
     const odemesiz = odemesizIlkUrun();
     if(odemesiz) {
@@ -5440,15 +5509,16 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
       setUrunArama("");
       return;
     }
-    setUrunler(p=>{
-      const ex=p.find(x=>x.b===u.b);
-      const next = ex
-        ? p.map(x=>x.b===u.b?{...x,qty:toN(x.qty||1)+1}:x)
-        : [...p,{...u,id:uid(),qty:1,sf:String(u.sp),fkk:"",fib:"",fnk:"",odeme:"",saticiId:aktifKullanici?.id||"",saticiAd:aktifKullanici?.ad||""}];
-      urunOdemeToplamlariniYaz(next);
-      return next;
-    });
-    setUrunArama("");
+    // Stok yeterlilik kontrolü: eklenince oluşacak toplam adet mevcut stoğu aşıyorsa ön sipariş sor.
+    const mevcut = toN((stokDB||{})[u.b]);
+    const ex = urunler.find(x=>x.b===u.b);
+    const olusacakAdet = ex ? toN(ex.qty||1)+1 : 1;
+    if(olusacakAdet > mevcut){
+      setSiparisSor({u, mevcut, istenen:olusacakAdet});
+      setUrunArama("");
+      return;
+    }
+    urunEkleUygula(u, false);
   };
 
   const hizTop = hizler.reduce((s,h)=>s+toN(h.f),0);
@@ -5502,7 +5572,12 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
     }
     // Manikürist için personel seçimi zorunlu - disabled ile kontrol edildi
     const temizH = hizler.filter(h=>h.n&&toN(h.f)>0);
-    const temizU = urunler.filter(u=>u.a&&toN(u.sf)>0&&toN(u.qty)>0);
+    const temizU = urunler.filter(u=>u.a&&toN(u.sf)>0&&toN(u.qty)>0).map(u=>{
+      // Kaydetme anında ön sipariş adedini dondur: mevcut stoğun üstündeki kısım ön siparişe gider.
+      const mevcut = toN((stokDB||{})[u.b]);
+      const sip = u.onSiparis ? Math.max(0, toN(u.qty) - mevcut) : 0;
+      return {...u, onSiparis: sip>0, siparisAdet: sip};
+    });
     // Hatırlatma oluştur
     if(hatirlatmaSec && setHatirlatmalar) {
       const gonTarih = new Date();
@@ -5768,7 +5843,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
               if(!hatirlatmaSec){
                 // Hatırlatma WhatsApp ile gönderileceği için geçerli (11 haneli) telefon zorunludur.
                 if(temizTelefonRakam(tel).length < 11){
-                  if(typeof showToast==="function") showToast("Lütfen önce 11 haneli telefon numarası giriniz.","uy");
+                  if(typeof showToast==="function") showToast("⚠️ Hatırlatma için Telefon Numarası Gereklidir. Lütfen Telefon Numarası Giriniz.","dikkat");
                   return;
                 }
                 if(musteri.trim()){
@@ -6126,6 +6201,24 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
           ),
           h(UrunAramaBilesen,{aramaVal:urunArama,setAramaVal:setUrunArama,
             onEkle:sEkle,placeholder:"Barkod veya ürün adı ara...",stokDB}),
+          siparisSor && div({style:{position:"fixed",inset:0,zIndex:2000,background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",padding:18},onClick:()=>setSiparisSor(null)},
+            div({style:{background:"#fff",borderRadius:16,maxWidth:382,width:"100%",padding:"20px 18px",boxShadow:"0 20px 60px rgba(0,0,0,.3)"},onClick:e=>e.stopPropagation()},
+              div({style:{fontSize:34,textAlign:"center",marginBottom:4}},"📦"),
+              div({style:{fontSize:18,fontWeight:800,textAlign:"center",color:"#1D1D1F",marginBottom:8}},"Stokta Yeterli Ürün Yok"),
+              div({style:{fontSize:14,textAlign:"center",color:"#444",fontWeight:700,lineHeight:1.4,marginBottom:6}},(siparisSor.u.a||"")),
+              div({style:{fontSize:13.5,textAlign:"center",color:"#555",lineHeight:1.65,marginBottom:16}},
+                "Mevcut stok: ", span({style:{fontWeight:800,color:siparisSor.mevcut>0?"#1e8a50":"#d11"}},siparisSor.mevcut+" adet"),
+                ". Bu satışla ", span({style:{fontWeight:800}},siparisSor.istenen+" adet"), " olacak; eksik ",
+                span({style:{fontWeight:800,color:"#c25e00"}},Math.max(0,siparisSor.istenen-siparisSor.mevcut)+" adet"),
+                " için ne yapmak istersiniz?"),
+              div({style:{display:"flex",flexDirection:"column",gap:9}},
+                btn({type:"button",style:{background:"linear-gradient(135deg,#FF9500,#E0641E)",border:"none",borderRadius:11,color:"#fff",fontSize:15,fontWeight:800,padding:"12px",cursor:"pointer"},
+                  onClick:()=>{ urunEkleUygula(siparisSor.u, true); setSiparisSor(null); }},"📋 Peşin Al + Sipariş Ver"),
+                btn({type:"button",style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:11,color:"var(--mu)",fontSize:14,fontWeight:700,padding:"11px",cursor:"pointer"},
+                  onClick:()=>setSiparisSor(null)},"Vazgeç")
+              )
+            )
+          ),
           urunler.map((u,i)=>div({key:u.id||i,style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 72px 116px",gap:7,
             alignItems:"stretch",background:"rgba(0,0,0,.03)",border:"none",borderRadius:10,padding:7,marginBottom:7}},
             div({style:{minWidth:0,border:"none",borderRadius:9,overflow:"hidden",background:"rgba(255,255,255,.7)"}},
@@ -6139,6 +6232,14 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                   return div({style:{display:"inline-block",marginBottom:4,fontSize:10.5,fontWeight:800,padding:"1px 7px",borderRadius:20,
                     background:st>0?"rgba(30,138,80,.12)":"rgba(209,17,17,.1)",color:st>0?"#1e8a50":"#d11",border:"1px solid "+(st>0?"rgba(30,138,80,.4)":"rgba(209,17,17,.35)")}},
                     st>0?("Stok: "+st+" adet"):"Stokta yok");
+                })(),
+                (()=>{
+                  // Canlı ön sipariş rozeti: stoğun üstündeki kısım ön siparişe gidecek.
+                  const sip = u.onSiparis ? Math.max(0, toN(u.qty) - toN((stokDB||{})[u.b])) : 0;
+                  if(sip<=0) return null;
+                  return div({style:{display:"block",marginBottom:4,fontSize:10.5,fontWeight:800,padding:"2px 8px",borderRadius:20,
+                    background:"rgba(220,110,0,.12)",color:"#c25e00",border:"1px solid rgba(220,110,0,.4)"}},
+                    "📋 Ön Sipariş: "+sip+" adet");
                 })(),
                 div(null,"Liste Satış Fiyatı"),
                 div({className:"theme-number",style:{fontSize:15,fontWeight:700,marginTop:2,fontFamily:urunFont}},fmt(u.sp)),
@@ -8513,6 +8614,7 @@ function App() {
   const [musteriDuz, setMusteriDuz]   = useState(null); // düzenleme formu
   const [musteriSilOnay, setMusteriSilOnay] = useState(null);
   const [stokDB, setStokDB]           = useState({}); // {barkod: qty}
+  const [onSiparisler, setOnSiparisler] = useState([]); // müşteri ön siparişleri (peşin alındı, stok gelince teslim)
   const [stokHar, setStokHar]         = useState([]); // hareket geçmişi
   const [stokPartiler, setStokPartiler] = useState([]); // {id,barkod,urunAd,marka,adet,kalan,alisF,tarih,faturaN,tip}
   // Kayıt Formu stok rozeti, Stok Durumu ekranıyla AYNI kaynağı kullansın diye parti kalanlarını barkod bazında topla.
@@ -8708,8 +8810,9 @@ function App() {
       try {
         const local = JSON.parse(localStorage.getItem("apron_v3")||"null");
         if(local){
-          if(local.records) { const _lr=kayitDedup(local.records); setRecords(_lr); if(!local.gecmis) setGecmis(_lr); }
-          if(local.bekleyen) setBekleyen(kayitDedup(local.bekleyen));
+          const _freshStart = (()=>{ try{ if(localStorage.getItem("apron_fresh_start")==="1"){ localStorage.removeItem("apron_fresh_start"); return true; } }catch(e){} return false; })();
+          if(local.records && !_freshStart) { const _lr=kayitDedup(local.records); setRecords(_lr); if(!local.gecmis) setGecmis(_lr); }
+          if(local.bekleyen && !_freshStart) setBekleyen(kayitDedup(local.bekleyen));
           if(local.musteriDB) setMusteriDB(local.musteriDB);
           if(local.personeller?.length){
   // DEFAULT ile merge et - yeni eklenen personeller kaybolmasın, eksik alanlar tamamlansın
@@ -8722,7 +8825,7 @@ function App() {
   setPersoneller([...merged, ...extras]);
 }
           if(local.devDB) setDevDB(local.devDB);
-          if(local.gecmis) setGecmis(kayitDedup(local.gecmis));
+          if(local.gecmis && !_freshStart) setGecmis(kayitDedup(local.gecmis));
     if(local.stokPartiler?.length) { stokPartilerYuklendi.current=true; setStokPartiler(local.stokPartiler); }
     if(!local._bildirimTemizlendi){ setHatirlatmalar([]); } else if(local.hatirlatmalar?.length) setHatirlatmalar(local.hatirlatmalar);
     if(local.randevular?.length) setRandevular(local.randevular);
@@ -9034,6 +9137,38 @@ if(DB) dbUpsertAyar("tema",tema);
         })
         .on("postgres_changes",{event:"DELETE",schema:"public",table:"yon_bildirim_merkezi"},payload=>{
           setYonBildirimMerkezi(p=>p.filter(b=>b.id!==payload.old.id));
+        })
+        .subscribe((status, err)=>{
+          if(err || status === "CHANNEL_ERROR" || status === "TIMED_OUT"){
+            DB.removeChannel(ch);
+            interval = setInterval(yukle, 10000);
+          }
+        });
+      return ()=>{ try{ DB.removeChannel(ch); }catch(e){} if(interval) clearInterval(interval); };
+    } catch(e) {
+      interval = setInterval(yukle, 10000);
+      return ()=>{ if(interval) clearInterval(interval); };
+    }
+  },[]);
+
+  // ── Müşteri Ön Siparişleri (on_siparisler) - Supabase'den yükle + realtime ──
+  useEffect(()=>{
+    if(!DB) return;
+    const yukle = () => DB.from("on_siparisler").select("*").order("olusturma",{ascending:false}).then(({data})=>{
+      if(data) setOnSiparisler(data);
+    }).catch(()=>{});
+    yukle();
+    let interval = null;
+    try {
+      const ch = DB.channel("on_siparisler_ch")
+        .on("postgres_changes",{event:"INSERT",schema:"public",table:"on_siparisler"},payload=>{
+          setOnSiparisler(p=>[payload.new, ...p.filter(o=>o.id!==payload.new.id)]);
+        })
+        .on("postgres_changes",{event:"UPDATE",schema:"public",table:"on_siparisler"},payload=>{
+          setOnSiparisler(p=>p.map(o=>o.id===payload.new.id ? payload.new : o));
+        })
+        .on("postgres_changes",{event:"DELETE",schema:"public",table:"on_siparisler"},payload=>{
+          setOnSiparisler(p=>p.filter(o=>o.id!==payload.old.id));
         })
         .subscribe((status, err)=>{
           if(err || status === "CHANNEL_ERROR" || status === "TIMED_OUT"){
@@ -9687,7 +9822,7 @@ if(DB) dbUpsertAyar("tema",tema);
     (urunler||[]).forEach(u=>{
       const b = String(u?.b||u?.barkod||"").trim();
       if(!b) return;
-      const adet = Math.max(0, toN(u.qty ?? u.adet ?? u.miktar ?? 1));
+      const adet = Math.max(0, toN(u.qty ?? u.adet ?? u.miktar ?? 1) - toN(u.siparisAdet));
       adetler[b] = (adetler[b]||0) + adet;
       adlar[b] = u.a || u.urunAd || u.urun_ad || u.ad || adlar[b] || "";
     });
@@ -9827,6 +9962,7 @@ if(DB) dbUpsertAyar("tema",tema);
       setGecmis(p=>p.map(r=>r.id===gn.id?gn:r));
       setKayitPanelSonuc(p=>p?{...p,kayitlar:(p.kayitlar||[]).map(r=>String(r.id)===String(gn.id)?gn:r)}:p);
       kayitDuzenlemeStokFarkiUygula(eskiKayit, gn);
+      onSiparisSatistanOlustur(gn.id, gn.urunler, {staffId:gn.staffId, staffAd:gn.staffAd, musteri:gn.musteri, tarih:gn.tarih});
       dbGnc("kayitlar",{musteri:gn.musteri,telefon:gn.tel,hizmetler:gn.hizler,hiz_kk:hKK,hiz_ib:hIB,hiz_nk:hNK,
         urunler:gn.urunler,urun_kk:uKK,urun_ib:uIB,urun_nk:uNK,toplam:top,tarih:gn.tarih,saat:gn.saat},gn.id);
       if(bildirimliDuzenleme){
@@ -9877,7 +10013,8 @@ if(DB) dbUpsertAyar("tema",tema);
       if(y.urunler&&y.urunler.length>0){
         y.urunler.forEach(u=>{
           if(!u.b) return;
-          const adet=parseInt(u.qty)||1;
+          const adet=Math.max(0,(parseInt(u.qty)||1)-(toN(u.siparisAdet)||0));
+          if(adet<=0) return; // tamamı ön sipariş: stoktan düşülmez, stok geldiğinde teslim edilir
           setStokDB(p=>({...p,[u.b]:Math.max(0,(p[u.b]||0)-adet)}));
           const harId=uid();
           setStokHar(p=>[{id:harId,barkod:u.b,tip:"cikis",adet,tarih:y.tarih,
@@ -9889,6 +10026,8 @@ if(DB) dbUpsertAyar("tema",tema);
             adet,tarih:y.tarih,staff_id:y.staffId,staff_name:y.staffAd,kayit_id:y.id});
         });
       }
+      // Ön sipariş kayıtlarını oluştur (peşin alınıp stok gelince teslim edilecek ürünler)
+      onSiparisSatistanOlustur(y.id, y.urunler, {staffId:y.staffId, staffAd:y.staffAd, musteri:y.musteri, tarih:y.tarih});
       // Müşteri sistem kaydı burada yapılmaz. Kullanıcının seçimi kaydın içinde tutulur ve gün sonunda işlenir.
       showToast("Kayıt eklendi!");
     }
@@ -9948,7 +10087,8 @@ if(DB) dbUpsertAyar("tema",tema);
     myBekleyen.forEach(kayit => {
       (kayit.urunler||[]).forEach(u => {
         if(!u.b || !toN(u.qty)) return;
-        let kalan = toN(u.qty);
+        let kalan = Math.max(0, toN(u.qty) - toN(u.siparisAdet)); // ön sipariş adedi stoktan düşülmez
+        if(kalan<=0) return;
         setStokPartiler(p => {
           const yeni = [...p];
           for(let i=0; i<yeni.length && kalan>0; i++) {
@@ -10015,6 +10155,57 @@ if(DB) dbUpsertAyar("tema",tema);
   };
 
   // ── Yönetici Bildirim Merkezi yardımcıları ──
+  // ── Müşteri Ön Sipariş yardımcıları ──
+  const onSiparisSatistanOlustur = (kayitId, urunListe, meta={}) => {
+    if(!DB || !kayitId) return;
+    (urunListe||[]).forEach(u=>{
+      const sip = toN(u?.siparisAdet);
+      if(!u || !u.onSiparis || sip<=0 || !u.b) return;
+      const bf = toN(u.sf)||0;
+      const row = {
+        id: "os_"+kayitId+"_"+u.b,
+        barkod: u.b, urun_ad: u.a||u.urunAd||"",
+        adet: sip, kalan_adet: sip,
+        kayit_id: kayitId,
+        staff_id: meta.staffId||"", staff_name: meta.staffAd||"",
+        musteri: meta.musteri||"",
+        birim_fiyat: bf, tutar: bf*sip,
+        tarih: meta.tarih||TODAY(),
+        durum: "bekliyor",
+        karsilanma_tarihi: null,
+        olusturma: new Date().toISOString()
+      };
+      DB.from("on_siparisler").upsert(row,{onConflict:"id"}).then(()=>{
+        setOnSiparisler(p=>[row, ...p.filter(o=>o.id!==row.id)]);
+      }).catch(()=>{});
+    });
+    const sipSatir = (urunListe||[]).filter(u=>u && u.onSiparis && toN(u.siparisAdet)>0);
+    if(sipSatir.length){
+      const ozet = sipSatir.map(u=>(u.a||u.urunAd||"")+" ×"+toN(u.siparisAdet)).join(", ");
+      yonBildirimEkle("on_siparis", "Ön sipariş: tedarik gerekiyor",
+        (meta.musteri? (meta.musteri+" için ") : "")+ozet+" peşin alındı; stok geldiğinde teslim edilecek.",
+        {kayitId, barkod:sipSatir[0].b});
+    }
+  };
+
+  const onSiparisKarsila = (id, gelenAdet) => {
+    if(!DB) return;
+    const sip = onSiparisler.find(o=>o.id===id);
+    if(!sip) return;
+    const kalan = toN(sip.kalan_adet);
+    const dus = Math.max(0, Math.min(toN(gelenAdet)||kalan, kalan));
+    if(dus<=0) return;
+    // Teslim edilen adet fiziksel stoktan (FIFO) düşülür — bu birimler müşteriye gidiyor.
+    stokPartilerYuklendi.current = true;
+    setStokPartiler(prev=>stokPartiFarkUygula(prev, {[sip.barkod]: dus}));
+    setStokDB(p=>({...p,[sip.barkod]:Math.max(0,toN(p[sip.barkod])-dus)}));
+    const yeniKalan = kalan - dus;
+    const yeniDurum = yeniKalan<=0 ? "karsilandi" : "bekliyor";
+    const upd = {kalan_adet:yeniKalan, durum:yeniDurum, karsilanma_tarihi: yeniDurum==="karsilandi"? TODAY() : (sip.karsilanma_tarihi||null)};
+    DB.from("on_siparisler").update(upd).eq("id",id).then(()=>{}).catch(()=>{});
+    setOnSiparisler(p=>p.map(o=>o.id===id?{...o,...upd}:o));
+  };
+
   const yonBildirimEkle = (tip, baslik, mesaj, ekstra) => {
     if(!DB) return;
     const yeni = {
@@ -13420,6 +13611,7 @@ if(DB) dbUpsertAyar("tema",tema);
 
             muhSek==="urunMuhasebe"&&h(UrunMuhasebe,{
               stokPartiler,setStokPartiler,stokDB,setStokDB,
+              onSiparisler,onSiparisKarsila,
               stokGirisForm,setStokGirisForm,
               stokGirisUrun,setStokGirisUrun,
               stokGirisTarih,setStokGirisTarih,
