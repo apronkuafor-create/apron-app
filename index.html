@@ -1594,7 +1594,7 @@ function HizmetMuhasebeOzet({tumK, personeller, pGruplar}){
   );
 }
 
-function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, onAnaPanel, onGeri, isletme}){
+function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, onAnaPanel, onGeri, isletme, onKayitlarSil}){
   const seciliP = personeller.find(p=>p.id===muhAlt) || null;
   const [filAy, setFilAy] = React.useState("");
   const [filYil, setFilYil] = React.useState(new Date().getFullYear().toString());
@@ -1728,9 +1728,13 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
                 h("div",{style:{fontSize:12,color:"var(--mu)",marginTop:2}},
                   (r.saat||"")+(r.tel?" · 📞 "+r.tel:""))
               ),
-              h("div",{style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,
-                color:"var(--g)",fontWeight:700}},
-                fmt(toN(r.hizKK||0)+toN(r.hizIB||0)+toN(r.hizNK||0)))
+              h("div",{style:{display:"flex",alignItems:"center",gap:10}},
+                h("div",{style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,
+                  color:"var(--g)",fontWeight:700}},
+                  fmt(toN(r.hizKK||0)+toN(r.hizIB||0)+toN(r.hizNK||0))),
+                h("button",{onClick:(e)=>{ e.stopPropagation(); if(window.confirm((r.musteri||"Bu kayıt")+(r.tarih?(" — "+r.tarih):"")+" hizmet kaydı kalıcı olarak silinsin mi?")){ onKayitlarSil && onKayitlarSil([r.id]); setDetayTarih(d=>d?{...d,kayitlar:(d.kayitlar||[]).filter(x=>String(x.id)!==String(r.id))}:d); } },
+                  style:{background:"rgba(209,17,17,.08)",border:"1px solid rgba(209,17,17,.3)",borderRadius:8,color:"#d11",fontSize:12,fontWeight:700,padding:"6px 10px",cursor:"pointer",whiteSpace:"nowrap"}},"🗑 Sil")
+              )
             ),
             h("div",{style:{fontSize:11,color:"var(--g)",letterSpacing:1,
               textTransform:"uppercase",marginBottom:8,fontWeight:600}},"✂️ Verilen Hizmetler"),
@@ -1839,6 +1843,16 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
           [2024,2025,2026,2027].map(y=>h("option",{key:y,value:String(y)},y))
         )
       )
+    ),
+
+    h("div",{style:{padding:"0 14px 10px"}},
+      h("button",{onClick:()=>{
+        const pk=(tumK||[]).filter(r=>seciliP&&(r.staffId===seciliP.id||r.staffAd===seciliP.ad)).map(r=>r.id);
+        if(pk.length===0){ window.alert("Bu personele ait silinecek kayıt yok."); return; }
+        if(window.confirm((seciliP?seciliP.ad:"Bu personel")+" adlı personelin TÜM hizmet kayıtları ("+pk.length+" adet) kalıcı olarak silinecek. Geri alınamaz. Emin misiniz?")){
+          onKayitlarSil && onKayitlarSil(pk); setDetayTarih(null);
+        }
+      },style:{width:"100%",padding:"11px 0",borderRadius:10,border:"1px solid rgba(209,17,17,.35)",background:"rgba(209,17,17,.07)",color:"#d11",fontSize:13,fontWeight:700,cursor:"pointer"}},"🗑 Bu personelin tüm hizmet kayıtlarını sil")
     ),
 
     // ── TABLO ──
@@ -8677,6 +8691,8 @@ function App() {
   const [yedekSiklikPc, setYedekSiklikPc] = useState(()=>{ try{ return localStorage.getItem("apron_yedek_siklik_pc")||"haftalik"; }catch(e){ return "haftalik"; } }); // bilgisayara indirme sıklığı
   const [bulutYedekModal, setBulutYedekModal] = useState(null); // null=kapalı, dizi=açık (bulut yedek listesi)
   const [bulutYedekYukluyor, setBulutYedekYukluyor] = useState(false);
+  const [hizSilMod, setHizSilMod] = useState(false); // Hizmet Satışları personel-seç sayfasında silme modu
+  const [hizSilSecim, setHizSilSecim] = useState({}); // {personelId:true}
   const [stokHar, setStokHar]         = useState([]); // hareket geçmişi
   const [stokPartiler, setStokPartiler] = useState([]); // {id,barkod,urunAd,marka,adet,kalan,alisF,tarih,faturaN,tip}
   // Kayıt Formu stok rozeti, Stok Durumu ekranıyla AYNI kaynağı kullansın diye parti kalanlarını barkod bazında topla.
@@ -10249,6 +10265,20 @@ if(DB) dbUpsertAyar("tema",tema);
     setKayitPanelSonuc(p=>p?{...p,kayitlar:(p.kayitlar||[]).filter(r=>String(r.id)!==String(id))}:p);
     dbSil("kayitlar",id);
     showToast("Kayıt silindi","uy");
+  };
+
+  // Toplu kayıt silme (tek toast, tüm state'leri bir kerede filtreler)
+  const kayitlarSil = (ids) => {
+    const set = new Set((ids||[]).map(String));
+    if(set.size===0) return;
+    setSilOnay(null); setDetay(null);
+    setRecords(p=>p.filter(r=>!set.has(String(r.id))));
+    setGecmis(p=>p.filter(r=>!set.has(String(r.id))));
+    setBekleyen(p=>p.filter(r=>!set.has(String(r.id))));
+    setIbanBildirimler(p=>p.filter(b=>!set.has(String(b.kayitId))));
+    setKayitPanelSonuc(p=>p?{...p,kayitlar:(p.kayitlar||[]).filter(r=>!set.has(String(r.id)))}:p);
+    set.forEach(id=>dbSil("kayitlar",id));
+    showToast(set.size+" kayıt silindi","uy");
   };
 
   // Yonetici dogrudan siler + ilgili personele bilgi bildirimi gonderir
@@ -13738,7 +13768,7 @@ if(DB) dbUpsertAyar("tema",tema);
         // ADIM 2c — AYARLAR ALT BAŞLIKLARI
         // ══════════════════════════════════════════
         panelAdim==="ayarlar"&&!panelAltSek&&!asek&&div({style:{padding:"4px 14px"}},
-          h(BulutDurumu,{yukluGonderilmis:(records||[]).filter(r=>r.gonderildi!==false).length, yukluToplam:(records||[]).length}),
+          null,
           // ── OTOMATİK YEDEKLEME ──
           div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:16,marginBottom:12,boxShadow:"0 1px 6px rgba(0,0,0,.05)"}},
             div({style:{fontSize:14,fontWeight:700,color:"#1D1D1F",marginBottom:4}},"🗂️ Otomatik Yedekleme"),
@@ -13867,14 +13897,39 @@ if(DB) dbUpsertAyar("tema",tema);
               const gelirGrupId=(pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id;
               const gelirP=personeller.filter(p=>p.aktif&&p.rol==="personel"&&(!gelirGrupId||p.grup===gelirGrupId));
               return div(null,
-                div({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:12,paddingTop:8}},"Personel Seçin"),
-                gelirP.map(p=>
-                  div({key:p.id,onClick:()=>setMuhAlt(p.id),style:{
+                div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,paddingTop:8,gap:8,flexWrap:"wrap"}},
+                  div({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase"}},"Personel Seçin"),
+                  !hizSilMod && btn({onClick:()=>{setHizSilMod(true);setHizSilSecim({});},style:{background:"rgba(209,17,17,.08)",border:"1px solid rgba(209,17,17,.3)",borderRadius:9,color:"#d11",fontSize:12.5,fontWeight:700,padding:"7px 12px",cursor:"pointer"}},"🗑 Sil")
+                ),
+                hizSilMod && (()=>{
+                  const secsay=Object.values(hizSilSecim).filter(Boolean).length;
+                  const hepsi=gelirP.length>0 && gelirP.every(p=>hizSilSecim[p.id]);
+                  return div({style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:"rgba(209,17,17,.05)",border:"1px solid rgba(209,17,17,.2)",borderRadius:10,padding:"8px 10px",marginBottom:12}},
+                    btn({onClick:()=>setHizSilSecim(prev=>{const n={...prev}; if(hepsi){gelirP.forEach(p=>delete n[p.id]);}else{gelirP.forEach(p=>{n[p.id]=true;});} return n;}),style:{background:"#fff",border:"1px solid var(--br)",borderRadius:8,color:"var(--tx)",fontSize:12,fontWeight:700,padding:"6px 10px",cursor:"pointer"}},hepsi?"Tümünü Bırak":"Tümünü Seç"),
+                    span({style:{fontSize:12.5,fontWeight:700,color:secsay>0?"#d11":"var(--mu)"}},secsay+" personel seçili"),
+                    div({style:{flex:1}}),
+                    btn({disabled:secsay===0,onClick:()=>{
+                      const ids=Object.keys(hizSilSecim).filter(k=>hizSilSecim[k]);
+                      const secP=gelirP.filter(p=>ids.includes(p.id));
+                      const rk=(tumK||[]).filter(r=>secP.some(p=>r.staffId===p.id||r.staffAd===p.ad)).map(r=>r.id);
+                      if(rk.length===0){ window.alert("Seçili personellere ait kayıt yok."); return; }
+                      if(window.confirm(secP.map(p=>p.ad).join(", ")+" personel(ler)inin TÜM hizmet kayıtları ("+rk.length+" adet) kalıcı olarak silinecek. Geri alınamaz. Emin misiniz?")){
+                        kayitlarSil(rk); setHizSilMod(false); setHizSilSecim({});
+                      }
+                    },style:{background:secsay===0?"var(--bg3)":"linear-gradient(135deg,#FF453A,#C81E14)",border:"none",borderRadius:8,color:secsay===0?"var(--mu)":"#fff",fontSize:12.5,fontWeight:800,padding:"7px 12px",cursor:secsay===0?"default":"pointer"}},"🗑 Seçilenleri Sil"),
+                    btn({onClick:()=>{setHizSilMod(false);setHizSilSecim({});},style:{background:"#fff",border:"1px solid var(--br)",borderRadius:8,color:"var(--mu)",fontSize:12.5,fontWeight:700,padding:"7px 12px",cursor:"pointer"}},"Vazgeç")
+                  );
+                })(),
+                gelirP.map(p=>{
+                  const secili=hizSilMod && !!hizSilSecim[p.id];
+                  return div({key:p.id,onClick:()=> hizSilMod ? setHizSilSecim(prev=>({...prev,[p.id]:!prev[p.id]})) : setMuhAlt(p.id),style:{
                     display:"flex",alignItems:"center",gap:14,
-                    background:"#fff",border:"1px solid rgba(0,0,0,.07)",
+                    background: secili?"rgba(209,17,17,.08)":"#fff",
+                    border: secili?"1px solid rgba(209,17,17,.4)":"1px solid rgba(0,0,0,.07)",
                     borderRadius:14,padding:"13px 16px",marginBottom:9,
                     cursor:"pointer",boxShadow:"0 1px 6px rgba(0,0,0,.05)"
                   }},
+                    hizSilMod && span({style:{fontSize:18,color:secili?"#d11":"var(--di)"}},secili?"☑":"☐"),
                     div({style:{
                       width:40,height:40,borderRadius:13,
                       background:"linear-gradient(135deg,#5856D6,#3634A3)",
@@ -13882,18 +13937,26 @@ if(DB) dbUpsertAyar("tema",tema);
                       fontSize:18,color:"#fff",fontWeight:700,flexShrink:0
                     }},p.ad.charAt(0).toUpperCase()),
                     div(null,
-                      div({style:{fontSize:15,fontWeight:600,color:"#1D1D1F"}}),
                       div({style:{fontSize:15,fontWeight:600,color:"#1D1D1F"}},p.ad),
                       div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},p.rol==="personel"?"Personel":"")
                     )
-                  )
+                  );
+                }),
+                div({style:{marginTop:18,paddingTop:14,borderTop:"1px solid var(--br)"}},
+                  btn({onClick:()=>{
+                    const rk=(tumK||[]).map(r=>r.id);
+                    if(rk.length===0){ window.alert("Silinecek hizmet kaydı yok."); return; }
+                    if(window.confirm("TÜM personellerin TÜM hizmet kayıtları ("+rk.length+" adet) kalıcı olarak silinecek. Bu işlem GERİ ALINAMAZ. Emin misiniz?") && window.confirm("Son onay: gerçekten hepsini silmek istiyor musunuz?")){
+                      kayitlarSil(rk);
+                    }
+                  },style:{width:"100%",padding:"12px 0",borderRadius:11,border:"1px solid rgba(209,17,17,.4)",background:"rgba(209,17,17,.07)",color:"#d11",fontSize:13,fontWeight:800,cursor:"pointer"}},"🗑 Tüm personel hizmet kayıtlarını sil")
                 )
               );
             })(),
 
             // Hizmet Satışları — personel seçildi (ID geldi)
             muhSek==="hizmetMuhasebe"&&muhAlt&&muhAlt!=="hizmetOzet"&&muhAlt!=="hizmetSatislari"&&h(HizmetMuhasebe,{
-              tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, isletme,
+              tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, isletme, onKayitlarSil:kayitlarSil,
               onAnaPanel:()=>{ setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); setMuhSek(""); setMuhAlt(""); setMuhAltAcik(""); setHesapFull(false); setVergiFull(false); },
               onGeri:()=>{ setMuhAlt("hizmetSatislari"); setMuhAltAcik("hizmetSatislari"); }
             }),
