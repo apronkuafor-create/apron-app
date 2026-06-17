@@ -1353,9 +1353,17 @@ function BulutDurumu({yukluGonderilmis,yukluToplam}){
       satir("Müşteriler", dur.say.musteriler),
       satir("Devamsızlık", dur.say.devamsizliklar)
     ),
-    dur&&dur.say&&((dur.acilisSay>0||yerelAcilis>0))&&(dur.stokParti===0||dur.stokParti<(dur.acilisSay||0)||dur.stokParti<yerelAcilis)&&div({style:{marginTop:12,padding:12,background:"#EAF6EE",border:"1px solid #A8E0B8",borderRadius:10}},
+    false&&div({style:{marginTop:12,padding:12,background:"#EAF6EE",border:"1px solid #A8E0B8",borderRadius:10}},
       div({style:{fontSize:12,color:"#248A3D",marginBottom:8,lineHeight:1.4}},"Açılış stok girişleri bulundu ama stok partilerinden fazla. Eksik stoğu açılış girişlerinden geri kurabilirsiniz."),
-      btn({onClick:stokKurtar,disabled:kurtarYukle,style:{width:"100%",background:"linear-gradient(135deg,#34C759,#248A3D)",border:"none",borderRadius:9,color:"#fff",fontSize:13,fontWeight:700,padding:11,cursor:"pointer"}},kurtarYukle?"Kurtarılıyor...":"🔧 Stoğu açılış girişlerinden kurtar")
+      btn({onClick:stokKurtar,disabled:kurtarYukle,style:{width:"100%",background:"linear-gradient(135deg,#34C759,#248A3D)",border:"none",borderRadius:9,color:"#fff",fontSize:13,fontWeight:700,padding:11,cursor:"pointer"}},kurtarYukle?"Kurtarılıyor...":"🔧 Stoğu açılış girişlerinden kurtar"),
+      div({style:{fontSize:11,color:"#8a5010",margin:"10px 0 6px",lineHeight:1.4}},"⚠️ Üstteki yeşil düğme, silinen stoğu eski açılış girişlerinden GERİ KURAR. Stoğu bilerek sildiyseniz ona basmayın; bunun yerine aşağıdaki düğmeyle eski geçmişi temizleyip bu kutuyu kaldırabilirsiniz."),
+      btn({onClick:async()=>{
+        if(!confirm("Bu cihazdaki eski stok hareket geçmişi (açılış girişleri dahil) temizlenecek ve bu yanıltıcı kutu kaldırılacak.\n\nStok kayıtların ZATEN silinmiş durumda; bu işlem yalnızca eski geçmişi temizler, stoğu geri getirmez. Devam edilsin mi?")) return;
+        try{ const l=JSON.parse(localStorage.getItem("apron_v3")||"{}"); l.hareketler=[]; apronV3Yaz(l); }catch(e){}
+        try{ if(DB) await DB.from("ayarlar").upsert({id:"hareketler",deger:[]}); }catch(e){}
+        alert("Eski hareket geçmişi temizlendi. Sayfa yenilenecek.");
+        location.reload();
+      },style:{width:"100%",background:"#fff",border:"1px solid #A8E0B8",borderRadius:9,color:"#248A3D",fontSize:12.5,fontWeight:700,padding:10,cursor:"pointer"}},"🧹 Eski hareket geçmişini temizle (bu kutuyu kaldır)")
     ),
     bekleyen>0&&div({style:{marginTop:10,padding:10,background:"#FFF4E5",border:"1px solid #FFD8A8",borderRadius:10,fontSize:12,color:"#8a5010"}},
       "⏳ "+bekleyen+" işlem buluta yazılmayı bekliyor. Bağlantı/izin düzelince otomatik gönderilecek.",
@@ -8665,6 +8673,7 @@ function App() {
   const [musteriSilOnay, setMusteriSilOnay] = useState(null);
   const [stokDB, setStokDB]           = useState({}); // {barkod: qty}
   const [onSiparisler, setOnSiparisler] = useState([]); // müşteri ön siparişleri (peşin alındı, stok gelince teslim)
+  const [yedekSiklik, setYedekSiklik] = useState(()=>{ try{ return localStorage.getItem("apron_yedek_siklik")||"haftalik"; }catch(e){ return "haftalik"; } }); // otomatik yedek sıklığı
   const [stokHar, setStokHar]         = useState([]); // hareket geçmişi
   const [stokPartiler, setStokPartiler] = useState([]); // {id,barkod,urunAd,marka,adet,kalan,alisF,tarih,faturaN,tip}
   // Kayıt Formu stok rozeti, Stok Durumu ekranıyla AYNI kaynağı kullansın diye parti kalanlarını barkod bazında topla.
@@ -9410,6 +9419,90 @@ if(DB) dbUpsertAyar("tema",tema);
     if(yukleniyor) return;
     apronV3Yaz({records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,giderler,avanslar,ibanBildirimler,bankalar,hesapSaglama,pGruplar,yonBildirim,devirBildirim});
   },[records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,giderler,avanslar,ibanBildirimler,bankalar,hesapSaglama,pGruplar,yonBildirim,devirBildirim,yukleniyor,urunDBVer]);
+
+  // ── Otomatik Yedekleme ──
+  const yedekAl = (otomatik=false) => {
+    try {
+      const veri = {records,bekleyen,gecmis,musteriDB,personeller,devDB,stokPartiler,hareketler,onSiparisler,
+        hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,oduncler,komsular,giderler,avanslar,
+        ibanBildirimler,bankalar,hesapSaglama,pGruplar,yonBildirim,devirBildirim,isletme};
+      const paket = {_apronYedek:true, surum:3, tarih:new Date().toISOString(), otomatik:!!otomatik, veri};
+      const json = JSON.stringify(paket);
+      const d = new Date(); const iki = n=>String(n).padStart(2,"0");
+      const ad = "apron-yedek-"+d.getFullYear()+"-"+iki(d.getMonth()+1)+"-"+iki(d.getDate())+"-"+iki(d.getHours())+iki(d.getMinutes())+".json";
+      const bl = new Blob([json],{type:"application/json"});
+      const u = URL.createObjectURL(bl);
+      const a = document.createElement("a"); a.href=u; a.download=ad;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(u);
+      try{ localStorage.setItem("apron_yedek_son", new Date().toISOString()); }catch(e){}
+      if(typeof showToast==="function") showToast(otomatik?"🗂️ Otomatik yedek indirildi":"🗂️ Yedek indirildi","ba");
+      return true;
+    } catch(e){ if(typeof showToast==="function") showToast("Yedek alınamadı","ha"); return false; }
+  };
+
+  // ── Yedekten Geri Yükle ──
+  const geriYukle = (paket) => {
+    try {
+      if(!paket || paket._apronYedek!==true || !paket.veri){ if(typeof showToast==="function") showToast("Geçersiz yedek dosyası","ha"); return false; }
+      const v = paket.veri;
+      const S = (x)=>Array.isArray(x)?x:[];
+      try{ stokPartilerYuklendi.current=true; }catch(e){}
+      try{ personellerHazirRef.current=true; }catch(e){}
+      // 1) Tüm state'i geri yükle — blob (ayarlar) verisi mevcut efektlerle buluta otomatik yazılır
+      if(v.records!==undefined) setRecords(S(v.records));
+      if(v.bekleyen!==undefined) setBekleyen(S(v.bekleyen));
+      if(v.gecmis!==undefined) setGecmis(S(v.gecmis));
+      if(v.musteriDB!==undefined) setMusteriDB(S(v.musteriDB));
+      if(S(v.personeller).length) setPersoneller(S(v.personeller));
+      if(v.devDB!==undefined) setDevDB(S(v.devDB));
+      if(v.stokPartiler!==undefined) setStokPartiler(S(v.stokPartiler));
+      if(v.hareketler!==undefined) setHareketler(S(v.hareketler));
+      if(v.onSiparisler!==undefined) setOnSiparisler(S(v.onSiparisler));
+      if(v.hatirlatmalar!==undefined) setHatirlatmalar(S(v.hatirlatmalar));
+      if(v.randevular!==undefined) setRandevular(S(v.randevular));
+      if(v.tedarikciler!==undefined) setTedarikciler(S(v.tedarikciler));
+      if(v.faturalar!==undefined) setFaturalar(S(v.faturalar));
+      if(v.odemeler!==undefined) setOdemeler(S(v.odemeler));
+      if(v.oduncler!==undefined) setOduncler(S(v.oduncler));
+      if(v.komsular!==undefined) setKomsular(S(v.komsular));
+      if(v.giderler!==undefined) setGiderler(S(v.giderler));
+      if(v.avanslar!==undefined) setAvanslar(S(v.avanslar));
+      if(v.ibanBildirimler!==undefined) setIbanBildirimler(S(v.ibanBildirimler));
+      if(v.bankalar!==undefined) setBankalar(S(v.bankalar));
+      if(v.hesapSaglama && typeof v.hesapSaglama==="object") setHesapSaglama(v.hesapSaglama);
+      if(v.pGruplar!==undefined) setPGruplar(S(v.pGruplar));
+      if(v.yonBildirim!==undefined) setYonBildirim(S(v.yonBildirim));
+      if(v.devirBildirim!==undefined) setDevirBildirim(S(v.devirBildirim));
+      if(v.isletme && typeof v.isletme==="object") setIsletme(p=>({...p,...v.isletme}));
+      // 2) Tablo verisini buluta elle yaz (kayitlar / musteriler / on_siparisler — bunlar blob değil, satır-satır)
+      if(DB){
+        const yazKayit = (r,gond)=>dbUpsert("kayitlar",{id:r.id,staff_id:r.staffId,staff_name:r.staffAd,musteri:r.musteri,telefon:r.tel||"",
+          hizmetler:r.hizler||[],hiz_kk:r.hizKK||0,hiz_ib:r.hizIB||0,hiz_nk:r.hizNK||0,
+          urunler:r.urunler||[],urun_kk:r.uKK||0,urun_ib:r.uIB||0,urun_nk:r.uNK||0,
+          toplam:r.toplam||0,tarih:r.tarih,saat:r.saat||"",gonderildi:gond,
+          hiz_iban_id:r.hizIbanId||"",hiz_iban_ad:r.hizIbanAd||"",urun_iban_id:r.urunIbanId||"",urun_iban_ad:r.urunIbanAd||"",
+          ana_personel_id:r.anaPersonelId||"",ana_personel_ad:r.anaPersonelAd||""},"id");
+        const gor=new Set();
+        [...S(v.gecmis),...S(v.records)].forEach(r=>{ if(r&&r.id&&!gor.has(r.id)){ gor.add(r.id); yazKayit(r,true); } });
+        S(v.bekleyen).forEach(r=>{ if(r&&r.id&&!gor.has(r.id)){ gor.add(r.id); yazKayit(r,false); } });
+        S(v.musteriDB).forEach(m=>{ if(m&&m.id) dbUpsert("musteriler",{id:m.id,ad:m.ad,tel:m.tel||"",sahip_id:m.sahipId||"",sahip_ad:m.sahipAd||"",ilk_giris:m.ilkGiris||"",dogum_tarihi:m.dogumTarihi||"",cinsiyet:m.cinsiyet||"",adres:m.adres||"",notlar:m.notlar||""},"id"); });
+        S(v.onSiparisler).forEach(o=>{ if(o&&o.id) dbUpsert("on_siparisler",o,"id"); });
+      }
+      if(typeof showToast==="function") showToast("✅ Yedek geri yüklendi","ba");
+      return true;
+    } catch(e){ if(typeof showToast==="function") showToast("Geri yükleme hatası","ha"); return false; }
+  };
+
+  // Vakti gelmişse otomatik yedek indir (uygulama açıkken kontrol edilir)
+  useEffect(()=>{
+    if(yukleniyor) return;
+    if(yedekSiklik==="kapali") return;
+    let son=null; try{ son=localStorage.getItem("apron_yedek_son"); }catch(e){}
+    if(!son){ try{ localStorage.setItem("apron_yedek_son", new Date().toISOString()); }catch(e){} return; } // ilk kez: indirme, sadece başlat
+    const gun = (Date.now()-new Date(son).getTime())/86400000;
+    const esik = yedekSiklik==="gunluk"?1 : yedekSiklik==="aylik"?30 : 7;
+    if(gun>=esik){ const t=setTimeout(()=>yedekAl(true), 2500); return ()=>clearTimeout(t); }
+  },[yukleniyor,yedekSiklik,records,stokPartiler]);
 
   // ── Oturum Persistance — sayfa yenilenince kullanıcı aynı sayfada devam etsin ──
   useEffect(()=>{
@@ -13583,6 +13676,43 @@ if(DB) dbUpsertAyar("tema",tema);
         // ══════════════════════════════════════════
         panelAdim==="ayarlar"&&!panelAltSek&&!asek&&div({style:{padding:"4px 14px"}},
           h(BulutDurumu,{yukluGonderilmis:(records||[]).filter(r=>r.gonderildi!==false).length, yukluToplam:(records||[]).length}),
+          // ── OTOMATİK YEDEKLEME ──
+          div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:16,marginBottom:12,boxShadow:"0 1px 6px rgba(0,0,0,.05)"}},
+            div({style:{fontSize:14,fontWeight:700,color:"#1D1D1F",marginBottom:4}},"🗂️ Otomatik Yedekleme"),
+            div({style:{fontSize:11,color:"#888",marginBottom:12,lineHeight:1.45}},"Tüm verileriniz (işlem kayıtları, stok, müşteriler, ayarlar…) tek bir JSON dosyası olarak bilgisayarınıza indirilir. Vakti geldiğinde uygulama açıkken otomatik iner."),
+            div({style:{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}},
+              [["kapali","Kapalı"],["gunluk","Günlük"],["haftalik","Haftalık"],["aylik","Aylık"]].map(([v,lb])=>
+                btn({key:v,onClick:()=>{ setYedekSiklik(v); try{localStorage.setItem("apron_yedek_siklik",v);}catch(e){} },
+                  style:{flex:"1 1 auto",minWidth:72,padding:"9px 6px",borderRadius:9,fontSize:13,fontWeight:700,cursor:"pointer",
+                    border:yedekSiklik===v?"1px solid #2563A8":"1px solid rgba(0,0,0,.12)",
+                    background:yedekSiklik===v?"rgba(37,99,168,.1)":"#f6f6f8",
+                    color:yedekSiklik===v?"#2563A8":"#555"}}, lb)
+              )
+            ),
+            (()=>{ let son=null; try{son=localStorage.getItem("apron_yedek_son");}catch(e){}
+              return div({style:{fontSize:11.5,color:"#888",marginBottom:12}},
+                "Son yedek: "+(son?new Date(son).toLocaleString("tr-TR"):"henüz yok")); })(),
+            btn({onClick:()=>yedekAl(false),style:{width:"100%",padding:"13px 0",borderRadius:11,border:"none",
+              background:"linear-gradient(135deg,#1a5a30,#0e3a1a)",color:"#50b880",fontSize:14,fontWeight:700,cursor:"pointer"}},"📥 Şimdi Yedek Al (indir)"),
+            btn({onClick:()=>{
+              const fi=document.createElement("input"); fi.type="file"; fi.accept=".json,application/json";
+              fi.onchange=ev=>{
+                const f=ev.target.files&&ev.target.files[0]; if(!f) return;
+                const rd=new FileReader();
+                rd.onload=e2=>{
+                  let paket=null;
+                  try{ paket=JSON.parse(e2.target.result); }catch(err){ showToast("Dosya okunamadı (geçersiz JSON)","ha"); return; }
+                  if(!paket||paket._apronYedek!==true||!paket.veri){ showToast("Bu bir Apron yedek dosyası değil","ha"); return; }
+                  const tar=paket.tarih?new Date(paket.tarih).toLocaleString("tr-TR"):"bilinmiyor";
+                  const say=(paket.veri.records?paket.veri.records.length:0);
+                  if(!confirm("YEDEKTEN GERİ YÜKLE\n\nYedek tarihi: "+tar+"\nİşlem kaydı: ~"+say+"\n\nBu yedekteki veriler mevcut verilerin ÜZERİNE yazılacak (aynı kayıtlar güncellenir, yeniler eklenir). Devam edilsin mi?")) return;
+                  geriYukle(paket);
+                };
+                rd.readAsText(f);
+              };
+              fi.click();
+            },style:{width:"100%",marginTop:8,padding:"12px 0",borderRadius:11,border:"1px solid rgba(37,99,168,.35)",background:"rgba(37,99,168,.08)",color:"#2563A8",fontSize:13.5,fontWeight:700,cursor:"pointer"}},"♻️ Yedekten Geri Yükle")
+          ),
           [
             // Listeler — belgeler/kayıtlar → lacivert
             ["rgba(30,60,160,.13)","📑","Listeler","listeler",null],
