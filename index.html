@@ -8673,7 +8673,10 @@ function App() {
   const [musteriSilOnay, setMusteriSilOnay] = useState(null);
   const [stokDB, setStokDB]           = useState({}); // {barkod: qty}
   const [onSiparisler, setOnSiparisler] = useState([]); // müşteri ön siparişleri (peşin alındı, stok gelince teslim)
-  const [yedekSiklik, setYedekSiklik] = useState(()=>{ try{ return localStorage.getItem("apron_yedek_siklik")||"haftalik"; }catch(e){ return "haftalik"; } }); // otomatik yedek sıklığı
+  const [yedekSiklikBulut, setYedekSiklikBulut] = useState(()=>{ try{ return localStorage.getItem("apron_yedek_siklik_bulut")||"gunluk"; }catch(e){ return "gunluk"; } }); // buluta yedek sıklığı
+  const [yedekSiklikPc, setYedekSiklikPc] = useState(()=>{ try{ return localStorage.getItem("apron_yedek_siklik_pc")||"haftalik"; }catch(e){ return "haftalik"; } }); // bilgisayara indirme sıklığı
+  const [bulutYedekModal, setBulutYedekModal] = useState(null); // null=kapalı, dizi=açık (bulut yedek listesi)
+  const [bulutYedekYukluyor, setBulutYedekYukluyor] = useState(false);
   const [stokHar, setStokHar]         = useState([]); // hareket geçmişi
   const [stokPartiler, setStokPartiler] = useState([]); // {id,barkod,urunAd,marka,adet,kalan,alisF,tarih,faturaN,tip}
   // Kayıt Formu stok rozeti, Stok Durumu ekranıyla AYNI kaynağı kullansın diye parti kalanlarını barkod bazında topla.
@@ -9421,11 +9424,13 @@ if(DB) dbUpsertAyar("tema",tema);
   },[records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,giderler,avanslar,ibanBildirimler,bankalar,hesapSaglama,pGruplar,yonBildirim,devirBildirim,yukleniyor,urunDBVer]);
 
   // ── Otomatik Yedekleme ──
+  const yedekVeriHazirla = () => ({records,bekleyen,gecmis,musteriDB,personeller,devDB,stokPartiler,hareketler,onSiparisler,
+    hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,oduncler,komsular,giderler,avanslar,
+    ibanBildirimler,bankalar,hesapSaglama,pGruplar,yonBildirim,devirBildirim,isletme});
+
   const yedekAl = (otomatik=false) => {
     try {
-      const veri = {records,bekleyen,gecmis,musteriDB,personeller,devDB,stokPartiler,hareketler,onSiparisler,
-        hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,oduncler,komsular,giderler,avanslar,
-        ibanBildirimler,bankalar,hesapSaglama,pGruplar,yonBildirim,devirBildirim,isletme};
+      const veri = yedekVeriHazirla();
       const paket = {_apronYedek:true, surum:3, tarih:new Date().toISOString(), otomatik:!!otomatik, veri};
       const json = JSON.stringify(paket);
       const d = new Date(); const iki = n=>String(n).padStart(2,"0");
@@ -9434,7 +9439,7 @@ if(DB) dbUpsertAyar("tema",tema);
       const u = URL.createObjectURL(bl);
       const a = document.createElement("a"); a.href=u; a.download=ad;
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(u);
-      try{ localStorage.setItem("apron_yedek_son", new Date().toISOString()); }catch(e){}
+      try{ localStorage.setItem("apron_yedek_son_pc", new Date().toISOString()); }catch(e){}
       if(typeof showToast==="function") showToast(otomatik?"🗂️ Otomatik yedek indirildi":"🗂️ Yedek indirildi","ba");
       return true;
     } catch(e){ if(typeof showToast==="function") showToast("Yedek alınamadı","ha"); return false; }
@@ -9493,16 +9498,74 @@ if(DB) dbUpsertAyar("tema",tema);
     } catch(e){ if(typeof showToast==="function") showToast("Geri yükleme hatası","ha"); return false; }
   };
 
-  // Vakti gelmişse otomatik yedek indir (uygulama açıkken kontrol edilir)
+  // Buluta yedek kaydet (pasif kasa — kendiliğinden geri yüklenmez, sadece istenince)
+  const bulutYedekAl = async (otomatik=false) => {
+    if(!DB) return false;
+    try {
+      const row = {id:"yb_"+Date.now()+"_"+Math.random().toString(36).slice(2,7), tarih:new Date().toISOString(), otomatik:!!otomatik, surum:3, veri:yedekVeriHazirla()};
+      const {error} = await DB.from("yedekler").insert(row);
+      if(error) return false;
+      try{ localStorage.setItem("apron_yedek_son_bulut", new Date().toISOString()); }catch(e){}
+      // Eski yedekleri buda — en yeni 30 tanesi kalsın (tablo şişmesin)
+      try{
+        const {data} = await DB.from("yedekler").select("id").order("tarih",{ascending:false});
+        if(data && data.length>30){ for(const x of data.slice(30)){ await DB.from("yedekler").delete().eq("id",x.id); } }
+      }catch(e){}
+      return true;
+    } catch(e){ return false; }
+  };
+
+  // İndir + buluta kaydet (her yedek hem dosya iner hem buluta düşer)
+  const yedekYap = async (otomatik=false) => {
+    yedekAl(otomatik);
+    if(DB){
+      const ok = await bulutYedekAl(otomatik);
+      if(!ok && !otomatik && typeof showToast==="function") showToast("Buluta kaydedilemedi — 'yedekler' tablosunu Supabase'de oluşturdunuz mu?","uy");
+    }
+  };
+
+  const bulutYedekleriAc = async () => {
+    if(!DB){ if(typeof showToast==="function") showToast("Bağlantı yok","uy"); return; }
+    setBulutYedekModal([]); setBulutYedekYukluyor(true);
+    try{
+      const {data,error} = await DB.from("yedekler").select("id,tarih,otomatik,surum").order("tarih",{ascending:false});
+      if(error) throw error;
+      setBulutYedekModal(data||[]);
+    }catch(e){ if(typeof showToast==="function") showToast("Bulut yedekleri okunamadı — 'yedekler' tablosu var mı?","ha"); setBulutYedekModal(null); }
+    finally{ setBulutYedekYukluyor(false); }
+  };
+
+  const bulutYedekGeriYukle = async (id) => {
+    if(!DB) return;
+    try{
+      const {data,error} = await DB.from("yedekler").select("*").eq("id",id).maybeSingle();
+      if(error||!data||!data.veri){ if(typeof showToast==="function") showToast("Yedek okunamadı","ha"); return; }
+      geriYukle({_apronYedek:true, surum:data.surum||3, tarih:data.tarih, veri:data.veri});
+      setBulutYedekModal(null);
+    }catch(e){ if(typeof showToast==="function") showToast("Geri yükleme hatası","ha"); }
+  };
+
+  const bulutYedekSil = async (id) => {
+    if(!DB) return;
+    try{ await DB.from("yedekler").delete().eq("id",id); setBulutYedekModal(p=>(p||[]).filter(x=>x.id!==id)); if(typeof showToast==="function") showToast("Bulut yedeği silindi","ba"); }catch(e){}
+  };
+
+  // Vakti gelmişse otomatik yedek (bulut + PC bağımsız; uygulama açıkken kontrol edilir)
   useEffect(()=>{
     if(yukleniyor) return;
-    if(yedekSiklik==="kapali") return;
-    let son=null; try{ son=localStorage.getItem("apron_yedek_son"); }catch(e){}
-    if(!son){ try{ localStorage.setItem("apron_yedek_son", new Date().toISOString()); }catch(e){} return; } // ilk kez: indirme, sadece başlat
-    const gun = (Date.now()-new Date(son).getTime())/86400000;
-    const esik = yedekSiklik==="gunluk"?1 : yedekSiklik==="aylik"?30 : 7;
-    if(gun>=esik){ const t=setTimeout(()=>yedekAl(true), 2500); return ()=>clearTimeout(t); }
-  },[yukleniyor,yedekSiklik,records,stokPartiler]);
+    const esikGun = s => s==="gunluk"?1 : s==="haftalik"?7 : s==="aylik"?30 : Infinity;
+    const vaktiGeldi = (key, sik) => {
+      if(sik==="kapali") return false;
+      let son=null; try{ son=localStorage.getItem(key); }catch(e){}
+      if(!son){ try{ localStorage.setItem(key, new Date().toISOString()); }catch(e){} return false; } // ilk kez: sadece başlat
+      return (Date.now()-new Date(son).getTime())/86400000 >= esikGun(sik);
+    };
+    const bulutVakti = !!DB && vaktiGeldi("apron_yedek_son_bulut", yedekSiklikBulut);
+    const pcVakti = vaktiGeldi("apron_yedek_son_pc", yedekSiklikPc);
+    if(!bulutVakti && !pcVakti) return;
+    const t = setTimeout(()=>{ if(bulutVakti) bulutYedekAl(true); if(pcVakti) yedekAl(true); }, 2500);
+    return ()=>clearTimeout(t);
+  },[yukleniyor,yedekSiklikBulut,yedekSiklikPc,records,stokPartiler]);
 
   // ── Oturum Persistance — sayfa yenilenince kullanıcı aynı sayfada devam etsin ──
   useEffect(()=>{
@@ -13679,21 +13742,38 @@ if(DB) dbUpsertAyar("tema",tema);
           // ── OTOMATİK YEDEKLEME ──
           div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:16,marginBottom:12,boxShadow:"0 1px 6px rgba(0,0,0,.05)"}},
             div({style:{fontSize:14,fontWeight:700,color:"#1D1D1F",marginBottom:4}},"🗂️ Otomatik Yedekleme"),
-            div({style:{fontSize:11,color:"#888",marginBottom:12,lineHeight:1.45}},"Tüm verileriniz (işlem kayıtları, stok, müşteriler, ayarlar…) tek bir JSON dosyası olarak bilgisayarınıza indirilir. Vakti geldiğinde uygulama açıkken otomatik iner."),
-            div({style:{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}},
+            div({style:{fontSize:11,color:"#888",marginBottom:14,lineHeight:1.45}},"Tüm verileriniz (işlem kayıtları, stok, müşteriler, ayarlar…) tek pakette yedeklenir. Buluttaki yedek kendiliğinden yüklenmez; yalnızca istediğinde geri getirirsin."),
+            // Buluta yedekle sıklığı
+            div({style:{fontSize:12,fontWeight:700,color:"#444",marginBottom:6}},"☁️ Buluta yedekle"),
+            div({style:{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}},
               [["kapali","Kapalı"],["gunluk","Günlük"],["haftalik","Haftalık"],["aylik","Aylık"]].map(([v,lb])=>
-                btn({key:v,onClick:()=>{ setYedekSiklik(v); try{localStorage.setItem("apron_yedek_siklik",v);}catch(e){} },
-                  style:{flex:"1 1 auto",minWidth:72,padding:"9px 6px",borderRadius:9,fontSize:13,fontWeight:700,cursor:"pointer",
-                    border:yedekSiklik===v?"1px solid #2563A8":"1px solid rgba(0,0,0,.12)",
-                    background:yedekSiklik===v?"rgba(37,99,168,.1)":"#f6f6f8",
-                    color:yedekSiklik===v?"#2563A8":"#555"}}, lb)
+                btn({key:"b"+v,onClick:()=>{ setYedekSiklikBulut(v); try{localStorage.setItem("apron_yedek_siklik_bulut",v);}catch(e){} },
+                  style:{flex:"1 1 auto",minWidth:68,padding:"8px 6px",borderRadius:9,fontSize:12.5,fontWeight:700,cursor:"pointer",
+                    border:yedekSiklikBulut===v?"1px solid #2563A8":"1px solid rgba(0,0,0,.12)",
+                    background:yedekSiklikBulut===v?"rgba(37,99,168,.1)":"#f6f6f8",
+                    color:yedekSiklikBulut===v?"#2563A8":"#555"}}, lb)
               )
             ),
-            (()=>{ let son=null; try{son=localStorage.getItem("apron_yedek_son");}catch(e){}
-              return div({style:{fontSize:11.5,color:"#888",marginBottom:12}},
-                "Son yedek: "+(son?new Date(son).toLocaleString("tr-TR"):"henüz yok")); })(),
-            btn({onClick:()=>yedekAl(false),style:{width:"100%",padding:"13px 0",borderRadius:11,border:"none",
-              background:"linear-gradient(135deg,#1a5a30,#0e3a1a)",color:"#50b880",fontSize:14,fontWeight:700,cursor:"pointer"}},"📥 Şimdi Yedek Al (indir)"),
+            (()=>{ let son=null; try{son=localStorage.getItem("apron_yedek_son_bulut");}catch(e){}
+              return div({style:{fontSize:11,color:"#999",marginBottom:14}},
+                "Son bulut yedeği: "+(son?new Date(son).toLocaleString("tr-TR"):"henüz yok")); })(),
+            // Bilgisayara indirme sıklığı
+            div({style:{fontSize:12,fontWeight:700,color:"#444",marginBottom:6}},"📥 Bilgisayara indir"),
+            div({style:{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}},
+              [["kapali","Kapalı"],["gunluk","Günlük"],["haftalik","Haftalık"],["aylik","Aylık"]].map(([v,lb])=>
+                btn({key:"p"+v,onClick:()=>{ setYedekSiklikPc(v); try{localStorage.setItem("apron_yedek_siklik_pc",v);}catch(e){} },
+                  style:{flex:"1 1 auto",minWidth:68,padding:"8px 6px",borderRadius:9,fontSize:12.5,fontWeight:700,cursor:"pointer",
+                    border:yedekSiklikPc===v?"1px solid #1a5a30":"1px solid rgba(0,0,0,.12)",
+                    background:yedekSiklikPc===v?"rgba(26,90,48,.1)":"#f6f6f8",
+                    color:yedekSiklikPc===v?"#1a5a30":"#555"}}, lb)
+              )
+            ),
+            (()=>{ let son=null; try{son=localStorage.getItem("apron_yedek_son_pc");}catch(e){}
+              return div({style:{fontSize:11,color:"#999",marginBottom:12}},
+                "Son indirme: "+(son?new Date(son).toLocaleString("tr-TR"):"henüz yok")); })(),
+            btn({onClick:()=>yedekYap(false),style:{width:"100%",padding:"13px 0",borderRadius:11,border:"none",
+              background:"linear-gradient(135deg,#1a5a30,#0e3a1a)",color:"#50b880",fontSize:14,fontWeight:700,cursor:"pointer"}},"📥 Şimdi Yedek Al (indir + buluta kaydet)"),
+            btn({onClick:bulutYedekleriAc,style:{width:"100%",marginTop:8,padding:"12px 0",borderRadius:11,border:"1px solid rgba(37,99,168,.35)",background:"rgba(37,99,168,.08)",color:"#2563A8",fontSize:13.5,fontWeight:700,cursor:"pointer"}},"☁️ Bulut Yedekleri (geri yükle)"),
             btn({onClick:()=>{
               const fi=document.createElement("input"); fi.type="file"; fi.accept=".json,application/json";
               fi.onchange=ev=>{
@@ -13712,6 +13792,35 @@ if(DB) dbUpsertAyar("tema",tema);
               };
               fi.click();
             },style:{width:"100%",marginTop:8,padding:"12px 0",borderRadius:11,border:"1px solid rgba(37,99,168,.35)",background:"rgba(37,99,168,.08)",color:"#2563A8",fontSize:13.5,fontWeight:700,cursor:"pointer"}},"♻️ Yedekten Geri Yükle")
+          ),
+          bulutYedekModal!==null && div({style:{position:"fixed",inset:0,zIndex:2200,background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",padding:18},onClick:()=>setBulutYedekModal(null)},
+            div({style:{background:"#fff",borderRadius:16,maxWidth:440,width:"100%",maxHeight:"80vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,.35)"},onClick:e=>e.stopPropagation()},
+              div({style:{padding:"18px 18px 12px",borderBottom:"1px solid #eee"}},
+                div({style:{fontSize:17,fontWeight:800,color:"#1D1D1F"}},"☁️ Bulut Yedekleri"),
+                div({style:{fontSize:12,color:"#888",marginTop:4,lineHeight:1.4}},"Bu yedekler bulutta saklanır ve kendiliğinden yüklenmez. Yalnızca seçip onayladığında geri gelir.")
+              ),
+              div({style:{flex:1,overflowY:"auto",padding:"12px 14px"}},
+                bulutYedekYukluyor
+                  ? div({style:{textAlign:"center",color:"#888",padding:30,fontSize:13}},"Yükleniyor…")
+                  : (bulutYedekModal.length===0
+                      ? div({style:{textAlign:"center",color:"#888",padding:30,fontSize:13}},"Henüz bulut yedeği yok.")
+                      : div({style:{display:"flex",flexDirection:"column",gap:8}},
+                          bulutYedekModal.map(y=>div({key:y.id,style:{border:"1px solid #e5e5ea",borderRadius:10,padding:"10px 12px",display:"flex",alignItems:"center",gap:10}},
+                            div({style:{flex:1,minWidth:0}},
+                              div({style:{fontSize:13.5,fontWeight:700,color:"#1D1D1F"}},new Date(y.tarih).toLocaleString("tr-TR")),
+                              div({style:{fontSize:11,color:"#888",marginTop:2}},(y.otomatik?"otomatik":"elle alındı"))
+                            ),
+                            btn({onClick:()=>{ if(confirm("Bu yedek ("+new Date(y.tarih).toLocaleString("tr-TR")+") mevcut verilerin ÜZERİNE yüklenecek (aynılar güncellenir, yeniler eklenir). Devam edilsin mi?")) bulutYedekGeriYukle(y.id); },
+                              style:{background:"linear-gradient(135deg,#1a5a30,#0e3a1a)",border:"none",borderRadius:8,color:"#50b880",fontSize:12.5,fontWeight:700,padding:"8px 12px",cursor:"pointer",whiteSpace:"nowrap"}},"♻️ Geri Yükle"),
+                            btn({onClick:()=>{ if(confirm("Bu bulut yedeği silinsin mi?")) bulutYedekSil(y.id); },
+                              style:{background:"#f6f6f8",border:"1px solid #e5e5ea",borderRadius:8,color:"#c0392b",fontSize:14,fontWeight:700,padding:"8px 10px",cursor:"pointer"}},"🗑")
+                          ))
+                        ))
+              ),
+              div({style:{padding:"12px 18px",borderTop:"1px solid #eee"}},
+                btn({onClick:()=>setBulutYedekModal(null),style:{width:"100%",padding:"11px 0",borderRadius:10,border:"1px solid #e5e5ea",background:"#f6f6f8",color:"#555",fontSize:13.5,fontWeight:700,cursor:"pointer"}},"Kapat")
+              )
+            )
           ),
           [
             // Listeler — belgeler/kayıtlar → lacivert
