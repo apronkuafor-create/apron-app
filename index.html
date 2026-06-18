@@ -8870,6 +8870,8 @@ function App() {
   const [devirBildirim, setDevirBildirim] = useState([]); // Personel↔Personel müşteri devralma bildirimleri
   const [yonBildirimMerkezi, setYonBildirimMerkezi] = useState([]); // Yöneticiye gelen tüm bildirimler (merkezi)
   const [bildirimAltSek, setBildirimAltSek] = useState("okunmamis"); // okunmamis | okunmus
+  const [bildirimSilMod, setBildirimSilMod] = useState(false); // bildirim seçerek silme modu
+  const [bildirimSecim, setBildirimSecim] = useState({}); // {id:true}
   // Mesajlaşma
   const [mesajlar, setMesajlar]           = useState([]);
   // Personel "Yeni Müşteri" formu (Müşterilerim sekmesinde)
@@ -10588,6 +10590,23 @@ if(DB) dbUpsertAyar("tema",tema);
     DB.from("yon_bildirim_merkezi").delete().eq("id",id).then(()=>{
       setYonBildirimMerkezi(p=>p.filter(b=>b.id!==id));
     }).catch(()=>{});
+  };
+
+  // Toplu bildirim silme — seçilen id'leri iki kaynaktan da temizler (merkez DB + personel-talep blob)
+  const yonBildirimlerSil = (ids) => {
+    const set = new Set((ids||[]).map(String));
+    if(set.size===0) return;
+    const merkezIds = (yonBildirimMerkezi||[]).filter(b=>set.has(String(b.id))).map(b=>b.id);
+    if(merkezIds.length){
+      if(DB) DB.from("yon_bildirim_merkezi").delete().in("id",merkezIds).then(()=>{}).catch(()=>{});
+      setYonBildirimMerkezi(p=>p.filter(b=>!set.has(String(b.id))));
+    }
+    if((yonBildirim||[]).some(b=>set.has(String(b.id)))){
+      setYonBildirim(p=>p.filter(b=>!set.has(String(b.id))));
+    }
+    setBildirimSecim({});
+    setBildirimSilMod(false);
+    showToast(set.size+" bildirim silindi","uy");
   };
 
   // Otomatik bildirim üretici — bekleyen onay sayısı arttığında yönetici bildirim merkezine düşür
@@ -13726,6 +13745,9 @@ if(DB) dbUpsertAyar("tema",tema);
           const okunmamisListe = tumBildirimler.filter(b=>!b.okundu);
           const okunmusListe = tumBildirimler.filter(b=>b.okundu);
           const aktifListe = bildirimAltSek==="bildirim" ? [...okunmamisListe,...okunmusListe] : bildirimAltSek==="okunmus" ? okunmusListe : okunmamisListe;
+          const silinebilirListe = aktifListe.filter(b=>!b.sentetik); // sentetik (sağlama) uyarısı silinemez
+          const seciliSil = Object.keys(bildirimSecim).filter(id=>bildirimSecim[id]);
+          const hepsiSecili = silinebilirListe.length>0 && silinebilirListe.every(b=>bildirimSecim[b.id]);
 
           const trh = (iso) => {
             if(!iso) return "";
@@ -13752,12 +13774,42 @@ if(DB) dbUpsertAyar("tema",tema);
 
 
             // Başlık satırı
-            div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,paddingTop:6}},
+            div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,paddingTop:6,flexWrap:"wrap",gap:8}},
               div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,color:"var(--g)",fontWeight:600}},"🔔 Bildirimler"),
-              okunmamisListe.length>0 && btn({style:{
-                background:"rgba(0,113,227,.08)",border:"1px solid rgba(0,113,227,.2)",
-                borderRadius:8,color:"var(--g)",fontSize:12,padding:"6px 12px",cursor:"pointer",fontWeight:600
-              },onClick:yonBildirimTumOkundu},"Tümünü Okundu Yap")
+              bildirimSilMod
+                ? btn({style:{
+                    background:"rgba(0,0,0,.05)",border:"1px solid rgba(0,0,0,.15)",
+                    borderRadius:8,color:"var(--tx)",fontSize:12,padding:"6px 12px",cursor:"pointer",fontWeight:600
+                  },onClick:()=>{ setBildirimSilMod(false); setBildirimSecim({}); }},"Vazgeç")
+                : div({style:{display:"flex",gap:8}},
+                    okunmamisListe.length>0 && btn({style:{
+                      background:"rgba(0,113,227,.08)",border:"1px solid rgba(0,113,227,.2)",
+                      borderRadius:8,color:"var(--g)",fontSize:12,padding:"6px 12px",cursor:"pointer",fontWeight:600
+                    },onClick:yonBildirimTumOkundu},"Tümünü Okundu Yap"),
+                    silinebilirListe.length>0 && btn({style:{
+                      background:"rgba(224,96,96,.08)",border:"1px solid rgba(224,96,96,.25)",
+                      borderRadius:8,color:"#e06060",fontSize:12,padding:"6px 12px",cursor:"pointer",fontWeight:600
+                    },onClick:()=>{ setBildirimSilMod(true); setBildirimSecim({}); }},"🗑 Bildirimleri Sil")
+                  )
+            ),
+
+            // Silme modu araç çubuğu — Tümünü Seç / N seçili / Seçilenleri Sil
+            bildirimSilMod && div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:12,padding:"10px 12px",background:"rgba(224,96,96,.06)",border:"1px solid rgba(224,96,96,.2)",borderRadius:10,flexWrap:"wrap"}},
+              btn({style:{background:"#fff",border:"1px solid rgba(0,0,0,.15)",borderRadius:8,color:"var(--tx)",fontSize:12,padding:"6px 12px",cursor:"pointer",fontWeight:600},
+                onClick:()=>{
+                  if(hepsiSecili){ setBildirimSecim({}); }
+                  else { const s={}; silinebilirListe.forEach(b=>{s[b.id]=true;}); setBildirimSecim(s); }
+                }}, hepsiSecili?"Seçimi Kaldır":"Tümünü Seç"),
+              h("span",{style:{fontSize:12,color:"var(--mu)",fontWeight:600}}, seciliSil.length+" / "+silinebilirListe.length+" seçili"),
+              h("span",{style:{flex:1}}),
+              btn({style:{
+                background:seciliSil.length>0?"#e06060":"rgba(224,96,96,.15)",
+                border:"none",borderRadius:8,color:"#fff",fontSize:12,padding:"7px 14px",
+                cursor:seciliSil.length>0?"pointer":"not-allowed",fontWeight:700,opacity:seciliSil.length>0?1:.6
+              },onClick:()=>{
+                if(seciliSil.length===0) return;
+                if(window.confirm(seciliSil.length+" bildirim silinecek. Emin misiniz?")) yonBildirimlerSil(seciliSil);
+              }},"🗑 Seçilenleri Sil ("+seciliSil.length+")")
             ),
 
             // 3 Alt Sekme — Bildirimler / Okunmamış / Okunmuş
@@ -13792,13 +13844,23 @@ if(DB) dbUpsertAyar("tema",tema);
                 )
               : div(null, aktifListe.map(b=>{
                   const r = renkGetir(b.tip);
-                  return div({key:b.id,style:{
-                    background:b.okundu?"#FBFBFD":r.bg,
-                    border:"1px solid "+(b.okundu?"rgba(0,0,0,.08)":r.border),
+                  const secilebilir = bildirimSilMod && !b.sentetik;
+                  const secili = !!bildirimSecim[b.id];
+                  return div({key:b.id,
+                    onClick: secilebilir ? ()=>setBildirimSecim(s=>({...s,[b.id]:!s[b.id]})) : undefined,
+                    style:{
+                    background:secili?"rgba(224,96,96,.10)":(b.okundu?"#FBFBFD":r.bg),
+                    border:"1px solid "+(secili?"#e06060":(b.okundu?"rgba(0,0,0,.08)":r.border)),
                     borderRadius:14,padding:"14px 15px",marginBottom:10,
                     boxShadow:"0 2px 8px rgba(0,0,0,.04)",
-                    position:"relative"
+                    position:"relative",
+                    cursor:secilebilir?"pointer":"default",
+                    opacity:(bildirimSilMod&&b.sentetik)?.55:1
                   }},
+                    bildirimSilMod && div({style:{position:"absolute",top:12,right:12,width:22,height:22,borderRadius:6,
+                      border:"2px solid "+(b.sentetik?"rgba(0,0,0,.15)":(secili?"#e06060":"rgba(0,0,0,.25)")),
+                      background:secili?"#e06060":"transparent",display:"flex",alignItems:"center",justifyContent:"center",
+                      color:"#fff",fontSize:13,fontWeight:700}}, b.sentetik?"🔒":(secili?"✓":"")),
                     div({style:{display:"flex",gap:10,alignItems:"flex-start"}},
                       div({style:{
                         width:40,height:40,borderRadius:12,
@@ -13813,7 +13875,7 @@ if(DB) dbUpsertAyar("tema",tema);
                       )
                     ),
                     // Aksiyon butonları
-                    div({style:{display:"flex",gap:8,marginTop:10,paddingTop:10,borderTop:"1px solid rgba(0,0,0,.05)"}},
+                    !bildirimSilMod && div({style:{display:"flex",gap:8,marginTop:10,paddingTop:10,borderTop:"1px solid rgba(0,0,0,.05)"}},
                       // Tipine göre yönlendirme butonu
                       b._personelTalep && !b.okundu && div({style:{display:"flex",gap:8,marginTop:4}},
                         btn({style:{flex:1,padding:8,borderRadius:8,border:"1px solid #1e5a48",background:"rgba(50,140,100,.12)",color:"var(--gr)",fontSize:12,fontWeight:700,cursor:"pointer"},
@@ -14241,6 +14303,10 @@ if(DB) dbUpsertAyar("tema",tema);
 
        asek==="kayitlar"&&div({style:{padding:"10px 12px 0"}},
 
+          // ── Başlık: Personel Panelleri ──
+          div({style:{fontSize:13,fontWeight:700,color:"var(--g)",letterSpacing:".3px",margin:"2px 2px 10px",display:"flex",alignItems:"center",gap:7}},
+            h("span",{style:{fontSize:15}},"🧑‍💼"),"Personel Panelleri"),
+
           // ── Personel adına kayıt: personel paneline şifresiz geç ──
           div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:14,marginBottom:14,boxShadow:"0 1px 6px rgba(0,0,0,.05)"}},
             div({style:{fontSize:14,fontWeight:700,color:"#1D1D1F",marginBottom:3}},"🧑‍💼 Personel Adına Kayıt"),
@@ -14263,6 +14329,10 @@ if(DB) dbUpsertAyar("tema",tema);
               );
             })()
           ),
+
+          // ── Başlık: Personel Kayıtları ──
+          div({style:{fontSize:13,fontWeight:700,color:"var(--g)",letterSpacing:".3px",margin:"20px 2px 10px",display:"flex",alignItems:"center",gap:7}},
+            h("span",{style:{fontSize:15}},"📋"),"Personel Kayıtları"),
 
           // Apple kırık beyaz gölgeli kutu — Sorgu Paneli
           div({style:{
