@@ -9620,12 +9620,19 @@ if(DB) dbUpsertAyar("tema",tema);
 
   const bulutYedekSil = async (id) => {
     if(!DB) return;
-    try{ await DB.from("yedekler").delete().eq("id",id); setBulutYedekModal(p=>(p||[]).filter(x=>x.id!==id)); if(typeof showToast==="function") showToast("Bulut yedeği silindi","ba"); }catch(e){}
+    try{
+      const {error} = await DB.from("yedekler").delete().eq("id",id);
+      if(error){ if(typeof showToast==="function") showToast("Silinemedi (izin?) — "+(error.message||""),"ha"); return; }
+      setBulutYedekModal(p=>(p||[]).filter(x=>x.id!==id));
+      if(typeof showToast==="function") showToast("Bulut yedeği silindi","ba");
+    }catch(e){ if(typeof showToast==="function") showToast("Silme hatası","ha"); }
   };
 
-  // Vakti gelmişse otomatik yedek (bulut + PC bağımsız; uygulama açıkken kontrol edilir)
+  // Vakti gelmişse otomatik yedek (bulut + PC bağımsız; uygulama açıkken bir kez kontrol edilir)
+  const otoYedekRef = useRef(false);
   useEffect(()=>{
     if(yukleniyor) return;
+    if(otoYedekRef.current) return; // bu oturumda en fazla bir kez — çift/tekrar yedeği önler
     const esikGun = s => s==="gunluk"?1 : s==="haftalik"?7 : s==="aylik"?30 : Infinity;
     const vaktiGeldi = (key, sik) => {
       if(sik==="kapali") return false;
@@ -9636,9 +9643,14 @@ if(DB) dbUpsertAyar("tema",tema);
     const bulutVakti = !!DB && vaktiGeldi("apron_yedek_son_bulut", yedekSiklikBulut);
     const pcVakti = vaktiGeldi("apron_yedek_son_pc", yedekSiklikPc);
     if(!bulutVakti && !pcVakti) return;
+    otoYedekRef.current = true; // tetiklendi — tekrar girmesin
+    // Tarihleri HEMEN ileri al (async yazım beklenmeden) — yarış sonucu oluşacak çift yedeği engeller
+    const now = new Date().toISOString();
+    if(bulutVakti){ try{ localStorage.setItem("apron_yedek_son_bulut", now); }catch(e){} }
+    if(pcVakti){ try{ localStorage.setItem("apron_yedek_son_pc", now); }catch(e){} }
     const t = setTimeout(()=>{ if(bulutVakti) bulutYedekAl(true); if(pcVakti) yedekAl(true); }, 2500);
     return ()=>clearTimeout(t);
-  },[yukleniyor,yedekSiklikBulut,yedekSiklikPc,records,stokPartiler]);
+  },[yukleniyor,yedekSiklikBulut,yedekSiklikPc]);
 
   // ── Oturum Persistance — sayfa yenilenince kullanıcı aynı sayfada devam etsin ──
   useEffect(()=>{
