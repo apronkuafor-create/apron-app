@@ -1610,7 +1610,7 @@ function HizmetMuhasebeOzet({tumK, personeller, pGruplar}){
   );
 }
 
-function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, onAnaPanel, onGeri, isletme, onKayitlarSil}){
+function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, onAnaPanel, onGeri, isletme, onKayitlarSil, onDevSil}){
   const seciliP = personeller.find(p=>p.id===muhAlt) || null;
   const [filAy, setFilAy] = React.useState("");
   const [filYil, setFilYil] = React.useState(new Date().getFullYear().toString());
@@ -1870,9 +1870,12 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
               style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid rgba(209,17,17,.3)",background:"rgba(209,17,17,.05)",color:"#d11",fontSize:13,fontWeight:700,cursor:"pointer"}},"🗑 Seçerek Sil"),
             h("button",{onClick:()=>{
                 const pk=(tumK||[]).filter(r=>seciliP&&(r.staffId===seciliP.id||r.staffAd===seciliP.ad)).map(r=>r.id);
-                if(pk.length===0){ window.alert("Bu personele ait silinecek kayıt yok."); return; }
-                if(window.confirm((seciliP?seciliP.ad:"Bu personel")+" adlı personelin TÜM hizmet kayıtları ("+pk.length+" adet) kalıcı olarak silinecek. Geri alınamaz. Emin misiniz?")){
-                  onKayitlarSil && onKayitlarSil(pk); setDetayTarih(null);
+                const devT=(satirlar||[]).filter(s=>s.tip==="devamsiz").map(s=>s.tarih);
+                if(pk.length===0 && devT.length===0){ window.alert("Bu personele ait silinecek kayıt yok."); return; }
+                if(window.confirm((seciliP?seciliP.ad:"Bu personel")+" adlı personelin listedeki TÜM kayıtları ("+pk.length+" hizmet kaydı"+(devT.length?" + "+devT.length+" durum kaydı":"")+") kalıcı olarak silinecek. Geri alınamaz. Emin misiniz?")){
+                  if(pk.length) onKayitlarSil && onKayitlarSil(pk);
+                  if(seciliP) onDevSil && onDevSil(seciliP.id, (satirlar||[]).map(s=>s.tarih));
+                  setDetayTarih(null);
                 }
               },style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid rgba(209,17,17,.35)",background:"rgba(209,17,17,.07)",color:"#d11",fontSize:13,fontWeight:700,cursor:"pointer"}},"🗑 Tümünü Sil")
           )
@@ -1886,11 +1889,13 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
               h("span",{style:{fontSize:12.5,fontWeight:700,color:secsay>0?"#d11":"var(--mu)"}},secsay+" gün seçili"),
               h("div",{style:{flex:1}}),
               h("button",{disabled:secsay===0,onClick:()=>{
-                  const ids=[];
-                  (satirlar||[]).forEach(s=>{ if(hmSecim[s.tarih]){ (s.kayitlar||[]).forEach(r=>{ if(r&&r.id) ids.push(r.id); }); } });
-                  if(ids.length===0){ window.alert("Seçili günlerde kayıt yok."); return; }
-                  if(window.confirm("Seçili "+secsay+" günün TÜM hizmet kayıtları ("+ids.length+" adet) kalıcı olarak silinecek. Geri alınamaz. Emin misiniz?")){
-                    onKayitlarSil && onKayitlarSil(ids); setHmSilMod(false); setHmSecim({}); setDetayTarih(null);
+                  const ids=[]; const tarihler=[];
+                  (satirlar||[]).forEach(s=>{ if(hmSecim[s.tarih]){ tarihler.push(s.tarih); (s.kayitlar||[]).forEach(r=>{ if(r&&r.id) ids.push(r.id); }); } });
+                  if(tarihler.length===0){ window.alert("Gün seçilmedi."); return; }
+                  if(window.confirm("Seçili "+secsay+" günün tüm kayıtları ("+ids.length+" hizmet kaydı + durum kayıtları) kalıcı olarak silinecek. Geri alınamaz. Emin misiniz?")){
+                    if(ids.length) onKayitlarSil && onKayitlarSil(ids);
+                    if(seciliP) onDevSil && onDevSil(seciliP.id, tarihler);
+                    setHmSilMod(false); setHmSecim({}); setDetayTarih(null);
                   }
                 },style:{background:secsay===0?"var(--bg3)":"linear-gradient(135deg,#FF453A,#C81E14)",border:"none",borderRadius:8,color:secsay===0?"var(--mu)":"#fff",fontSize:12.5,fontWeight:800,padding:"7px 14px",cursor:secsay===0?"default":"pointer"}},"🗑 Seçilenleri Sil"),
               h("button",{onClick:()=>{ setHmSilMod(false); setHmSecim({}); },
@@ -10397,6 +10402,15 @@ if(DB) dbUpsertAyar("tema",tema);
     showToast(set.size+" kayıt silindi","uy");
   };
 
+  // Devamsızlık (günlük durum) kayıtlarını sil — verilen personelin verilen tarihlerindeki kayıtları kaldırır
+  // (devDB anahtarı: tarih_staffId; bulutta devamsizliklar tablosu)
+  const devKayitlariSil = (staffId, tarihler) => {
+    if(!staffId || !tarihler || !tarihler.length) return;
+    const tlist = Array.from(new Set(tarihler.map(String)));
+    setDevDB(p=>{ const y={...p}; tlist.forEach(t=>{ delete y[t+"_"+staffId]; }); return y; });
+    if(DB){ tlist.forEach(t=>{ DB.from("devamsizliklar").delete().eq("staff_id",staffId).eq("tarih",t).then(()=>{}).catch(()=>{}); }); }
+  };
+
   // Yonetici dogrudan siler + ilgili personele bilgi bildirimi gonderir
   const yonKayitSil = (r) => {
     if(!r) return;
@@ -14058,7 +14072,7 @@ if(DB) dbUpsertAyar("tema",tema);
 
             // Hizmet Satışları — personel seçildi (ID geldi)
             muhSek==="hizmetMuhasebe"&&muhAlt&&muhAlt!=="hizmetOzet"&&muhAlt!=="hizmetSatislari"&&h(HizmetMuhasebe,{
-              tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, isletme, onKayitlarSil:kayitlarSil,
+              tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, isletme, onKayitlarSil:kayitlarSil, onDevSil:devKayitlariSil,
               onAnaPanel:()=>{ setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); setMuhSek(""); setMuhAlt(""); setMuhAltAcik(""); setHesapFull(false); setVergiFull(false); },
               onGeri:()=>{ setMuhAlt("hizmetSatislari"); setMuhAltAcik("hizmetSatislari"); }
             }),
