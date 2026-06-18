@@ -8637,6 +8637,7 @@ function App() {
   const [ekran, setEkran]             = useState("login");
   const [panelSec, setPanelSec]       = useState(false); // her iki role sahip kullanıcı için
   const [kul, setKul]                 = useState(null);
+  const [yoneticiAslinda, setYoneticiAslinda] = useState(null); // yönetici personel paneline geçtiğinde gerçek yöneticiyi tutar
   const [records, setRecords]         = useState([]);
   const [bekleyen, setBekleyen]       = useState([]);
   const [musteriDB, setMusteriDB]     = useState([]);
@@ -9621,18 +9622,29 @@ if(DB) dbUpsertAyar("tema",tema);
     if(yukleniyor) return;
     try {
       if(kul){
-        localStorage.setItem("apron_session", JSON.stringify({
-          kul, ekran,
-          panelAdim, panelAltSek, asek,
-          muhSek, muhAlt, muhAltAcik,
-          psek, aySek, ayListeSek,
-          hesapFull, vergiFull
-        }));
+        if(yoneticiAslinda){
+          // Geçiş modunda: oturuma gerçek yöneticiyi yaz; yenilenince yönetici paneli açılır (geçiş sona erer)
+          localStorage.setItem("apron_session", JSON.stringify({
+            kul:yoneticiAslinda, ekran:"yonetici",
+            panelAdim:"ana", panelAltSek:"", asek:"",
+            muhSek:"", muhAlt:"", muhAltAcik:"",
+            psek:"", aySek:"", ayListeSek:"",
+            hesapFull:false, vergiFull:false
+          }));
+        } else {
+          localStorage.setItem("apron_session", JSON.stringify({
+            kul, ekran,
+            panelAdim, panelAltSek, asek,
+            muhSek, muhAlt, muhAltAcik,
+            psek, aySek, ayListeSek,
+            hesapFull, vergiFull
+          }));
+        }
       } else {
         localStorage.removeItem("apron_session");
       }
     } catch(e){}
-  }, [kul, ekran, panelAdim, panelAltSek, asek, muhSek, muhAlt, muhAltAcik, psek, aySek, ayListeSek, hesapFull, vergiFull, yukleniyor]);
+  }, [kul, ekran, panelAdim, panelAltSek, asek, muhSek, muhAlt, muhAltAcik, psek, aySek, ayListeSek, hesapFull, vergiFull, yukleniyor, yoneticiAslinda]);
 
   // Ay başı gecmis temizle
   useEffect(()=>{
@@ -9995,6 +10007,27 @@ if(DB) dbUpsertAyar("tema",tema);
   };
 
   const cikis = async () => { setCikisSecenek(false); setKul(null); setEkran("login"); setKayitForm(null); setDetay(null); try{ localStorage.removeItem("apron_session"); }catch(e){} if(DB) { try { await DB.auth.signOut(); } catch(e){} } };
+
+  // Yönetici → personel paneline şifresiz geçiş (yalnızca yönetici yapabilir)
+  const personelGecisYap = (p) => {
+    if(!p) return;
+    if(!(kul && kul.rol==="yonetici")) { showToast("Bu işlem yalnızca yöneticiye açıktır","uy"); return; }
+    setYoneticiAslinda(kul);            // gerçek yöneticiyi hatırla
+    setKayitForm(null); setDetay(null);
+    setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); setMuhSek(""); setMuhAlt(""); setMuhAltAcik("");
+    setKul(p);                          // o personel olarak davran
+    setEkran("personel");               // personel panelini aç
+    showToast(p.ad+" paneline geçildi","ba");
+  };
+  const yoneticiyeDon = () => {
+    if(!yoneticiAslinda) return;
+    setKayitForm(null); setDetay(null);
+    setAsek(""); setPanelAdim("ana"); setPanelAltSek("");
+    setKul(yoneticiAslinda);
+    setEkran("yonetici");
+    setYoneticiAslinda(null);
+    showToast("Yönetici paneline dönüldü","ba");
+  };
 
   const devKaydet = () => {
     if(!devSec) return;
@@ -11186,6 +11219,14 @@ if(DB) dbUpsertAyar("tema",tema);
     // ── LOGIN ──
     // Panel seçim ekranı (hem personel hem yönetici olanlar için)
 
+
+    yoneticiAslinda && kul && div({onClick:yoneticiyeDon,style:{position:"fixed",bottom:18,left:"50%",transform:"translateX(-50%)",zIndex:6000,
+      background:"linear-gradient(135deg,#1e8a50,#0e3a1a)",color:"#fff",padding:"11px 18px",borderRadius:999,
+      display:"flex",alignItems:"center",gap:12,fontSize:13.5,fontWeight:700,cursor:"pointer",
+      boxShadow:"0 8px 28px rgba(0,0,0,.35)",maxWidth:"92vw"}},
+      span({style:{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},"👤 "+(kul.ad||"")+" adına giriş yapıldı"),
+      span({style:{background:"#fff",color:"#0e3a1a",borderRadius:999,padding:"5px 12px",fontWeight:800,whiteSpace:"nowrap"}},"↩ Yönetici'ye dön")
+    ),
 
     !yukleniyor&&ekran==="login"&&div({className:"login-bg"},
       // Logo
@@ -14163,6 +14204,29 @@ if(DB) dbUpsertAyar("tema",tema);
 
 
        asek==="kayitlar"&&div({style:{padding:"10px 12px 0"}},
+
+          // ── Personel adına kayıt: personel paneline şifresiz geç ──
+          div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:14,marginBottom:14,boxShadow:"0 1px 6px rgba(0,0,0,.05)"}},
+            div({style:{fontSize:14,fontWeight:700,color:"#1D1D1F",marginBottom:3}},"🧑‍💼 Personel Adına Kayıt"),
+            div({style:{fontSize:11.5,color:"#888",marginBottom:12,lineHeight:1.45}},"Bir personel seç; şifre girmeden onun paneline geçersin ve tıpkı kendisi gibi kayıt girip gün sonu gönderebilirsin. İşin bitince ekrandaki “Yönetici’ye dön” ile geri çıkarsın."),
+            (()=>{
+              const liste=(personeller||[]).filter(p=>p.aktif && p.rol!=="yonetici");
+              if(liste.length===0) return div({style:{fontSize:12.5,color:"var(--mu)"}},"Kayıt girilebilecek aktif personel yok.");
+              return div({style:{display:"flex",flexDirection:"column",gap:8}},
+                liste.map(p=>div({key:p.id,onClick:()=>personelGecisYap(p),style:{
+                  display:"flex",alignItems:"center",gap:12,
+                  background:"#f6f6f8",border:"1px solid rgba(0,0,0,.06)",borderRadius:12,padding:"11px 13px",cursor:"pointer"
+                }},
+                  div({style:{width:38,height:38,borderRadius:12,background:"linear-gradient(135deg,#5856D6,#3634A3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,color:"#fff",fontWeight:700,flexShrink:0}},(p.ad||"?").charAt(0).toUpperCase()),
+                  div({style:{flex:1,minWidth:0}},
+                    div({style:{fontSize:14.5,fontWeight:600,color:"#1D1D1F"}},p.ad),
+                    div({style:{fontSize:11.5,color:"var(--mu)",marginTop:1}},p.rol==="personel"?"Personel":(p.rol||""))
+                  ),
+                  span({style:{fontSize:12.5,fontWeight:700,color:"#1e8a50",whiteSpace:"nowrap"}},"Panele geç →")
+                ))
+              );
+            })()
+          ),
 
           // Apple kırık beyaz gölgeli kutu — Sorgu Paneli
           div({style:{
