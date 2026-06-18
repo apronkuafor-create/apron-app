@@ -382,10 +382,26 @@ const _ayarYazimImza = (id, s) => {
   while(arr.length>30) arr.shift();
 };
 const _ayarYakinYazim = (id, s) => s!==null && (_ayarSigGec[id]||[]).includes(s);
-const dbUpsertAyar = (id, deger) => {
+const _ayarYaz = (id, deger) => {
   _ayarYazimImza(id, _ayarImza(deger));
   return dbUpsert("ayarlar",{id, deger},"id");
 };
+// Aynı ayara hızlı ardışık yazımları topla; yalnızca son değeri buluta yaz (egress + realtime tasarrufu).
+// Yerel kayıt zaten anında yapılıyor; bulut yazımının ~1.5sn gecikmesi veri kaybettirmez.
+const _ayarDebounce = {};
+const _AYAR_GECIKME = 1500;
+const dbUpsertAyar = (id, deger) => {
+  const ent = _ayarDebounce[id] || (_ayarDebounce[id] = {});
+  ent.deger = deger;
+  if(ent.timer) clearTimeout(ent.timer);
+  ent.timer = setTimeout(()=>{ ent.timer=null; _ayarYaz(id, ent.deger); }, _AYAR_GECIKME);
+};
+// Bekleyen ayar yazımlarını hemen gönder (kapanış / arka plana alınma öncesi — veri kaybını önler)
+const ayarFlush = () => { try { Object.keys(_ayarDebounce).forEach(id=>{ const e=_ayarDebounce[id]; if(e&&e.timer){ clearTimeout(e.timer); e.timer=null; _ayarYaz(id, e.deger); } }); } catch(e){} };
+try {
+  window.addEventListener("beforeunload", ayarFlush);
+  document.addEventListener("visibilitychange", ()=>{ if(document.hidden) ayarFlush(); });
+} catch(e){}
 const mapR = r => ({
   id:r.id, staffId:r.staff_id, staffAd:r.staff_name,
   musteri:r.musteri, tel:r.telefon||"",
