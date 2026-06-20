@@ -9357,6 +9357,7 @@ function App() {
   // ── Yönetici Kayıtlar Sekmesi — Sorgu Paneli State'leri ──
   const [kayitPanelAcik, setKayitPanelAcik] = useState(true);
   const [kayitPanelPersonel, setKayitPanelPersonel] = useState("");
+  const [kayitlarAlt, setKayitlarAlt] = useState(""); // Kayıtlar sekmesi alt-menü: "" | "paneller" | "kayitlar"
   const [kayitPanelMusteriAd, setKayitPanelMusteriAd] = useState("");
   const [kayitPanelMusteriTel, setKayitPanelMusteriTel] = useState("");
   const [kayitPanelTarihBas, setKayitPanelTarihBas] = useState("");
@@ -11185,7 +11186,7 @@ if(DB) dbUpsertAyar("tema",tema);
       return segs;
     }
     // Kayıtlar
-    if(asek==="kayitlar"||panelAdim==="kayitlar"){ segs.push({label:"Kayıtlar"}); return segs; }
+    if(asek==="kayitlar"||panelAdim==="kayitlar"){ segs.push({label:"Kayıtlar"}); if(kayitlarAlt==="paneller") segs.push({label:"Personel Panelleri"}); else if(kayitlarAlt==="kayitlar") segs.push({label:"Personel Kayıtları"}); return segs; }
     // Bildirimler
     if(panelAdim==="bildirimler"){ segs.push({label:"Bildirimler"}); return segs; }
     // Ana panelAdim'lere göre
@@ -13905,7 +13906,8 @@ if(DB) dbUpsertAyar("tema",tema);
                 setAsek(""); setPanelAdim("muhasebe"); setPanelAltSek("");
               }
             } else if(asek==="kayitlar"){
-              setAsek(""); setPanelAdim("ana"); setPanelAltSek("");
+              if(kayitlarAlt){ setKayitlarAlt(""); }
+              else { setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); }
             } else if(asek==="ayarlar"){
               if(ayListeSek){ setAyListeSek(""); setAsek(""); }
               else if(aySek){ setAySek(""); setAsek(""); setPanelAdim("ayarlar"); setPanelAltSek("");
@@ -13962,7 +13964,7 @@ if(DB) dbUpsertAyar("tema",tema);
             ),
 
             // KART: Kayıtlar
-            div({onClick:()=>{ setPanelAdim("kayitlar"); setAsek("kayitlar"); },style:{
+            div({onClick:()=>{ setPanelAdim("kayitlar"); setAsek("kayitlar"); setKayitlarAlt(""); },style:{
               background:"linear-gradient(160deg,#EAFFF2,#D4F7E3)",
               border:"1.5px solid rgba(52,199,89,.18)",
               borderRadius:20,padding:"22px 8px 18px",
@@ -14393,7 +14395,7 @@ if(DB) dbUpsertAyar("tema",tema);
                         borderRadius:8,color:"var(--g)",fontSize:12,padding:"7px 10px",cursor:"pointer",fontWeight:600
                       },onClick:()=>{
                         yonBildirimOkundu(b.id);
-                        setAsek("kayitlar"); setPanelAdim("kayitlar");
+                        setAsek("kayitlar"); setPanelAdim("kayitlar"); setKayitlarAlt("");
                       }},"Onaylara Git →"),
                       b.tip==="hesap_saglama" && btn({style:{
                         flex:1,background:"rgba(224,96,96,.08)",border:"1px solid rgba(224,96,96,.2)",
@@ -14785,9 +14787,25 @@ if(DB) dbUpsertAyar("tema",tema);
 
        asek==="kayitlar"&&div({style:{padding:"10px 12px 0"}},
 
-          // ── Başlık: Personel Panelleri ──
-          div({style:{fontSize:13,fontWeight:700,color:"var(--g)",letterSpacing:".3px",margin:"2px 2px 10px",display:"flex",alignItems:"center",gap:7}},
-            h("span",{style:{fontSize:15}},"🧑‍💼"),"Personel Panelleri"),
+          // ── İki kart menüsü (başlıklar artık tıklanabilir kart) ──
+          kayitlarAlt===""&&div({style:{display:"flex",flexDirection:"column",gap:10,marginTop:4}},
+            [["🧑‍💼","Personel Panelleri","Personele şifresiz geçip onun adına kayıt gir","paneller","#5856D6"],
+             ["📋","Personel Kayıtları","Kayıtları sorgula; müşteri / personel bazında raporla","kayitlar","#0071E3"]].map(([ikon,bsl,aciklama,id,renk])=>
+              div({key:id,onClick:()=>setKayitlarAlt(id),style:{
+                background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderLeft:"4px solid "+renk,borderRadius:14,
+                padding:"15px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:13,boxShadow:"0 1px 6px rgba(0,0,0,.05)"}},
+                div({style:{width:44,height:44,borderRadius:12,background:renk+"1a",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}},ikon),
+                div({style:{flex:1,minWidth:0}},
+                  div({style:{fontSize:15,fontWeight:700,color:"#1D1D1F"}},bsl),
+                  div({style:{fontSize:12,color:"#888",marginTop:2,lineHeight:1.4}},aciklama)
+                ),
+                span({style:{fontSize:20,color:"#c0c0c5",flexShrink:0}},"›")
+              )
+            )
+          ),
+
+          // ── Bölüm 1: Personel Panelleri ──
+          kayitlarAlt==="paneller"&&div(null,
 
           // ── Personel adına kayıt: personel paneline şifresiz geç ──
           div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:14,marginBottom:14,boxShadow:"0 1px 6px rgba(0,0,0,.05)"}},
@@ -14811,10 +14829,10 @@ if(DB) dbUpsertAyar("tema",tema);
               );
             })()
           ),
+          ),
 
-          // ── Başlık: Personel Kayıtları ──
-          div({style:{fontSize:13,fontWeight:700,color:"var(--g)",letterSpacing:".3px",margin:"20px 2px 10px",display:"flex",alignItems:"center",gap:7}},
-            h("span",{style:{fontSize:15}},"📋"),"Personel Kayıtları"),
+          // ── Bölüm 2: Personel Kayıtları ──
+          kayitlarAlt==="kayitlar"&&div(null,
 
           // Apple kırık beyaz gölgeli kutu — Sorgu Paneli
           div({style:{
@@ -15143,6 +15161,8 @@ if(DB) dbUpsertAyar("tema",tema);
 
           // Personelden gelen düzenleme/silme talepleri ve Reddedilen değişiklikler
           // → Bildirimler sekmesine taşındı (Yönetici Paneli → Bildirimler)
+
+          ),
 
         ),
 
