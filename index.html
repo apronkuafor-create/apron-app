@@ -252,7 +252,7 @@ const localSnapshotHazirla = (d, seviye=0) => {
     personeller: d.personeller||[],
     devDB: d.devDB||{},
     stokPartiler: sonListe(d.stokPartiler, seviye>=1 ? 1200 : 3000),
-    hatirlatmalar: sonListe(d.hatirlatmalar, 200),
+    hatirlatmalar: sonListe(d.hatirlatmalar, 2000),
     randevular: sonListe(d.randevular, 500),
     tedarikciler: sonListe(d.tedarikciler, 500),
     faturalar: sonListe(d.faturalar, seviye>=1 ? 500 : 1200),
@@ -6165,12 +6165,16 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
         gonderiTarih:gonTarih.toISOString().split("T")[0],
         gonderildi:false,
         tip:"sacKesimi",
-        mesaj:"Merhaba "+musteri+"! Saç kesiminizin üzerinden 20 gün geçti, yenileme zamanı geldi. Randevu için bizi arayabilirsiniz. 💈"
+        mesaj:"Merhaba "+musteri+"! Saç kesiminizin üzerinden 20 gün geçti, yenileme zamanı geldi. Randevu için bizi arayabilirsiniz. 💈",
+        olusturma:Date.now()
       };
       setHatirlatmalar(p=>{
+        // Aynı müşterinin gönderilmemiş eski hatırlatmasını buluttan da temizle (mükerrer engelleme)
+        p.filter(h=>normText(h.musteriAd)===normText(musteri) && !h.gonderildi && h.id!==hatId).forEach(h=>dbSil("hatirlatmalar",h.id));
         const filtre = p.filter(h=>!(normText(h.musteriAd)===normText(musteri) && !h.gonderildi));
         return [...filtre, yeniHat];
       });
+      dbUpsert("hatirlatmalar", yeniHat, "id"); // ☁ buluta kalıcı yaz
     }
     onKaydet({id:ilk?.id,musteri,tel,
       anaPersonelId:anaPersonelId||ilk?.anaPersonelId||"",
@@ -6469,7 +6473,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
               ),
               div({style:{display:"flex",flexDirection:"column",gap:8}},
                 btn({style:{padding:"10px 0",borderRadius:8,border:"1px solid rgba(37,99,168,.4)",background:"rgba(37,99,168,.12)",color:"var(--g)",fontSize:14,fontWeight:600,cursor:"pointer",textAlign:"center"},
-                  onClick:()=>{setHatirlatmalar(p=>p.filter(x=>x.id!==mevcutHatirlatma.id));setHatirlatmaUyari(false);setMevcutHatirlatma(null);setHatirlatmaSec(true);}},"🔄 Eskiyi Sil ve Yeni Hatırlatma Oluştur"),
+                  onClick:()=>{if(mevcutHatirlatma&&mevcutHatirlatma.id)dbSil("hatirlatmalar",mevcutHatirlatma.id);setHatirlatmalar(p=>p.filter(x=>x.id!==mevcutHatirlatma.id));setHatirlatmaUyari(false);setMevcutHatirlatma(null);setHatirlatmaSec(true);}},"🔄 Eskiyi Sil ve Yeni Hatırlatma Oluştur"),
                 btn({style:{padding:"10px 0",borderRadius:8,border:"1px solid var(--br)",background:"transparent",color:"var(--mu)",fontSize:14,cursor:"pointer",textAlign:"center"},
                   onClick:()=>{setHatirlatmaUyari(false);setMevcutHatirlatma(null);setHatirlatmaSec(false);}},"❌ Hatırlatmadan Vazgeç")
               )
@@ -9774,6 +9778,44 @@ if(DB) dbUpsertAyar("tema",tema);
     }
   },[]);
 
+  // ── Müşteri Hatırlatmaları (hatirlatmalar) - Supabase'den yükle + realtime + yereli buluta taşı ──
+  useEffect(()=>{
+    if(!DB) return;
+    const yukle = () => DB.from("hatirlatmalar").select("*").then(({data,error})=>{
+      if(error || !data) return;
+      setHatirlatmalar(prev=>{
+        const m={};
+        (prev||[]).forEach(h=>{ if(h&&h.id!=null) m[String(h.id)]=h; });
+        const bulutId=new Set(data.map(h=>String(h.id)));
+        data.forEach(h=>{ if(h&&h.id!=null) m[String(h.id)]=h; });
+        // Bulutta olmayan yerel hatırlatmaları buluta taşı (tek seferlik geçiş)
+        (prev||[]).forEach(h=>{ if(h&&h.id!=null && !bulutId.has(String(h.id))) dbUpsert("hatirlatmalar",h,"id"); });
+        return Object.values(m);
+      });
+    }).catch(()=>{});
+    yukle();
+    let interval=null;
+    try {
+      const ch = DB.channel("hatirlatmalar_ch")
+        .on("postgres_changes",{event:"INSERT",schema:"public",table:"hatirlatmalar"},payload=>{
+          setHatirlatmalar(p=>[...(p||[]).filter(h=>String(h.id)!==String(payload.new.id)),payload.new]);
+        })
+        .on("postgres_changes",{event:"UPDATE",schema:"public",table:"hatirlatmalar"},payload=>{
+          setHatirlatmalar(p=>(p||[]).map(h=>String(h.id)===String(payload.new.id)?payload.new:h));
+        })
+        .on("postgres_changes",{event:"DELETE",schema:"public",table:"hatirlatmalar"},payload=>{
+          setHatirlatmalar(p=>(p||[]).filter(h=>String(h.id)!==String(payload.old.id)));
+        })
+        .subscribe((status,err)=>{
+          if(err || status==="CHANNEL_ERROR" || status==="TIMED_OUT"){ DB.removeChannel(ch); interval=setInterval(yukle,15000); }
+        });
+      return ()=>{ try{ DB.removeChannel(ch); }catch(e){} if(interval) clearInterval(interval); };
+    } catch(e){
+      interval=setInterval(yukle,15000);
+      return ()=>{ if(interval) clearInterval(interval); };
+    }
+  },[]);
+
   // ── GENEL REALTIME — kayitlar, ayarlar, musteriler, devamsizliklar ──
   // Diğer cihazlardan veya oturumlardan gelen değişiklikler anında yansısın.
   useEffect(()=>{
@@ -12423,6 +12465,7 @@ if(DB) dbUpsertAyar("tema",tema);
                           const fmt2=raw.startsWith("90")?raw:raw.startsWith("0")?"90"+raw.slice(1):"90"+raw;
                           window.open("https://wa.me/"+fmt2+"?text="+encodeURIComponent(h2.mesaj),"_blank");
                           setHatirlatmalar(p=>p.map(x=>x.id===h2.id?{...x,gonderildi:true,gonderildiTarih:TODAY()}:x));
+                          dbUpsert("hatirlatmalar",{...h2,gonderildi:true,gonderildiTarih:TODAY()},"id");
                         }},
                         h("span",{style:{fontSize:16}},""),
                         "WhatsApp Gönder")
@@ -12432,7 +12475,7 @@ if(DB) dbUpsertAyar("tema",tema);
                   btn({style:{padding:"9px 12px",borderRadius:8,
                     background:"transparent",border:"1px solid var(--br)",
                     color:"var(--di)",fontSize:13,cursor:"pointer"},
-                    onClick:()=>setHatirlatmalar(p=>p.map(x=>x.id===h2.id?{...x,gonderildi:true,gonderildiTarih:TODAY()}:x))},
+                    onClick:()=>{setHatirlatmalar(p=>p.map(x=>x.id===h2.id?{...x,gonderildi:true,gonderildiTarih:TODAY()}:x));dbUpsert("hatirlatmalar",{...h2,gonderildi:true,gonderildiTarih:TODAY()},"id");}},
                     "Atla")
                 )
               )
