@@ -5827,6 +5827,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [hatirlatmaSec, setHatirlatmaSec] = useState(false);
   const [mevcutHatirlatma, setMevcutHatirlatma] = useState(null);
   const [hatirlatmaUyari, setHatirlatmaUyari] = useState(false);
+  const [hatirlatmaGun, setHatirlatmaGun] = useState("20"); // kaç gün sonra gönderilsin (öneri 20, personel değiştirir)
   const [hizler,   setHizler]   = useState(
     ilk?.hizler?.length
       ? (()=>{ const arr = ilk.hizler.map(normalizeIlkHizmet);
@@ -6152,8 +6153,9 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
     });
     // Hatırlatma oluştur
     if(hatirlatmaSec && setHatirlatmalar) {
+      const gunSayisi = Math.max(1, parseInt(hatirlatmaGun)||20);
       const gonTarih = new Date();
-      gonTarih.setDate(gonTarih.getDate()+20);
+      gonTarih.setDate(gonTarih.getDate()+gunSayisi);
       const hatId = uid();
       const yeniHat = {
         id:hatId,
@@ -6165,7 +6167,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
         gonderiTarih:gonTarih.toISOString().split("T")[0],
         gonderildi:false,
         tip:"sacKesimi",
-        mesaj:"Merhaba "+musteri+"! Saç kesiminizin üzerinden 20 gün geçti, yenileme zamanı geldi. Randevu için bizi arayabilirsiniz. 💈",
+        mesaj:"Merhaba "+musteri+"! Saç kesiminizin üzerinden "+gunSayisi+" gün geçti, yenileme zamanı geldi. Randevu için bizi arayabilirsiniz. 💈",
         olusturma:Date.now()
       };
       setHatirlatmalar(p=>{
@@ -6440,10 +6442,24 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
             ),
             div({style:{flex:1}},
               div({style:{fontSize:14,fontWeight:600,letterSpacing:"-.1px",color:hatirlatmaSec?"#1a4d8f":"#2d3748"}},"Saç Kesimi Hatırlatması"),
-              div({style:{fontSize:12,color:hatirlatmaSec?"#4a7ab5":"#718096",marginTop:2}},"20 gün sonra otomatik hatırlatma planla")
+              div({style:{fontSize:12,color:hatirlatmaSec?"#4a7ab5":"#718096",marginTop:2}},(Math.max(1,parseInt(hatirlatmaGun)||20))+" gün sonra otomatik hatırlatma planla")
             )
           ),
           hatirlatmaSec&&div({style:{padding:"11px 14px 13px",background:"rgba(240,245,255,.9)",borderTop:"1px solid rgba(37,99,168,.10)"}},
+            // Kaç gün sonra? — öneri 20, personel değiştirir
+            div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:11,paddingBottom:11,borderBottom:"1px solid rgba(37,99,168,.12)"}},
+              div({style:{fontSize:13,fontWeight:600,color:"#1a4d8f",letterSpacing:"-.1px"}},"Kaç gün sonra gönderilsin?"),
+              div({style:{display:"flex",alignItems:"center",gap:5}},
+                btn({type:"button",style:{width:30,height:30,borderRadius:8,background:"#fff",border:"1px solid rgba(37,99,168,.3)",color:"#2563A8",fontSize:18,lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0},
+                  onClick:(e)=>{e.preventDefault();setHatirlatmaGun(g=>String(Math.max(1,(parseInt(g)||20)-1)));}},"−"),
+                h("input",{type:"number",min:1,value:hatirlatmaGun,
+                  style:{width:54,background:"#fff",border:"1px solid rgba(37,99,168,.3)",borderRadius:8,color:"#1a4d8f",fontSize:15,fontWeight:700,padding:"5px 4px",textAlign:"center",outline:"none"},
+                  onChange:e=>setHatirlatmaGun(e.target.value.replace(/[^0-9]/g,""))}),
+                btn({type:"button",style:{width:30,height:30,borderRadius:8,background:"#fff",border:"1px solid rgba(37,99,168,.3)",color:"#2563A8",fontSize:18,lineHeight:1,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0},
+                  onClick:(e)=>{e.preventDefault();setHatirlatmaGun(g=>String((parseInt(g)||20)+1));}},"+"),
+                div({style:{fontSize:12,color:"#4a7ab5",marginLeft:2}},"gün")
+              )
+            ),
             div({style:{display:"flex",alignItems:"center",gap:10}},
               div({style:{width:34,height:34,borderRadius:8,flexShrink:0,background:"rgba(37,99,168,.10)",display:"flex",alignItems:"center",justifyContent:"center"}},
                 h("svg",{width:17,height:17,viewBox:"0 0 24 24",fill:"none",stroke:"#2563A8",strokeWidth:2,strokeLinecap:"round",strokeLinejoin:"round"},
@@ -6456,7 +6472,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
               div({},
                 div({style:{fontSize:13,fontWeight:600,color:"#1a4d8f",letterSpacing:"-.1px"}},"Hatırlatma Planlandı"),
                 div({style:{fontSize:12,color:"#4a7ab5",marginTop:2}},
-                  (()=>{const d=new Date();d.setDate(d.getDate()+20);return d.toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric"});})()+" — WhatsApp bildirimi")
+                  (()=>{const d=new Date();d.setDate(d.getDate()+(Math.max(1,parseInt(hatirlatmaGun)||20)));return d.toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric"});})()+" — WhatsApp bildirimi")
               )
             )
           ),
@@ -9233,6 +9249,7 @@ function App() {
   const [oduncler, setOduncler]           = useState([]); // [{id,komsuId,komsuAd,barkod,urunAd,miktar,tarih,notlar,geriAlindi,geriAlindiTarih}]
   const [komsular, setKomsular]           = useState([]); // [{id,ad,tel,adres}] // [{id,musteriAd,tel,staffId,tarih,gonderiTarih,gonderildi,tip}]
   const [kullanimlar, setKullanimlar]     = useState([]); // işyeri kullanımı [{id,barkod,urunAd,marka,miktar,tarih,notlar}]
+  const [hatYaklasanAcik, setHatYaklasanAcik] = useState(false); // Müşterilerim özetinde "Yaklaşan" listesini aç/kapat
   const [stokSek, setStokSek]         = useState("liste"); // liste|giris|hareketler
   const [pDetay, setPDetay]           = useState(null);
   const [pGruplar, setPGruplar]       = useState([
@@ -12441,6 +12458,38 @@ if(DB) dbUpsertAyar("tema",tema);
               return null;
             })
           ),
+          // ── Hatırlatma Özeti (bu personel için) ──
+          (()=>{
+            const myHat=(hatirlatmalar||[]).filter(h=>h.staffId===kul.id);
+            if(myHat.length===0) return null;
+            const tGonderildi=myHat.filter(h=>h.gonderildi).length;
+            const tVade=myHat.filter(h=>!h.gonderildi&&h.gonderiTarih<=bugunHat).length;
+            const tYaklasan=myHat.filter(h=>!h.gonderildi&&h.gonderiTarih>bugunHat).length;
+            const yaklasanlar=myHat.filter(h=>!h.gonderildi&&h.gonderiTarih>bugunHat).sort((a,b)=>(a.gonderiTarih||"").localeCompare(b.gonderiTarih||""));
+            return div({style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"13px 14px 11px",marginBottom:14,boxShadow:"0 1px 6px rgba(0,0,0,.05)"}},
+              div({style:{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"#86868B",fontWeight:600,marginBottom:10}},"🔔 Hatırlatmalarım"),
+              div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4}},
+                [["Toplam",myHat.length,"#1D1D1F",false],["Vadesi Gelen",tVade,"#FF3B30",false],["Yaklaşan",tYaklasan,"#0071E3",true],["Gönderilen",tGonderildi,"#34A853",false]].map(([lb,v,c,tikla],i)=>{
+                  const acilir = tikla && tYaklasan>0;
+                  return div({key:i,onClick:acilir?()=>setHatYaklasanAcik(p=>!p):undefined,style:{textAlign:"center",padding:"4px 0",borderLeft:i>0?"1px solid rgba(0,0,0,.08)":"none",cursor:acilir?"pointer":"default",borderRadius:acilir?7:0,background:(acilir&&hatYaklasanAcik)?"rgba(0,113,227,.07)":"transparent"}},
+                    div({style:{fontSize:22,fontWeight:700,color:c,lineHeight:1,fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},String(v)),
+                    div({style:{fontSize:10,color:acilir?"#0071E3":"#86868B",marginTop:4,letterSpacing:.2,fontWeight:acilir?600:400}},lb+(acilir?(hatYaklasanAcik?" ▲":" ▼"):""))
+                  );
+                })
+              ),
+              hatYaklasanAcik&&yaklasanlar.length>0&&div({style:{marginTop:12,borderTop:"1px solid rgba(0,0,0,.08)",paddingTop:6}},
+                yaklasanlar.map(h=>
+                  div({key:h.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid rgba(0,0,0,.05)"}},
+                    div({style:{minWidth:0}},
+                      div({style:{fontSize:14,color:"#1D1D1F",fontWeight:500}},"💇 "+h.musteriAd),
+                      h.tel&&div({style:{fontSize:12,color:"#86868B",marginTop:1}},"📞 "+h.tel)
+                    ),
+                    div({style:{fontSize:12,color:"#0071E3",fontWeight:700,whiteSpace:"nowrap"}},fmtT(h.gonderiTarih))
+                  )
+                )
+              )
+            );
+          })(),
           // ── Hatırlatma Bildirimleri Banner ──
           bekleyenHat.length>0&&div({style:{
             background:"rgba(255,59,48,.06)",border:"1.5px solid rgba(255,59,48,.3)",
