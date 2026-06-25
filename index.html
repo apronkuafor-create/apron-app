@@ -268,6 +268,7 @@ const localSnapshotHazirla = (d, seviye=0) => {
     ibanBildirimler: sonListe(d.ibanBildirimler, 300),
     bankalar: sonListe(d.bankalar, 200),
     hesapSaglama: d.hesapSaglama||{},
+    bankaKom: d.bankaKom||{},
     pGruplar: sonListe(d.pGruplar, 200),
     yonBildirim: sonListe(d.yonBildirim, 300),
     devirBildirim: sonListe(d.devirBildirim, 300),
@@ -5207,6 +5208,16 @@ function VergiMuhasebesiModul({tumK, faturalar}) {
 }
 
 
+// Banka POS komisyon senaryoları (POS gün sonu raporundaki türlere karşılık gelir)
+const BANKA_KOM_TIPLERI = [
+  {k:"kendiKK",    ad:"Kendi Kartı – Kredi Kartı"},
+  {k:"baskaKK",    ad:"Başka Banka – Kredi Kartı"},
+  {k:"kendiHesap", ad:"Kendi Kartı – Hesap/Banka Kartı"},
+  {k:"baskaHesap", ad:"Başka Banka – Hesap/Banka Kartı"},
+  {k:"yurtdisi",   ad:"Yurtdışı Kart"},
+  {k:"taksitli",   ad:"Taksitli"}
+];
+
 // ── HESAP ÖZETİ MODÜLÜ ─────────────────────────────────────────────────────
 function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToast}) {
   // Renklendirme sisteminden kalan referanslar için varsayılan boş stil
@@ -8948,7 +8959,7 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
                       setOdm(yeni);
                     }},
                     opt("","Banka seçin"),
-                    (bankalar||["Garanti","Ziraat","İş Bankası","Yapı Kredi","Akbank"]).map(function(b){return opt(b,b);})
+                    (bankalar||[]).map(function(b){var bn=(typeof b==="string"?b:(b&&b.ad)||"");return opt(bn,bn);})
                   ),
                   h("input",{className:"fi",placeholder:"IBAN no (opsiyonel)",
                     style:{fontFamily:FONT,fontSize:12},
@@ -9294,8 +9305,10 @@ function App() {
   const [ekMarkalar, setEkMarkalar]   = useState([]);
   const [sarfEkMarkalar, setSarfEkMarkalar] = useState([]);
   const [urunListeSek, setUrunListeSek] = useState("satilabilen");
-  const [bankalar, setBankalar]         = useState(["Garanti","Ziraat","İş Bankası","Yapı Kredi","Akbank"]);
+  const [bankalar, setBankalar]         = useState([]);
   const [hesapSaglama, setHesapSaglama] = useState({}); // {tarih: {kk:{banka:tutar},iban,nakit,durum}}
+  const [bankaKom, setBankaKom]         = useState({}); // {bankaAd: {kendiKK:oran, baskaKK:oran, ...}}
+  const [bankaKomAcik, setBankaKomAcik] = useState(null); // ayarlarda açık olan banka adı
   const hesapSenkRef = useRef(false); // localStorage'daki eski hesap verilerini buluta bir kez taşımak için
   const [yeniMarkaAdi, setYeniMarkaAdi] = useState("");
   const [yeniTedarikciAdi, setYeniTedarikciAdi] = useState("");
@@ -9452,6 +9465,7 @@ function App() {
     if(!local._bildirimTemizlendi) setIbanBildirimler([]); else if(local.ibanBildirimler?.length) setIbanBildirimler(local.ibanBildirimler);
     if(local.bankalar?.length) setBankalar(local.bankalar);
     if(local.hesapSaglama) setHesapSaglama(local.hesapSaglama);
+    if(local.bankaKom) setBankaKom(local.bankaKom);
     if(local.pGruplar?.length) setPGruplar(local.pGruplar);
     if(!local._bildirimTemizlendi) setYonBildirim([]); else if(local.yonBildirim?.length) setYonBildirim(local.yonBildirim);
     if(!local._bildirimTemizlendi) setDevirBildirim([]); else if(local.devirBildirim?.length) setDevirBildirim(local.devirBildirim);
@@ -9514,6 +9528,7 @@ ayarlarRaw.forEach(a=>{ try {
   if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(prev=>birlestirListe(prev,a.deger));
   if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(prev=>birlestirListe(prev,a.deger));
   if(a.id==="hesapSaglama" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglama(prev=>({...prev, ...a.deger})); // yerel + bulut (çakışmada bulut güncel)
+  if(a.id==="bankaKom" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setBankaKom(prev=>({...prev, ...a.deger}));
   if(a.id==="stokPartiler" && Array.isArray(a.deger)) {
     stokPartilerYuklendi.current=true;
     setStokPartiler(prev=>{
@@ -9719,6 +9734,7 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("tedarikciler",tedarikciler); },[tedarikciler]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("yonBildirim",yonBildirim); },[yonBildirim]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("hesapSaglama",hesapSaglama); },[hesapSaglama]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("bankaKom",bankaKom); },[bankaKom]);
   // Eski sürümlerde sadece localStorage'da tutulan hesap verilerini, yükleme bitince buluta bir kez taşı.
   useEffect(()=>{
     if(yukleniyor||!DB||hesapSenkRef.current) return;
@@ -9882,6 +9898,7 @@ if(DB) dbUpsertAyar("tema",tema);
       if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(prev=>_ay(prev,birlestirListe(prev,a.deger)));
       if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(prev=>_ay(prev,birlestirListe(prev,a.deger)));
       if(a.id==="hesapSaglama" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglama(prev=>_ay(prev,{...prev,...a.deger}));
+      if(a.id==="bankaKom" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setBankaKom(prev=>_ay(prev,{...prev,...a.deger}));
       if(a.id==="tema" && a.deger && typeof a.deger==="object") setTema(prev=>_ay(prev,a.deger));
     };
 
@@ -10015,13 +10032,13 @@ if(DB) dbUpsertAyar("tema",tema);
 
   useEffect(()=>{
     if(yukleniyor) return;
-    apronV3Yaz({records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,kullanimlar,giderler,avanslar,ibanBildirimler,bankalar,hesapSaglama,pGruplar,yonBildirim,devirBildirim});
-  },[records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,kullanimlar,giderler,avanslar,ibanBildirimler,bankalar,hesapSaglama,pGruplar,yonBildirim,devirBildirim,yukleniyor,urunDBVer]);
+    apronV3Yaz({records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,kullanimlar,giderler,avanslar,ibanBildirimler,bankalar,hesapSaglama,bankaKom,pGruplar,yonBildirim,devirBildirim});
+  },[records,bekleyen,musteriDB,personeller,devDB,gecmis,stokPartiler,hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,hareketler,oduncler,komsular,kullanimlar,giderler,avanslar,ibanBildirimler,bankalar,hesapSaglama,bankaKom,pGruplar,yonBildirim,devirBildirim,yukleniyor,urunDBVer]);
 
   // ── Otomatik Yedekleme ──
   const yedekVeriHazirla = () => ({records,bekleyen,gecmis,musteriDB,personeller,devDB,stokPartiler,hareketler,onSiparisler,
     hatirlatmalar,randevular,tedarikciler,faturalar,odemeler,oduncler,komsular,kullanimlar,giderler,avanslar,
-    ibanBildirimler,bankalar,hesapSaglama,pGruplar,yonBildirim,devirBildirim,isletme});
+    ibanBildirimler,bankalar,hesapSaglama,bankaKom,pGruplar,yonBildirim,devirBildirim,isletme});
 
   const yedekAl = (otomatik=false) => {
     try {
@@ -10071,6 +10088,7 @@ if(DB) dbUpsertAyar("tema",tema);
       if(v.ibanBildirimler!==undefined) setIbanBildirimler(S(v.ibanBildirimler));
       if(v.bankalar!==undefined) setBankalar(S(v.bankalar));
       if(v.hesapSaglama && typeof v.hesapSaglama==="object") setHesapSaglama(v.hesapSaglama);
+      if(v.bankaKom && typeof v.bankaKom==="object") setBankaKom(v.bankaKom);
       if(v.pGruplar!==undefined) setPGruplar(S(v.pGruplar));
       if(v.yonBildirim!==undefined) setYonBildirim(S(v.yonBildirim));
       if(v.devirBildirim!==undefined) setDevirBildirim(S(v.devirBildirim));
@@ -11043,6 +11061,21 @@ if(DB) dbUpsertAyar("tema",tema);
     setPDetay(p=>p?.id===pDuz.id?pDuz:p);
     setPDuz(null); setPHata("");
     showToast("Personel guncellendi");
+  };
+
+  // POS komisyon kategori adı + banka ekleyince kategoriyi de otomatik oluştur
+  const posKomKategori = (ad) => (ad||"").trim()+" Günlük Pos Komisyonu";
+  const posBankaEkle = (adRaw) => {
+    const ad = (adRaw||"").trim();
+    if(!ad) return;
+    setBankalar(p => p.some(b=>(typeof b==="string"?b:(b&&b.ad))===ad) ? p : [...p, ad]);
+    const kat = posKomKategori(ad);
+    setGiderKategoriler(p => {
+      if(Array.isArray(p)) return p.indexOf(kat)!==-1 ? p : [...p, kat];
+      const kdvsiz = (p&&p.kdvsiz)||[];
+      if(kdvsiz.indexOf(kat)!==-1) return p;
+      return {...(p||{}), kdvli:(p&&p.kdvli)||[], kdvsiz:[...kdvsiz, kat]};
+    });
   };
 
   // ── Yönetici Bildirim Merkezi yardımcıları ──
@@ -16170,29 +16203,68 @@ if(DB) dbUpsertAyar("tema",tema);
     })(),
 
     aySek==="listeler"&&ayListeSek==="banka"&&div({style:{marginTop:10}},
-div({style:{fontSize:15,color:"var(--tx)",fontWeight:600,marginBottom:12}},"🏦 Bankalar"),
-    bankalar.map((b,i)=>
-    div({key:i,style:{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",
-    marginBottom:6,background:"var(--bg2)",borderRadius:10,border:"1px solid var(--br)"}},
-    div({style:{flex:1,fontSize:15,color:"var(--tx)"}},(b)),
-    btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",
-    borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
-    onClick:()=>setBankalar(p=>p.filter((_,j)=>j!==i))},"Sil")
-    )
-    ),
+    div({style:{fontSize:15,color:"var(--tx)",fontWeight:600,marginBottom:6}},"🏦 Bankalar ve Komisyon Oranları"),
+    div({style:{fontSize:12.5,color:"var(--mu)",marginBottom:12,lineHeight:1.5}},"Her banka için komisyon oranlarını (%) iki dönem halinde girin: kampanyalı dönem ve normal dönem. Her döneme tarih aralığı verin; sistem o güne hangi dönem denk geliyorsa onun oranını kullanır. Kullanmadığınız türü boş bırakın."),
+    bankalar.map((b,i)=>{
+      const bad = typeof b==="string"?b:(b&&b.ad)||"";
+      const acik = bankaKomAcik===bad;
+      const kom = bankaKom[bad]||{};
+      const sayGrup = (gk)=>{ const o=(kom[gk]||{}).oranlar||{}; return BANKA_KOM_TIPLERI.filter(t=>toN(o[t.k])>0).length; };
+      const doluSayi = sayGrup("kampanya")+sayGrup("normal");
+      const setOran = (gk,k,val)=>setBankaKom(p=>{ const cur=p[bad]||{}; const grp=cur[gk]||{}; const o=grp.oranlar||{}; return {...p,[bad]:{...cur,[gk]:{...grp,oranlar:{...o,[k]:val}}}}; });
+      const setTar  = (gk,alan,val)=>setBankaKom(p=>{ const cur=p[bad]||{}; const grp=cur[gk]||{}; return {...p,[bad]:{...cur,[gk]:{...grp,[alan]:val}}}; });
+      const grupBlok = (gk,baslik,vurgu)=>{ const grp=kom[gk]||{}; const o=grp.oranlar||{};
+        return div({style:{marginBottom:10,border:"1px solid var(--br)",borderRadius:9,overflow:"hidden"}},
+          div({style:{padding:"8px 11px",background:"var(--bg3)",fontSize:13,fontWeight:700,color:vurgu}},baslik),
+          div({style:{padding:"9px 11px"}},
+            div({style:{fontSize:12,color:"var(--mu)",marginBottom:5}},"Tarih Aralığı"),
+            div({style:{display:"flex",alignItems:"center",gap:6,marginBottom:8}},
+              inp({className:"fi",type:"date",style:{flex:1,minWidth:0},value:grp.bas||"",onChange:e=>setTar(gk,"bas",e.target.value)}),
+              span({style:{color:"var(--mu)"}},"–"),
+              inp({className:"fi",type:"date",style:{flex:1,minWidth:0},value:grp.bit||"",onChange:e=>setTar(gk,"bit",e.target.value)})
+            ),
+            BANKA_KOM_TIPLERI.map(t=>
+              div({key:t.k,style:{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderTop:"1px solid var(--bg3)"}},
+                div({style:{flex:1,fontSize:13,color:"var(--tx)"}},t.ad),
+                div({style:{display:"flex",alignItems:"center",gap:5}},
+                  inp({className:"fi",type:"number",inputMode:"decimal",style:{width:84,textAlign:"right"},placeholder:"0",
+                    value:(o[t.k]!==undefined&&o[t.k]!==null)?String(o[t.k]):"",
+                    onChange:e=>setOran(gk,t.k,e.target.value)}),
+                  span({style:{fontSize:14,color:"var(--mu)"}},"%")
+                )
+              )
+            )
+          )
+        );
+      };
+      return div({key:i,style:{marginBottom:8,background:"var(--bg2)",borderRadius:10,border:"1px solid var(--br)",overflow:"hidden"}},
+        div({style:{display:"flex",alignItems:"center",gap:8,padding:"10px 12px"}},
+          div({style:{flex:1,fontSize:15,color:"var(--tx)",fontWeight:600}},bad),
+          doluSayi>0&&span({style:{fontSize:11.5,color:"var(--gr)",background:"rgba(52,199,89,.12)",borderRadius:7,padding:"2px 8px",whiteSpace:"nowrap"}},doluSayi+" oran"),
+          btn({style:{background:"rgba(37,99,168,.1)",border:"1px solid rgba(37,99,168,.3)",borderRadius:7,color:"var(--g)",fontSize:12.5,padding:"5px 11px",cursor:"pointer",whiteSpace:"nowrap"},
+            onClick:()=>setBankaKomAcik(acik?null:bad)}, acik?"Kapat":"Komisyon Oranları"),
+          btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",borderRadius:6,color:"#c05050",fontSize:13,padding:"5px 11px",cursor:"pointer"},
+            onClick:()=>{ if(window.confirm("\""+bad+"\" bankası silinsin mi? (Girilmiş komisyon oranları da silinir)")){ setBankalar(p=>p.filter((_,j)=>j!==i)); setBankaKom(p=>{const y={...p}; delete y[bad]; return y;}); if(acik) setBankaKomAcik(null); } }},"Sil")
+        ),
+        acik&&div({style:{padding:"6px 12px 12px",borderTop:"1px solid var(--br)"}},
+          grupBlok("kampanya","🎯 Kampanyalı POS Oranları","#c08040"),
+          grupBlok("normal","📋 Normal POS Oranları","var(--g)")
+        )
+      );
+    }),
     div({style:{display:"flex",gap:8,marginTop:10}},
-    inp({className:"fi",style:{flex:1},placeholder:"Banka adı... (örn: Garanti POS)",
+    inp({className:"fi",style:{flex:1},placeholder:"Banka adı... (örn: Yapı Kredi POS)",
     value:yeniMarkaAdi||"",
     onChange:e=>setYeniMarkaAdi(e.target.value),
     onKeyDown:e=>{if(e.key==="Enter"&&(yeniMarkaAdi||"").trim()){
-    setBankalar(p=>[...p,yeniMarkaAdi.trim()]);
+    posBankaEkle(yeniMarkaAdi);
     setYeniMarkaAdi("");
     }}}),
     btn({style:{background:"rgba(37,99,168,.1)",border:"1px solid rgba(37,99,168,.3)",
     borderRadius:9,color:"var(--g)",fontSize:14,padding:"0 14px",cursor:"pointer",whiteSpace:"nowrap"},
     onClick:()=>{
     if((yeniMarkaAdi||"").trim()){
-      setBankalar(p=>[...p,yeniMarkaAdi.trim()]);
+      posBankaEkle(yeniMarkaAdi);
       setYeniMarkaAdi("");
     }
     }},"+ Ekle")
