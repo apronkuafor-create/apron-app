@@ -5208,15 +5208,18 @@ function VergiMuhasebesiModul({tumK, faturalar}) {
 }
 
 
-// Banka POS komisyon senaryoları (POS gün sonu raporundaki türlere karşılık gelir)
-const BANKA_KOM_TIPLERI = [
-  {k:"kendiKK",    ad:"Kendi Kartı – Kredi Kartı"},
-  {k:"baskaKK",    ad:"Başka Banka – Kredi Kartı"},
-  {k:"kendiHesap", ad:"Kendi Kartı – Hesap/Banka Kartı"},
-  {k:"baskaHesap", ad:"Başka Banka – Hesap/Banka Kartı"},
-  {k:"yurtdisi",   ad:"Yurtdışı Kart"},
-  {k:"taksitli",   ad:"Taksitli"}
+// Banka POS komisyon kart türleri (POS anlaşma tablosundaki gibi). Kendi banka satırları banka adıyla isimlenir.
+const PESIN_KARTLAR = (ba) => [
+  {k:"yurtdisiBanka", ad:"Yurtdışı Banka Kartı"},
+  {k:"yurtdisiKredi", ad:"Yurtdışı Kredi Kartı"},
+  {k:"kendiBanka",    ad:(ba||"Kendi Banka")+" Banka Kartı"},
+  {k:"kendiKredi",    ad:(ba||"Kendi Banka")+" Kredi Kartı"},
+  {k:"bkmBanka",      ad:"BKM Banka Kartı"},
+  {k:"bkmKredi",      ad:"BKM Kredi Kartı"},
+  {k:"fastKendi",     ad:"FAST "+(ba||"Kendi Banka")},
+  {k:"fastDiger",     ad:"FAST Diğer Banka"}
 ];
+const TAKSIT_KART_TIPLERI = (ba) => [(ba||"Kendi Banka")+" Kredi Kartı","BKM Kredi Kartı","Yurtdışı Kredi Kartı"];
 
 // ── HESAP ÖZETİ MODÜLÜ ─────────────────────────────────────────────────────
 function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToast}) {
@@ -9309,6 +9312,7 @@ function App() {
   const [hesapSaglama, setHesapSaglama] = useState({}); // {tarih: {kk:{banka:tutar},iban,nakit,durum}}
   const [bankaKom, setBankaKom]         = useState({}); // {bankaAd: {kendiKK:oran, baskaKK:oran, ...}}
   const [bankaKomAcik, setBankaKomAcik] = useState(null); // ayarlarda açık olan banka adı
+  const [komSekme, setKomSekme]         = useState("pesin"); // bankalar ayarı: pesin | taksitli
   const hesapSenkRef = useRef(false); // localStorage'daki eski hesap verilerini buluta bir kez taşımak için
   const [yeniMarkaAdi, setYeniMarkaAdi] = useState("");
   const [yeniTedarikciAdi, setYeniTedarikciAdi] = useState("");
@@ -16204,36 +16208,74 @@ if(DB) dbUpsertAyar("tema",tema);
 
     aySek==="listeler"&&ayListeSek==="banka"&&div({style:{marginTop:10}},
     div({style:{fontSize:15,color:"var(--tx)",fontWeight:600,marginBottom:6}},"🏦 Bankalar ve Komisyon Oranları"),
-    div({style:{fontSize:12.5,color:"var(--mu)",marginBottom:12,lineHeight:1.5}},"Her banka için komisyon oranlarını (%) iki dönem halinde girin: kampanyalı dönem ve normal dönem. Her döneme tarih aralığı verin; sistem o güne hangi dönem denk geliyorsa onun oranını kullanır. Kullanmadığınız türü boş bırakın."),
+    div({style:{fontSize:12.5,color:"var(--mu)",marginBottom:12,lineHeight:1.5}},"Her banka için POS anlaşma tablonuzu girin. Tarih aralığı yalnızca Kampanyalı dönemdedir; kampanya tarihi bittiğinde sistem otomatik olarak Normal orandan devam eder. Kendi banka satırları banka adıyla isimlenir. Kullanmadığınız satırı boş bırakın."),
     bankalar.map((b,i)=>{
       const bad = typeof b==="string"?b:(b&&b.ad)||"";
       const acik = bankaKomAcik===bad;
       const kom = bankaKom[bad]||{};
-      const sayGrup = (gk)=>{ const o=(kom[gk]||{}).oranlar||{}; return BANKA_KOM_TIPLERI.filter(t=>toN(o[t.k])>0).length; };
-      const doluSayi = sayGrup("kampanya")+sayGrup("normal");
-      const setOran = (gk,k,val)=>setBankaKom(p=>{ const cur=p[bad]||{}; const grp=cur[gk]||{}; const o=grp.oranlar||{}; return {...p,[bad]:{...cur,[gk]:{...grp,oranlar:{...o,[k]:val}}}}; });
-      const setTar  = (gk,alan,val)=>setBankaKom(p=>{ const cur=p[bad]||{}; const grp=cur[gk]||{}; return {...p,[bad]:{...cur,[gk]:{...grp,[alan]:val}}}; });
-      const grupBlok = (gk,baslik,vurgu)=>{ const grp=kom[gk]||{}; const o=grp.oranlar||{};
+      const grpDolu=(gk)=>{ const g=kom[gk]||{}; const ps=g.pesin||{}; let n=0; PESIN_KARTLAR(bad).forEach(c=>{ if(toN((ps[c.k]||{}).oran)>0) n++; }); n+=(g.taksitli||[]).filter(r=>toN(r.oran)>0).length; return n; };
+      const doluSayi = grpDolu("kampanya")+grpDolu("normal");
+      const setPesin=(gk,ck,alan,val)=>setBankaKom(p=>{const cur=p[bad]||{};const grp=cur[gk]||{};const ps=grp.pesin||{};const row=ps[ck]||{};return {...p,[bad]:{...cur,[gk]:{...grp,pesin:{...ps,[ck]:{...row,[alan]:val}}}}};});
+      const setTar=(gk,alan,val)=>setBankaKom(p=>{const cur=p[bad]||{};const grp=cur[gk]||{};return {...p,[bad]:{...cur,[gk]:{...grp,[alan]:val}}};});
+      const taksitEkle=(gk)=>setBankaKom(p=>{const cur=p[bad]||{};const grp=cur[gk]||{};const list=grp.taksitli||[];return {...p,[bad]:{...cur,[gk]:{...grp,taksitli:[...list,{id:uid(),kartTipi:"",taksit:"",bloke:"",oran:""}]}}};});
+      const taksitGuncelle=(gk,id,alan,val)=>setBankaKom(p=>{const cur=p[bad]||{};const grp=cur[gk]||{};const list=(grp.taksitli||[]).map(r=>r.id===id?{...r,[alan]:val}:r);return {...p,[bad]:{...cur,[gk]:{...grp,taksitli:list}}};});
+      const taksitSil=(gk,id)=>setBankaKom(p=>{const cur=p[bad]||{};const grp=cur[gk]||{};const list=(grp.taksitli||[]).filter(r=>r.id!==id);return {...p,[bad]:{...cur,[gk]:{...grp,taksitli:list}}};});
+      const pesinTablo=(gk)=>{ const ps=(kom[gk]||{}).pesin||{};
+        return div({style:{marginTop:8}},
+          div({style:{display:"flex",alignItems:"center",gap:8,padding:"6px 4px",borderBottom:"1px solid var(--br)",fontSize:11,color:"var(--mu)",fontWeight:700}},
+            div({style:{flex:1}},"Kart Türü"),
+            div({style:{width:70,textAlign:"center"}},"Bloke (gün)"),
+            div({style:{width:70,textAlign:"center"}},"Oran %")
+          ),
+          PESIN_KARTLAR(bad).map(c=>{ const row=ps[c.k]||{};
+            return div({key:c.k,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 4px",borderBottom:"1px solid var(--bg3)"}},
+              div({style:{flex:1,fontSize:12.5,color:"var(--tx)"}},c.ad),
+              inp({className:"fi",type:"number",inputMode:"numeric",style:{width:70,textAlign:"center",padding:"7px 6px"},placeholder:"0",
+                value:(row.bloke!==undefined&&row.bloke!==null)?String(row.bloke):"",onChange:e=>setPesin(gk,c.k,"bloke",e.target.value)}),
+              inp({className:"fi",type:"number",inputMode:"decimal",style:{width:70,textAlign:"center",padding:"7px 6px"},placeholder:"0",
+                value:(row.oran!==undefined&&row.oran!==null)?String(row.oran):"",onChange:e=>setPesin(gk,c.k,"oran",e.target.value)})
+            );
+          })
+        );
+      };
+      const taksitliTablo=(gk)=>{ const list=(kom[gk]||{}).taksitli||[]; const opts=TAKSIT_KART_TIPLERI(bad);
+        return div({style:{marginTop:8}},
+          list.length===0 && div({style:{fontSize:12.5,color:"var(--mu)",padding:"12px 4px",textAlign:"center"}},"Henüz taksitli oran yok. Aşağıdan satır ekleyin."),
+          list.map(r=>
+            div({key:r.id,style:{background:"var(--bg3)",borderRadius:8,padding:"8px 9px",marginBottom:7}},
+              div({style:{display:"flex",alignItems:"center",gap:7,marginBottom:7}},
+                sel({className:"fi",style:{flex:1,padding:"7px 8px"},value:r.kartTipi||"",onChange:e=>taksitGuncelle(gk,r.id,"kartTipi",e.target.value)},
+                  opt("","Kart tipi seç..."), opts.map(o=>opt(o,o))
+                ),
+                btn({style:{background:"none",border:"none",cursor:"pointer",fontSize:16,padding:"2px 4px"},onClick:()=>taksitSil(gk,r.id)},"🗑️")
+              ),
+              div({style:{display:"flex",gap:7}},
+                div({style:{flex:1}}, div({style:{fontSize:10.5,color:"var(--mu)",marginBottom:2}},"Taksit Sayısı"),
+                  inp({className:"fi",type:"number",inputMode:"numeric",style:{width:"100%",textAlign:"center",padding:"7px 6px"},placeholder:"0",value:(r.taksit!=null&&r.taksit!=="")?String(r.taksit):"",onChange:e=>taksitGuncelle(gk,r.id,"taksit",e.target.value)})),
+                div({style:{flex:1}}, div({style:{fontSize:10.5,color:"var(--mu)",marginBottom:2}},"Bloke gün"),
+                  inp({className:"fi",type:"number",inputMode:"numeric",style:{width:"100%",textAlign:"center",padding:"7px 6px"},placeholder:"0",value:(r.bloke!=null&&r.bloke!=="")?String(r.bloke):"",onChange:e=>taksitGuncelle(gk,r.id,"bloke",e.target.value)})),
+                div({style:{flex:1}}, div({style:{fontSize:10.5,color:"var(--mu)",marginBottom:2}},"Oran %"),
+                  inp({className:"fi",type:"number",inputMode:"decimal",style:{width:"100%",textAlign:"center",padding:"7px 6px"},placeholder:"0",value:(r.oran!=null&&r.oran!=="")?String(r.oran):"",onChange:e=>taksitGuncelle(gk,r.id,"oran",e.target.value)}))
+              )
+            )
+          ),
+          btn({style:{marginTop:4,background:"rgba(37,99,168,.1)",border:"1px dashed rgba(37,99,168,.4)",borderRadius:8,color:"var(--g)",fontSize:13,padding:"9px",cursor:"pointer",width:"100%"},
+            onClick:()=>taksitEkle(gk)},"+ Taksitli Satır Ekle")
+        );
+      };
+      const donemBlok=(gk,baslik,vurgu,tarihVar)=>{ const grp=kom[gk]||{};
         return div({style:{marginBottom:10,border:"1px solid var(--br)",borderRadius:9,overflow:"hidden"}},
           div({style:{padding:"8px 11px",background:"var(--bg3)",fontSize:13,fontWeight:700,color:vurgu}},baslik),
           div({style:{padding:"9px 11px"}},
-            div({style:{fontSize:12,color:"var(--mu)",marginBottom:5}},"Tarih Aralığı"),
-            div({style:{display:"flex",alignItems:"center",gap:6,marginBottom:8}},
-              inp({className:"fi",type:"date",style:{flex:1,minWidth:0},value:grp.bas||"",onChange:e=>setTar(gk,"bas",e.target.value)}),
-              span({style:{color:"var(--mu)"}},"–"),
-              inp({className:"fi",type:"date",style:{flex:1,minWidth:0},value:grp.bit||"",onChange:e=>setTar(gk,"bit",e.target.value)})
-            ),
-            BANKA_KOM_TIPLERI.map(t=>
-              div({key:t.k,style:{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderTop:"1px solid var(--bg3)"}},
-                div({style:{flex:1,fontSize:13,color:"var(--tx)"}},t.ad),
-                div({style:{display:"flex",alignItems:"center",gap:5}},
-                  inp({className:"fi",type:"number",inputMode:"decimal",style:{width:84,textAlign:"right"},placeholder:"0",
-                    value:(o[t.k]!==undefined&&o[t.k]!==null)?String(o[t.k]):"",
-                    onChange:e=>setOran(gk,t.k,e.target.value)}),
-                  span({style:{fontSize:14,color:"var(--mu)"}},"%")
-                )
+            tarihVar && div({style:{marginBottom:6}},
+              div({style:{fontSize:12,color:"var(--mu)",marginBottom:5}},"Kampanya Tarih Aralığı"),
+              div({style:{display:"flex",alignItems:"center",gap:6}},
+                inp({className:"fi",type:"date",style:{flex:1,minWidth:0},value:grp.bas||"",onChange:e=>setTar(gk,"bas",e.target.value)}),
+                span({style:{color:"var(--mu)"}},"–"),
+                inp({className:"fi",type:"date",style:{flex:1,minWidth:0},value:grp.bit||"",onChange:e=>setTar(gk,"bit",e.target.value)})
               )
-            )
+            ),
+            komSekme==="pesin"?pesinTablo(gk):taksitliTablo(gk)
           )
         );
       };
@@ -16244,11 +16286,14 @@ if(DB) dbUpsertAyar("tema",tema);
           btn({style:{background:"rgba(37,99,168,.1)",border:"1px solid rgba(37,99,168,.3)",borderRadius:7,color:"var(--g)",fontSize:12.5,padding:"5px 11px",cursor:"pointer",whiteSpace:"nowrap"},
             onClick:()=>setBankaKomAcik(acik?null:bad)}, acik?"Kapat":"Komisyon Oranları"),
           btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",borderRadius:6,color:"#c05050",fontSize:13,padding:"5px 11px",cursor:"pointer"},
-            onClick:()=>{ if(window.confirm("\""+bad+"\" bankası silinsin mi? (Girilmiş komisyon oranları da silinir)")){ setBankalar(p=>p.filter((_,j)=>j!==i)); setBankaKom(p=>{const y={...p}; delete y[bad]; return y;}); if(acik) setBankaKomAcik(null); } }},"Sil")
+            onClick:()=>{ if(window.confirm("\""+bad+"\" bankası silinsin mi? (Girilmiş komisyon oranları da silinir; geçmiş giderler ve kategori kalır)")){ setBankalar(p=>p.filter((_,j)=>j!==i)); setBankaKom(p=>{const y={...p}; delete y[bad]; return y;}); if(acik) setBankaKomAcik(null); } }},"Sil")
         ),
-        acik&&div({style:{padding:"6px 12px 12px",borderTop:"1px solid var(--br)"}},
-          grupBlok("kampanya","🎯 Kampanyalı POS Oranları","#c08040"),
-          grupBlok("normal","📋 Normal POS Oranları","var(--g)")
+        acik&&div({style:{padding:"8px 12px 12px",borderTop:"1px solid var(--br)"}},
+          div({style:{display:"flex",gap:6,marginBottom:10}},
+            [["pesin","Peşin"],["taksitli","Taksitli"]].map(function(o){var k=o[0],l=o[1];return btn({key:k,style:{flex:1,padding:"8px",borderRadius:8,border:"1px solid "+(komSekme===k?"var(--g)":"var(--br)"),background:komSekme===k?"rgba(37,99,168,.1)":"var(--bg2)",color:komSekme===k?"var(--g)":"var(--mu)",fontWeight:komSekme===k?700:500,fontSize:13.5,cursor:"pointer"},onClick:()=>setKomSekme(k)},l);})
+          ),
+          donemBlok("kampanya","🎯 Kampanyalı POS Oranları","#c08040",true),
+          donemBlok("normal","📋 Normal POS Oranları (kampanya bitince geçerli)","var(--g)",false)
         )
       );
     }),
