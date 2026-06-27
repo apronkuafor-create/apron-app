@@ -11218,17 +11218,19 @@ if(DB) dbUpsertAyar("tema",tema);
       return digerleri; // 0 ise gider yazılmaz, varsa silinir
     });
   };
-  // Oran/dönem değişince (bankaKom değişince) tüm kayıtlı günlük cirolardan komisyon giderlerini yeniden üret
-  useEffect(()=>{
-    if(yukleniyor) return;
+  // Tüm kayıtlı günlük cirolardan komisyon giderlerini (güncel oranlarla) yeniden üret
+  const komisyonHepsiniHesapla = () => {
     Object.keys(hesapSaglama||{}).forEach(function(tarih){
       const kg=(hesapSaglama[tarih]||{}).komGiris||{};
       Object.keys(kg).forEach(function(bankAd){
         const donemler=((bankaKom[bankAd]||{}).donemler)||[];
+        if(donemler.length===0) return; // banka silinmiş / dönemi yok → geçmiş giderler korunur
         komisyonGiderYaz(bankAd, tarih, bankaGunKomisyonFn(bankAd, donemler, tarih, kg[bankAd]));
       });
     });
-  }, [bankaKom]);
+  };
+  // Oran/dönem değişince (bankaKom değişince) otomatik yeniden hesapla
+  useEffect(()=>{ if(yukleniyor) return; komisyonHepsiniHesapla(); }, [bankaKom]);
 
   // ── Yönetici Bildirim Merkezi yardımcıları ──
   // ── Müşteri Ön Sipariş yardımcıları ──
@@ -16509,6 +16511,11 @@ if(DB) dbUpsertAyar("tema",tema);
         )
       );
     }),
+    bankalar.length>0 && div({style:{marginTop:14,paddingTop:12,borderTop:"1px solid var(--br)"}},
+      btn({style:{width:"100%",background:"none",border:"1px solid var(--br)",borderRadius:8,color:"var(--di)",fontSize:13.5,fontWeight:600,padding:"11px",cursor:"pointer"},
+        onClick:()=>{ komisyonHepsiniHesapla(); showToast("Komisyonlar yeniden hesaplandı"); }},"🔄 Komisyonları Yeniden Hesapla"),
+      div({style:{fontSize:11,color:"var(--mu)",marginTop:6,textAlign:"center",lineHeight:1.4}},"Oran kaydedince otomatik çalışır; bu buton tüm geçmişi elle tazeler.")
+    ),
     ),
 
     aySek==="listeler"&&ayListeSek==="musteriler"&&div({style:{marginTop:10}},
