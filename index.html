@@ -388,7 +388,7 @@ const _ayarYazimImza = (id, s) => {
 const _ayarYakinYazim = (id, s) => s!==null && (_ayarSigGec[id]||[]).includes(s);
 const _ayarYaz = (id, deger) => {
   _ayarYazimImza(id, _ayarImza(deger));
-  return dbUpsert("ayarlar",{id, deger},"id");
+  return dbUpsert("ayarlar",{id, deger},"isletme_id,id");
 };
 // Aynı ayara hızlı ardışık yazımları topla; yalnızca son değeri buluta yaz (egress + realtime tasarrufu).
 // Yerel kayıt zaten anında yapılıyor; bulut yazımının ~1.5sn gecikmesi veri kaybettirmez.
@@ -1301,7 +1301,7 @@ function BulutDurumu({yukluGonderilmis,yukluToplam}){
       });
       if(!yeni.length){ alert("Kurtarılacak yeni açılış girişi bulunamadı. (Hareketlerde AÇILIŞ kaydı yok ya da hepsi zaten kurtarılmış.)"); setKurtarYukle(false); return; }
       const birlesik=[...partiler,...yeni];
-      const {error}=await DB.from("ayarlar").upsert({id:"stokPartiler",deger:birlesik});
+      const {error}=await DB.from("ayarlar").upsert({id:"stokPartiler",deger:birlesik},{onConflict:"isletme_id,id"});
       if(error){ alert("Buluta yazılamadı: "+(error.message||"hata")); setKurtarYukle(false); return; }
       alert(yeni.length+" ürün açılış stoğu kurtarıldı (toplam "+birlesik.length+" parti). Sayfa yenilenecek; alış fiyatlarını Stok ekranından kontrol edin.");
       location.reload();
@@ -1328,8 +1328,8 @@ function BulutDurumu({yukluGonderilmis,yukluToplam}){
         catch(e){}
       }
       // 2) ayarlar'daki stok partileri ve hareketleri boşalt
-      try{ await DB.from("ayarlar").upsert({id:"stokPartiler",deger:[]}); }catch(e){}
-      try{ await DB.from("ayarlar").upsert({id:"hareketler",deger:[]}); }catch(e){}
+      try{ await DB.from("ayarlar").upsert({id:"stokPartiler",deger:[]},{onConflict:"isletme_id,id"}); }catch(e){}
+      try{ await DB.from("ayarlar").upsert({id:"hareketler",deger:[]},{onConflict:"isletme_id,id"}); }catch(e){}
       // 3) localStorage'daki ilgili alanları temizle (diğer her şey korunur)
       try{
         const l=JSON.parse(localStorage.getItem("apron_v3")||"{}");
@@ -1383,7 +1383,7 @@ function BulutDurumu({yukluGonderilmis,yukluToplam}){
       btn({onClick:async()=>{
         if(!confirm("Bu cihazdaki eski stok hareket geçmişi (açılış girişleri dahil) temizlenecek ve bu yanıltıcı kutu kaldırılacak.\n\nStok kayıtların ZATEN silinmiş durumda; bu işlem yalnızca eski geçmişi temizler, stoğu geri getirmez. Devam edilsin mi?")) return;
         try{ const l=JSON.parse(localStorage.getItem("apron_v3")||"{}"); l.hareketler=[]; apronV3Yaz(l); }catch(e){}
-        try{ if(DB) await DB.from("ayarlar").upsert({id:"hareketler",deger:[]}); }catch(e){}
+        try{ if(DB) await DB.from("ayarlar").upsert({id:"hareketler",deger:[]},{onConflict:"isletme_id,id"}); }catch(e){}
         alert("Eski hareket geçmişi temizlendi. Sayfa yenilenecek.");
         location.reload();
       },style:{width:"100%",background:"#fff",border:"1px solid #A8E0B8",borderRadius:9,color:"#248A3D",fontSize:12.5,fontWeight:700,padding:10,cursor:"pointer"}},"🧹 Eski hareket geçmişini temizle (bu kutuyu kaldır)")
@@ -6280,7 +6280,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
         const filtre = p.filter(h=>!(normText(h.musteriAd)===normText(musteri) && !h.gonderildi));
         return [...filtre, yeniHat];
       });
-      dbUpsert("hatirlatmalar", yeniHat, "id"); // ☁ buluta kalıcı yaz
+      dbUpsert("hatirlatmalar", yeniHat, "isletme_id,id"); // ☁ buluta kalıcı yaz
     }
     onKaydet({id:ilk?.id,musteri,tel,
       anaPersonelId:anaPersonelId||ilk?.anaPersonelId||"",
@@ -7336,7 +7336,7 @@ function StokGiris({stokDB, setStokDB, stokHar, setStokHar, kul, showToast, akti
               const harId=uid();
               harlar.push({id:harId,barkod,urun_ad:urun?.a||"",tip:"giris",adet,tarih:TODAY(),staff_id:kul.id,staff_name:kul.ad});
               dbEkle("stok_hareketleri",{id:harId,barkod,urun_ad:urun?.a||"",tip:"giris",adet,tarih:TODAY(),staff_id:kul.id,staff_name:kul.ad});
-              dbUpsert("stok",{id:barkod,barkod,urun_ad:urun?.a||"",marka:urun?.m||"",qty:yeniQty,son_guncelleme:TODAY()},"id");
+              dbUpsert("stok",{id:barkod,barkod,urun_ad:urun?.a||"",marka:urun?.m||"",qty:yeniQty,son_guncelleme:TODAY()},"isletme_id,id");
             });
             setStokHar(p=>[...harlar,...p]);
             setGB({});
@@ -9930,7 +9930,7 @@ if(DB) dbUpsertAyar("tema",tema);
         const bulutId=new Set(data.map(h=>String(h.id)));
         data.forEach(h=>{ if(h&&h.id!=null) m[String(h.id)]=h; });
         // Bulutta olmayan yerel hatırlatmaları buluta taşı (tek seferlik geçiş)
-        (prev||[]).forEach(h=>{ if(h&&h.id!=null && !bulutId.has(String(h.id))) dbUpsert("hatirlatmalar",h,"id"); });
+        (prev||[]).forEach(h=>{ if(h&&h.id!=null && !bulutId.has(String(h.id))) dbUpsert("hatirlatmalar",h,"isletme_id,id"); });
         return Object.values(m);
       });
     }).catch(()=>{});
@@ -10201,11 +10201,11 @@ if(DB) dbUpsertAyar("tema",tema);
           urunler:r.urunler||[],urun_kk:r.uKK||0,urun_ib:r.uIB||0,urun_nk:r.uNK||0,
           toplam:r.toplam||0,tarih:r.tarih,saat:r.saat||"",gonderildi:gond,
           hiz_iban_id:r.hizIbanId||"",hiz_iban_ad:r.hizIbanAd||"",urun_iban_id:r.urunIbanId||"",urun_iban_ad:r.urunIbanAd||"",
-          ana_personel_id:r.anaPersonelId||"",ana_personel_ad:r.anaPersonelAd||""},"id");
+          ana_personel_id:r.anaPersonelId||"",ana_personel_ad:r.anaPersonelAd||""},"isletme_id,id");
         const gor=new Set();
         [...S(v.gecmis),...S(v.records)].forEach(r=>{ if(r&&r.id&&!gor.has(r.id)){ gor.add(r.id); yazKayit(r,true); } });
         S(v.bekleyen).forEach(r=>{ if(r&&r.id&&!gor.has(r.id)){ gor.add(r.id); yazKayit(r,false); } });
-        S(v.musteriDB).forEach(m=>{ if(m&&m.id) dbUpsert("musteriler",{id:m.id,ad:m.ad,tel:m.tel||"",sahip_id:m.sahipId||"",sahip_ad:m.sahipAd||"",ilk_giris:m.ilkGiris||"",dogum_tarihi:m.dogumTarihi||"",cinsiyet:m.cinsiyet||"",adres:m.adres||"",notlar:m.notlar||""},"id"); });
+        S(v.musteriDB).forEach(m=>{ if(m&&m.id) dbUpsert("musteriler",{id:m.id,ad:m.ad,tel:m.tel||"",sahip_id:m.sahipId||"",sahip_ad:m.sahipAd||"",ilk_giris:m.ilkGiris||"",dogum_tarihi:m.dogumTarihi||"",cinsiyet:m.cinsiyet||"",adres:m.adres||"",notlar:m.notlar||""},"isletme_id,id"); });
         S(v.onSiparisler).forEach(o=>{ if(o&&o.id) dbUpsert("on_siparisler",o,"id"); });
       }
       if(typeof showToast==="function") showToast("✅ Yedek geri yüklendi","ba");
@@ -10731,7 +10731,7 @@ if(DB) dbUpsertAyar("tema",tema);
     if(!ac) return;
     const ds = eksikGunTarih || (()=>{ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; })();
     setDevDB(p=>({...p,[ds+"_"+kul.id]:ac}));
-    dbUpsert("devamsizliklar",[{staff_id:kul.id,tarih:ds,aciklama:ac}],"staff_id,tarih");
+    dbUpsert("devamsizliklar",[{staff_id:kul.id,tarih:ds,aciklama:ac}],"isletme_id,staff_id,tarih");
     setDevUyari(false); setEksikGunTarih(""); setDevSec(""); setDevDiger("");
     showToast("Mazeret kaydedildi");
   };
@@ -10871,7 +10871,7 @@ if(DB) dbUpsertAyar("tema",tema);
     yeniHar.forEach(har=>{
       dbEkle("stok_hareketleri",{id:har.id,barkod:har.barkod,urun_ad:har.urun_ad,tip:har.tip,
         adet:har.adet,tarih:har.tarih,staff_id:har.staffId,staff_name:har.staffAd,kayit_id:har.kayitId});
-      dbUpsert("stok",{id:har.barkod,barkod:har.barkod,urun_ad:har.urun_ad,qty:sonrakiStokDB[har.barkod]||0,son_guncelleme:TODAY()},"id");
+      dbUpsert("stok",{id:har.barkod,barkod:har.barkod,urun_ad:har.urun_ad,qty:sonrakiStokDB[har.barkod]||0,son_guncelleme:TODAY()},"isletme_id,id");
     });
   };
 
@@ -10992,7 +10992,7 @@ if(DB) dbUpsertAyar("tema",tema);
             staffId:y.staffId,staffAd:y.staffAd,kayitId:y.id,urunAd:u.a,olusturma:Date.now()},
             ...p]);
           // Supabase güncelle
-          dbUpsert("stok",{id:u.b,barkod:u.b,urun_ad:u.a,qty:Math.max(0,(stokDB[u.b]||0)-adet),son_guncelleme:TODAY()},"id");
+          dbUpsert("stok",{id:u.b,barkod:u.b,urun_ad:u.a,qty:Math.max(0,(stokDB[u.b]||0)-adet),son_guncelleme:TODAY()},"isletme_id,id");
           dbEkle("stok_hareketleri",{id:harId,barkod:u.b,urun_ad:u.a,tip:"cikis",
             adet,tarih:y.tarih,staff_id:y.staffId,staff_name:y.staffAd,kayit_id:y.id});
         });
@@ -11128,7 +11128,7 @@ if(DB) dbUpsertAyar("tema",tema);
       });
       dbUpsert("devamsizliklar",
         gonderilenTarihler.map(t=>({staff_id:kul.id,tarih:t,aciklama:"Çalıştı - kayıt yapıldı"})),
-        "staff_id,tarih");
+        "isletme_id,staff_id,tarih");
     }
     setGsOnay(false);
     if(ids.length>0&&DB) DB.from("kayitlar").update({gonderildi:true}).in("id",ids).then(()=>{}).catch(()=>{});
@@ -12739,7 +12739,7 @@ if(DB) dbUpsertAyar("tema",tema);
                             const g=hatDuzenle;
                             const gt = g.gonderildi ? (ht.gonderildiTarih||TODAY()) : null;
                             setHatirlatmalar(p=>p.map(x=>x.id===g.id?{...x,gonderiTarih:g.gonderiTarih,mesaj:g.mesaj,gonderildi:!!g.gonderildi,gonderildiTarih:gt}:x));
-                            dbUpsert("hatirlatmalar",{...ht,gonderiTarih:g.gonderiTarih,mesaj:g.mesaj,gonderildi:!!g.gonderildi,gonderildiTarih:gt},"id");
+                            dbUpsert("hatirlatmalar",{...ht,gonderiTarih:g.gonderiTarih,mesaj:g.mesaj,gonderildi:!!g.gonderildi,gonderildiTarih:gt},"isletme_id,id");
                             setHatDuzenle(null); showToast("Hatırlatma güncellendi ✓");
                           }},"Kaydet"),
                         btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:8,color:"#86868B",fontSize:13,padding:"9px 14px",cursor:"pointer"},
@@ -12775,7 +12775,7 @@ if(DB) dbUpsertAyar("tema",tema);
                           const fmt2=raw.startsWith("90")?raw:raw.startsWith("0")?"90"+raw.slice(1):"90"+raw;
                           window.open("https://wa.me/"+fmt2+"?text="+encodeURIComponent(h2.mesaj),"_blank");
                           setHatirlatmalar(p=>p.map(x=>x.id===h2.id?{...x,gonderildi:true,gonderildiTarih:TODAY()}:x));
-                          dbUpsert("hatirlatmalar",{...h2,gonderildi:true,gonderildiTarih:TODAY()},"id");
+                          dbUpsert("hatirlatmalar",{...h2,gonderildi:true,gonderildiTarih:TODAY()},"isletme_id,id");
                         }},
                         h("span",{style:{fontSize:16}},""),
                         "WhatsApp Gönder")
@@ -12785,7 +12785,7 @@ if(DB) dbUpsertAyar("tema",tema);
                   btn({style:{padding:"9px 12px",borderRadius:8,
                     background:"transparent",border:"1px solid var(--br)",
                     color:"var(--di)",fontSize:13,cursor:"pointer"},
-                    onClick:()=>{setHatirlatmalar(p=>p.map(x=>x.id===h2.id?{...x,gonderildi:true,gonderildiTarih:TODAY()}:x));dbUpsert("hatirlatmalar",{...h2,gonderildi:true,gonderildiTarih:TODAY()},"id");}},
+                    onClick:()=>{setHatirlatmalar(p=>p.map(x=>x.id===h2.id?{...x,gonderildi:true,gonderildiTarih:TODAY()}:x));dbUpsert("hatirlatmalar",{...h2,gonderildi:true,gonderildiTarih:TODAY()},"isletme_id,id");}},
                     "Atla")
                 )
               )
