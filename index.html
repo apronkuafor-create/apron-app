@@ -9533,6 +9533,7 @@ function App() {
     (async()=>{
       setYukleniyor(true);
       try {
+        if(DB) { try { await DB.auth.getSession(); } catch(eSess){} } // Oturum varsa tam yüklenmesini bekle (RLS yarış durumu güvenliği)
         const local = JSON.parse(localStorage.getItem("apron_v3")||"null");
         if(local){
           const _freshStart = (()=>{ try{ if(localStorage.getItem("apron_fresh_start")==="1"){ localStorage.removeItem("apron_fresh_start"); return true; } }catch(e){} return false; })();
@@ -10515,7 +10516,11 @@ if(DB) dbUpsertAyar("tema",tema);
   // Şifre doğrulandıktan sonra: kapı açılış animasyonu + 3sn sahne, ardından panele giriş
   const kapidanGir = (hedef) => {
     setKapiAnim(hedef==="yonetici"?"yon":"per");
-    setTimeout(()=>{ setKapiAnim(null); setEkran(hedef); }, 3000);
+    if(hedef==="yonetici") setEkran(hedef); // oturum kaydı doğru ekranı yakalasın (reload öncesi)
+    setTimeout(()=>{
+      if(hedef==="yonetici"){ location.reload(); return; } // RLS sonrası: gerçek oturumla temiz baştan veri çek
+      setKapiAnim(null); setEkran(hedef);
+    }, 3000);
   };
 
   // Personel text-pin girişi
