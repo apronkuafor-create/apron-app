@@ -487,7 +487,8 @@ input[type="date"]::-webkit-inner-spin-button{display:none}
 .kapi-gorsel svg{width:100%;height:100%;display:block}
 .kapi-box::after{content:"";position:absolute;inset:0;border-radius:6px 6px 1px 1px;background:linear-gradient(115deg,rgba(255,255,255,.4) 0%,rgba(255,255,255,0) 17%,rgba(255,255,255,0) 43%,rgba(255,255,255,.18) 50%,rgba(255,255,255,0) 58%);pointer-events:none;z-index:2}
 /* ── Açılış overlay ── */
-.kapi-ov{position:fixed;inset:0;z-index:3000;background:#080808;display:flex;align-items:center;justify-content:center;overflow:hidden;perspective:1500px}
+.kapi-ov{position:fixed;inset:0;z-index:3000;background:#080808;display:flex;align-items:center;justify-content:center;overflow:hidden;perspective:1500px;transition:opacity .45s ease}
+.kapi-ov-fade{opacity:0}
 .kapi-sahne{position:absolute;inset:0;opacity:0;animation:sahneIn .85s ease .45s forwards}
 .kapi-kanat{position:absolute;inset:0;transform-origin:left center;background:linear-gradient(115deg,rgba(255,255,255,.42) 0%,rgba(255,255,255,0) 16%,rgba(255,255,255,0) 42%,rgba(255,255,255,.2) 49%,rgba(255,255,255,0) 56%),linear-gradient(165deg,#dbeaf0,#b6ced7 55%,#9abac5);border-right:5px solid #aebcc6;box-shadow:10px 0 40px rgba(40,60,75,.55);animation:kapiSwing 1.35s cubic-bezier(.62,.04,.2,1) .15s forwards;backface-visibility:hidden}
 .kapi-kanat::before{content:"";position:absolute;top:14%;left:30%;right:14%;height:30%;border:2px solid rgba(255,255,255,.5);border-radius:6px;box-shadow:inset 0 1px 3px rgba(120,150,165,.3)}
@@ -9253,6 +9254,7 @@ function App() {
   const [pinHata, setPinHata]         = useState(false);
   const [loginMod, setLoginMod]       = useState("secim");   // "secim"|"yon"|"yon_giris"|"yon_uye"|"per"
   const [kapiAnim, setKapiAnim]       = useState(null);      // null | "yon" | "per" — giriş kapısı açılış animasyonu
+  const [kapiFade, setKapiFade]       = useState(false);     // yönetici girişi sonrası reload öncesi yumuşak geçiş
   const [kapiKayan, setKapiKayan]     = useState(null);      // null | "yon" | "per" — kapı sürgü kayma animasyonu
   const [loginEmail, setLoginEmail]   = useState("");
   const [loginSifre, setLoginSifre]   = useState("");
@@ -10518,7 +10520,11 @@ if(DB) dbUpsertAyar("tema",tema);
     setKapiAnim(hedef==="yonetici"?"yon":"per");
     if(hedef==="yonetici") setEkran(hedef); // oturum kaydı doğru ekranı yakalasın (reload öncesi)
     setTimeout(()=>{
-      if(hedef==="yonetici"){ location.reload(); return; } // RLS sonrası: gerçek oturumla temiz baştan veri çek
+      if(hedef==="yonetici"){
+        setKapiFade(true); // siyah ekranı yumuşakça beyaza soldur, sonra yenile
+        setTimeout(()=>location.reload(), 450);
+        return;
+      }
       setKapiAnim(null); setEkran(hedef);
     }, 3000);
   };
@@ -12063,7 +12069,7 @@ if(DB) dbUpsertAyar("tema",tema);
       ),
 
       // ── KAPI AÇILIŞ ANİMASYONU (şifre doğrulandıktan sonra; sahne arkadan görünür) ──
-      kapiAnim&&div({className:"kapi-ov"},
+      kapiAnim&&div({className:"kapi-ov"+(kapiFade?" kapi-ov-fade":"")},
         div({className:"kapi-sahne",dangerouslySetInnerHTML:{__html:kapiAnim==="yon"?OFIS_SVG:KUAFOR_SVG}}),
         div({className:"kapi-kanat"}, div({className:"kapi-kanat-kol"}))
       ),
