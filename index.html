@@ -10207,7 +10207,7 @@ if(DB) dbUpsertAyar("tema",tema);
         [...S(v.gecmis),...S(v.records)].forEach(r=>{ if(r&&r.id&&!gor.has(r.id)){ gor.add(r.id); yazKayit(r,true); } });
         S(v.bekleyen).forEach(r=>{ if(r&&r.id&&!gor.has(r.id)){ gor.add(r.id); yazKayit(r,false); } });
         S(v.musteriDB).forEach(m=>{ if(m&&m.id) dbUpsert("musteriler",{id:m.id,ad:m.ad,tel:m.tel||"",sahip_id:m.sahipId||"",sahip_ad:m.sahipAd||"",ilk_giris:m.ilkGiris||"",dogum_tarihi:m.dogumTarihi||"",cinsiyet:m.cinsiyet||"",adres:m.adres||"",notlar:m.notlar||""},"isletme_id,id"); });
-        S(v.onSiparisler).forEach(o=>{ if(o&&o.id) dbUpsert("on_siparisler",o,"id"); });
+        S(v.onSiparisler).forEach(o=>{ if(o&&o.id) dbUpsert("on_siparisler",o,"isletme_id,id"); });
       }
       if(typeof showToast==="function") showToast("✅ Yedek geri yüklendi","ba");
       return true;
@@ -11268,7 +11268,7 @@ if(DB) dbUpsertAyar("tema",tema);
         karsilanma_tarihi: null,
         olusturma: new Date().toISOString()
       };
-      DB.from("on_siparisler").upsert(row,{onConflict:"id"}).then(()=>{
+      DB.from("on_siparisler").upsert(row,{onConflict:"isletme_id,id"}).then(()=>{
         setOnSiparisler(p=>[row, ...p.filter(o=>o.id!==row.id)]);
       }).catch(()=>{});
     });
@@ -16645,6 +16645,11 @@ if(DB) dbUpsertAyar("tema",tema);
       setMusteriDB(p=>p.filter(m=>m.id!==musteriSilOnay.id));
       dbSil("musteriler",musteriSilOnay.id);
       if(musteriKart?.id===musteriSilOnay.id) setMusteriKart(null);
+      // Müşteri tamamen silindiğinde ona ait saç kesimi hatırlatmasını da temizle (yerel + bulut)
+      setHatirlatmalar(p=>{
+        p.filter(h=>normText(h.musteriAd)===normText(musteriSilOnay.ad)).forEach(h=>dbSil("hatirlatmalar",h.id));
+        return p.filter(h=>normText(h.musteriAd)!==normText(musteriSilOnay.ad));
+      });
       setMusteriSilOnay(null);
       showToast("Müşteri silindi","uy");
     }},"Sil")
