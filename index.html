@@ -2016,6 +2016,13 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [sipBarkod, setSipBarkod] = React.useState("");
   const [sipArama, setSipArama] = React.useState("");
   const [sipKarsilaAdet, setSipKarsilaAdet] = React.useState({}); // {onSiparisId: teslim edilecek adet}
+  // Otomatik az-stok listesinden kalıcı olarak çıkarılan ürünler (cihazda saklanır)
+  const [siparisYoksay, setSiparisYoksay] = React.useState(()=>{
+    try { return JSON.parse(localStorage.getItem("apron_siparis_yoksay")||"[]"); } catch(e){ return []; }
+  });
+  React.useEffect(()=>{
+    try { localStorage.setItem("apron_siparis_yoksay", JSON.stringify(siparisYoksay)); } catch(e){}
+  },[siparisYoksay]);
 
   // Mal kabul state
   const [mkForm, setMkForm] = React.useState(false);
@@ -2087,11 +2094,51 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     return oz;
   },[stokPartiler]);
 
-  // Stok ≤2 otomatik sipariş
+  // ── Satış hızı: son 90 günde barkod başına satılan adet → ortalama kaç günde 1 satılıyor ──
+  const hizMap = React.useMemo(()=>{
+    const sinir = new Date(); sinir.setDate(sinir.getDate()-90);
+    const sinirStr = sinir.toISOString().split("T")[0];
+    const sayim = {};
+    (tumK||[]).forEach(r=>{
+      if(!r.tarih || r.tarih<sinirStr) return;
+      (r.urunler||[]).forEach(u=>{
+        if(!u.b) return;
+        sayim[u.b] = (sayim[u.b]||0) + toN(u.qty||1);
+      });
+    });
+    return sayim; // {barkod: 90 gündeki satış adedi}
+  },[tumK]);
+  const hizEtiket = (barkod) => {
+    const adet = hizMap[barkod]||0;
+    if(adet<=0) return {lb:"🔴 Hiç satılmıyor (90g)", c:"#c05050"};
+    const ortGun = Math.round(90/adet);
+    if(ortGun<=5)  return {lb:"🟢 Hızlı (~"+ortGun+" günde 1)", c:"#1e9e46"};
+    if(ortGun<=15) return {lb:"🟡 Orta (~"+ortGun+" günde 1)", c:"#b8901f"};
+    if(ortGun<=30) return {lb:"🟠 Yavaş (~"+ortGun+" günde 1)", c:"#c25e00"};
+    return {lb:"🔴 Çok yavaş (~"+ortGun+" günde 1)", c:"#c05050"};
+  };
+  // ── Bu ürünü en son hangi tedarikçiden aldık + o tedarikçiyle aramızdaki bakiye ──
+  const sonTedarikci = (barkod) => {
+    const gecmis = (mkArsiv||[]).filter(ar=>(ar.urunler||[]).some(u=>u.barkod===barkod) && ar.tedarikci)
+      .sort((a,b)=>(b.malKabulTarihi||b.tarih||"").localeCompare(a.malKabulTarihi||a.tarih||""));
+    return gecmis[0]?.tedarikci || "";
+  };
+  const tedarikciBakiye = (ad) => {
+    if(!ad) return 0;
+    let borc=0, odeme=0;
+    (mkArsiv||[]).forEach(ar=>{
+      if((ar.tedarikci||"")!==ad) return;
+      borc += (ar.urunler||[]).reduce((s,u)=>s+(u.toplamF||0),0);
+      odeme += (ar.odemeler||[]).reduce((s,o)=>s+toN(o.tutar),0);
+    });
+    return borc-odeme; // >0: ona borcumuz var, <0: bizim alacağımız var
+  };
+
+  // Stok ≤2 otomatik sipariş (kullanıcının kalıcı olarak çıkardığı ürünler hariç)
   React.useEffect(()=>{
-    const eksikler = Object.values(stokOzet).filter(u=>u.kalan<=2);
+    const eksikler = Object.values(stokOzet).filter(u=>u.kalan<=2 && !siparisYoksay.includes(u.barkod));
     setSiparisListesi(prev=>{
-      const yeni = [...prev];
+      const yeni = prev.filter(s=>!s.otomatik || !siparisYoksay.includes(s.barkod));
       eksikler.forEach(u=>{
         if(!yeni.find(s=>s.barkod===u.barkod)){
           yeni.push({barkod:u.barkod, urunAd:u.urunAd, marka:u.marka, mevcutStok:u.kalan, siparisAdet:"", otomatik:true});
@@ -2099,7 +2146,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
       });
       return yeni.map(s=>({...s, mevcutStok:stokOzet[s.barkod]?.kalan||0}));
     });
-  },[stokOzet]);
+  },[stokOzet, siparisYoksay]);
 
   // Arşivi önce localStorage'dan, sonra Supabase'den yükle
   React.useEffect(()=>{
@@ -2367,22 +2414,39 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           div({style:{fontSize:13}},"Tüm ürünlerin stoğu yeterli"))
         :div(null,
           div({style:{fontSize:12,color:"var(--mu)",marginBottom:8}},siparisListesi.length+" ürün sipariş bekliyor"),
-          siparisListesi.map((s,i)=>
-            div({key:s.barkod+i,style:{display:"flex",alignItems:"center",gap:10,
+          siparisListesi.map((s,i)=>{
+            const hiz = hizEtiket(s.barkod);
+            const tedAd = sonTedarikci(s.barkod);
+            const bakiye = tedAd ? tedarikciBakiye(tedAd) : 0;
+            return div({key:s.barkod+i,style:{display:"flex",flexDirection:"column",gap:6,
               background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:10,padding:"10px 12px",marginBottom:6}},
-              div({style:{flex:1,minWidth:0}},
-                div({style:{fontSize:14,color:"var(--tx)",fontWeight:500}},s.urunAd),
-                div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},
-                  s.marka+" · Stok: "+s.mevcutStok+(s.otomatik?" · ⚡":""))
+              div({style:{display:"flex",alignItems:"center",gap:10}},
+                div({style:{flex:1,minWidth:0}},
+                  div({style:{fontSize:14,color:"var(--tx)",fontWeight:500}},s.urunAd),
+                  div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},
+                    s.marka+" · Stok: "+s.mevcutStok+(s.otomatik?" · ⚡":"")),
+                  div({style:{fontSize:11,fontWeight:700,color:hiz.c,marginTop:3}},hiz.lb)
+                ),
+                inp({style:{width:55,background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:8,
+                  color:"var(--tx)",fontSize:14,padding:"8px 5px",textAlign:"center",outline:"none"},
+                  type:"number",inputMode:"numeric",placeholder:"Ad.",value:s.siparisAdet,
+                  onChange:e=>setSiparisListesi(p=>p.map((x,j)=>j===i?{...x,siparisAdet:e.target.value}:x))}),
+                btn({style:{background:"transparent",border:"none",color:"var(--mu)",fontSize:16,cursor:"pointer"},
+                  onClick:()=>{
+                    if(s.otomatik) setSiparisYoksay(p=>p.includes(s.barkod)?p:[...p,s.barkod]);
+                    setSiparisListesi(p=>p.filter((_,j)=>j!==i));
+                  }},"✕")
               ),
-              inp({style:{width:55,background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:8,
-                color:"var(--tx)",fontSize:14,padding:"8px 5px",textAlign:"center",outline:"none"},
-                type:"number",inputMode:"numeric",placeholder:"Ad.",value:s.siparisAdet,
-                onChange:e=>setSiparisListesi(p=>p.map((x,j)=>j===i?{...x,siparisAdet:e.target.value}:x))}),
-              btn({style:{background:"transparent",border:"none",color:"var(--mu)",fontSize:16,cursor:"pointer"},
-                onClick:()=>setSiparisListesi(p=>p.filter((_,j)=>j!==i))},"✕")
-            )
-          ),
+              tedAd && Math.round(bakiye)!==0 && div({style:{fontSize:11,fontWeight:600,
+                color: bakiye>0 ? "#c25e00" : "#1e9e46",
+                background: bakiye>0 ? "rgba(220,110,0,.08)" : "rgba(30,158,70,.08)",
+                border:"1px solid "+(bakiye>0?"rgba(220,110,0,.3)":"rgba(30,158,70,.3)"),
+                borderRadius:7,padding:"5px 8px"}},
+                bakiye>0
+                  ? "⚠️ "+tedAd+"'a "+fmt(Math.abs(bakiye))+" borcun var — sipariş verirsen bu da eklenir"
+                  : "💰 "+tedAd+"'dan "+fmt(Math.abs(bakiye))+" alacağın var — bu siparişle mahsuplaşabilirsin")
+            );
+          }),
           sipTedarikciTel.trim().length>=10&&btn({style:{width:"100%",marginTop:12,padding:"14px 0",borderRadius:11,
             border:"none",background:"#25D366",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"},
             onClick:()=>{
@@ -10534,6 +10598,7 @@ if(DB) dbUpsertAyar("tema",tema);
   };
 
   // Personel text-pin girişi
+  const PIN_DOGRULA_URL = "https://txbvqwcwarpkwvvhxdoo.supabase.co/functions/v1/pin-dogrula";
   const perPinGiris = async () => {
     // Bloke kontrol
     if(pinBloke){
@@ -10543,41 +10608,77 @@ if(DB) dbUpsertAyar("tema",tema);
     }
     if(!perPin){ setPerPinHata("Şifrenizi girin."); return; }
     if(perPin.length<6){ setPerPinHata("Şifre en az 6 karakter olmalı."); return; }
-    let liste = personeller;
-    let k = liste.find(x=>x.pin===perPin && x.aktif && x.rol!=="yonetici");
-    // Eşleşme yoksa liste henüz yüklenmemiş ya da başka cihazda değişmiş olabilir — Supabase'den taze çek
-    if(!k && DB){
+
+    let k = null;
+    let sunucuYanit = null;
+
+    // Önce sunucu taraflı doğrulamayı dene (PIN'ler artık cihaza/client'a hiç gönderilmiyor)
+    if(DB){
       try {
-        const { data } = await DB.from("ayarlar").select("deger").eq("id","personeller").maybeSingle();
-        if(data && Array.isArray(data.deger)){
-          liste = data.deger;
-          k = liste.find(x=>x.pin===perPin && x.aktif && x.rol!=="yonetici");
-          // state'i de güncelle, varsa auth_user_id'leri koru
-          setPersoneller(prev => liste.map(p => {
-            const old = prev.find(o=>o.id===p.id);
-            return old && old.auth_user_id ? {...p, auth_user_id: old.auth_user_id} : p;
-          }));
+        const { data: sessionData } = await DB.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        if(token){
+          const resp = await fetch(PIN_DOGRULA_URL, {
+            method:"POST",
+            headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+token },
+            body: JSON.stringify({pin:perPin})
+          });
+          sunucuYanit = await resp.json().catch(()=>null);
         }
-      } catch(e){}
+      } catch(e){ sunucuYanit = null; } // ağ hatası → aşağıdaki yerel yedeğe düş
     }
-    if(!k){
-      const yeniDeneme = pinDeneme + 1;
-      setPinDeneme(yeniDeneme);
-      localStorage.setItem("apron_pin_deneme", String(yeniDeneme));
-      if(yeniDeneme >= 3){
-        // 3. yanlış → bloke
-        setPinBloke(true);
-        localStorage.setItem("apron_pin_bloke","1");
+
+    if(sunucuYanit){
+      // Sunucudan kesin cevap geldi
+      if(sunucuYanit.bloke){
+        setPinBloke(true); localStorage.setItem("apron_pin_bloke","1");
         setPerPinHata("🔒 Pin kodunuz bloke oldu. Yöneticinizle iletişime geçin.");
-      } else if(yeniDeneme === 2){
-        // 2. yanlış → uyarı
-        setPerPinHata("⚠️ Bir kez daha yanlış girerseniz pin kodunuz bloke olacak ve yöneticinizden yeni pin kodu isteyeceksiniz.");
-      } else {
-        // 1. yanlış → yöneticiyle iletişim bilgisi
-        setPerPinHata("❌ Hatalı şifre. Şifrenizi unuttuysanız yöneticinizle iletişime geçin.");
+        setPerPin(""); return;
       }
-      setPerPin("");
-      return;
+      if(!sunucuYanit.ok){
+        const yeniDeneme = sunucuYanit.deneme || (pinDeneme+1);
+        setPinDeneme(yeniDeneme); localStorage.setItem("apron_pin_deneme", String(yeniDeneme));
+        setPerPinHata(yeniDeneme>=2
+          ? "⚠️ Bir kez daha yanlış girerseniz pin kodunuz bloke olacak ve yöneticinizden yeni pin kodu isteyeceksiniz."
+          : "❌ Hatalı şifre. Şifrenizi unuttuysanız yöneticinizle iletişime geçin.");
+        setPerPin(""); return;
+      }
+      // Başarılı — sunucu PIN hariç temel bilgiyi döner; yereldeki tam kayıtla (grup, pozisyon vb.) tamamla
+      const yerelTam = personeller.find(p=>p.id===sunucuYanit.personel.id);
+      k = yerelTam || sunucuYanit.personel;
+    } else {
+      // Sunucuya ulaşılamadı (offline / fonksiyon erişilemez) → eski yerel karşılaştırmaya düş
+      let liste = personeller;
+      k = liste.find(x=>x.pin===perPin && x.aktif && x.rol!=="yonetici");
+      if(!k && DB){
+        try {
+          const { data } = await DB.from("ayarlar").select("deger").eq("id","personeller").maybeSingle();
+          if(data && Array.isArray(data.deger)){
+            liste = data.deger;
+            k = liste.find(x=>x.pin===perPin && x.aktif && x.rol!=="yonetici");
+            setPersoneller(prev => liste.map(p => {
+              const old = prev.find(o=>o.id===p.id);
+              return old && old.auth_user_id ? {...p, auth_user_id: old.auth_user_id} : p;
+            }));
+          }
+        } catch(e){}
+      }
+      if(!k){
+        const yeniDeneme = pinDeneme + 1;
+        setPinDeneme(yeniDeneme);
+        localStorage.setItem("apron_pin_deneme", String(yeniDeneme));
+        if(yeniDeneme >= 3){
+          setPinBloke(true);
+          localStorage.setItem("apron_pin_bloke","1");
+          setPerPinHata("🔒 Pin kodunuz bloke oldu. Yöneticinizle iletişime geçin.");
+        } else if(yeniDeneme === 2){
+          setPerPinHata("⚠️ Bir kez daha yanlış girerseniz pin kodunuz bloke olacak ve yöneticinizden yeni pin kodu isteyeceksiniz.");
+        } else {
+          setPerPinHata("❌ Hatalı şifre. Şifrenizi unuttuysanız yöneticinizle iletişime geçin.");
+        }
+        setPerPin("");
+        return;
+      }
     }
     // Başarılı giriş → sayacı sıfırla
     setPinDeneme(0); localStorage.removeItem("apron_pin_deneme");
@@ -17250,7 +17351,14 @@ if(DB) dbUpsertAyar("tema",tema);
       const hasLetter=/[a-zA-Z]/.test(yeniSifre1), hasDigit=/[0-9]/.test(yeniSifre1);
       if(!hasLetter||!hasDigit){setSifreHata("En az 1 harf ve 1 rakam içermeli.");return;}
       try{
-        if(DB){const {error}=await DB.auth.updateUser({password:yeniSifre1});
+        if(DB){
+          // Mevcut şifreyi gerçekten doğrula (önceden sadece soruluyordu, kontrol edilmiyordu)
+          const {data:ud} = await DB.auth.getUser();
+          const mevcutMail = ud?.user?.email;
+          if(!mevcutMail){ setSifreDurum("hata"); setSifreHata("Oturum bilgisi alınamadı."); return; }
+          const {error:reauthErr} = await DB.auth.signInWithPassword({email:mevcutMail, password:guncelSifre});
+          if(reauthErr){ setSifreDurum("hata"); setSifreHata("Mevcut şifre yanlış."); return; }
+          const {error}=await DB.auth.updateUser({password:yeniSifre1});
           if(error){setSifreDurum("hata");setSifreHata(error.message||"Güncellenemedi.");return;}}
         setSifreDurum("ok");setGuncelSifre("");setYeniSifre1("");setYeniSifre2("");
         showToast("Şifre güncellendi","ba");
