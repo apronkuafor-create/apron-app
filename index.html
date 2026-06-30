@@ -7306,6 +7306,8 @@ function KayitKarti({r, onDetay, onDuzenle, onSil}) {
       div({style:{maxWidth:480,margin:"0 auto"}},
         hata&&div({style:{color:"#c05050",fontSize:13,marginBottom:10,padding:"8px 10px",background:"#0e1a1a",borderRadius:8,border:"1px solid #1e3a3a"}},hata),
         div({style:{marginBottom:10}},lbl({className:"fl"},"Ad Soyad *"),inp({className:"fi",placeholder:"Ad Soyad",value:data.ad||"",onChange:e=>setData(p=>({...p,ad:e.target.value}))})),
+        div({style:{marginBottom:10}},lbl({className:"fl"},"E-posta (cihaz doğrulama için)"),inp({className:"fi",type:"email",placeholder:"ornek@eposta.com",value:data.eposta||"",onChange:e=>setData(p=>({...p,eposta:e.target.value.trim()}))})),
+        div({style:{marginBottom:10}},lbl({className:"fl"},"Doğum Tarihi (cihaz doğrulama için)"),inp({className:"fi",type:"date",value:data.dogumTarihi||"",onChange:e=>setData(p=>({...p,dogumTarihi:e.target.value}))})),
         div({style:{marginBottom:10}},lbl({className:"fl"},"Şifre * (min 6 karakter, harf+rakam)"),inp({className:"fi",type:"password",maxLength:20,placeholder:"••••••",value:data.pin||"",onChange:e=>setData(p=>({...p,pin:e.target.value.slice(0,20)}))})),
         div({style:{marginBottom:10}},lbl({className:"fl"},"Rol"),
           sel({className:"fi",value:data.rol||"personel",onChange:e=>setData(p=>({...p,rol:e.target.value}))},
@@ -9593,6 +9595,69 @@ function App() {
     if(savedEmail && localStorage.getItem("apron_hatirla")==="1") setLoginEmail(savedEmail);
   },[]);
 
+  // ── Service Worker kaydı (bildirimler için) ──
+  React.useEffect(()=>{
+    if(!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.register("/apron-app/sw.js").catch(()=>{});
+  },[]);
+
+  // ── Günlük hatırlatma bildirimi kontrolü ──
+  // Uygulama açıkken her saat kontrol eder; vadesi geçmiş/bugün olan hatırlatmaları bildirir.
+  React.useEffect(()=>{
+    const bildirimGonder = async (baslik, govde, etiket) => {
+      // Önce tarayıcı içi bildirim (Service Worker üzerinden — uygulama açık/kapalı fark etmez)
+      if("serviceWorker" in navigator && Notification.permission === "granted"){
+        const reg = await navigator.serviceWorker.ready.catch(()=>null);
+        if(reg){
+          reg.active?.postMessage({ tip:"yerelBildirim", baslik, govde, etiket });
+          return;
+        }
+      }
+      // Fallback: direkt Notification API (sadece uygulama açıkken)
+      if(Notification.permission === "granted"){
+        new Notification(baslik, { body: govde, tag: etiket });
+      }
+    };
+
+    const hatKontrol = async () => {
+      // Bildirim izni yoksa iste
+      if(Notification.permission === "default"){
+        const izin = await Notification.requestPermission().catch(()=>"denied");
+        if(izin !== "granted") return;
+      }
+      if(Notification.permission !== "granted") return;
+      if(!kul || !hatirlatmalar) return;
+
+      const bugun = TODAY();
+      const vadesi = hatirlatmalar.filter(h=>
+        h.staffId === kul.id && !h.gonderildi && h.gonderiTarih <= bugun
+      );
+      if(vadesi.length === 0) return;
+
+      // Günde bir kez bildir (son bildirim tarihi kontrolü)
+      const sonKey = "apron_hat_bildirim_"+bugun;
+      if(localStorage.getItem(sonKey)) return;
+      localStorage.setItem(sonKey, "1");
+
+      // Eski günlere ait key'leri temizle (birikmemesi için)
+      Object.keys(localStorage).filter(k=>k.startsWith("apron_hat_bildirim_") && k!==sonKey)
+        .forEach(k=>localStorage.removeItem(k));
+
+      await bildirimGonder(
+        "💈 Apron Business — Hatırlatma",
+        vadesi.length === 1
+          ? vadesi[0].musteriAd + " için WhatsApp hatırlatması bekliyor."
+          : vadesi.length + " müşteri için WhatsApp hatırlatması bekliyor.",
+        "apron-hat-"+bugun
+      );
+    };
+
+    // Uygulama açıldığında hemen kontrol et, sonra her saat tekrar kontrol et
+    hatKontrol();
+    const interval = setInterval(hatKontrol, 60 * 60 * 1000);
+    return () => clearInterval(interval);
+  },[kul, hatirlatmalar]);
+
   useEffect(()=>{
     (async()=>{
       setYukleniyor(true);
@@ -10611,6 +10676,7 @@ if(DB) dbUpsertAyar("tema",tema);
 
     let k = null;
     let sunucuYanit = null;
+    let oturumYok = false;
 
     // Önce sunucu taraflı doğrulamayı dene (PIN'ler artık cihaza/client'a hiç gönderilmiyor)
     if(DB){
@@ -10624,13 +10690,16 @@ if(DB) dbUpsertAyar("tema",tema);
             body: JSON.stringify({pin:perPin})
           });
           sunucuYanit = await resp.json().catch(()=>null);
+        } else {
+          oturumYok = true; // Bu cihazda hiç salon girişi (e-posta+şifre) yapılmamış
         }
       } catch(e){ sunucuYanit = null; }
     }
 
     if(!sunucuYanit){
-      // İnternet yok / sunucuya ulaşılamadı → giriş yapılamaz (zaten kayıt göndermek için de internet gerekiyor)
-      setPerPinHata("📶 İnternet bağlantısı yok. Giriş için bağlantı gerekli.");
+      setPerPinHata(oturumYok
+        ? "⚠️ Bu cihazda salon girişi yapılmamış. Önce yönetici e-posta/şifresiyle bir kez giriş yapılmalı — sonrasında personel sadece PIN ile girebilir."
+        : "📶 İnternet bağlantısı yok. Giriş için bağlantı gerekli.");
       setPerPin("");
       return;
     }
@@ -12862,7 +12931,15 @@ if(DB) dbUpsertAyar("tema",tema);
                         onClick:()=>{
                           const raw=h2.tel.replace(/[^0-9]/g,"");
                           const fmt2=raw.startsWith("90")?raw:raw.startsWith("0")?"90"+raw.slice(1):"90"+raw;
-                          window.open("https://wa.me/"+fmt2+"?text="+encodeURIComponent(h2.mesaj),"_blank");
+                          // Gönderim anında gerçek geçen günü hesapla ve mesajı güncelle
+                          let guncelMesaj = h2.mesaj;
+                          if(h2.olusturmaTarihi){
+                            const bas = new Date(h2.olusturmaTarihi);
+                            const bugunD = new Date(TODAY());
+                            const gercekGun = Math.max(1, Math.round((bugunD-bas)/(1000*60*60*24)));
+                            guncelMesaj = guncelMesaj.replace(/üzerinden \d+ gün/,"üzerinden "+gercekGun+" gün");
+                          }
+                          window.open("https://wa.me/"+fmt2+"?text="+encodeURIComponent(guncelMesaj),"_blank");
                           setHatirlatmalar(p=>p.map(x=>x.id===h2.id?{...x,gonderildi:true,gonderildiTarih:TODAY()}:x));
                           dbUpsert("hatirlatmalar",{...h2,gonderildi:true,gonderildiTarih:TODAY()},"isletme_id,id");
                         }},
@@ -17063,7 +17140,7 @@ if(DB) dbUpsertAyar("tema",tema);
 
     [
     {b:"Iletisim",i:"📞",a:[
-      ["Telefon",pDetay.telefon],["Ev Adresi",pDetay.adres],
+      ["Telefon",pDetay.telefon],["E-posta",pDetay.eposta],["Ev Adresi",pDetay.adres],
       ["Acil Kisi",pDetay.acilKisi],["Acil Tel",pDetay.acilTel]
     ]},
     {b:"Kimlik",i:"🪪",a:[
