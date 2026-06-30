@@ -10387,7 +10387,7 @@ if(DB) dbUpsertAyar("tema",tema);
         setYonBiyoPendingEmail(emailGiris);
         setYonBiyoOneri(true);
       } else {
-        kapidanGir("yonetici");
+        kapidanGir("yonetici", yon);
       }
     } catch(e){ setLoginHata("Bağlantı hatası."); }
     setLoginYuk(false);
@@ -10417,7 +10417,7 @@ if(DB) dbUpsertAyar("tema",tema);
       const yon = personeller.find(p=>p.rol==="yonetici") || YONETICI;
       setKul(yon); setLoginMod("secim"); setLoginHata("");
       setAsek(""); setPanelAdim("ana"); setPanelAltSek("");
-      kapidanGir("yonetici");
+      kapidanGir("yonetici", yon);
     } catch(err){
       setYonBiyoOto(false);
       if(!otomatik){
@@ -10476,7 +10476,7 @@ if(DB) dbUpsertAyar("tema",tema);
       else { localStorage.removeItem("apron_hatirla"); localStorage.removeItem("apron_saved_email"); }
       const yon = personeller.find(p=>p.rol==="yonetici") || YONETICI;
       setKul(yon); setLoginMod("secim"); setLoginSifre(""); setLoginHata("");
-      setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); kapidanGir("yonetici");
+      setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); kapidanGir("yonetici", yon);
     } catch(e){ setLoginHata("Bağlantı hatası."); }
     setLoginYuk(false);
   };
@@ -10514,11 +10514,21 @@ if(DB) dbUpsertAyar("tema",tema);
   }, [loginMod]);
 
   // Şifre doğrulandıktan sonra: kapı açılış animasyonu + 3sn sahne, ardından panele giriş
-  const kapidanGir = (hedef) => {
+  const kapidanGir = (hedef, girenKul) => {
     setKapiAnim(hedef==="yonetici"?"yon":"per");
-    if(hedef==="yonetici") setEkran(hedef); // oturum kaydı doğru ekranı yakalasın (reload öncesi)
     setTimeout(()=>{
-      if(hedef==="yonetici"){ location.reload(); return; } // RLS sonrası: gerçek oturumla temiz baştan veri çek
+      if(hedef==="yonetici"){
+        // Oturumu elle, doğrudan yaz (React render döngüsünü beklemeden) — sonra güvenle yenile
+        try {
+          localStorage.setItem("apron_session", JSON.stringify({
+            kul:(girenKul||kul), ekran:"yonetici", panelAdim:"ana", panelAltSek:"", asek:"",
+            muhSek:"", muhAlt:"", muhAltAcik:"", psek:"", aySek:"", ayListeSek:"",
+            hesapFull:false, vergiFull:false
+          }));
+        } catch(e){}
+        location.reload(); // RLS sonrası: gerçek oturumla temiz baştan veri çek
+        return;
+      }
       setKapiAnim(null); setEkran(hedef);
     }, 3000);
   };
