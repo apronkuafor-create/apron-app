@@ -10625,61 +10625,33 @@ if(DB) dbUpsertAyar("tema",tema);
           });
           sunucuYanit = await resp.json().catch(()=>null);
         }
-      } catch(e){ sunucuYanit = null; } // ağ hatası → aşağıdaki yerel yedeğe düş
+      } catch(e){ sunucuYanit = null; }
     }
 
-    if(sunucuYanit){
-      // Sunucudan kesin cevap geldi
-      if(sunucuYanit.bloke){
-        setPinBloke(true); localStorage.setItem("apron_pin_bloke","1");
-        setPerPinHata("🔒 Pin kodunuz bloke oldu. Yöneticinizle iletişime geçin.");
-        setPerPin(""); return;
-      }
-      if(!sunucuYanit.ok){
-        const yeniDeneme = sunucuYanit.deneme || (pinDeneme+1);
-        setPinDeneme(yeniDeneme); localStorage.setItem("apron_pin_deneme", String(yeniDeneme));
-        setPerPinHata(yeniDeneme>=2
-          ? "⚠️ Bir kez daha yanlış girerseniz pin kodunuz bloke olacak ve yöneticinizden yeni pin kodu isteyeceksiniz."
-          : "❌ Hatalı şifre. Şifrenizi unuttuysanız yöneticinizle iletişime geçin.");
-        setPerPin(""); return;
-      }
-      // Başarılı — sunucu PIN hariç temel bilgiyi döner; yereldeki tam kayıtla (grup, pozisyon vb.) tamamla
-      const yerelTam = personeller.find(p=>p.id===sunucuYanit.personel.id);
-      k = yerelTam || sunucuYanit.personel;
-    } else {
-      // Sunucuya ulaşılamadı (offline / fonksiyon erişilemez) → eski yerel karşılaştırmaya düş
-      let liste = personeller;
-      k = liste.find(x=>x.pin===perPin && x.aktif && x.rol!=="yonetici");
-      if(!k && DB){
-        try {
-          const { data } = await DB.from("ayarlar").select("deger").eq("id","personeller").maybeSingle();
-          if(data && Array.isArray(data.deger)){
-            liste = data.deger;
-            k = liste.find(x=>x.pin===perPin && x.aktif && x.rol!=="yonetici");
-            setPersoneller(prev => liste.map(p => {
-              const old = prev.find(o=>o.id===p.id);
-              return old && old.auth_user_id ? {...p, auth_user_id: old.auth_user_id} : p;
-            }));
-          }
-        } catch(e){}
-      }
-      if(!k){
-        const yeniDeneme = pinDeneme + 1;
-        setPinDeneme(yeniDeneme);
-        localStorage.setItem("apron_pin_deneme", String(yeniDeneme));
-        if(yeniDeneme >= 3){
-          setPinBloke(true);
-          localStorage.setItem("apron_pin_bloke","1");
-          setPerPinHata("🔒 Pin kodunuz bloke oldu. Yöneticinizle iletişime geçin.");
-        } else if(yeniDeneme === 2){
-          setPerPinHata("⚠️ Bir kez daha yanlış girerseniz pin kodunuz bloke olacak ve yöneticinizden yeni pin kodu isteyeceksiniz.");
-        } else {
-          setPerPinHata("❌ Hatalı şifre. Şifrenizi unuttuysanız yöneticinizle iletişime geçin.");
-        }
-        setPerPin("");
-        return;
-      }
+    if(!sunucuYanit){
+      // İnternet yok / sunucuya ulaşılamadı → giriş yapılamaz (zaten kayıt göndermek için de internet gerekiyor)
+      setPerPinHata("📶 İnternet bağlantısı yok. Giriş için bağlantı gerekli.");
+      setPerPin("");
+      return;
     }
+
+    // Sunucudan kesin cevap geldi
+    if(sunucuYanit.bloke){
+      setPinBloke(true); localStorage.setItem("apron_pin_bloke","1");
+      setPerPinHata("🔒 Pin kodunuz bloke oldu. Yöneticinizle iletişime geçin.");
+      setPerPin(""); return;
+    }
+    if(!sunucuYanit.ok){
+      const yeniDeneme = sunucuYanit.deneme || (pinDeneme+1);
+      setPinDeneme(yeniDeneme); localStorage.setItem("apron_pin_deneme", String(yeniDeneme));
+      setPerPinHata(yeniDeneme>=2
+        ? "⚠️ Bir kez daha yanlış girerseniz pin kodunuz bloke olacak ve yöneticinizden yeni pin kodu isteyeceksiniz."
+        : "❌ Hatalı şifre. Şifrenizi unuttuysanız yöneticinizle iletişime geçin.");
+      setPerPin(""); return;
+    }
+    // Başarılı — sunucu PIN hariç temel bilgiyi döner; yereldeki tam kayıtla (grup, pozisyon vb.) tamamla
+    const yerelTam = personeller.find(p=>p.id===sunucuYanit.personel.id);
+    k = yerelTam || sunucuYanit.personel;
     // Başarılı giriş → sayacı sıfırla
     setPinDeneme(0); localStorage.removeItem("apron_pin_deneme");
     setKul(k); setPerPin(""); setPerPinHata(""); setLoginMod("secim");
