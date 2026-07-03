@@ -1669,6 +1669,7 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
   const [detayTarih, setDetayTarih] = React.useState(null);
   const [hmSilMod, setHmSilMod] = React.useState(false); // gün-tablosunda seçerek silme modu
   const [hmSecim, setHmSecim] = React.useState({}); // {tarih:true}
+  const [devDetay, setDevDetay] = React.useState(null); // açık devamsızlık detayı tarihi
 
   const gelirGrupId = (pGruplar||[]).find(g=>g.ad.toLowerCase().includes("gelire"))?.id;
   const gelirPersoneller = gelirGrupId
@@ -1981,16 +1982,83 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
             : satirlar.map((s,i)=>{
                 // Devamsızlık satırı
                 if(s.tip==="devamsiz"){
-                  return h("tr",{key:s.tarih,
-                    style:{background:"rgba(192,80,80,.05)",borderBottom:"1px solid var(--br)"}},
+                  // Durum etiketini aciklama metninden çıkar
+                  const ac = s.aciklama||"";
+                  const durum = ac.includes("(Onay Bekliyor)") ? "bekliyor"
+                              : ac.includes("onaylandi") ? "onaylandi"
+                              : ac.includes("onaysiz") ? "onaysiz"
+                              : "belirsiz";
+                  const temizAc = ac.replace(" (Onay Bekliyor)","").replace("onaylandi","").replace("onaysiz","").trim();
+                  const durumRenk = durum==="onaylandi" ? "#1e9e46"
+                                  : durum==="onaysiz"   ? "#c05050"
+                                  : durum==="bekliyor"  ? "#b87000"
+                                  : "var(--mu)";
+                  const durumEtiket = durum==="onaylandi" ? "✓ Onaylı"
+                                    : durum==="onaysiz"   ? "✕ Onaysız"
+                                    : durum==="bekliyor"  ? "⏳ Bekliyor"
+                                    : "";
+                  return h(React.Fragment,{key:s.tarih},
+                    h("tr",{
+                    style:{background:"rgba(192,80,80,.05)",borderBottom: devDetay===s.tarih?"none":"1px solid var(--br)"}},
                     h("td",{style:tdS(false,true,"var(--g)")},fmtT(s.tarih)),
-                    h("td",{colSpan:5,style:{
-                      padding:"10px 12px",fontSize:12,
-                      color:"#c05050",fontStyle:"italic",
-                      borderBottom:"1px solid var(--br)"
-                    }},
-                      h("span",{style:{marginRight:6}},"⚠"),s.aciklama
+                    h("td",{colSpan:4,style:{padding:"10px 12px",fontSize:13,
+                      color:"#c05050",borderBottom:"none"}},
+                      h("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},
+                        h("span",null,"⚠"),
+                        h("span",{style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
+                          fontWeight:500}}, temizAc),
+                        durumEtiket&&h("span",{style:{
+                          fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:5,
+                          background:durumRenk+"22",color:durumRenk,
+                          border:"1px solid "+durumRenk+"44",
+                          fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"
+                        }},durumEtiket)
+                      )
+                    ),
+                    h("td",{style:{padding:"8px 10px",textAlign:"right",borderBottom:"none"}},
+                      h("button",{
+                        style:{fontSize:12,padding:"5px 10px",borderRadius:7,border:"1px solid var(--br)",
+                          background:devDetay===s.tarih?"var(--g)":"var(--bg3)",
+                          color:devDetay===s.tarih?"#fff":"var(--g)",cursor:"pointer",
+                          fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
+                          fontWeight:500},
+                        onClick:()=>setDevDetay(devDetay===s.tarih?null:s.tarih)
+                      },devDetay===s.tarih?"Kapat ✕":"Detay →")
                     )
+                  ),
+                  devDetay===s.tarih && h("tr",{key:s.tarih+"_detay"},
+                    h("td",{colSpan:6,style:{padding:"14px 16px",background:"rgba(192,80,80,.04)",
+                      borderBottom:"1px solid var(--br)"}},
+                      h("div",{style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
+                        fontSize:13,lineHeight:1.7,color:"var(--tx)"}},
+                        h("div",{style:{fontWeight:600,marginBottom:8,color:"#c05050"}},
+                          "📅 "+fmtT(s.tarih)+" — Devamsızlık Detayı"),
+                        h("div",{style:{marginBottom:6}},
+                          h("span",{style:{color:"var(--mu)",fontSize:12}},"Neden: "),
+                          h("span",{style:{fontWeight:500}},temizAc)
+                        ),
+                        h("div",{style:{marginBottom:6}},
+                          h("span",{style:{color:"var(--mu)",fontSize:12}},"Durum: "),
+                          h("span",{style:{fontWeight:700,color:durumRenk}},durumEtiket||"Bilgi yok")
+                        ),
+                        durum==="bekliyor"&&h("div",{style:{marginTop:8,fontSize:12,color:"#b87000",
+                          background:"rgba(184,112,0,.06)",border:"1px solid rgba(184,112,0,.2)",
+                          borderRadius:8,padding:"8px 10px"}},
+                          "⏳ Yönetici onayı bekleniyor."
+                        ),
+                        durum==="onaysiz"&&h("div",{style:{marginTop:8,fontSize:12,color:"#c05050",
+                          background:"rgba(192,80,80,.06)",border:"1px solid rgba(192,80,80,.2)",
+                          borderRadius:8,padding:"8px 10px"}},
+                          "✕ Bu devamsızlık yönetici tarafından onaylanmadı."
+                        ),
+                        durum==="onaylandi"&&h("div",{style:{marginTop:8,fontSize:12,color:"#1e9e46",
+                          background:"rgba(30,158,70,.06)",border:"1px solid rgba(30,158,70,.2)",
+                          borderRadius:8,padding:"8px 10px"}},
+                          "✓ Bu devamsızlık yönetici tarafından onaylandı."
+                        )
+                      )
+                    )
+                  )
                   );
                 }
                 // Normal hizmet satırı
@@ -11013,8 +11081,8 @@ if(DB) dbUpsertAyar("tema",tema);
       durum: "bekliyor",
       olusturma: Date.now()
     };
-    setYonBildirim(p=>[bilObj,...(p||[])]);
-    dbEkle("yon_bildirim_merkezi", bilObj);
+    setYonBildirimMerkezi(p=>[bilObj,...(p||[])]);
+    dbUpsert("yon_bildirim_merkezi", bilObj, "isletme_id,id");
 
     // Temizle ve kapat
     setDevUyari(false); setEksikGunTarih(""); setDevSec(""); setDevDiger("");
