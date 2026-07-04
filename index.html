@@ -5429,10 +5429,9 @@ function bankaGunKomisyonFn(bankAd, donemler, tarih, komGirisBank){
 }
 
 // ── HESAP ÖZETİ MODÜLÜ ─────────────────────────────────────────────────────
-function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToast, bankaKom, komisyonGiderYaz, onIncele}) {
-  // Renklendirme sisteminden kalan referanslar için varsayılan boş stil
+function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToast, bankaKom, komisyonGiderYaz, onIncele, defaultTarih}) {
   const genelToplamBolumStili = {};
-  const [secTarih, setSecTarih] = React.useState(TODAY());
+  const [secTarih, setSecTarih] = React.useState(defaultTarih||TODAY());
   const [girisBankalar, setGirisBankalar] = React.useState({});
   const [girisIban, setGirisIban] = React.useState("");
   const [girisNakit, setGirisNakit] = React.useState("");
@@ -5549,7 +5548,7 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
           const pGruplar = {};
           gunKayitlar.forEach(r => {
             if(!pGruplar[r.staffId]) pGruplar[r.staffId] = {
-              ad:r.staffAd, hizKK:0,hizIB:0,hizNK:0, uKK:0,uIB:0,uNK:0, hizCiro:0, urunCiro:0, kayitSay:0
+              id:r.staffId, ad:r.staffAd, hizKK:0,hizIB:0,hizNK:0, uKK:0,uIB:0,uNK:0, hizCiro:0, urunCiro:0, kayitSay:0
             };
             const g = pGruplar[r.staffId];
             g.hizKK+=(r.hizKK||0); g.hizIB+=(r.hizIB||0); g.hizNK+=(r.hizNK||0);
@@ -5593,7 +5592,7 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
                       background:"rgba(30,158,70,.08)",color:"var(--g)",cursor:"pointer",
                       fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
                       fontWeight:600},
-                    onClick:()=>onIncele({ad:p.ad, tarih:secTarih})
+                    onClick:()=>onIncele({ad:p.ad, id:p.id, tarih:secTarih})
                   },"İncele →")
                 )
               )
@@ -9549,6 +9548,7 @@ function App() {
   const [muhAltAcik, setMuhAltAcik]   = useState("");
   const [vergiFull, setVergiFull]     = useState(false);
   const [hesapFull, setHesapFull]     = useState(false);
+  const [hesapFullTarih, setHesapFullTarih] = useState("");
   const [cikisSecenek, setCikisSecenek] = useState(false);
   const [stokGirisForm, setStokGirisForm] = useState(false);
   const [stokGirisUrun, setStokGirisUrun] = useState([]); // [{barkod,adet,alisF}]
@@ -14752,7 +14752,9 @@ if(DB) dbUpsertAyar("tema",tema);
             } else if(asek==="kayitlar"){
               if(kayitlarAlt){ setKayitlarAlt(""); }
               else if(donusKonum?.hesapFull){
-                setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); setHesapFull(true); setDonusKonum(null);
+                setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); setHesapFull(true);
+                if(donusKonum.hesapTarih) setHesapFullTarih(donusKonum.hesapTarih);
+                setDonusKonum(null);
               }
               else { setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); }
             } else if(asek==="ayarlar"){
@@ -17854,20 +17856,43 @@ if(DB) dbUpsertAyar("tema",tema);
     hesapFull&&div({style:{position:"fixed",inset:0,zIndex:15,background:"var(--bg)",overflowY:"auto",paddingTop:220}},
       div({style:{padding:"0 14px 80px"}},
         h(HesapOzetiModul,{tumK, bankalar, hesapSaglama, setHesapSaglama, showToast, bankaKom, komisyonGiderYaz,
-          onIncele: ({ad, tarih}) => {
-            // Kayıtlar panelini o personel + o tarih filtrelenmiş halde aç
-            setKayitPanelPersonel(ad);
+          defaultTarih: hesapFullTarih||"",
+          onIncele: ({ad, tarih, id}) => {
+            // Kayıtlar paneli filtrelerini doldur
+            setKayitPanelPersonel(id||ad);
             setKayitPanelTarihBas(tarih);
             setKayitPanelTarihBit(tarih);
-            setKayitPanelSonuc(null);
             setKayitPanelAcik(true);
-            // Günlük Hesap Özeti'nden çıkış — "geri" gelince tekrar açılacak
+            // Arama sonucunu direkt hesapla ve yükle (kullanıcı "Ara"ya basmasın)
+            const _lsSnap = JSON.parse(localStorage.getItem("apron_v3")||"{}");
+            const _lsRec = (_lsSnap.records||[]).filter(r=>r.gonderildi!==false);
+            const _stateRec = (records||[]).filter(r=>r.gonderildi!==false);
+            const _merged = _stateRec.length >= _lsRec.length ? _stateRec : _lsRec;
+            let liste = _merged.filter(r=>{
+              const perEslesti = id ? (r.staffId===id) : normText(r.staffAd||"").includes(normText(ad||""));
+              const tarihEslesti = r.tarih===tarih;
+              return perEslesti && tarihEslesti;
+            });
+            const musteriSet=new Set(); let hizKK=0,hizIB=0,hizNK=0,uKK=0,uIB=0,uNK=0;
+            liste.forEach(r=>{
+              const mKey=(r.musteri||"").trim().toLowerCase()+"|"+String(r.tel||"").replace(/\D/g,"");
+              if(mKey!=="|") musteriSet.add(mKey);
+              hizKK+=toN(r.hizKK||0); hizIB+=toN(r.hizIB||0); hizNK+=toN(r.hizNK||0);
+              uKK+=toN(r.uKK||0); uIB+=toN(r.uIB||0); uNK+=toN(r.uNK||0);
+            });
+            setKayitPanelSonuc({
+              kayitlar: liste.sort((a,b)=>String(b.saat||"").localeCompare(String(a.saat||""))),
+              musteriSay: musteriSet.size, kayitSay: liste.length,
+              hizKK,hizIB,hizNK, hizTop:hizKK+hizIB+hizNK,
+              uKK,uIB,uNK, uTop:uKK+uIB+uNK,
+              toplam:hizKK+hizIB+hizNK+uKK+uIB+uNK
+            });
+            // Günlük Hesap Özeti'ne geri dön — tarih bilgisini de sakla
             setHesapFull(false);
             setAsek("kayitlar");
             setPanelAdim("kayitlar");
             setKayitlarAlt("kayitlar");
-            // Geri dönüş noktasını kaydet
-            setDonusKonum({asek:"", panelAdim:"ana", panelAltSek:"", kayitlarAlt:"", hesapFull:true});
+            setDonusKonum({asek:"", panelAdim:"ana", panelAltSek:"", kayitlarAlt:"", hesapFull:true, hesapTarih:tarih});
           }
         })
       )
