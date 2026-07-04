@@ -5429,7 +5429,7 @@ function bankaGunKomisyonFn(bankAd, donemler, tarih, komGirisBank){
 }
 
 // ── HESAP ÖZETİ MODÜLÜ ─────────────────────────────────────────────────────
-function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToast, bankaKom, komisyonGiderYaz}) {
+function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToast, bankaKom, komisyonGiderYaz, onIncele}) {
   // Renklendirme sisteminden kalan referanslar için varsayılan boş stil
   const genelToplamBolumStili = {};
   const [secTarih, setSecTarih] = React.useState(TODAY());
@@ -5586,7 +5586,16 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
                     h("span",{style:{color:"var(--bl)",fontWeight:700}},fmt(p.urunCiro))),
                   odemeSatiri(p.uKK,p.uIB,p.uNK)
                 ),
-                div({style:{fontSize:11,color:"var(--di)",marginTop:2}},p.kayitSay+" kayıt")
+                div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6}},
+                  div({style:{fontSize:11,color:"var(--di)"}},p.kayitSay+" kayıt"),
+                  onIncele && h("button",{
+                    style:{fontSize:12,padding:"5px 11px",borderRadius:8,border:"1px solid var(--g)",
+                      background:"rgba(30,158,70,.08)",color:"var(--g)",cursor:"pointer",
+                      fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
+                      fontWeight:600},
+                    onClick:()=>onIncele({ad:p.ad, tarih:secTarih})
+                  },"İncele →")
+                )
               )
             )
           );
@@ -10994,6 +11003,7 @@ if(DB) dbUpsertAyar("tema",tema);
     setKayitForm(null); setDetay(null);
     if(donusKonum){
       setAsek(donusKonum.asek||""); setPanelAdim(donusKonum.panelAdim||"ana"); setPanelAltSek(donusKonum.panelAltSek||""); setKayitlarAlt(donusKonum.kayitlarAlt||"");
+      if(donusKonum.hesapFull) setHesapFull(true);
     } else {
       setAsek(""); setPanelAdim("ana"); setPanelAltSek("");
     }
@@ -14741,6 +14751,9 @@ if(DB) dbUpsertAyar("tema",tema);
               }
             } else if(asek==="kayitlar"){
               if(kayitlarAlt){ setKayitlarAlt(""); }
+              else if(donusKonum?.hesapFull){
+                setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); setHesapFull(true); setDonusKonum(null);
+              }
               else { setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); }
             } else if(asek==="ayarlar"){
               if(ayListeSek){ setAyListeSek(""); setAsek(""); }
@@ -17840,7 +17853,23 @@ if(DB) dbUpsertAyar("tema",tema);
     ), // asek=ayarlar overlay,
     hesapFull&&div({style:{position:"fixed",inset:0,zIndex:15,background:"var(--bg)",overflowY:"auto",paddingTop:220}},
       div({style:{padding:"0 14px 80px"}},
-        h(HesapOzetiModul,{tumK, bankalar, hesapSaglama, setHesapSaglama, showToast, bankaKom, komisyonGiderYaz})
+        h(HesapOzetiModul,{tumK, bankalar, hesapSaglama, setHesapSaglama, showToast, bankaKom, komisyonGiderYaz,
+          onIncele: ({ad, tarih}) => {
+            // Kayıtlar panelini o personel + o tarih filtrelenmiş halde aç
+            setKayitPanelPersonel(ad);
+            setKayitPanelTarihBas(tarih);
+            setKayitPanelTarihBit(tarih);
+            setKayitPanelSonuc(null);
+            setKayitPanelAcik(true);
+            // Günlük Hesap Özeti'nden çıkış — "geri" gelince tekrar açılacak
+            setHesapFull(false);
+            setAsek("kayitlar");
+            setPanelAdim("kayitlar");
+            setKayitlarAlt("kayitlar");
+            // Geri dönüş noktasını kaydet
+            setDonusKonum({asek:"", panelAdim:"ana", panelAltSek:"", kayitlarAlt:"", hesapFull:true});
+          }
+        })
       )
     ),
 
