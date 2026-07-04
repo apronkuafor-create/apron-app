@@ -9942,12 +9942,13 @@ ayarlarRaw.forEach(a=>{ try {
           });
           const bulutGonderilmis = (k||[]).filter(r=>r.gonderildi).map(mapR);
           const bulutBekleyen    = (k||[]).filter(r=>!r.gonderildi).map(mapR);
-          // LS kayitlarini da merge et - DB az kayit dondurunce LS'deki kayitlar kaybolmasin
+          // Supabase otoritedir: sadece henüz gönderilmemiş (bekleyen) yerel kayıtları ekle.
+          // Bulutta olmayan gönderilmiş kayıtlar ya silinmiş ya da zaten buluta yüklenecek (eksikler).
+          // localStorage'daki gönderilmiş kayıtları merge etme — bu silinen kayıtları geri getiriyor.
           const lkSnap2 = JSON.parse(localStorage.getItem("apron_v3")||"null");
-          const lsGonderilmis2 = (lkSnap2?.records||[]).filter(r=>r.gonderildi!==false);
-          const lsBekleyen2    = (lkSnap2?.bekleyen||[]);
-          const tumGonderilmis = kayitDedup([...lsGonderilmis2, ...bulutGonderilmis, ...eksikler.filter(r=>r.gonderildi)]);
-          const tumBekleyen    = kayitDedup([...lsBekleyen2,    ...bulutBekleyen,    ...eksikler.filter(r=>!r.gonderildi)]);
+          const lsBekleyen2 = (lkSnap2?.bekleyen||[]).filter(r=>!bulutIdSet.has(String(r.id)) && !mezarSet.has(String(r.id)));
+          const tumGonderilmis = kayitDedup([...bulutGonderilmis, ...eksikler.filter(r=>r.gonderildi)]);
+          const tumBekleyen    = kayitDedup([...bulutBekleyen, ...lsBekleyen2, ...eksikler.filter(r=>!r.gonderildi)]);
           if(tumGonderilmis.length || tumBekleyen.length){
             setRecords(tumGonderilmis);
             setGecmis(tumGonderilmis);
