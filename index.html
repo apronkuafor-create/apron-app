@@ -1984,11 +1984,11 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
                 if(s.tip==="devamsiz"){
                   // Durum etiketini aciklama metninden çıkar
                   const ac = s.aciklama||"";
-                  const durum = ac.includes("(Onay Bekliyor)") ? "bekliyor"
-                              : ac.includes("onaylandi") ? "onaylandi"
-                              : ac.includes("onaysiz") ? "onaysiz"
-                              : "belirsiz";
-                  const temizAc = ac.replace(" (Onay Bekliyor)","").replace("onaylandi","").replace("onaysiz","").trim();
+                  const durum = (ac.includes("(onay_bekliyor)") || ac.includes("(Onay Bekliyor)") || ac.includes("(bekliyor)")) ? "bekliyor"
+                              : ac.includes("(onaylandi)") ? "onaylandi"
+                              : ac.includes("(onaysiz)") ? "onaysiz"
+                              : "onaylandi"; // açıklamada parantez yoksa onaylanmış veya eski kayıt
+                  const temizAc = ac.replace(/\s*\((onay_bekliyor|Onay Bekliyor|bekliyor|onaylandi|onaysiz)\)/g,"").trim();
                   const durumRenk = durum==="onaylandi" ? "#1e9e46"
                                   : durum==="onaysiz"   ? "#c05050"
                                   : durum==="bekliyor"  ? "#b87000"
@@ -2001,7 +2001,7 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
                     h("tr",{
                     style:{background:"rgba(192,80,80,.05)",borderBottom: devDetay===s.tarih?"none":"1px solid var(--br)"}},
                     h("td",{style:tdS(false,true,"var(--g)")},fmtT(s.tarih)),
-                    h("td",{colSpan:4,style:{padding:"10px 12px",fontSize:13,
+                    h("td",{colSpan:5,style:{padding:"10px 12px",fontSize:13,
                       color:"#c05050",borderBottom:"none"}},
                       h("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},
                         h("span",null,"⚠"),
@@ -2015,7 +2015,7 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
                         }},durumEtiket)
                       )
                     ),
-                    h("td",{style:{padding:"8px 10px",textAlign:"right",borderBottom:"none"}},
+                    h("td",{style:{padding:"8px 10px",textAlign:"right",borderBottom:"none",whiteSpace:"nowrap"}},
                       h("button",{
                         style:{fontSize:12,padding:"5px 10px",borderRadius:7,border:"1px solid var(--br)",
                           background:devDetay===s.tarih?"var(--g)":"var(--bg3)",
@@ -9983,7 +9983,7 @@ ayarlarRaw.forEach(a=>{ try {
           const sh = await dbAl("stok_hareketleri",{order:"created_at",asc:false});
           if(sh&&sh.length) setStokHar(sh);
         } catch(e){}
-        if(d.length){ const dm={};d.forEach(x=>{dm[x.tarih+"_"+x.staff_id]=x.aciklama;});setDevDB(dm); }
+        if(d.length){ const dm={};d.forEach(x=>{ dm[x.tarih+"_"+x.staff_id] = x.aciklama+(x.durum&&x.durum!=="onaylandi"?" ("+x.durum+")":""); });setDevDB(dm); }
       } catch(e){}
       // ── Oturum yükle — sayfa yenilenince kullanıcıyı aynı sayfaya döndür ──
       try {
@@ -15243,6 +15243,8 @@ if(DB) dbUpsertAyar("tema",tema);
                                 .eq("staff_id",b.manKulId).eq("tarih",b.tarih).then(()=>{});
                               DB.from("yon_bildirim_merkezi").update({durum:"onaylandi"}).eq("id",b.id).then(()=>{});
                               setYonBildirimMerkezi(p=>p.map(x=>x.id===b.id?{...x,durum:"onaylandi"}:x));
+                              // devDB'yi güncelle — personel ekranındaki etiket değişsin
+                              setDevDB(p=>({...p,[b.tarih+"_"+b.manKulId]: b.aciklama}));
                               showToast(b.manKulAd+" devamsızlığı onaylandı","ba");
                             }},"✓ Onayla"),
                           btn({style:{flex:1,padding:"9px 0",borderRadius:8,border:"1px solid rgba(224,96,96,.35)",
@@ -15253,6 +15255,8 @@ if(DB) dbUpsertAyar("tema",tema);
                                 .eq("staff_id",b.manKulId).eq("tarih",b.tarih).then(()=>{});
                               DB.from("yon_bildirim_merkezi").update({durum:"onaysiz"}).eq("id",b.id).then(()=>{});
                               setYonBildirimMerkezi(p=>p.map(x=>x.id===b.id?{...x,durum:"onaysiz"}:x));
+                              // devDB'yi güncelle — personel ekranındaki etiket değişsin
+                              setDevDB(p=>({...p,[b.tarih+"_"+b.manKulId]: b.aciklama+" (onaysiz)"}));
                               showToast(b.manKulAd+" devamsızlığı onaylanmadı — kayıt tutuldu","uy");
                             }},"✕ Onaylama")
                         )
