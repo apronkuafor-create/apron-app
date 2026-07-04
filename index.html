@@ -11084,12 +11084,15 @@ if(DB) dbUpsertAyar("tema",tema);
     const bilObj = {
       id: bilId,
       tip: "devamsizlik_onay",
+      baslik: kul.ad+" — Devamsızlık Bildirimi",
+      mesaj: ac,
       manKulId: kul.id,
       manKulAd: kul.ad,
       aciklama: ac,
       tarih: ds,
       rapor_url: raporUrl,
       durum: "bekliyor",
+      okundu: false,
       olusturma: Date.now()
     };
     setYonBildirimMerkezi(p=>[bilObj,...(p||[])]);
@@ -15241,21 +15244,18 @@ if(DB) dbUpsertAyar("tema",tema);
                               // Devamsızlığı onaylı olarak güncelle
                               DB.from("devamsizliklar").update({durum:"onaylandi"})
                                 .eq("staff_id",b.manKulId).eq("tarih",b.tarih).then(()=>{});
-                              DB.from("yon_bildirim_merkezi").update({durum:"onaylandi"}).eq("id",b.id).then(()=>{});
-                              setYonBildirimMerkezi(p=>p.map(x=>x.id===b.id?{...x,durum:"onaylandi"}:x));
-                              // devDB'yi güncelle — personel ekranındaki etiket değişsin
+                              DB.from("yon_bildirim_merkezi").update({durum:"onaylandi",okundu:true}).eq("id",b.id).then(()=>{});
+                              setYonBildirimMerkezi(p=>p.map(x=>x.id===b.id?{...x,durum:"onaylandi",okundu:true}:x));
                               setDevDB(p=>({...p,[b.tarih+"_"+b.manKulId]: b.aciklama}));
                               showToast(b.manKulAd+" devamsızlığı onaylandı","ba");
                             }},"✓ Onayla"),
                           btn({style:{flex:1,padding:"9px 0",borderRadius:8,border:"1px solid rgba(224,96,96,.35)",
                             background:"rgba(224,96,96,.08)",color:"#e06060",fontSize:13,fontWeight:700,cursor:"pointer"},
                             onClick:()=>{
-                              // Devamsızlığı onaysız olarak işaretle (yine de kayıtlı kalır)
                               DB.from("devamsizliklar").update({durum:"onaysiz"})
                                 .eq("staff_id",b.manKulId).eq("tarih",b.tarih).then(()=>{});
-                              DB.from("yon_bildirim_merkezi").update({durum:"onaysiz"}).eq("id",b.id).then(()=>{});
-                              setYonBildirimMerkezi(p=>p.map(x=>x.id===b.id?{...x,durum:"onaysiz"}:x));
-                              // devDB'yi güncelle — personel ekranındaki etiket değişsin
+                              DB.from("yon_bildirim_merkezi").update({durum:"onaysiz",okundu:true}).eq("id",b.id).then(()=>{});
+                              setYonBildirimMerkezi(p=>p.map(x=>x.id===b.id?{...x,durum:"onaysiz",okundu:true}:x));
                               setDevDB(p=>({...p,[b.tarih+"_"+b.manKulId]: b.aciklama+" (onaysiz)"}));
                               showToast(b.manKulAd+" devamsızlığı onaylanmadı — kayıt tutuldu","uy");
                             }},"✕ Onaylama")
@@ -15300,7 +15300,7 @@ if(DB) dbUpsertAyar("tema",tema);
                         if(!b.sentetik) yonBildirimOkundu(b.id);
                         setHesapFull(true); setPanelAdim("muhasebe");
                       }},"Hesap Sağlaması'na Git →"),
-                      !b.sentetik && !b._personelTalep && !b.okundu && btn({style:{
+                      !b.sentetik && !b._personelTalep && !b.okundu && b.tip!=="devamsizlik_onay" && btn({style:{
                         flex:1,background:"rgba(52,199,89,.08)",border:"1px solid rgba(52,199,89,.25)",
                         borderRadius:8,color:"#248A3D",fontSize:12,padding:"7px 10px",cursor:"pointer",fontWeight:600
                       },onClick:()=>yonBildirimOkundu(b.id)},"✓ Okundu"),
