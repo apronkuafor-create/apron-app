@@ -879,7 +879,7 @@ const getSectionStyle = (styles, key) => ({
 });
 
 // ── ÜRÜN ARAMA BİLEŞENİ (top-level — klavye kapanmasını önler) ──
-function UrunAramaBilesen({aramaVal,setAramaVal,onEkle,placeholder,stokDB,gotoMod}) {
+function UrunAramaBilesen({aramaVal,setAramaVal,onEkle,placeholder,stokDB,gotoMod,onBarkodBulunamadi}) {
   const q = (aramaVal||"").trim();
   const sonuclar = q.length>=2 ? URUN_DB.filter(u=>{
     const nq=normText(q);
@@ -891,6 +891,7 @@ function UrunAramaBilesen({aramaVal,setAramaVal,onEkle,placeholder,stokDB,gotoMo
     if(q.length>=8){
       const tam=URUN_DB.find(u=>u.b===q);
       if(tam){onEkle(tam);setAramaVal("");}
+      else if(onBarkodBulunamadi){onBarkodBulunamadi(q);setAramaVal("");}
     }
   },[q]);
 
@@ -904,7 +905,8 @@ function UrunAramaBilesen({aramaVal,setAramaVal,onEkle,placeholder,stokDB,gotoMo
         if(urun){
           if(gotoMod){ setAramaVal(kod); setTimeout(()=>{ const el=document.getElementById("stok-satir-"+kod); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },120); }
           else { onEkle(urun); }
-        } else { setAramaVal(kod); }
+        } else if(onBarkodBulunamadi){ onBarkodBulunamadi(kod); }
+        else { setAramaVal(kod); }
       },
       onKapat:()=>setBarkodAc(false)
     }),
@@ -2104,7 +2106,7 @@ function UrunMuhasebe({
   tedarikciler,setTedarikciler,faturalar,setFaturalar,
   odemeler,setOdemeler,hareketler,setHareketler,
   umDetay,setUmDetay,tumK,showToast,personeller,stokPartilerYuklendi,aktifSekme,onSekmeChange,onAnaPanel,isletme,
-  onSiparisler,onSiparisKarsila
+  onSiparisler,onSiparisKarsila,triggerUrunRender
 }) {
 const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [showMenu, setShowMenu] = React.useState(!aktifSekme);
@@ -2145,6 +2147,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [mkTip, setMkTip] = React.useState("");
   const [mkTipSecim, setMkTipSecim] = React.useState(false);
   const [mkUrunler, setMkUrunler] = React.useState([]);
+  const [mkBarkodBulunamadi, setMkBarkodBulunamadi] = React.useState(null); // aranan barkod listede yoksa
+  const [mkYeniUrunEkle, setMkYeniUrunEkle] = React.useState(null); // Mal Kabul içinden hızlı ürün ekleme formu
   const [mkBarkod, setMkBarkod] = React.useState("");
   const [mkIsimArama, setMkIsimArama] = React.useState("");
   const [mkArsiv, setMkArsiv] = React.useState([]);
@@ -2152,6 +2156,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [arsivAc, setArsivAc] = React.useState(null); // arşiv detay index
   const [arsivDuzMod, setArsivDuzMod] = React.useState(false); // inline düzenleme modu
   const [arsivDuzUrunler, setArsivDuzUrunler] = React.useState([]); // düzenlenen ürün listesi
+  const [arsivDuzArama, setArsivDuzArama] = React.useState(""); // düzenleme modunda yeni ürün ekleme arama kutusu
   const mkArsivYuklendiRef = React.useRef(false); // ilk yükleme bitti mi → boş diziyi buluta yazmayı güvenli kılar (silme-boş kalıcı olur, açılışta bulut silinmez)
   const mkArsivKirliRef = React.useRef(false);    // mount sonrası yerel silme/düzenleme oldu mu → geç gelen bulut çekimi bunu EZMESİN (diriltmeyi önler)
   const [sdAramaF, setSdAramaF] = React.useState(""); // stok durumu arama
@@ -2639,7 +2644,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 onClick:()=>onAnaPanel&&onAnaPanel(),title:"Ana panele dön"
               }, h("img",{src:AKTIF_LOGO,className:"logo-header"}))
             ),
-            div({style:{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:"var(--bg2)",width:"100%",boxSizing:"border-box",minHeight:40,flexShrink:0}},
+            div({style:{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:"#1F3D2C",borderBottom:"1px solid #2D5440",width:"100%",boxSizing:"border-box",minHeight:40,flexShrink:0}},
               h("button",{style:{background:"rgba(127,184,232,.18)",border:"none",flexShrink:0,color:"#7FB8E8",fontSize:14,cursor:"pointer",padding:"0 14px",height:40,borderRadius:10,fontWeight:700,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4},
                 onClick:()=>{setArsivAc(null);setArsivDuzMod(false);}
               },"‹ Geri"),
@@ -2659,6 +2664,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         _adet:String(u.adet||""),
                         _birimF:String(u.birimF||""),
                         _iskontoOran:String(u.iskontoOran||"0")})));
+                      setArsivDuzArama("");
                       setArsivDuzMod(true);
                     }},"✏ Düzenle"),
                   arsivDuzMod&&btn({style:{padding:"6px 14px",borderRadius:8,border:"1px solid rgba(52,199,89,.4)",
@@ -2717,6 +2723,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         // 3) Adet değişen mevcut ürünler
                         yeniPartiler = yeniPartiler.map(part=>{
                           if(part.faturaN!==ar.faturaN || part.tarih!==ar.tarih) return part;
+                          if(!eskiBarkodlar.has(part.barkod)) return part; // yeni eklenen, zaten adım 2'de doğru oluşturuldu
                           const yeniU = yeniUrunler.find(u=>u.barkod===part.barkod);
                           if(!yeniU) return part;
                           const eskiAdet = ar.urunler.find(u=>u.barkod===part.barkod)?.adet||0;
@@ -2733,7 +2740,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     }},"💾 Kaydet"),
                   arsivDuzMod&&btn({style:{padding:"6px 14px",borderRadius:8,border:"1px solid var(--br)",
                     background:"transparent",color:"var(--mu)",fontSize:12,cursor:"pointer"},
-                    onClick:()=>setArsivDuzMod(false)},"İptal"),
+                    onClick:()=>{setArsivDuzMod(false);setArsivDuzArama("");}},"İptal"),
                   !arsivDuzMod&&btn({style:{padding:"6px 14px",borderRadius:8,border:"1px solid #3a1010",
                     background:"rgba(160,40,40,.06)",color:"#c05050",fontSize:12,cursor:"pointer"},
                     onClick:()=>{
@@ -2756,21 +2763,31 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             ),
             arsivDuzMod&&div({style:{background:"rgba(0,113,227,.08)",borderBottom:"1px solid rgba(0,113,227,.2)",
               padding:"8px 14px",flexShrink:0,display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#0071E3"}},"✏️ Düzenleme modu — Birim Fiyat, Adet ve İskonto alanlarını değiştirebilirsiniz. Bitince Kaydet'e basın."),
+            arsivDuzMod&&div({style:{padding:"10px 14px 0",flexShrink:0}},
+              h(UrunAramaBilesen,{aramaVal:arsivDuzArama,setAramaVal:setArsivDuzArama,
+                onEkle:u=>{
+                  if(arsivDuzUrunler.find(x=>x.barkod===u.b)){showToast("Zaten eklendi","uy");return;}
+                  setArsivDuzUrunler(p=>[...p,{barkod:u.b,urunAd:u.a,marka:u.m,
+                    _adet:"1",_birimF:String(u.bp||""),_iskontoOran:"0",kdvOran:"20"}]);
+                },
+                placeholder:"Ürün eklemek için barkod okut veya isim yaz...",
+                stokDB: stokOzet})
+            ),
             div({style:{flex:1,overflowY:"auto",overflowX:"auto"}},
-              div({style:{minWidth:760}},
-                div({style:{display:"grid",gridTemplateColumns:"38px 1fr 110px 80px 55px 55px 85px 50px 90px 90px",
+              div({style:{minWidth:arsivDuzMod?794:760}},
+                div({style:{display:"grid",gridTemplateColumns:arsivDuzMod?"38px 1fr 110px 80px 55px 55px 85px 50px 90px 90px 34px":"38px 1fr 110px 80px 55px 55px 85px 50px 90px 90px",
                   background:"var(--bg3)",position:"sticky",top:0,zIndex:2,borderBottom:"2px solid var(--br)"}},
-                  ["Sıra","Malzeme / Ürün Adı","Barkod","Birim F.","Adet","İsk.%","İsk.Tutar","KDV%","KDV T.","Toplam"].map((lb2,ci)=>
+                  (arsivDuzMod?["Sıra","Malzeme / Ürün Adı","Barkod","Birim F.","Adet","İsk.%","İsk.Tutar","KDV%","KDV T.","Toplam",""]:["Sıra","Malzeme / Ürün Adı","Barkod","Birim F.","Adet","İsk.%","İsk.Tutar","KDV%","KDV T.","Toplam"]).map((lb2,ci)=>
                     div({key:ci,style:{padding:"8px 5px",fontSize:10,color:"var(--g)",letterSpacing:1,
                       fontWeight:700,textTransform:"uppercase",textAlign:"center",
-                      borderRight:ci<9?"1px solid var(--br)":"none"}},lb2)
+                      borderRight:ci<(arsivDuzMod?10:9)?"1px solid var(--br)":"none"}},lb2)
                   )
                 ),
                 (arsivDuzMod ? arsivDuzUrunler : ar.urunler).map((u,j)=>
                   div({key:j,style:{display:"grid",
-                    gridTemplateColumns:"38px 1fr 110px 80px 55px 55px 85px 50px 90px 90px",
+                    gridTemplateColumns:arsivDuzMod?"38px 1fr 110px 80px 55px 55px 85px 50px 90px 90px 34px":"38px 1fr 110px 80px 55px 55px 85px 50px 90px 90px",
                     borderBottom:"1px solid var(--br)",
-                    background:j%2===0?"var(--bg)":"rgba(14,38,40,.5)"}},
+                    background:j%2===0?"var(--bg)":"var(--bg2)"}},
                     div({style:{padding:"9px 5px",textAlign:"center",fontSize:12,color:"var(--di)",borderRight:"1px solid var(--br)"}},(j+1)),
                     div({style:{padding:"9px 7px",borderRight:"1px solid var(--br)"}},
                       div({style:{fontSize:12,color:"var(--tx)",fontWeight:500}},u.urunAd),
@@ -2810,7 +2827,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     div({style:{padding:"9px 5px",textAlign:"center",fontSize:12,color:toN(u.iskontoTutar)>0?"#e06060":"var(--di)",borderRight:"1px solid var(--br)"}},toN(u.iskontoTutar)>0?("-"+fmt(u.iskontoTutar)):"—"),
                     div({style:{padding:"9px 5px",textAlign:"center",fontSize:12,color:"var(--mu)",borderRight:"1px solid var(--br)"}},(u.kdvOran||20)+"%"),
                     div({style:{padding:"9px 5px",textAlign:"center",fontSize:12,color:"var(--mu)",borderRight:"1px solid var(--br)"}},fmt(u.kdvTutar||0)),
-                    div({style:{padding:"9px 5px",textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt(u.toplamF||0))
+                    div({style:{padding:"9px 5px",textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt(u.toplamF||0)),
+                    arsivDuzMod&&div({style:{display:"flex",alignItems:"center",justifyContent:"center"}},
+                      btn({style:{background:"transparent",border:"none",color:"var(--mu)",
+                        fontSize:13,cursor:"pointer",padding:"8px 6px"},
+                        onClick:()=>setArsivDuzUrunler(p=>p.filter((_,i)=>i!==j))},"✕"))
                   )
                 )
               )
@@ -2995,6 +3016,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 setMkUrunler(p=>[...p,{barkod:u.b,urunAd:u.a,marka:u.m,ml:u.ml,
                   adet:"",birimF:String(u.bp||""),iskontoOran:"0",kdvOran:"20"}]);
               },
+              onBarkodBulunamadi: kod=>setMkBarkodBulunamadi(kod),
               placeholder:"Ürün eklemek için barkod okut veya isim yaz..."})
           ),
 
@@ -3196,6 +3218,107 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         )
       ) // scroll div malKabul
     ),
+
+    // ── Barkod bulunamadı onay diyaloğu (Mal Kabul içinde) ──
+    mkBarkodBulunamadi&&umSek==="malKabul"&&!showMenu&&div({style:{position:"fixed",inset:0,zIndex:950,background:"rgba(0,0,0,.6)",
+      display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+      div({style:{background:"var(--bg)",borderRadius:20,padding:26,maxWidth:380,width:"100%",
+        boxShadow:"0 8px 40px rgba(0,0,0,.4)",textAlign:"center"}},
+        div({style:{fontSize:34,marginBottom:10}},"❓"),
+        div({style:{fontSize:16,fontWeight:700,color:"var(--tx)",marginBottom:10,lineHeight:1.4}},
+          "Bu barkod numaralı ürün, Ürünler listesinde yok"),
+        div({style:{fontSize:15,fontWeight:700,color:"var(--g)",marginBottom:18,
+          fontFamily:"monospace",background:"var(--bg2)",borderRadius:8,padding:"8px 0"}},mkBarkodBulunamadi),
+        div({style:{fontSize:14,color:"var(--mu)",marginBottom:20}},"Eklemek ister misiniz?"),
+        div({style:{display:"flex",gap:10}},
+          btn({style:{flex:1,padding:"12px 0",borderRadius:11,border:"1px solid var(--br)",
+            background:"transparent",color:"var(--mu)",fontSize:14,fontWeight:600,cursor:"pointer"},
+            onClick:()=>setMkBarkodBulunamadi(null)},"Vazgeç"),
+          btn({style:{flex:1,padding:"12px 0",borderRadius:11,border:"none",
+            background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)",fontSize:14,fontWeight:700,cursor:"pointer"},
+            onClick:()=>{
+              setMkYeniUrunEkle({b:mkBarkodBulunamadi,a:"",m:"",ml:"",bp:"",sp:""});
+              setMkBarkodBulunamadi(null);
+            }},"+ Ekle")
+        )
+      )
+    ),
+
+    // ── Mal Kabul içinden hızlı ürün ekleme formu (Ayarlar'daki panelle aynı) ──
+    mkYeniUrunEkle&&umSek==="malKabul"&&!showMenu&&(()=>{
+      const bVal=(mkYeniUrunEkle.b||"").trim();
+      const aVal=(mkYeniUrunEkle.a||"").trim();
+      const barkodCakisma = bVal.length>0 && URUN_DB.some(u=>u.b===bVal);
+      const markaListesi=[...new Set(URUN_DB.map(u=>u.m))].filter(Boolean).sort();
+      return div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:951,overflow:"auto"}},
+        div({style:{background:"var(--bg)",minHeight:"100vh",paddingBottom:40}},
+          div({style:{background:"var(--bg2)",borderBottom:"1px solid #1e4244",padding:"13px 16px",
+            display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:5}},
+            div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,color:"var(--g)"}},"Yeni Ürün Ekle"),
+            btn({className:"xbtn",onClick:()=>setMkYeniUrunEkle(null)},"✕")
+          ),
+          div({style:{padding:16,maxWidth:500,margin:"0 auto"}},
+            div({style:{marginBottom:10}},
+              lbl({className:"fl"},"Barkod No *"),
+              inp({className:"fi",placeholder:"EAN-13 barkod...",value:mkYeniUrunEkle.b||"",
+                style:{borderColor:barkodCakisma?"#FF3B30":undefined,boxShadow:barkodCakisma?"0 0 0 2px rgba(255,59,48,.25)":undefined},
+                onChange:e=>setMkYeniUrunEkle(p=>({...p,b:e.target.value}))}),
+              barkodCakisma&&div({style:{marginTop:5,padding:"7px 10px",background:"rgba(255,59,48,.12)",
+                border:"1px solid rgba(255,59,48,.3)",borderRadius:8,color:"#FF3B30",fontSize:12,fontWeight:600}},
+                "⚠️  Bu barkod numaralı ürün listede zaten var: "+(URUN_DB.find(u=>u.b===bVal)?.a||""))
+            ),
+            div({style:{marginBottom:10}},
+              lbl({className:"fl"},"Ürün Adı *"),
+              inp({className:"fi",placeholder:"Ürün adı...",value:mkYeniUrunEkle.a||"",
+                onChange:e=>setMkYeniUrunEkle(p=>({...p,a:e.target.value}))})
+            ),
+            div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+              div(null,lbl({className:"fl"},"Marka"),
+                sel({className:"fi",style:{color:mkYeniUrunEkle.m?"":"var(--mu)"},value:mkYeniUrunEkle.m||"",
+                  onChange:e=>setMkYeniUrunEkle(p=>({...p,m:e.target.value}))},
+                  opt("","Marka seçin"),
+                  markaListesi.map(m=>opt(m,m))
+                )
+              ),
+              div(null,lbl({className:"fl"},"EBAT/ML"),
+                inp({className:"fi",placeholder:"örn: 100ml",value:mkYeniUrunEkle.ml||"",
+                  onChange:e=>setMkYeniUrunEkle(p=>({...p,ml:e.target.value}))})
+              )
+            ),
+            div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}},
+              div(null,lbl({className:"fl"},"Alış Fiyatı (₺)"),
+                inp({className:"fi",type:"number",placeholder:"0",value:mkYeniUrunEkle.bp||"",
+                  onChange:e=>setMkYeniUrunEkle(p=>({...p,bp:e.target.value}))})
+              ),
+              div(null,lbl({className:"fl"},"Satış Fiyatı (₺) *"),
+                inp({className:"fi",type:"number",placeholder:"0",value:mkYeniUrunEkle.sp||"",
+                  onChange:e=>setMkYeniUrunEkle(p=>({...p,sp:e.target.value}))})
+              )
+            ),
+            div({className:"btn-r"},
+              btn({className:"btn-i",onClick:()=>setMkYeniUrunEkle(null)},"İptal"),
+              btn({className:"btn-k",
+                disabled:!aVal||!mkYeniUrunEkle.sp||!bVal||barkodCakisma,
+                onClick:()=>{
+                  const yeniUrun={b:bVal,a:aVal,m:mkYeniUrunEkle.m||"Diğer",ml:mkYeniUrunEkle.ml||"",
+                    bp:parseFloat(mkYeniUrunEkle.bp)||0,ap:parseFloat(mkYeniUrunEkle.bp)||0,
+                    sp:parseFloat(mkYeniUrunEkle.sp)||0};
+                  if(mkTip==="sarf") yeniUrun.tip="sarf";
+                  URUN_DB.push(yeniUrun);
+                  if(triggerUrunRender) triggerUrunRender();
+                  if(!mkUrunler.find(x=>x.barkod===yeniUrun.b)){
+                    setMkUrunler(p=>[...p,{barkod:yeniUrun.b,urunAd:yeniUrun.a,marka:yeniUrun.m,ml:yeniUrun.ml,
+                      adet:"",birimF:String(yeniUrun.bp||""),iskontoOran:"0",kdvOran:"20"}]);
+                  }
+                  setMkIsimArama("");
+                  setMkYeniUrunEkle(null);
+                  showToast("Ürün eklendi ve listeye alındı ✓","ba");
+                }},"Kaydet")
+            )
+          )
+        )
+      );
+    })(),
 
     // ═══════════════ STOK DETAY ═══════════════
     umSek==="stokDetay"&&!showMenu&&div({style:{position:"fixed",inset:0,zIndex:999,background:"var(--bg)",display:"flex",flexDirection:"column",overflow:"hidden"}},
@@ -15465,6 +15588,7 @@ if(DB) dbUpsertAyar("tema",tema);
             muhSek==="urunMuhasebe"&&h(UrunMuhasebe,{
               stokPartiler,setStokPartiler,stokDB,setStokDB,
               onSiparisler,onSiparisKarsila,
+              triggerUrunRender,
               stokGirisForm,setStokGirisForm,
               stokGirisUrun,setStokGirisUrun,
               stokGirisTarih,setStokGirisTarih,
