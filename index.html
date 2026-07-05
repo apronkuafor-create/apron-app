@@ -2677,19 +2677,57 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                           iskontoTutar:iskT,kdvTutar:kdvT,toplamF:matrah+kdvT,
                           alisF:birimF-isk};
                       });
-                      // mkArsiv güncelle (id ile eşle → doğru kayıt güncellenir)
+                      // mkArsiv güncelle
                       mkArsivKirliRef.current=true;
                       const yeniArsiv=mkArsiv.map(x=>(ar.id?x.id===ar.id:x===ar)?{...x,urunler:yeniUrunler}:x);
                       setMkArsiv(yeniArsiv);
                       try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
-                      if(DB) dbUpsertAyar("mkArsiv", yeniArsiv); // anında bulut yazımı
-                      // stokPartiler: faturaN + barkod eşleşen partileri güncelle
-                      setStokPartiler(p=>p.map(part=>{
-                        const match=yeniUrunler.find(u=>u.barkod===part.barkod&&part.faturaN===ar.faturaN&&part.tarih===ar.tarih);
-                        if(!match) return part;
-                        const fark=match.adet - (ar.urunler.find(u=>u.barkod===part.barkod)?.adet||0);
-                        return {...part,adet:match.adet,kalan:Math.max(0,part.kalan+fark),alisF:match.alisF};
-                      }));
+                      if(DB) dbUpsertAyar("mkArsiv", yeniArsiv);
+
+                      // Stok güncellemesi — üç durum:
+                      // 1) Listeden çıkarılan ürün → stok partisini sil (stok azalır)
+                      // 2) Listeye eklenen yeni ürün → yeni stok partisi oluştur
+                      // 3) Adet değişen mevcut ürün → fark kadar stok güncelle
+                      const eskiBarkodlar = new Set(ar.urunler.map(u=>u.barkod));
+                      const yeniBarkodlar = new Set(yeniUrunler.map(u=>u.barkod));
+
+                      setStokPartiler(p=>{
+                        let yeniPartiler = [...p];
+
+                        // 1) Çıkarılan ürünleri sil
+                        ar.urunler.forEach(u=>{
+                          if(!yeniBarkodlar.has(u.barkod)){
+                            yeniPartiler = yeniPartiler.filter(part=>
+                              !(part.barkod===u.barkod && part.faturaN===ar.faturaN && part.tarih===ar.tarih)
+                            );
+                          }
+                        });
+
+                        // 2) Yeni eklenen ürünler → yeni parti
+                        yeniUrunler.forEach(u=>{
+                          if(!eskiBarkodlar.has(u.barkod)){
+                            yeniPartiler.push({
+                              id: uid(), barkod:u.barkod, urunAd:u.urunAd, marka:u.marka||"",
+                              adet:u.adet, kalan:u.adet, alisF:u.alisF||u.birimF,
+                              faturaN:ar.faturaN, tarih:ar.tarih, isletme_id:ar.isletme_id||""
+                            });
+                          }
+                        });
+
+                        // 3) Adet değişen mevcut ürünler
+                        yeniPartiler = yeniPartiler.map(part=>{
+                          if(part.faturaN!==ar.faturaN || part.tarih!==ar.tarih) return part;
+                          const yeniU = yeniUrunler.find(u=>u.barkod===part.barkod);
+                          if(!yeniU) return part;
+                          const eskiAdet = ar.urunler.find(u=>u.barkod===part.barkod)?.adet||0;
+                          const fark = yeniU.adet - eskiAdet;
+                          return {...part, adet:yeniU.adet, kalan:Math.max(0,part.kalan+fark), alisF:yeniU.alisF};
+                        });
+
+                        if(DB) dbUpsertAyar("stokPartiler", yeniPartiler);
+                        return yeniPartiler;
+                      });
+
                       setArsivDuzMod(false);
                       showToast("Değişiklikler kaydedildi ✓","ba");
                     }},"💾 Kaydet"),
