@@ -2157,6 +2157,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [arsivDuzMod, setArsivDuzMod] = React.useState(false); // inline düzenleme modu
   const [arsivDuzUrunler, setArsivDuzUrunler] = React.useState([]); // düzenlenen ürün listesi
   const [arsivDuzArama, setArsivDuzArama] = React.useState(""); // düzenleme modunda yeni ürün ekleme arama kutusu
+  const [arsivBarkodBulunamadi, setArsivBarkodBulunamadi] = React.useState(null); // aranan barkod listede yoksa
+  const [arsivYeniUrunEkle, setArsivYeniUrunEkle] = React.useState(null); // Arşiv Detayı içinden hızlı ürün ekleme formu
   const mkArsivYuklendiRef = React.useRef(false); // ilk yükleme bitti mi → boş diziyi buluta yazmayı güvenli kılar (silme-boş kalıcı olur, açılışta bulut silinmez)
   const mkArsivKirliRef = React.useRef(false);    // mount sonrası yerel silme/düzenleme oldu mu → geç gelen bulut çekimi bunu EZMESİN (diriltmeyi önler)
   const [sdAramaF, setSdAramaF] = React.useState(""); // stok durumu arama
@@ -2780,6 +2782,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   setArsivDuzUrunler(p=>[...p,{barkod:u.b,urunAd:u.a,marka:u.m,
                     _adet:"",_birimF:String(u.bp||""),_iskontoOran:"0",kdvOran:"20"}]);
                 },
+                onBarkodBulunamadi: kod=>setArsivBarkodBulunamadi(kod),
                 placeholder:"Ürün eklemek için barkod okut veya isim yaz...",
                 stokDB: stokOzet})
             ),
@@ -2864,7 +2867,107 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               flexShrink:0,display:"flex",justifyContent:"flex-end",alignItems:"center",gap:16}},
               div({style:{fontSize:12,color:"var(--mu)"}},"Toplam "+(arsivDuzMod?arsivDuzUrunler.length:ar.urunler.length)+" ürün"),
               div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:20,color:"var(--g)",fontWeight:700}},fmt(genelTop))
-            )
+            ),
+
+            // ── Barkod bulunamadı onay diyaloğu (Arşiv Detayı içinde) ──
+            arsivBarkodBulunamadi&&div({style:{position:"fixed",inset:0,zIndex:950,background:"rgba(0,0,0,.6)",
+              display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+              div({style:{background:"var(--bg)",borderRadius:20,padding:26,maxWidth:380,width:"100%",
+                boxShadow:"0 8px 40px rgba(0,0,0,.4)",textAlign:"center"}},
+                div({style:{fontSize:34,marginBottom:10}},"❓"),
+                div({style:{fontSize:16,fontWeight:700,color:"var(--tx)",marginBottom:10,lineHeight:1.4}},
+                  "Bu barkod numaralı ürün, Ürünler listesinde yok"),
+                div({style:{fontSize:15,fontWeight:700,color:"var(--g)",marginBottom:18,
+                  fontFamily:"monospace",background:"var(--bg2)",borderRadius:8,padding:"8px 0"}},arsivBarkodBulunamadi),
+                div({style:{fontSize:14,color:"var(--mu)",marginBottom:20}},"Eklemek ister misiniz?"),
+                div({style:{display:"flex",gap:10}},
+                  btn({style:{flex:1,padding:"12px 0",borderRadius:11,border:"1px solid var(--br)",
+                    background:"transparent",color:"var(--mu)",fontSize:14,fontWeight:600,cursor:"pointer"},
+                    onClick:()=>setArsivBarkodBulunamadi(null)},"Vazgeç"),
+                  btn({style:{flex:1,padding:"12px 0",borderRadius:11,border:"none",
+                    background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)",fontSize:14,fontWeight:700,cursor:"pointer"},
+                    onClick:()=>{
+                      setArsivYeniUrunEkle({b:arsivBarkodBulunamadi,a:"",m:"",ml:"",bp:"",sp:""});
+                      setArsivBarkodBulunamadi(null);
+                    }},"+ Ekle")
+                )
+              )
+            ),
+
+            // ── Arşiv Detayı içinden hızlı ürün ekleme formu (Ayarlar'daki panelle aynı) ──
+            arsivYeniUrunEkle&&(()=>{
+              const bVal=(arsivYeniUrunEkle.b||"").trim();
+              const aVal=(arsivYeniUrunEkle.a||"").trim();
+              const barkodCakisma = bVal.length>0 && URUN_DB.some(u=>u.b===bVal);
+              const markaListesi=[...new Set(URUN_DB.map(u=>u.m))].filter(Boolean).sort();
+              return div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:951,overflow:"auto"}},
+                div({style:{background:"var(--bg)",minHeight:"100vh",paddingBottom:40}},
+                  div({style:{background:"var(--bg2)",borderBottom:"1px solid #1e4244",padding:"13px 16px",
+                    display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:5}},
+                    div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,color:"var(--g)"}},"Yeni Ürün Ekle"),
+                    btn({className:"xbtn",onClick:()=>setArsivYeniUrunEkle(null)},"✕")
+                  ),
+                  div({style:{padding:16,maxWidth:500,margin:"0 auto"}},
+                    div({style:{marginBottom:10}},
+                      lbl({className:"fl"},"Barkod No *"),
+                      inp({className:"fi",placeholder:"EAN-13 barkod...",value:arsivYeniUrunEkle.b||"",
+                        style:{borderColor:barkodCakisma?"#FF3B30":undefined,boxShadow:barkodCakisma?"0 0 0 2px rgba(255,59,48,.25)":undefined},
+                        onChange:e=>setArsivYeniUrunEkle(p=>({...p,b:e.target.value}))}),
+                      barkodCakisma&&div({style:{marginTop:5,padding:"7px 10px",background:"rgba(255,59,48,.12)",
+                        border:"1px solid rgba(255,59,48,.3)",borderRadius:8,color:"#FF3B30",fontSize:12,fontWeight:600}},
+                        "⚠️  Bu barkod numaralı ürün listede zaten var: "+(URUN_DB.find(u=>u.b===bVal)?.a||""))
+                    ),
+                    div({style:{marginBottom:10}},
+                      lbl({className:"fl"},"Ürün Adı *"),
+                      inp({className:"fi",placeholder:"Ürün adı...",value:arsivYeniUrunEkle.a||"",
+                        onChange:e=>setArsivYeniUrunEkle(p=>({...p,a:e.target.value}))})
+                    ),
+                    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                      div(null,lbl({className:"fl"},"Marka"),
+                        sel({className:"fi",style:{color:arsivYeniUrunEkle.m?"":"var(--mu)"},value:arsivYeniUrunEkle.m||"",
+                          onChange:e=>setArsivYeniUrunEkle(p=>({...p,m:e.target.value}))},
+                          opt("","Marka seçin"),
+                          markaListesi.map(m=>opt(m,m))
+                        )
+                      ),
+                      div(null,lbl({className:"fl"},"EBAT/ML"),
+                        inp({className:"fi",placeholder:"örn: 100ml",value:arsivYeniUrunEkle.ml||"",
+                          onChange:e=>setArsivYeniUrunEkle(p=>({...p,ml:e.target.value}))})
+                      )
+                    ),
+                    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}},
+                      div(null,lbl({className:"fl"},"Alış Fiyatı (₺)"),
+                        inp({className:"fi",type:"number",placeholder:"0",value:arsivYeniUrunEkle.bp||"",
+                          onChange:e=>setArsivYeniUrunEkle(p=>({...p,bp:e.target.value}))})
+                      ),
+                      div(null,lbl({className:"fl"},"Satış Fiyatı (₺) *"),
+                        inp({className:"fi",type:"number",placeholder:"0",value:arsivYeniUrunEkle.sp||"",
+                          onChange:e=>setArsivYeniUrunEkle(p=>({...p,sp:e.target.value}))})
+                      )
+                    ),
+                    div({className:"btn-r"},
+                      btn({className:"btn-i",onClick:()=>setArsivYeniUrunEkle(null)},"İptal"),
+                      btn({className:"btn-k",
+                        disabled:!aVal||!arsivYeniUrunEkle.sp||!bVal||barkodCakisma,
+                        onClick:()=>{
+                          const yeniUrun={b:bVal,a:aVal,m:arsivYeniUrunEkle.m||"Diğer",ml:arsivYeniUrunEkle.ml||"",
+                            bp:parseFloat(arsivYeniUrunEkle.bp)||0,ap:parseFloat(arsivYeniUrunEkle.bp)||0,
+                            sp:parseFloat(arsivYeniUrunEkle.sp)||0};
+                          URUN_DB.push(yeniUrun);
+                          if(triggerUrunRender) triggerUrunRender();
+                          if(!arsivDuzUrunler.find(x=>x.barkod===yeniUrun.b)){
+                            setArsivDuzUrunler(p=>[...p,{barkod:yeniUrun.b,urunAd:yeniUrun.a,marka:yeniUrun.m,
+                              _adet:"",_birimF:String(yeniUrun.bp||""),_iskontoOran:"0",kdvOran:"20"}]);
+                          }
+                          setArsivDuzArama("");
+                          setArsivYeniUrunEkle(null);
+                          showToast("Ürün eklendi ve listeye alındı ✓","ba");
+                        }},"Kaydet")
+                    )
+                  )
+                )
+              );
+            })()
           );
         }
         const renderArsivKart=(ar,i)=>{
