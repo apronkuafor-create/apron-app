@@ -2637,7 +2637,13 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           const ar=sortedArsiv[arsivAc];
           if(!ar){setArsivAc(null);return null;}
           const origIdx=mkArsiv.indexOf(ar);
-          const genelTop=ar.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
+          const genelTop=arsivDuzMod
+            ? arsivDuzUrunler.reduce((s,u)=>{
+                const _a=toN(u._adet),_b=toN(u._birimF),_i=toN(u._iskontoOran||"0");
+                const _br=_a*_b,_it=_br*(_i/100),_m=_br-_it,_k=_m*(toN(u.kdvOran||"20")/100);
+                return s+_m+_k;
+              },0)
+            : ar.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
           return div({style:{position:"fixed",inset:0,zIndex:902,background:"var(--bg)",display:"flex",flexDirection:"column",overflow:"hidden"}},
             h("div",{style:{display:"flex",alignItems:"center",padding:"10px 12px 16px",background:"#1F3D2C",width:"100%",boxSizing:"border-box",flexShrink:0}},
               h("button",{style:{background:"#FFFFFF",border:"none",padding:"6px 10px",cursor:"pointer",display:"flex",alignItems:"center",height:isletme.logoHeight||80,flexShrink:0,borderRadius:10,boxShadow:"0 1px 3px rgba(0,0,0,.12)"},
@@ -2783,8 +2789,17 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       borderRight:ci<(arsivDuzMod?10:9)?"1px solid var(--br)":"none"}},lb2)
                   )
                 ),
-                (arsivDuzMod ? arsivDuzUrunler : ar.urunler).map((u,j)=>
-                  div({key:j,style:{display:"grid",
+                (arsivDuzMod ? arsivDuzUrunler : ar.urunler).map((u,j)=>{
+                  const _liveAdet=arsivDuzMod?toN(u._adet):0;
+                  const _liveBirimF=arsivDuzMod?toN(u._birimF):0;
+                  const _liveIskOran=arsivDuzMod?toN(u._iskontoOran||"0"):0;
+                  const _liveBrut=_liveAdet*_liveBirimF;
+                  const _liveIskT=_liveBrut*(_liveIskOran/100);
+                  const _liveMatrah=_liveBrut-_liveIskT;
+                  const _liveKdvOran=toN(u.kdvOran||"20");
+                  const _liveKdvT=_liveMatrah*(_liveKdvOran/100);
+                  const _liveToplam=_liveMatrah+_liveKdvT;
+                  return div({key:j,style:{display:"grid",
                     gridTemplateColumns:arsivDuzMod?"38px 1fr 110px 80px 55px 55px 85px 50px 90px 90px 34px":"38px 1fr 110px 80px 55px 55px 85px 50px 90px 90px",
                     borderBottom:"1px solid var(--br)",
                     background:j%2===0?"var(--bg)":"var(--bg2)"}},
@@ -2824,21 +2839,22 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                             onChange:e=>setArsivDuzUrunler(p=>p.map((x,i)=>i===j?{...x,_iskontoOran:e.target.value}:x))})
                         : div({style:{fontSize:12,color:toN(u.iskontoOran)>0?"#e06060":"var(--di)",padding:"5px 0"}},(u.iskontoOran||0)+"%")
                     ),
-                    div({style:{padding:"9px 5px",textAlign:"center",fontSize:12,color:toN(u.iskontoTutar)>0?"#e06060":"var(--di)",borderRight:"1px solid var(--br)"}},toN(u.iskontoTutar)>0?("-"+fmt(u.iskontoTutar)):"—"),
+                    div({style:{padding:"9px 5px",textAlign:"center",fontSize:12,color:(arsivDuzMod?_liveIskT:toN(u.iskontoTutar))>0?"#e06060":"var(--di)",borderRight:"1px solid var(--br)"}},
+                      (arsivDuzMod?_liveIskT:toN(u.iskontoTutar))>0?("-"+fmt(arsivDuzMod?_liveIskT:u.iskontoTutar)):"—"),
                     div({style:{padding:"9px 5px",textAlign:"center",fontSize:12,color:"var(--mu)",borderRight:"1px solid var(--br)"}},(u.kdvOran||20)+"%"),
-                    div({style:{padding:"9px 5px",textAlign:"center",fontSize:12,color:"var(--mu)",borderRight:"1px solid var(--br)"}},fmt(u.kdvTutar||0)),
-                    div({style:{padding:"9px 5px",textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt(u.toplamF||0)),
+                    div({style:{padding:"9px 5px",textAlign:"center",fontSize:12,color:"var(--mu)",borderRight:"1px solid var(--br)"}},fmt(arsivDuzMod?_liveKdvT:(u.kdvTutar||0))),
+                    div({style:{padding:"9px 5px",textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt(arsivDuzMod?_liveToplam:(u.toplamF||0))),
                     arsivDuzMod&&div({style:{display:"flex",alignItems:"center",justifyContent:"center"}},
                       btn({style:{background:"transparent",border:"none",color:"var(--mu)",
                         fontSize:13,cursor:"pointer",padding:"8px 6px"},
                         onClick:()=>setArsivDuzUrunler(p=>p.filter((_,i)=>i!==j))},"✕"))
-                  )
-                )
+                  );
+                })
               )
             ),
             div({style:{background:"var(--bg2)",borderTop:"2px solid var(--br)",padding:"11px 14px",
               flexShrink:0,display:"flex",justifyContent:"flex-end",alignItems:"center",gap:16}},
-              div({style:{fontSize:12,color:"var(--mu)"}},"Toplam "+ar.urunler.length+" ürün"),
+              div({style:{fontSize:12,color:"var(--mu)"}},"Toplam "+(arsivDuzMod?arsivDuzUrunler.length:ar.urunler.length)+" ürün"),
               div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:20,color:"var(--g)",fontWeight:700}},fmt(genelTop))
             )
           );
