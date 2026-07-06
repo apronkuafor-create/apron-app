@@ -9974,6 +9974,30 @@ function App() {
   const [mesajlar, setMesajlar]           = useState([]);
   // Personel "Yeni Müşteri" formu (Müşterilerim sekmesinde)
   const [yeniMusteriForm, setYeniMusteriForm] = useState(null); // null | {ad,telefonlar,...}
+  // Mevcut bir müşteriyi düzenlemek için formu doldurup açar (Yönetici ve Personel tarafında ortak)
+  const musteriDuzenleAc = (m) => {
+    setYeniMusteriForm({
+      id: m.id,
+      ad: m.ad||"",
+      telefonlar: (Array.isArray(m.telefonlar)&&m.telefonlar.length) ? m.telefonlar : [{etiket:"Cep",numara:m.tel||""}],
+      cinsiyet: m.cinsiyet||"",
+      dogumTarihi: m.dogumTarihi||"",
+      meslek: m.meslek||"",
+      email: m.email||"",
+      il: m.il||"",
+      ilce: m.ilce||"",
+      adres: m.adres||"",
+      hizmetTercihleri: m.hizmetTercihleri||"",
+      alerji: m.alerji||"",
+      tipNotu: m.tipNotu||"",
+      ozelTarihler: m.ozelTarihler||"",
+      not: m.notlar||"",
+      sahipId: m.sahipId||"",
+      sahipAd: m.sahipAd||"",
+      ilkGiris: m.ilkGiris||""
+    });
+    setYeniMusteriHata("");
+  };
   const [yeniMusteriHata, setYeniMusteriHata] = useState("");
   const [yeniMusteriDevirModal, setYeniMusteriDevirModal] = useState(null); // {musteri:{...}}
   // Müşteri detay paneli (Müşterilerim sekmesinde tıklanan müşteri için hizmet geçmişi)
@@ -13143,101 +13167,339 @@ if(DB) dbUpsertAyar("tema",tema);
     ),
 
     // ── PERSONEL ──
-    // Müşteri düzenleme modalı (Yönetici Ayarlar ve Personel "Müşterilerim" — ikisinden de açılabilir, aynı kayda yazar)
-    musteriDuz&&ReactDOM.createPortal(
-    div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:920,overflow:"auto"}},
-    div({style:{background:"var(--bg)",minHeight:"100vh",paddingBottom:60}},
-    div({style:{background:"var(--bg2)",borderBottom:"1px solid #1e4244",padding:"13px 16px",
-    display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:5}},
-    div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,color:"var(--g)"}},
-      musteriDuz.id?"Müşteri Düzenle":"Yeni Müşteri"),
-    btn({className:"xbtn",onClick:()=>setMusteriDuz(null)},"✕")
-    ),
-    div({style:{padding:16,maxWidth:560,margin:"0 auto"}},
-    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
-      div({style:{position:"relative"}},
-        lbl({className:"fl"},"Ad Soyad *"),
-        inp({className:"fi",placeholder:"Ad Soyad",value:musteriDuz.ad||"",
-          onChange:e=>setMusteriDuz(p=>({...p,ad:e.target.value}))}),
-        (()=>{
-          const q4=normText(musteriDuz.ad||"");
-          const oneri4=!musteriDuz.id&&q4.length>=2
-            ?(musteriDB||[]).filter(m=>normText(m.ad).includes(q4)||String(m.tel||"").includes((musteriDuz.ad||"").trim())).slice(0,5)
-            :[];
-          return oneri4.length>0&&div({style:{position:"absolute",top:"100%",left:0,right:0,
-            background:"var(--bg2)",border:"1px solid #f59e0b",borderRadius:10,
-            zIndex:50,overflow:"hidden",marginTop:3,boxShadow:"0 4px 16px rgba(0,0,0,.18)"}},
-            div({style:{padding:"6px 10px",fontSize:10,fontWeight:700,color:"#b45309",
-              background:"rgba(245,158,11,.08)",letterSpacing:.5}},"⚠ KAYITLI MÜŞTERİ"),
-            oneri4.map(m=>div({key:m.id,
-              style:{padding:"8px 12px",cursor:"pointer",borderTop:"1px solid var(--br)",
-                display:"flex",flexDirection:"column",gap:2},
-              onMouseDown:e=>{e.preventDefault();setMusteriDuz(p=>({...p,ad:m.ad,tel:m.tel||""}));},
-              onMouseEnter:e=>e.currentTarget.style.background="var(--bg3)",
-              onMouseLeave:e=>e.currentTarget.style.background=""},
-              div({style:{fontSize:13,fontWeight:600,color:"var(--tx)"}},m.ad),
-              m.tel&&div({style:{fontSize:11,color:"var(--mu)"}},"📞 "+m.tel)
-            ))
-          );
-        })()
-      ),
-      div(null,lbl({className:"fl"},"Telefon"),
-        inp({className:"fi",placeholder:"05xx xxx xx xx",value:musteriDuz.tel||"",
-          onChange:e=>setMusteriDuz(p=>({...p,tel:e.target.value}))}))
-    ),
-    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
-      div(null,lbl({className:"fl"},"Doğum Tarihi"),
-        h("input",{type:"date",className:"fi",value:musteriDuz.dogumTarihi||"",
-          onChange:e=>setMusteriDuz(p=>({...p,dogumTarihi:e.target.value}))})),
-      div(null,lbl({className:"fl"},"Cinsiyet"),
-        sel({className:"fi",value:musteriDuz.cinsiyet||"",
-          onChange:e=>setMusteriDuz(p=>({...p,cinsiyet:e.target.value}))},
-          opt("","Seçiniz"),opt("Erkek","Erkek"),opt("Kadın","Kadın"),opt("Diğer","Diğer")))
-    ),
-    div({style:{marginBottom:10}},lbl({className:"fl"},"Adres"),
-      h("textarea",{className:"fi",placeholder:"Açık adres...",rows:2,
-        style:{resize:"none",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
-        value:musteriDuz.adres||"",
-        onChange:e=>setMusteriDuz(p=>({...p,adres:e.target.value}))})),
-    div({style:{marginBottom:10}},lbl({className:"fl"},"Kimin Müşterisi"),
-      sel({className:"fi",value:musteriDuz.sahipId||"",
-        onChange:e=>{
-          const p=personeller.find(x=>x.id===e.target.value);
-          setMusteriDuz(prev=>({...prev,sahipId:e.target.value,sahipAd:p?.ad||""}));
-        }},
-        opt("","Seçiniz"),
-        personeller.filter(p=>p.aktif&&p.rol==="personel").map(p=>opt(p.id,p.ad))
-      )),
-    div({style:{marginBottom:16}},lbl({className:"fl"},"Notlar"),
-      h("textarea",{className:"fi",placeholder:"Özel notlar, tercihler...",rows:3,
-        style:{resize:"none",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
-        value:musteriDuz.notlar||"",
-        onChange:e=>setMusteriDuz(p=>({...p,notlar:e.target.value}))})),
-    div({className:"btn-r"},
-      btn({className:"btn-i",onClick:()=>setMusteriDuz(null)},"İptal"),
-      btn({className:"btn-k",
-        disabled:!(musteriDuz.ad||"").trim(),
-        onClick:()=>{
-          const gn={...musteriDuz,ad:(musteriDuz.ad||"").trim()};
-          if(gn.id){
-            setMusteriDB(p=>p.map(m=>m.id===gn.id?gn:m));
-            setMusteriKart(p=>p?.id===gn.id?gn:p);
-            dbGnc("musteriler",{ad:gn.ad,tel:gn.tel,sahip_id:gn.sahipId,sahip_ad:gn.sahipAd,
-              dogum_tarihi:gn.dogumTarihi,cinsiyet:gn.cinsiyet,adres:gn.adres,notlar:gn.notlar},gn.id);
-          } else {
-            const ym={...gn,id:uid(),ilkGiris:TODAY()};
-            setMusteriDB(p=>[...p,ym]);
-            dbEkle("musteriler",{id:ym.id,ad:ym.ad,tel:ym.tel,sahip_id:ym.sahipId,
-              sahip_ad:ym.sahipAd,ilk_giris:ym.ilkGiris,dogum_tarihi:ym.dogumTarihi,
-              cinsiyet:ym.cinsiyet,adres:ym.adres,notlar:ym.notlar});
-          }
-          setMusteriDuz(null);
-          showToast("Müşteri kaydedildi");
-        }},"Kaydet")
-    )
-    )
-    )
-    ), document.body),
+
+          yeniMusteriForm&&(()=>{
+            const f = yeniMusteriForm;
+            const upd = (alan,deger) => setYeniMusteriForm(p=>({...p,[alan]:deger}));
+            const telEkle = () => upd("telefonlar",[...(f.telefonlar||[]),{etiket:"Cep",numara:""}]);
+            const telSil = (idx) => {
+              if((f.telefonlar||[]).length<=1) return;
+              upd("telefonlar",f.telefonlar.filter((_,i)=>i!==idx));
+            };
+            const telGuncelle = (idx,alan,deger) => {
+              upd("telefonlar",f.telefonlar.map((t,i)=>i===idx?{...t,[alan]:deger}:t));
+            };
+            const temizTelRakam = v => String(v||"").replace(/\D/g,"");
+            const kaydet = () => {
+              setYeniMusteriHata("");
+              const ad = (f.ad||"").trim();
+              if(!ad){ setYeniMusteriHata("Ad Soyad zorunludur."); return; }
+              const gecerliTelefonlar = (f.telefonlar||[])
+                .map(t=>({etiket:t.etiket||"Cep",numara:(t.numara||"").trim()}))
+                .filter(t=>temizTelRakam(t.numara).length>0);
+              if(gecerliTelefonlar.length===0){ setYeniMusteriHata("En az bir telefon numarası zorunludur."); return; }
+              const ilkTel = gecerliTelefonlar[0]?.numara || "";
+
+              // ── Düzenleme modu: mevcut müşteriyi güncelle, duplikasyon kontrolü yapma ──
+              if(f.id){
+                const guncel = {
+                  id: f.id,
+                  ad,
+                  tel: ilkTel,
+                  telefonlar: gecerliTelefonlar,
+                  cinsiyet: f.cinsiyet||"",
+                  dogumTarihi: f.dogumTarihi||"",
+                  meslek: (f.meslek||"").trim(),
+                  email: (f.email||"").trim(),
+                  il: (f.il||"").trim(),
+                  ilce: (f.ilce||"").trim(),
+                  adres: (f.adres||"").trim(),
+                  hizmetTercihleri: (f.hizmetTercihleri||"").trim(),
+                  alerji: (f.alerji||"").trim(),
+                  tipNotu: (f.tipNotu||"").trim(),
+                  ozelTarihler: (f.ozelTarihler||"").trim(),
+                  notlar: (f.not||"").trim(),
+                  sahipId: f.sahipId||"",
+                  sahipAd: f.sahipAd||"",
+                  ilkGiris: f.ilkGiris||TODAY()
+                };
+                setMusteriDB(p=>p.map(x=>x.id===guncel.id?guncel:x));
+                setMusteriKart(p=>p?.id===guncel.id?guncel:p);
+                dbGnc("musteriler",{ad:guncel.ad,tel:guncel.tel,sahip_id:guncel.sahipId,sahip_ad:guncel.sahipAd,
+                  dogum_tarihi:guncel.dogumTarihi,cinsiyet:guncel.cinsiyet,adres:guncel.adres,notlar:guncel.notlar},guncel.id);
+                setYeniMusteriForm(null);
+                setYeniMusteriHata("");
+                showToast("Müşteri güncellendi","ba");
+                return;
+              }
+
+              // Duplicate kontrolü — aynı ad VEYA herhangi bir telefon eşleşmesi (sadece yeni kayıtta)
+              const adNorm = String(ad).toLowerCase().trim();
+              const telSetleri = gecerliTelefonlar.map(t=>temizTelRakam(t.numara));
+              const mevcut = (musteriDB||[]).find(m => {
+                const mAd = String(m.ad||"").toLowerCase().trim();
+                const mTel = temizTelRakam(m.tel);
+                if(adNorm && mAd === adNorm) return true;
+                if(mTel && telSetleri.includes(mTel)) return true;
+                // Çoklu telefon kayıtlı müşterilerde de kontrol
+                if(Array.isArray(m.telefonlar)){
+                  for(const t of m.telefonlar){
+                    const tn = temizTelRakam(t.numara);
+                    if(tn && telSetleri.includes(tn)) return true;
+                  }
+                }
+                return false;
+              });
+              const benimId = String(kul?.id||"");
+              if(mevcut){
+                const sahipId = String(mevcut.sahipId||"");
+                if(sahipId === benimId){
+                  // Kendi müşterin: form kapanır, mevcut kart açılır
+                  showToast("Bu müşteri zaten Müşterilerim listenizde","uy");
+                  setYeniMusteriForm(null);
+                  setMDuzenleId(mevcut.id);
+                  setMDuzenleNot(mevcut.notlar||"");
+                  return;
+                } else {
+                  // Başka personelin müşterisi: devralma onay modalı
+                  setYeniMusteriDevirModal({musteri:mevcut});
+                  return;
+                }
+              }
+              // Yeni müşteri kaydı
+              const yeni = {
+                id: "m_"+Date.now()+"_"+Math.random().toString(36).slice(2,7),
+                ad,
+                tel: ilkTel,
+                telefonlar: gecerliTelefonlar,
+                cinsiyet: f.cinsiyet||"",
+                dogumTarihi: f.dogumTarihi||"",
+                meslek: (f.meslek||"").trim(),
+                email: (f.email||"").trim(),
+                il: (f.il||"").trim(),
+                ilce: (f.ilce||"").trim(),
+                adres: (f.adres||"").trim(),
+                hizmetTercihleri: (f.hizmetTercihleri||"").trim(),
+                alerji: (f.alerji||"").trim(),
+                tipNotu: (f.tipNotu||"").trim(),
+                ozelTarihler: (f.ozelTarihler||"").trim(),
+                notlar: (f.not||"").trim(),
+                sahipId: kul.rol==="yonetici" ? (f.sahipId||"") : kul.id,
+                sahipAd: kul.rol==="yonetici" ? (f.sahipAd||"") : kul.ad,
+                ilkGiris: TODAY()
+              };
+              setMusteriDB(p=>[...p, yeni]);
+              try {
+                if(typeof dbEkle==="function"){
+                  dbEkle("musteriler",{
+                    id:yeni.id, ad:yeni.ad, tel:yeni.tel,
+                    sahip_id:yeni.sahipId, sahip_ad:yeni.sahipAd,
+                    ilk_giris:yeni.ilkGiris,
+                    dogum_tarihi:yeni.dogumTarihi||null,
+                    cinsiyet:yeni.cinsiyet||"",
+                    adres:yeni.adres||"",
+                    notlar:yeni.notlar||""
+                  });
+                }
+              } catch(e){}
+              setYeniMusteriForm(null);
+              setYeniMusteriHata("");
+              showToast("Müşteri eklendi","ba");
+            };
+            const fl = {fontSize:11,letterSpacing:1.2,textTransform:"uppercase",color:"#86868B",fontWeight:600,marginBottom:5,display:"block"};
+            const grpBaslik = {fontSize:12,fontWeight:700,color:"#0071E3",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10,paddingBottom:6,borderBottom:"1px solid rgba(0,113,227,.15)"};
+            const grpKutu = {background:"#FBFBFD",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:16,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,.04)"};
+            return ReactDOM.createPortal(div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:9999,
+              display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"20px 12px",overflowY:"auto",
+              fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+              div({style:{background:"#F5F5F7",borderRadius:18,maxWidth:520,width:"100%",
+                boxShadow:"0 24px 60px rgba(0,0,0,.28), 0 6px 16px rgba(0,0,0,.12)",
+                overflow:"hidden",margin:"auto"}},
+                // Üst başlık
+                div({style:{background:"#FFFFFF",padding:"14px 16px",
+                  display:"flex",alignItems:"center",justifyContent:"space-between",
+                  borderBottom:"1px solid rgba(0,0,0,.08)",
+                  position:"sticky",top:0,zIndex:5}},
+                  div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F",letterSpacing:"-.2px"}},f.id?"Müşteriyi Düzenle":"Yeni Müşteri Kaydı"),
+                  btn({style:{background:"transparent",border:"none",color:"#86868B",fontSize:22,cursor:"pointer",padding:0,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"},
+                    onClick:()=>{setYeniMusteriForm(null);setYeniMusteriHata("");}},"✕")
+                ),
+                div({style:{padding:14}},
+                  // Kişisel Bilgiler
+                  div({style:grpKutu},
+                    div({style:grpBaslik},"Kişisel Bilgiler"),
+                    div({style:{marginBottom:11,position:"relative"}},
+                      lbl({style:fl},"Ad Soyad *"),
+                      inp({className:"fi",placeholder:"Ad Soyad",value:f.ad||"",
+                        onChange:e=>upd("ad",e.target.value)}),
+                      (()=>{
+                        const q3=normText(f.ad||"");
+                        const benimMusteriler3=(musteriDB||[]).filter(m=>String(m.sahipId||"")===String(kul?.id||""));
+                        const oneri3=(!f.id&&q3.length>=2)?benimMusteriler3.filter(m=>normText(m.ad).includes(q3)||String(m.tel||"").includes((f.ad||"").trim())).slice(0,5):[];
+                        return oneri3.length>0&&div({style:{position:"absolute",top:"100%",left:0,right:0,
+                          background:"var(--bg2)",border:"1px solid #f59e0b",borderRadius:10,
+                          zIndex:50,overflow:"hidden",marginTop:3,boxShadow:"0 4px 16px rgba(0,0,0,.18)"}},
+                          div({style:{padding:"6px 10px",fontSize:10,fontWeight:700,color:"#b45309",
+                            background:"rgba(245,158,11,.08)",letterSpacing:.5}},"⚠ KAYITLI MÜŞTERİ"),
+                          oneri3.map(m=>div({key:m.id,
+                            style:{padding:"8px 12px",cursor:"pointer",borderTop:"1px solid var(--br)",
+                              display:"flex",flexDirection:"column",gap:2},
+                            onMouseDown:e=>{e.preventDefault();upd("ad",m.ad);upd("tel",m.tel||"");},
+                            onMouseEnter:e=>e.currentTarget.style.background="var(--bg3)",
+                            onMouseLeave:e=>e.currentTarget.style.background=""},
+                            div({style:{fontSize:13,fontWeight:600,color:"var(--tx)"}},m.ad),
+                            m.tel&&div({style:{fontSize:11,color:"var(--mu)"}},"📞 "+m.tel)
+                          ))
+                        );
+                      })()
+                    ),
+                    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:11}},
+                      div(null,
+                        lbl({style:fl},"Cinsiyet"),
+                        sel({className:"fi",value:f.cinsiyet||"",
+                          onChange:e=>upd("cinsiyet",e.target.value)},
+                          opt("","Cinsiyet seçin"),
+                          opt("Kadın","Kadın"),
+                          opt("Erkek","Erkek"),
+                          opt("Diğer","Diğer")
+                        )
+                      ),
+                      div(null,
+                        lbl({style:fl},"Doğum Tarihi"),
+                        h("input",{type:"date",className:"fi",value:f.dogumTarihi||"",
+                          onChange:e=>upd("dogumTarihi",e.target.value)})
+                      )
+                    ),
+                    div(null,
+                      lbl({style:fl},"Meslek"),
+                      inp({className:"fi",placeholder:"Meslek",value:f.meslek||"",
+                        onChange:e=>upd("meslek",e.target.value)})
+                    ),
+                    kul.rol==="yonetici"&&div({style:{marginTop:11}},
+                      lbl({style:fl},"Kimin Müşterisi"),
+                      sel({className:"fi",value:f.sahipId||"",
+                        onChange:e=>{
+                          const p=personeller.find(x=>x.id===e.target.value);
+                          setYeniMusteriForm(prev=>({...prev,sahipId:e.target.value,sahipAd:p?.ad||""}));
+                        }},
+                        opt("","Seçiniz"),
+                        personeller.filter(p=>p.aktif&&p.rol==="personel").map(p=>opt(p.id,p.ad))
+                      )
+                    )
+                  ),
+                  // İletişim
+                  div({style:grpKutu},
+                    div({style:grpBaslik},"İletişim"),
+                    div({style:{marginBottom:11}},
+                      lbl({style:{...fl,marginBottom:5}},"Telefon Numaraları *"),
+                      (f.telefonlar||[]).map((t,idx)=>
+                        div({key:idx,style:{display:"flex",gap:6,marginBottom:6}},
+                          sel({className:"fi",style:{flex:"0 0 90px",fontSize:13},
+                            value:t.etiket||"Cep",
+                            onChange:e=>telGuncelle(idx,"etiket",e.target.value)},
+                            opt("Cep","Cep"),
+                            opt("Ev","Ev"),
+                            opt("İş","İş"),
+                            opt("Diğer","Diğer")
+                          ),
+                          inp({className:"fi",style:{flex:1},placeholder:"05xx xxx xx xx",
+                            value:t.numara||"",
+                            onChange:e=>telGuncelle(idx,"numara",e.target.value)}),
+                          btn({type:"button",title:"Rehberden telefon seç","aria-label":"Rehberden telefon seç",
+                            style:{width:42,height:42,background:"linear-gradient(160deg,#EEF2F8 0%,#E4EAF4 100%)",
+                              border:"1.5px solid rgba(37,99,168,.28)",borderRadius:10,color:"#2563A8",cursor:"pointer",
+                              display:"flex",alignItems:"center",justifyContent:"center",flex:"0 0 auto",
+                              boxShadow:"0 2px 8px rgba(37,99,168,.10)"},
+                            onClick:async()=>{
+                              try{
+                                if(!("contacts" in navigator&&"ContactsManager" in window)){alert("Bu tarayıcı telefon rehberinden seçim özelliğini desteklemiyor.");return;}
+                                const contacts=await navigator.contacts.select(["tel"],{multiple:false});
+                                if(contacts&&contacts.length>0&&contacts[0].tel&&contacts[0].tel.length>0){
+                                  telGuncelle(idx,"numara",contacts[0].tel[0].replace(/\s/g,""));
+                                }
+                              }catch(e){alert("Rehber erişimi sağlanamadı.");}
+                            }},
+                            h("svg",{width:22,height:22,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.6,strokeLinecap:"round",strokeLinejoin:"round"},
+                              h("rect",{x:4,y:2,width:14,height:20,rx:2,ry:2}),
+                              h("line",{x1:2,y1:7,x2:4,y2:7}),
+                              h("line",{x1:2,y1:12,x2:4,y2:12}),
+                              h("line",{x1:2,y1:17,x2:4,y2:17}),
+                              h("circle",{cx:11,cy:9,r:2.2}),
+                              h("path",{d:"M7.2 16.5c.5-2 1.9-3.2 3.8-3.2s3.3 1.2 3.8 3.2"})
+                            )
+                          ),
+                          (f.telefonlar||[]).length>1&&btn({style:{background:"transparent",border:"1px solid rgba(255,59,48,.3)",color:"#FF3B30",fontSize:14,padding:"0 10px",borderRadius:7,cursor:"pointer",flex:"0 0 auto"},
+                            onClick:()=>telSil(idx)},"✕")
+                        )
+                      ),
+                      btn({style:{background:"transparent",border:"1px solid rgba(0,113,227,.4)",color:"#0071E3",fontSize:11,fontWeight:600,padding:"5px 12px",borderRadius:7,cursor:"pointer",marginTop:2},
+                        onClick:telEkle},"+ Numara Ekle")
+                    ),
+                    div({style:{marginBottom:11}},
+                      lbl({style:fl},"E-posta"),
+                      inp({className:"fi",type:"email",placeholder:"ornek@mail.com",value:f.email||"",
+                        onChange:e=>upd("email",e.target.value)})
+                    ),
+                    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:11}},
+                      div(null,
+                        lbl({style:fl},"İl"),
+                        inp({className:"fi",placeholder:"İl",value:f.il||"",
+                          onChange:e=>upd("il",e.target.value)})
+                      ),
+                      div(null,
+                        lbl({style:fl},"İlçe"),
+                        inp({className:"fi",placeholder:"İlçe",value:f.ilce||"",
+                          onChange:e=>upd("ilce",e.target.value)})
+                      )
+                    ),
+                    div(null,
+                      lbl({style:fl},"Açık Adres"),
+                      h("textarea",{className:"fi",rows:2,style:{resize:"none",width:"100%",boxSizing:"border-box"},
+                        placeholder:"Mahalle, sokak, bina no...",value:f.adres||"",
+                        onChange:e=>upd("adres",e.target.value)})
+                    )
+                  ),
+                  // Müşteri Tercihleri
+                  div({style:grpKutu},
+                    div({style:grpBaslik},"Tercihler & Notlar"),
+                    div({style:{marginBottom:11}},
+                      lbl({style:fl},"Tercih Ettiği Hizmetler"),
+                      inp({className:"fi",placeholder:"Saç kesimi, manikür, boya...",value:f.hizmetTercihleri||"",
+                        onChange:e=>upd("hizmetTercihleri",e.target.value)})
+                    ),
+                    div({style:{marginBottom:11}},
+                      lbl({style:fl},"Alerji / Hassasiyet"),
+                      inp({className:"fi",placeholder:"Boya alerjisi, kimyasal hassasiyeti...",value:f.alerji||"",
+                        onChange:e=>upd("alerji",e.target.value)})
+                    ),
+                    div({style:{marginBottom:11}},
+                      lbl({style:fl},"Saç / Cilt Tipi Notu"),
+                      inp({className:"fi",placeholder:"Yağlı saç, kuru cilt vb.",value:f.tipNotu||"",
+                        onChange:e=>upd("tipNotu",e.target.value)})
+                    ),
+                    div(null,
+                      lbl({style:fl},"Genel Not"),
+                      h("textarea",{className:"fi",rows:3,style:{resize:"none",width:"100%",boxSizing:"border-box"},
+                        placeholder:"Diğer notlar...",value:f.not||"",
+                        onChange:e=>upd("not",e.target.value)})
+                    )
+                  ),
+                  // Özel Tarihler
+                  div({style:grpKutu},
+                    div({style:grpBaslik},"Özel Tarihler"),
+                    f.dogumTarihi&&div({style:{fontSize:12,color:"#34C759",marginBottom:9,padding:"7px 10px",background:"rgba(52,199,89,.08)",borderRadius:8,border:"1px solid rgba(52,199,89,.18)"}},
+                      "🎂 Doğum günü hatırlatması otomatik aktifleşecek"),
+                    div(null,
+                      lbl({style:fl},"Yıldönümü / Diğer"),
+                      inp({className:"fi",placeholder:"Evlilik yıldönümü vb.",value:f.ozelTarihler||"",
+                        onChange:e=>upd("ozelTarihler",e.target.value)})
+                    )
+                  ),
+                  // Hata
+                  yeniMusteriHata&&div({style:{padding:"10px 12px",background:"rgba(255,59,48,.10)",border:"1px solid rgba(255,59,48,.25)",borderRadius:10,color:"#c0392b",fontSize:13,marginBottom:12}},
+                    "⚠ "+yeniMusteriHata),
+                  // Kaydet butonu
+                  div({style:{display:"flex",gap:8}},
+                    btn({style:{flex:1,padding:"12px 0",borderRadius:11,border:"1px solid var(--br)",background:"#FFFFFF",color:"#1D1D1F",fontSize:14,fontWeight:500,cursor:"pointer"},
+                      onClick:()=>{setYeniMusteriForm(null);setYeniMusteriHata("");}},"İptal"),
+                    btn({style:{flex:2,padding:"12px 0",borderRadius:11,border:"none",background:"#0071E3",color:"#FFFFFF",fontSize:14,fontWeight:600,cursor:"pointer",
+                      boxShadow:"0 4px 12px rgba(0,113,227,.32)"},
+                      onClick:kaydet},f.id?"Değişiklikleri Kaydet":"Müşteriyi Kaydet")
+                  )
+                )
+              )
+            ), document.body);
+          })(),
 
     !yukleniyor&&ekran==="personel"&&kul&&div(null,
       div({className:"tbar"},
@@ -13706,7 +13968,7 @@ if(DB) dbUpsertAyar("tema",tema);
                   ),
                   div({style:{display:"flex",gap:6,flexShrink:0,marginLeft:8}},
                     btn({style:{background:"transparent",border:"1px solid rgba(37,99,168,.3)",borderRadius:8,color:"#2563a8",fontSize:12,padding:"5px 9px",cursor:"pointer"},
-                      onClick:()=>setMusteriDuz({...m})},"✏ Düzenle"),
+                      onClick:()=>musteriDuzenleAc(m)},"✏ Düzenle"),
                     btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:8,color:"var(--g)",fontSize:12,padding:"5px 9px",cursor:"pointer"},
                       onClick:()=>{setMDuzenleId(mDuzenleId===m.id?null:m.id);setMDuzenleNot(m.notlar||"");}},
                       mDuzenleId===m.id?"✕":m.notlar?"📝":"+ Not"),
@@ -13729,294 +13991,6 @@ if(DB) dbUpsertAyar("tema",tema);
                 )
               )
             ),
-          // ─── Yeni Müşteri Formu (Tam Ekran Modal) ───
-          yeniMusteriForm&&(()=>{
-            const f = yeniMusteriForm;
-            const upd = (alan,deger) => setYeniMusteriForm(p=>({...p,[alan]:deger}));
-            const telEkle = () => upd("telefonlar",[...(f.telefonlar||[]),{etiket:"Cep",numara:""}]);
-            const telSil = (idx) => {
-              if((f.telefonlar||[]).length<=1) return;
-              upd("telefonlar",f.telefonlar.filter((_,i)=>i!==idx));
-            };
-            const telGuncelle = (idx,alan,deger) => {
-              upd("telefonlar",f.telefonlar.map((t,i)=>i===idx?{...t,[alan]:deger}:t));
-            };
-            const temizTelRakam = v => String(v||"").replace(/\D/g,"");
-            const kaydet = () => {
-              setYeniMusteriHata("");
-              const ad = (f.ad||"").trim();
-              if(!ad){ setYeniMusteriHata("Ad Soyad zorunludur."); return; }
-              const gecerliTelefonlar = (f.telefonlar||[])
-                .map(t=>({etiket:t.etiket||"Cep",numara:(t.numara||"").trim()}))
-                .filter(t=>temizTelRakam(t.numara).length>0);
-              if(gecerliTelefonlar.length===0){ setYeniMusteriHata("En az bir telefon numarası zorunludur."); return; }
-              // Duplicate kontrolü — aynı ad VEYA herhangi bir telefon eşleşmesi
-              const adNorm = String(ad).toLowerCase().trim();
-              const telSetleri = gecerliTelefonlar.map(t=>temizTelRakam(t.numara));
-              const mevcut = (musteriDB||[]).find(m => {
-                const mAd = String(m.ad||"").toLowerCase().trim();
-                const mTel = temizTelRakam(m.tel);
-                if(adNorm && mAd === adNorm) return true;
-                if(mTel && telSetleri.includes(mTel)) return true;
-                // Çoklu telefon kayıtlı müşterilerde de kontrol
-                if(Array.isArray(m.telefonlar)){
-                  for(const t of m.telefonlar){
-                    const tn = temizTelRakam(t.numara);
-                    if(tn && telSetleri.includes(tn)) return true;
-                  }
-                }
-                return false;
-              });
-              const benimId = String(kul?.id||"");
-              if(mevcut){
-                const sahipId = String(mevcut.sahipId||"");
-                if(sahipId === benimId){
-                  // Kendi müşterin: form kapanır, mevcut kart açılır
-                  showToast("Bu müşteri zaten Müşterilerim listenizde","uy");
-                  setYeniMusteriForm(null);
-                  setMDuzenleId(mevcut.id);
-                  setMDuzenleNot(mevcut.notlar||"");
-                  return;
-                } else {
-                  // Başka personelin müşterisi: devralma onay modalı
-                  setYeniMusteriDevirModal({musteri:mevcut});
-                  return;
-                }
-              }
-              // Yeni müşteri kaydı
-              const ilkTel = gecerliTelefonlar[0]?.numara || "";
-              const yeni = {
-                id: "m_"+Date.now()+"_"+Math.random().toString(36).slice(2,7),
-                ad,
-                tel: ilkTel,
-                telefonlar: gecerliTelefonlar,
-                cinsiyet: f.cinsiyet||"",
-                dogumTarihi: f.dogumTarihi||"",
-                meslek: (f.meslek||"").trim(),
-                email: (f.email||"").trim(),
-                il: (f.il||"").trim(),
-                ilce: (f.ilce||"").trim(),
-                adres: (f.adres||"").trim(),
-                hizmetTercihleri: (f.hizmetTercihleri||"").trim(),
-                alerji: (f.alerji||"").trim(),
-                tipNotu: (f.tipNotu||"").trim(),
-                ozelTarihler: (f.ozelTarihler||"").trim(),
-                notlar: (f.not||"").trim(),
-                sahipId: kul.id,
-                sahipAd: kul.ad,
-                ilkGiris: TODAY()
-              };
-              setMusteriDB(p=>[...p, yeni]);
-              try {
-                if(typeof dbEkle==="function"){
-                  dbEkle("musteriler",{
-                    id:yeni.id, ad:yeni.ad, tel:yeni.tel,
-                    sahip_id:yeni.sahipId, sahip_ad:yeni.sahipAd,
-                    ilk_giris:yeni.ilkGiris,
-                    dogum_tarihi:yeni.dogumTarihi||null,
-                    cinsiyet:yeni.cinsiyet||"",
-                    adres:yeni.adres||"",
-                    notlar:yeni.notlar||""
-                  });
-                }
-              } catch(e){}
-              setYeniMusteriForm(null);
-              setYeniMusteriHata("");
-              showToast("Müşteri eklendi","ba");
-            };
-            const fl = {fontSize:11,letterSpacing:1.2,textTransform:"uppercase",color:"#86868B",fontWeight:600,marginBottom:5,display:"block"};
-            const grpBaslik = {fontSize:12,fontWeight:700,color:"#0071E3",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10,paddingBottom:6,borderBottom:"1px solid rgba(0,113,227,.15)"};
-            const grpKutu = {background:"#FBFBFD",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:16,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,.04)"};
-            return div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:9999,
-              display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"20px 12px",overflowY:"auto",
-              fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
-              div({style:{background:"#F5F5F7",borderRadius:18,maxWidth:520,width:"100%",
-                boxShadow:"0 24px 60px rgba(0,0,0,.28), 0 6px 16px rgba(0,0,0,.12)",
-                overflow:"hidden",margin:"auto"}},
-                // Üst başlık
-                div({style:{background:"#FFFFFF",padding:"14px 16px",
-                  display:"flex",alignItems:"center",justifyContent:"space-between",
-                  borderBottom:"1px solid rgba(0,0,0,.08)",
-                  position:"sticky",top:0,zIndex:5}},
-                  div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F",letterSpacing:"-.2px"}},"Yeni Müşteri Kaydı"),
-                  btn({style:{background:"transparent",border:"none",color:"#86868B",fontSize:22,cursor:"pointer",padding:0,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"},
-                    onClick:()=>{setYeniMusteriForm(null);setYeniMusteriHata("");}},"✕")
-                ),
-                div({style:{padding:14}},
-                  // Kişisel Bilgiler
-                  div({style:grpKutu},
-                    div({style:grpBaslik},"Kişisel Bilgiler"),
-                    div({style:{marginBottom:11,position:"relative"}},
-                      lbl({style:fl},"Ad Soyad *"),
-                      inp({className:"fi",placeholder:"Ad Soyad",value:f.ad||"",
-                        onChange:e=>upd("ad",e.target.value)}),
-                      (()=>{
-                        const q3=normText(f.ad||"");
-                        const benimMusteriler3=(musteriDB||[]).filter(m=>String(m.sahipId||"")===String(kul?.id||""));
-                        const oneri3=q3.length>=2?benimMusteriler3.filter(m=>normText(m.ad).includes(q3)||String(m.tel||"").includes((f.ad||"").trim())).slice(0,5):[];
-                        return oneri3.length>0&&!musteriDuz&&div({style:{position:"absolute",top:"100%",left:0,right:0,
-                          background:"var(--bg2)",border:"1px solid #f59e0b",borderRadius:10,
-                          zIndex:50,overflow:"hidden",marginTop:3,boxShadow:"0 4px 16px rgba(0,0,0,.18)"}},
-                          div({style:{padding:"6px 10px",fontSize:10,fontWeight:700,color:"#b45309",
-                            background:"rgba(245,158,11,.08)",letterSpacing:.5}},"⚠ KAYITLI MÜŞTERİ"),
-                          oneri3.map(m=>div({key:m.id,
-                            style:{padding:"8px 12px",cursor:"pointer",borderTop:"1px solid var(--br)",
-                              display:"flex",flexDirection:"column",gap:2},
-                            onMouseDown:e=>{e.preventDefault();upd("ad",m.ad);upd("tel",m.tel||"");},
-                            onMouseEnter:e=>e.currentTarget.style.background="var(--bg3)",
-                            onMouseLeave:e=>e.currentTarget.style.background=""},
-                            div({style:{fontSize:13,fontWeight:600,color:"var(--tx)"}},m.ad),
-                            m.tel&&div({style:{fontSize:11,color:"var(--mu)"}},"📞 "+m.tel)
-                          ))
-                        );
-                      })()
-                    ),
-                    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:11}},
-                      div(null,
-                        lbl({style:fl},"Cinsiyet"),
-                        sel({className:"fi",value:f.cinsiyet||"",
-                          onChange:e=>upd("cinsiyet",e.target.value)},
-                          opt("","Cinsiyet seçin"),
-                          opt("Kadın","Kadın"),
-                          opt("Erkek","Erkek"),
-                          opt("Diğer","Diğer")
-                        )
-                      ),
-                      div(null,
-                        lbl({style:fl},"Doğum Tarihi"),
-                        h("input",{type:"date",className:"fi",value:f.dogumTarihi||"",
-                          onChange:e=>upd("dogumTarihi",e.target.value)})
-                      )
-                    ),
-                    div(null,
-                      lbl({style:fl},"Meslek"),
-                      inp({className:"fi",placeholder:"Meslek",value:f.meslek||"",
-                        onChange:e=>upd("meslek",e.target.value)})
-                    )
-                  ),
-                  // İletişim
-                  div({style:grpKutu},
-                    div({style:grpBaslik},"İletişim"),
-                    div({style:{marginBottom:11}},
-                      lbl({style:{...fl,marginBottom:5}},"Telefon Numaraları *"),
-                      (f.telefonlar||[]).map((t,idx)=>
-                        div({key:idx,style:{display:"flex",gap:6,marginBottom:6}},
-                          sel({className:"fi",style:{flex:"0 0 90px",fontSize:13},
-                            value:t.etiket||"Cep",
-                            onChange:e=>telGuncelle(idx,"etiket",e.target.value)},
-                            opt("Cep","Cep"),
-                            opt("Ev","Ev"),
-                            opt("İş","İş"),
-                            opt("Diğer","Diğer")
-                          ),
-                          inp({className:"fi",style:{flex:1},placeholder:"05xx xxx xx xx",
-                            value:t.numara||"",
-                            onChange:e=>telGuncelle(idx,"numara",e.target.value)}),
-                          btn({type:"button",title:"Rehberden telefon seç","aria-label":"Rehberden telefon seç",
-                            style:{width:42,height:42,background:"linear-gradient(160deg,#EEF2F8 0%,#E4EAF4 100%)",
-                              border:"1.5px solid rgba(37,99,168,.28)",borderRadius:10,color:"#2563A8",cursor:"pointer",
-                              display:"flex",alignItems:"center",justifyContent:"center",flex:"0 0 auto",
-                              boxShadow:"0 2px 8px rgba(37,99,168,.10)"},
-                            onClick:async()=>{
-                              try{
-                                if(!("contacts" in navigator&&"ContactsManager" in window)){alert("Bu tarayıcı telefon rehberinden seçim özelliğini desteklemiyor.");return;}
-                                const contacts=await navigator.contacts.select(["tel"],{multiple:false});
-                                if(contacts&&contacts.length>0&&contacts[0].tel&&contacts[0].tel.length>0){
-                                  telGuncelle(idx,"numara",contacts[0].tel[0].replace(/\s/g,""));
-                                }
-                              }catch(e){alert("Rehber erişimi sağlanamadı.");}
-                            }},
-                            h("svg",{width:22,height:22,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.6,strokeLinecap:"round",strokeLinejoin:"round"},
-                              h("rect",{x:4,y:2,width:14,height:20,rx:2,ry:2}),
-                              h("line",{x1:2,y1:7,x2:4,y2:7}),
-                              h("line",{x1:2,y1:12,x2:4,y2:12}),
-                              h("line",{x1:2,y1:17,x2:4,y2:17}),
-                              h("circle",{cx:11,cy:9,r:2.2}),
-                              h("path",{d:"M7.2 16.5c.5-2 1.9-3.2 3.8-3.2s3.3 1.2 3.8 3.2"})
-                            )
-                          ),
-                          (f.telefonlar||[]).length>1&&btn({style:{background:"transparent",border:"1px solid rgba(255,59,48,.3)",color:"#FF3B30",fontSize:14,padding:"0 10px",borderRadius:7,cursor:"pointer",flex:"0 0 auto"},
-                            onClick:()=>telSil(idx)},"✕")
-                        )
-                      ),
-                      btn({style:{background:"transparent",border:"1px solid rgba(0,113,227,.4)",color:"#0071E3",fontSize:11,fontWeight:600,padding:"5px 12px",borderRadius:7,cursor:"pointer",marginTop:2},
-                        onClick:telEkle},"+ Numara Ekle")
-                    ),
-                    div({style:{marginBottom:11}},
-                      lbl({style:fl},"E-posta"),
-                      inp({className:"fi",type:"email",placeholder:"ornek@mail.com",value:f.email||"",
-                        onChange:e=>upd("email",e.target.value)})
-                    ),
-                    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:11}},
-                      div(null,
-                        lbl({style:fl},"İl"),
-                        inp({className:"fi",placeholder:"İl",value:f.il||"",
-                          onChange:e=>upd("il",e.target.value)})
-                      ),
-                      div(null,
-                        lbl({style:fl},"İlçe"),
-                        inp({className:"fi",placeholder:"İlçe",value:f.ilce||"",
-                          onChange:e=>upd("ilce",e.target.value)})
-                      )
-                    ),
-                    div(null,
-                      lbl({style:fl},"Açık Adres"),
-                      h("textarea",{className:"fi",rows:2,style:{resize:"none",width:"100%",boxSizing:"border-box"},
-                        placeholder:"Mahalle, sokak, bina no...",value:f.adres||"",
-                        onChange:e=>upd("adres",e.target.value)})
-                    )
-                  ),
-                  // Müşteri Tercihleri
-                  div({style:grpKutu},
-                    div({style:grpBaslik},"Tercihler & Notlar"),
-                    div({style:{marginBottom:11}},
-                      lbl({style:fl},"Tercih Ettiği Hizmetler"),
-                      inp({className:"fi",placeholder:"Saç kesimi, manikür, boya...",value:f.hizmetTercihleri||"",
-                        onChange:e=>upd("hizmetTercihleri",e.target.value)})
-                    ),
-                    div({style:{marginBottom:11}},
-                      lbl({style:fl},"Alerji / Hassasiyet"),
-                      inp({className:"fi",placeholder:"Boya alerjisi, kimyasal hassasiyeti...",value:f.alerji||"",
-                        onChange:e=>upd("alerji",e.target.value)})
-                    ),
-                    div({style:{marginBottom:11}},
-                      lbl({style:fl},"Saç / Cilt Tipi Notu"),
-                      inp({className:"fi",placeholder:"Yağlı saç, kuru cilt vb.",value:f.tipNotu||"",
-                        onChange:e=>upd("tipNotu",e.target.value)})
-                    ),
-                    div(null,
-                      lbl({style:fl},"Genel Not"),
-                      h("textarea",{className:"fi",rows:3,style:{resize:"none",width:"100%",boxSizing:"border-box"},
-                        placeholder:"Diğer notlar...",value:f.not||"",
-                        onChange:e=>upd("not",e.target.value)})
-                    )
-                  ),
-                  // Özel Tarihler
-                  div({style:grpKutu},
-                    div({style:grpBaslik},"Özel Tarihler"),
-                    f.dogumTarihi&&div({style:{fontSize:12,color:"#34C759",marginBottom:9,padding:"7px 10px",background:"rgba(52,199,89,.08)",borderRadius:8,border:"1px solid rgba(52,199,89,.18)"}},
-                      "🎂 Doğum günü hatırlatması otomatik aktifleşecek"),
-                    div(null,
-                      lbl({style:fl},"Yıldönümü / Diğer"),
-                      inp({className:"fi",placeholder:"Evlilik yıldönümü vb.",value:f.ozelTarihler||"",
-                        onChange:e=>upd("ozelTarihler",e.target.value)})
-                    )
-                  ),
-                  // Hata
-                  yeniMusteriHata&&div({style:{padding:"10px 12px",background:"rgba(255,59,48,.10)",border:"1px solid rgba(255,59,48,.25)",borderRadius:10,color:"#c0392b",fontSize:13,marginBottom:12}},
-                    "⚠ "+yeniMusteriHata),
-                  // Kaydet butonu
-                  div({style:{display:"flex",gap:8}},
-                    btn({style:{flex:1,padding:"12px 0",borderRadius:11,border:"1px solid var(--br)",background:"#FFFFFF",color:"#1D1D1F",fontSize:14,fontWeight:500,cursor:"pointer"},
-                      onClick:()=>{setYeniMusteriForm(null);setYeniMusteriHata("");}},"İptal"),
-                    btn({style:{flex:2,padding:"12px 0",borderRadius:11,border:"none",background:"#0071E3",color:"#FFFFFF",fontSize:14,fontWeight:600,cursor:"pointer",
-                      boxShadow:"0 4px 12px rgba(0,113,227,.32)"},
-                      onClick:kaydet},"Müşteriyi Kaydet")
-                  )
-                )
-              )
-            );
-          })(),
           // ─── Müşterilerim'den Yeni Kayıt: Başka Personelin Müşterisi (Devralma Modalı) ───
           yeniMusteriDevirModal&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.65)",zIndex:10000,
             display:"flex",alignItems:"center",justifyContent:"center",padding:20,
@@ -17469,7 +17443,7 @@ if(DB) dbUpsertAyar("tema",tema);
     div({className:"sek",style:{marginBottom:0}},musteriDB.length+" Müşteri"),
     btn({style:{background:"rgba(37,99,168,.1)",border:"1px solid rgba(37,99,168,.3)",
     borderRadius:9,color:"var(--g)",fontSize:14,padding:"7px 13px",cursor:"pointer"},
-    onClick:()=>setMusteriDuz({ad:"",tel:"",sahipId:"",sahipAd:"",dogumTarihi:"",cinsiyet:"",adres:"",notlar:"",ilkGiris:TODAY()})},
+    onClick:()=>setYeniMusteriForm({telefonlar:[{etiket:"Cep",numara:""}],sahipId:"",sahipAd:""})},
     "+ Yeni Müşteri")
     ),
 
@@ -17516,7 +17490,7 @@ if(DB) dbUpsertAyar("tema",tema);
     div({style:{display:"flex",gap:8,marginTop:12}},
       btn({style:{flex:1,padding:"8px 0",borderRadius:9,border:"1px solid var(--br)",
         background:"rgba(37,99,168,.07)",color:"var(--g)",fontSize:14,cursor:"pointer"},
-        onClick:()=>setMusteriDuz({...musteriKart})},"✏ Düzenle"),
+        onClick:()=>musteriDuzenleAc(musteriKart)},"✏ Düzenle"),
       btn({style:{flex:1,padding:"8px 0",borderRadius:9,border:"1px solid #1e3a3a",
         background:"rgba(160,40,40,.07)",color:"#c05050",fontSize:14,cursor:"pointer"},
         onClick:()=>setMusteriSilOnay(musteriKart)},"Sil")
@@ -17595,7 +17569,7 @@ if(DB) dbUpsertAyar("tema",tema);
       div({style:{display:"flex",gap:6,marginTop:9,paddingTop:8,borderTop:"1px solid #143234"}},
         btn({style:{flex:1,padding:"7px 0",borderRadius:8,border:"1px solid var(--br)",
           background:"transparent",color:"#9a7a3a",fontSize:13,cursor:"pointer"},
-          onClick:()=>setMusteriDuz({...m})},"✏ Düzenle"),
+          onClick:()=>musteriDuzenleAc(m)},"✏ Düzenle"),
         btn({style:{flex:1,padding:"7px 0",borderRadius:8,border:"1px solid #3a1010",
           background:"transparent",color:"#c05050",fontSize:13,cursor:"pointer"},
           onClick:()=>setMusteriSilOnay(m)},"Sil")
