@@ -13609,9 +13609,11 @@ if(DB) dbUpsertAyar("tema",tema);
                     m.notlar&&mDuzenleId!==m.id&&div({style:{fontSize:12,color:"var(--mu)",marginTop:5,padding:"5px 8px",background:"rgba(0,0,0,.03)",borderRadius:7,fontStyle:"italic"}},"📝 "+m.notlar)
                   ),
                   div({style:{display:"flex",gap:6,flexShrink:0,marginLeft:8}},
+                    btn({style:{background:"transparent",border:"1px solid rgba(37,99,168,.3)",borderRadius:8,color:"#2563a8",fontSize:12,padding:"5px 9px",cursor:"pointer"},
+                      onClick:()=>setMusteriDuz({...m})},"✏ Düzenle"),
                     btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:8,color:"var(--g)",fontSize:12,padding:"5px 9px",cursor:"pointer"},
                       onClick:()=>{setMDuzenleId(mDuzenleId===m.id?null:m.id);setMDuzenleNot(m.notlar||"");}},
-                      mDuzenleId===m.id?"✕":m.notlar?"✏️":"+ Not"),
+                      mDuzenleId===m.id?"✕":m.notlar?"📝":"+ Not"),
                     btn({style:{background:"transparent",border:"1px solid #3a1010",borderRadius:8,color:"#c05050",fontSize:12,padding:"5px 9px",cursor:"pointer"},
                       onClick:()=>{ if(window.confirm("\""+(m.ad||"Bu müşteri")+"\" kalıcı olarak silinsin mi?")){ setMusteriDB(p=>p.filter(x=>x.id!==m.id)); dbSil("musteriler",m.id); } }},"🗑️")
                   )
@@ -17340,8 +17342,175 @@ if(DB) dbUpsertAyar("tema",tema);
 
     aySek==="listeler"&&ayListeSek==="musteriler"&&div({style:{marginTop:10}},
 
-    // Müşteri düzenleme modalı
-    musteriDuz&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:920,overflow:"auto"}},
+    // Müşteri silme onayı
+    musteriSilOnay&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",
+    zIndex:920,display:"flex",alignItems:"center",justifyContent:"center",padding:18}},
+    div({style:{background:"var(--bg2)",border:"1.5px solid #1e3a3a",borderRadius:18,padding:24,maxWidth:320,width:"100%"}},
+    div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,color:"#c05050",marginBottom:12,textAlign:"center"}},"Müşteriyi Sil"),
+    div({style:{fontSize:14,color:"var(--mu)",marginBottom:20,textAlign:"center",lineHeight:1.7}},
+    h("strong",{style:{color:"var(--tx)"}},musteriSilOnay.ad),h("br",null),
+    "Bu müşteri kalıcı olarak silinecek."),
+    div({className:"btn-r"},
+    btn({className:"btn-i",onClick:()=>setMusteriSilOnay(null)},"İptal"),
+    btn({className:"btn-t",onClick:()=>{
+      setMusteriDB(p=>p.filter(m=>m.id!==musteriSilOnay.id));
+      dbSil("musteriler",musteriSilOnay.id);
+      if(musteriKart?.id===musteriSilOnay.id) setMusteriKart(null);
+      // Müşteri tamamen silindiğinde ona ait saç kesimi hatırlatmasını da temizle (yerel + bulut)
+      setHatirlatmalar(p=>{
+        p.filter(h=>normText(h.musteriAd)===normText(musteriSilOnay.ad)).forEach(h=>dbSil("hatirlatmalar",h.id));
+        return p.filter(h=>normText(h.musteriAd)!==normText(musteriSilOnay.ad));
+      });
+      setMusteriSilOnay(null);
+      showToast("Müşteri silindi","uy");
+    }},"Sil")
+    )
+    )
+    ),
+
+    // Üst başlık + yeni ekle butonu
+    div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+    div({className:"sek",style:{marginBottom:0}},musteriDB.length+" Müşteri"),
+    btn({style:{background:"rgba(37,99,168,.1)",border:"1px solid rgba(37,99,168,.3)",
+    borderRadius:9,color:"var(--g)",fontSize:14,padding:"7px 13px",cursor:"pointer"},
+    onClick:()=>setMusteriDuz({ad:"",tel:"",sahipId:"",sahipAd:"",dogumTarihi:"",cinsiyet:"",adres:"",notlar:"",ilkGiris:TODAY()})},
+    "+ Yeni Müşteri")
+    ),
+
+    // Müşteri kart detay overlay
+    musteriKart&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:800,overflow:"auto"}},
+    div({style:{background:"#0f0c08",borderBottom:"1px solid #1e4244",padding:"13px 16px",
+    display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:5}},
+    div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:20,color:"var(--g)"}},musteriKart.ad),
+    btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:8,
+    color:"var(--mu)",fontSize:17,width:32,height:32,cursor:"pointer"},
+    onClick:()=>setMusteriKart(null)},"✕")
+    ),
+    div({style:{padding:16,maxWidth:580,margin:"0 auto",paddingBottom:60}},
+
+    // Bilgi kartı
+    div({style:{background:"var(--bg2)",
+    border:"1.5px solid var(--br)",borderRadius:14,padding:16,marginBottom:14}},
+    div({style:{display:"flex",alignItems:"flex-start",gap:12,marginBottom:12}},
+      div({style:{width:52,height:52,borderRadius:13,flexShrink:0,
+        background:"var(--bg3)",border:"1px solid var(--br)",
+        display:"flex",alignItems:"center",justifyContent:"center",
+        fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:24,color:"var(--g)"}},
+        (musteriKart.ad||"?")[0].toUpperCase()),
+      div({style:{flex:1}},
+        div({style:{fontSize:18,color:"var(--tx)",fontWeight:500}},musteriKart.ad),
+        musteriKart.tel&&div({style:{fontSize:14,color:"var(--mu)",marginTop:3}},"📞 "+musteriKart.tel),
+        musteriKart.dogumTarihi&&div({style:{fontSize:13,color:"var(--di)",marginTop:2}},"🎂 "+musteriKart.dogumTarihi),
+        musteriKart.cinsiyet&&div({style:{fontSize:13,color:"var(--di)",marginTop:2}},"👤 "+musteriKart.cinsiyet),
+        musteriKart.adres&&div({style:{fontSize:13,color:"var(--di)",marginTop:2}},"📍 "+musteriKart.adres),
+        musteriKart.ilkGiris&&div({style:{fontSize:12,color:"var(--di)",marginTop:4}},"İlk ziyaret: "+musteriKart.ilkGiris)
+      )
+    ),
+    musteriKart.sahipAd&&div({style:{padding:"8px 11px",background:"rgba(37,99,168,.07)",
+      borderRadius:8,border:"1px solid rgba(37,99,168,.15)",marginBottom:musteriKart.notlar?8:0}},
+      h("span",{style:{fontSize:12,color:"var(--mu)",letterSpacing:1,textTransform:"uppercase"}},"Kimin Müşterisi: "),
+      h("span",{style:{fontSize:15,color:"var(--g)",fontWeight:600}},musteriKart.sahipAd)
+    ),
+    musteriKart.notlar&&div({style:{padding:"8px 11px",background:"rgba(255,255,255,.02)",
+      borderRadius:8,border:"1px solid var(--br)",marginTop:4}},
+      div({style:{fontSize:11,color:"var(--di)",letterSpacing:1,textTransform:"uppercase",marginBottom:4}},"NOTLAR"),
+      div({style:{fontSize:14,color:"var(--mu)",lineHeight:1.6}},musteriKart.notlar)
+    ),
+    // Düzenle/Sil butonları
+    div({style:{display:"flex",gap:8,marginTop:12}},
+      btn({style:{flex:1,padding:"8px 0",borderRadius:9,border:"1px solid var(--br)",
+        background:"rgba(37,99,168,.07)",color:"var(--g)",fontSize:14,cursor:"pointer"},
+        onClick:()=>setMusteriDuz({...musteriKart})},"✏ Düzenle"),
+      btn({style:{flex:1,padding:"8px 0",borderRadius:9,border:"1px solid #1e3a3a",
+        background:"rgba(160,40,40,.07)",color:"#c05050",fontSize:14,cursor:"pointer"},
+        onClick:()=>setMusteriSilOnay(musteriKart)},"Sil")
+    )
+    ),
+
+    // Ziyaret geçmişi
+    (()=>{
+    const ziyaretler=tumK.filter(r=>r.musteri===musteriKart.ad).sort((a,b)=>b.tarih.localeCompare(a.tarih));
+    const topT=ziyaretler.reduce((s,r)=>s+r.toplam,0);
+    return div(null,
+      div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+        div({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase"}},ziyaretler.length+" Ziyaret"),
+        div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,color:"var(--g)",fontWeight:700}},fmt(topT))
+      ),
+      ziyaretler.length===0
+        ?div({style:{textAlign:"center",padding:"20px",color:"var(--di)",fontSize:13}},"Henüz ziyaret yok")
+        :ziyaretler.map(r=>{
+          const kk=(r.hizKK||0)+(r.uKK||0),ib=(r.hizIB||0)+(r.uIB||0),nk=(r.hizNK||0)+(r.uNK||0);
+          return div({key:r.id,style:{background:"var(--bg2)",border:"1px solid var(--br)",
+            borderRadius:11,padding:"11px 12px",marginBottom:8}},
+            div({style:{display:"flex",justifyContent:"space-between",marginBottom:5}},
+              div(null,
+                div({style:{fontSize:14,color:"var(--g)",fontWeight:600}},fmtT(r.tarih)+" · "+(r.saat||"")),
+                div({style:{fontSize:12,color:"var(--di)"}},r.staffAd)
+              ),
+              div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:17,color:"var(--g)",fontWeight:700}},fmt(r.toplam))
+            ),
+
+            (r.hizler||[]).length>0&&div({style:{display:"flex",flexWrap:"wrap",gap:4,marginBottom:4}},
+              (r.hizler||[]).map((hz,i)=>h("span",{key:i,style:{fontSize:11,padding:"2px 6px",
+                borderRadius:4,background:"rgba(50,140,100,.08)",border:"1px solid #2a3a10",color:"#6a8a40"}},
+                hz.n||hz))
+            ),
+            div({style:{display:"flex",gap:4}},
+              kk>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:20,border:"1px solid var(--br)",color:"var(--mu)"}},"💳 "+fmt(kk)),
+              ib>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:20,border:"1px solid var(--br)",color:"var(--mu)"}},"🏦 "+fmt(ib)),
+              nk>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:20,border:"1px solid var(--br)",color:"var(--mu)"}},"💵 "+fmt(nk))
+            )
+          );
+        })
+    );
+    })()
+    )
+    ),
+
+    // Müşteri listesi
+    musteriDB.length===0
+    ?div({className:"bos"},div({style:{fontSize:42,marginBottom:9}},"👤"),div({style:{fontSize:13,letterSpacing:2}},"Henüz müşteri kaydı yok"))
+    :musteriDB.map(m=>({...m,ziyaret:tumK.filter(r=>r.musteri===m.ad)}))
+    .sort((a,b)=>b.ziyaret.length-a.ziyaret.length)
+    .map(m=>
+    div({key:m.id,style:{background:"var(--bg2)",border:"1px solid var(--br)",
+      borderRadius:13,padding:13,marginBottom:9}},
+      div({style:{display:"flex",alignItems:"center",gap:11},onClick:()=>setMusteriKart(m),style:{cursor:"pointer",display:"flex",alignItems:"center",gap:11}},
+        div({style:{width:42,height:42,borderRadius:11,background:"var(--bg3)",
+          border:"1px solid #2a3a10",display:"flex",alignItems:"center",justifyContent:"center",
+          fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,color:"var(--g)",flexShrink:0}},
+          (m.ad||"?")[0].toUpperCase()),
+        div({style:{flex:1,minWidth:0}},
+          div({style:{fontSize:14,color:"var(--tx)",fontWeight:500}},m.ad),
+          m.tel&&div({style:{fontSize:13,color:"var(--mu)",marginTop:1}},"📞 "+m.tel),
+          m.dogumTarihi&&div({style:{fontSize:12,color:"var(--di)",marginTop:1}},"🎂 "+m.dogumTarihi),
+          m.sahipAd&&div({style:{fontSize:12,color:"var(--di)",marginTop:1}},"👤 "+m.sahipAd),
+          m.notlar&&div({style:{fontSize:12,color:"var(--di)",marginTop:1,overflow:"hidden",
+            textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:180}},"📝 "+m.notlar)
+        ),
+        div({style:{textAlign:"right",flexShrink:0}},
+          div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:16,color:"var(--g)",fontWeight:700}},
+            fmt(m.ziyaret.reduce((s,r)=>s+r.toplam,0))),
+          div({style:{fontSize:12,color:"var(--di)",marginTop:2}},m.ziyaret.length+" ziyaret"),
+          div({style:{fontSize:15,color:"var(--di)"}},"›")
+        )
+      ),
+      // Düzenle/Sil
+      div({style:{display:"flex",gap:6,marginTop:9,paddingTop:8,borderTop:"1px solid #143234"}},
+        btn({style:{flex:1,padding:"7px 0",borderRadius:8,border:"1px solid var(--br)",
+          background:"transparent",color:"#9a7a3a",fontSize:13,cursor:"pointer"},
+          onClick:()=>setMusteriDuz({...m})},"✏ Düzenle"),
+        btn({style:{flex:1,padding:"7px 0",borderRadius:8,border:"1px solid #3a1010",
+          background:"transparent",color:"#c05050",fontSize:13,cursor:"pointer"},
+          onClick:()=>setMusteriSilOnay(m)},"Sil")
+      )
+    )
+    )
+    ),
+
+    // Müşteri düzenleme modalı (Yönetici Ayarlar ve Personel "Müşterilerim" — ikisinden de açılabilir, aynı kayda yazar)
+    musteriDuz&&ReactDOM.createPortal(
+    div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:920,overflow:"auto"}},
     div({style:{background:"var(--bg)",minHeight:"100vh",paddingBottom:60}},
     div({style:{background:"var(--bg2)",borderBottom:"1px solid #1e4244",padding:"13px 16px",
     display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:5}},
@@ -17433,173 +17602,7 @@ if(DB) dbUpsertAyar("tema",tema);
     )
     )
     )
-    ),
-
-    // Müşteri silme onayı
-    musteriSilOnay&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",
-    zIndex:920,display:"flex",alignItems:"center",justifyContent:"center",padding:18}},
-    div({style:{background:"var(--bg2)",border:"1.5px solid #1e3a3a",borderRadius:18,padding:24,maxWidth:320,width:"100%"}},
-    div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,color:"#c05050",marginBottom:12,textAlign:"center"}},"Müşteriyi Sil"),
-    div({style:{fontSize:14,color:"var(--mu)",marginBottom:20,textAlign:"center",lineHeight:1.7}},
-    h("strong",{style:{color:"var(--tx)"}},musteriSilOnay.ad),h("br",null),
-    "Bu müşteri kalıcı olarak silinecek."),
-    div({className:"btn-r"},
-    btn({className:"btn-i",onClick:()=>setMusteriSilOnay(null)},"İptal"),
-    btn({className:"btn-t",onClick:()=>{
-      setMusteriDB(p=>p.filter(m=>m.id!==musteriSilOnay.id));
-      dbSil("musteriler",musteriSilOnay.id);
-      if(musteriKart?.id===musteriSilOnay.id) setMusteriKart(null);
-      // Müşteri tamamen silindiğinde ona ait saç kesimi hatırlatmasını da temizle (yerel + bulut)
-      setHatirlatmalar(p=>{
-        p.filter(h=>normText(h.musteriAd)===normText(musteriSilOnay.ad)).forEach(h=>dbSil("hatirlatmalar",h.id));
-        return p.filter(h=>normText(h.musteriAd)!==normText(musteriSilOnay.ad));
-      });
-      setMusteriSilOnay(null);
-      showToast("Müşteri silindi","uy");
-    }},"Sil")
-    )
-    )
-    ),
-
-    // Üst başlık + yeni ekle butonu
-    div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
-    div({className:"sek",style:{marginBottom:0}},musteriDB.length+" Müşteri"),
-    btn({style:{background:"rgba(37,99,168,.1)",border:"1px solid rgba(37,99,168,.3)",
-    borderRadius:9,color:"var(--g)",fontSize:14,padding:"7px 13px",cursor:"pointer"},
-    onClick:()=>setMusteriDuz({ad:"",tel:"",sahipId:"",sahipAd:"",dogumTarihi:"",cinsiyet:"",adres:"",notlar:"",ilkGiris:TODAY()})},
-    "+ Yeni Müşteri")
-    ),
-
-    // Müşteri kart detay overlay
-    musteriKart&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:800,overflow:"auto"}},
-    div({style:{background:"#0f0c08",borderBottom:"1px solid #1e4244",padding:"13px 16px",
-    display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:5}},
-    div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:20,color:"var(--g)"}},musteriKart.ad),
-    btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:8,
-    color:"var(--mu)",fontSize:17,width:32,height:32,cursor:"pointer"},
-    onClick:()=>setMusteriKart(null)},"✕")
-    ),
-    div({style:{padding:16,maxWidth:580,margin:"0 auto",paddingBottom:60}},
-
-    // Bilgi kartı
-    div({style:{background:"var(--bg2)",
-    border:"1.5px solid var(--br)",borderRadius:14,padding:16,marginBottom:14}},
-    div({style:{display:"flex",alignItems:"flex-start",gap:12,marginBottom:12}},
-      div({style:{width:52,height:52,borderRadius:13,flexShrink:0,
-        background:"var(--bg3)",border:"1px solid var(--br)",
-        display:"flex",alignItems:"center",justifyContent:"center",
-        fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:24,color:"var(--g)"}},
-        musteriKart.ad[0].toUpperCase()),
-      div({style:{flex:1}},
-        div({style:{fontSize:18,color:"var(--tx)",fontWeight:500}},musteriKart.ad),
-        musteriKart.tel&&div({style:{fontSize:14,color:"var(--mu)",marginTop:3}},"📞 "+musteriKart.tel),
-        musteriKart.dogumTarihi&&div({style:{fontSize:13,color:"var(--di)",marginTop:2}},"🎂 "+musteriKart.dogumTarihi),
-        musteriKart.cinsiyet&&div({style:{fontSize:13,color:"var(--di)",marginTop:2}},"👤 "+musteriKart.cinsiyet),
-        musteriKart.adres&&div({style:{fontSize:13,color:"var(--di)",marginTop:2}},"📍 "+musteriKart.adres),
-        musteriKart.ilkGiris&&div({style:{fontSize:12,color:"var(--di)",marginTop:4}},"İlk ziyaret: "+musteriKart.ilkGiris)
-      )
-    ),
-    musteriKart.sahipAd&&div({style:{padding:"8px 11px",background:"rgba(37,99,168,.07)",
-      borderRadius:8,border:"1px solid rgba(37,99,168,.15)",marginBottom:musteriKart.notlar?8:0}},
-      h("span",{style:{fontSize:12,color:"var(--mu)",letterSpacing:1,textTransform:"uppercase"}},"Kimin Müşterisi: "),
-      h("span",{style:{fontSize:15,color:"var(--g)",fontWeight:600}},musteriKart.sahipAd)
-    ),
-    musteriKart.notlar&&div({style:{padding:"8px 11px",background:"rgba(255,255,255,.02)",
-      borderRadius:8,border:"1px solid var(--br)",marginTop:4}},
-      div({style:{fontSize:11,color:"var(--di)",letterSpacing:1,textTransform:"uppercase",marginBottom:4}},"NOTLAR"),
-      div({style:{fontSize:14,color:"var(--mu)",lineHeight:1.6}},musteriKart.notlar)
-    ),
-    // Düzenle/Sil butonları
-    div({style:{display:"flex",gap:8,marginTop:12}},
-      btn({style:{flex:1,padding:"8px 0",borderRadius:9,border:"1px solid var(--br)",
-        background:"rgba(37,99,168,.07)",color:"var(--g)",fontSize:14,cursor:"pointer"},
-        onClick:()=>setMusteriDuz({...musteriKart})},"✏ Düzenle"),
-      btn({style:{flex:1,padding:"8px 0",borderRadius:9,border:"1px solid #1e3a3a",
-        background:"rgba(160,40,40,.07)",color:"#c05050",fontSize:14,cursor:"pointer"},
-        onClick:()=>setMusteriSilOnay(musteriKart)},"Sil")
-    )
-    ),
-
-    // Ziyaret geçmişi
-    (()=>{
-    const ziyaretler=tumK.filter(r=>r.musteri===musteriKart.ad).sort((a,b)=>b.tarih.localeCompare(a.tarih));
-    const topT=ziyaretler.reduce((s,r)=>s+r.toplam,0);
-    return div(null,
-      div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
-        div({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase"}},ziyaretler.length+" Ziyaret"),
-        div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,color:"var(--g)",fontWeight:700}},fmt(topT))
-      ),
-      ziyaretler.length===0
-        ?div({style:{textAlign:"center",padding:"20px",color:"var(--di)",fontSize:13}},"Henüz ziyaret yok")
-        :ziyaretler.map(r=>{
-          const kk=(r.hizKK||0)+(r.uKK||0),ib=(r.hizIB||0)+(r.uIB||0),nk=(r.hizNK||0)+(r.uNK||0);
-          return div({key:r.id,style:{background:"var(--bg2)",border:"1px solid var(--br)",
-            borderRadius:11,padding:"11px 12px",marginBottom:8}},
-            div({style:{display:"flex",justifyContent:"space-between",marginBottom:5}},
-              div(null,
-                div({style:{fontSize:14,color:"var(--g)",fontWeight:600}},fmtT(r.tarih)+" · "+(r.saat||"")),
-                div({style:{fontSize:12,color:"var(--di)"}},r.staffAd)
-              ),
-              div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:17,color:"var(--g)",fontWeight:700}},fmt(r.toplam))
-            ),
-
-            (r.hizler||[]).length>0&&div({style:{display:"flex",flexWrap:"wrap",gap:4,marginBottom:4}},
-              (r.hizler||[]).map((hz,i)=>h("span",{key:i,style:{fontSize:11,padding:"2px 6px",
-                borderRadius:4,background:"rgba(50,140,100,.08)",border:"1px solid #2a3a10",color:"#6a8a40"}},
-                hz.n||hz))
-            ),
-            div({style:{display:"flex",gap:4}},
-              kk>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:20,border:"1px solid var(--br)",color:"var(--mu)"}},"💳 "+fmt(kk)),
-              ib>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:20,border:"1px solid var(--br)",color:"var(--mu)"}},"🏦 "+fmt(ib)),
-              nk>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:20,border:"1px solid var(--br)",color:"var(--mu)"}},"💵 "+fmt(nk))
-            )
-          );
-        })
-    );
-    })()
-    )
-    ),
-
-    // Müşteri listesi
-    musteriDB.length===0
-    ?div({className:"bos"},div({style:{fontSize:42,marginBottom:9}},"👤"),div({style:{fontSize:13,letterSpacing:2}},"Henüz müşteri kaydı yok"))
-    :musteriDB.map(m=>({...m,ziyaret:tumK.filter(r=>r.musteri===m.ad)}))
-    .sort((a,b)=>b.ziyaret.length-a.ziyaret.length)
-    .map(m=>
-    div({key:m.id,style:{background:"var(--bg2)",border:"1px solid var(--br)",
-      borderRadius:13,padding:13,marginBottom:9}},
-      div({style:{display:"flex",alignItems:"center",gap:11},onClick:()=>setMusteriKart(m),style:{cursor:"pointer",display:"flex",alignItems:"center",gap:11}},
-        div({style:{width:42,height:42,borderRadius:11,background:"var(--bg3)",
-          border:"1px solid #2a3a10",display:"flex",alignItems:"center",justifyContent:"center",
-          fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,color:"var(--g)",flexShrink:0}},
-          m.ad[0].toUpperCase()),
-        div({style:{flex:1,minWidth:0}},
-          div({style:{fontSize:14,color:"var(--tx)",fontWeight:500}},m.ad),
-          m.tel&&div({style:{fontSize:13,color:"var(--mu)",marginTop:1}},"📞 "+m.tel),
-          m.dogumTarihi&&div({style:{fontSize:12,color:"var(--di)",marginTop:1}},"🎂 "+m.dogumTarihi),
-          m.sahipAd&&div({style:{fontSize:12,color:"var(--di)",marginTop:1}},"👤 "+m.sahipAd),
-          m.notlar&&div({style:{fontSize:12,color:"var(--di)",marginTop:1,overflow:"hidden",
-            textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:180}},"📝 "+m.notlar)
-        ),
-        div({style:{textAlign:"right",flexShrink:0}},
-          div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:16,color:"var(--g)",fontWeight:700}},
-            fmt(m.ziyaret.reduce((s,r)=>s+r.toplam,0))),
-          div({style:{fontSize:12,color:"var(--di)",marginTop:2}},m.ziyaret.length+" ziyaret"),
-          div({style:{fontSize:15,color:"var(--di)"}},"›")
-        )
-      ),
-      // Düzenle/Sil
-      div({style:{display:"flex",gap:6,marginTop:9,paddingTop:8,borderTop:"1px solid #143234"}},
-        btn({style:{flex:1,padding:"7px 0",borderRadius:8,border:"1px solid var(--br)",
-          background:"transparent",color:"#9a7a3a",fontSize:13,cursor:"pointer"},
-          onClick:()=>setMusteriDuz({...m})},"✏ Düzenle"),
-        btn({style:{flex:1,padding:"7px 0",borderRadius:8,border:"1px solid #3a1010",
-          background:"transparent",color:"#c05050",fontSize:13,cursor:"pointer"},
-          onClick:()=>setMusteriSilOnay(m)},"Sil")
-      )
-    )
-    )
-    ),
+    ), document.body),
 
     aySek==="listeler"&&ayListeSek==="tedarikciListesi"&&div({style:{marginTop:10}},
 
