@@ -13143,6 +13143,102 @@ if(DB) dbUpsertAyar("tema",tema);
     ),
 
     // ── PERSONEL ──
+    // Müşteri düzenleme modalı (Yönetici Ayarlar ve Personel "Müşterilerim" — ikisinden de açılabilir, aynı kayda yazar)
+    musteriDuz&&ReactDOM.createPortal(
+    div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:920,overflow:"auto"}},
+    div({style:{background:"var(--bg)",minHeight:"100vh",paddingBottom:60}},
+    div({style:{background:"var(--bg2)",borderBottom:"1px solid #1e4244",padding:"13px 16px",
+    display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:5}},
+    div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,color:"var(--g)"}},
+      musteriDuz.id?"Müşteri Düzenle":"Yeni Müşteri"),
+    btn({className:"xbtn",onClick:()=>setMusteriDuz(null)},"✕")
+    ),
+    div({style:{padding:16,maxWidth:560,margin:"0 auto"}},
+    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+      div({style:{position:"relative"}},
+        lbl({className:"fl"},"Ad Soyad *"),
+        inp({className:"fi",placeholder:"Ad Soyad",value:musteriDuz.ad||"",
+          onChange:e=>setMusteriDuz(p=>({...p,ad:e.target.value}))}),
+        (()=>{
+          const q4=normText(musteriDuz.ad||"");
+          const oneri4=!musteriDuz.id&&q4.length>=2
+            ?(musteriDB||[]).filter(m=>normText(m.ad).includes(q4)||String(m.tel||"").includes((musteriDuz.ad||"").trim())).slice(0,5)
+            :[];
+          return oneri4.length>0&&div({style:{position:"absolute",top:"100%",left:0,right:0,
+            background:"var(--bg2)",border:"1px solid #f59e0b",borderRadius:10,
+            zIndex:50,overflow:"hidden",marginTop:3,boxShadow:"0 4px 16px rgba(0,0,0,.18)"}},
+            div({style:{padding:"6px 10px",fontSize:10,fontWeight:700,color:"#b45309",
+              background:"rgba(245,158,11,.08)",letterSpacing:.5}},"⚠ KAYITLI MÜŞTERİ"),
+            oneri4.map(m=>div({key:m.id,
+              style:{padding:"8px 12px",cursor:"pointer",borderTop:"1px solid var(--br)",
+                display:"flex",flexDirection:"column",gap:2},
+              onMouseDown:e=>{e.preventDefault();setMusteriDuz(p=>({...p,ad:m.ad,tel:m.tel||""}));},
+              onMouseEnter:e=>e.currentTarget.style.background="var(--bg3)",
+              onMouseLeave:e=>e.currentTarget.style.background=""},
+              div({style:{fontSize:13,fontWeight:600,color:"var(--tx)"}},m.ad),
+              m.tel&&div({style:{fontSize:11,color:"var(--mu)"}},"📞 "+m.tel)
+            ))
+          );
+        })()
+      ),
+      div(null,lbl({className:"fl"},"Telefon"),
+        inp({className:"fi",placeholder:"05xx xxx xx xx",value:musteriDuz.tel||"",
+          onChange:e=>setMusteriDuz(p=>({...p,tel:e.target.value}))}))
+    ),
+    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+      div(null,lbl({className:"fl"},"Doğum Tarihi"),
+        h("input",{type:"date",className:"fi",value:musteriDuz.dogumTarihi||"",
+          onChange:e=>setMusteriDuz(p=>({...p,dogumTarihi:e.target.value}))})),
+      div(null,lbl({className:"fl"},"Cinsiyet"),
+        sel({className:"fi",value:musteriDuz.cinsiyet||"",
+          onChange:e=>setMusteriDuz(p=>({...p,cinsiyet:e.target.value}))},
+          opt("","Seçiniz"),opt("Erkek","Erkek"),opt("Kadın","Kadın"),opt("Diğer","Diğer")))
+    ),
+    div({style:{marginBottom:10}},lbl({className:"fl"},"Adres"),
+      h("textarea",{className:"fi",placeholder:"Açık adres...",rows:2,
+        style:{resize:"none",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+        value:musteriDuz.adres||"",
+        onChange:e=>setMusteriDuz(p=>({...p,adres:e.target.value}))})),
+    div({style:{marginBottom:10}},lbl({className:"fl"},"Kimin Müşterisi"),
+      sel({className:"fi",value:musteriDuz.sahipId||"",
+        onChange:e=>{
+          const p=personeller.find(x=>x.id===e.target.value);
+          setMusteriDuz(prev=>({...prev,sahipId:e.target.value,sahipAd:p?.ad||""}));
+        }},
+        opt("","Seçiniz"),
+        personeller.filter(p=>p.aktif&&p.rol==="personel").map(p=>opt(p.id,p.ad))
+      )),
+    div({style:{marginBottom:16}},lbl({className:"fl"},"Notlar"),
+      h("textarea",{className:"fi",placeholder:"Özel notlar, tercihler...",rows:3,
+        style:{resize:"none",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+        value:musteriDuz.notlar||"",
+        onChange:e=>setMusteriDuz(p=>({...p,notlar:e.target.value}))})),
+    div({className:"btn-r"},
+      btn({className:"btn-i",onClick:()=>setMusteriDuz(null)},"İptal"),
+      btn({className:"btn-k",
+        disabled:!(musteriDuz.ad||"").trim(),
+        onClick:()=>{
+          const gn={...musteriDuz,ad:(musteriDuz.ad||"").trim()};
+          if(gn.id){
+            setMusteriDB(p=>p.map(m=>m.id===gn.id?gn:m));
+            setMusteriKart(p=>p?.id===gn.id?gn:p);
+            dbGnc("musteriler",{ad:gn.ad,tel:gn.tel,sahip_id:gn.sahipId,sahip_ad:gn.sahipAd,
+              dogum_tarihi:gn.dogumTarihi,cinsiyet:gn.cinsiyet,adres:gn.adres,notlar:gn.notlar},gn.id);
+          } else {
+            const ym={...gn,id:uid(),ilkGiris:TODAY()};
+            setMusteriDB(p=>[...p,ym]);
+            dbEkle("musteriler",{id:ym.id,ad:ym.ad,tel:ym.tel,sahip_id:ym.sahipId,
+              sahip_ad:ym.sahipAd,ilk_giris:ym.ilkGiris,dogum_tarihi:ym.dogumTarihi,
+              cinsiyet:ym.cinsiyet,adres:ym.adres,notlar:ym.notlar});
+          }
+          setMusteriDuz(null);
+          showToast("Müşteri kaydedildi");
+        }},"Kaydet")
+    )
+    )
+    )
+    ), document.body),
+
     !yukleniyor&&ekran==="personel"&&kul&&div(null,
       div({className:"tbar"},
         btn({style:{background:"#FFFFFF",border:"none",padding:"6px 10px",cursor:"pointer",display:"flex",alignItems:"center",height:isletme.logoHeight||80,flexShrink:0,borderRadius:10,boxShadow:"0 1px 3px rgba(0,0,0,.12)"},
@@ -17508,101 +17604,6 @@ if(DB) dbUpsertAyar("tema",tema);
     )
     ),
 
-    // Müşteri düzenleme modalı (Yönetici Ayarlar ve Personel "Müşterilerim" — ikisinden de açılabilir, aynı kayda yazar)
-    musteriDuz&&ReactDOM.createPortal(
-    div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:920,overflow:"auto"}},
-    div({style:{background:"var(--bg)",minHeight:"100vh",paddingBottom:60}},
-    div({style:{background:"var(--bg2)",borderBottom:"1px solid #1e4244",padding:"13px 16px",
-    display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:5}},
-    div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:18,color:"var(--g)"}},
-      musteriDuz.id?"Müşteri Düzenle":"Yeni Müşteri"),
-    btn({className:"xbtn",onClick:()=>setMusteriDuz(null)},"✕")
-    ),
-    div({style:{padding:16,maxWidth:560,margin:"0 auto"}},
-    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
-      div({style:{position:"relative"}},
-        lbl({className:"fl"},"Ad Soyad *"),
-        inp({className:"fi",placeholder:"Ad Soyad",value:musteriDuz.ad||"",
-          onChange:e=>setMusteriDuz(p=>({...p,ad:e.target.value}))}),
-        (()=>{
-          const q4=normText(musteriDuz.ad||"");
-          const oneri4=!musteriDuz.id&&q4.length>=2
-            ?(musteriDB||[]).filter(m=>normText(m.ad).includes(q4)||String(m.tel||"").includes((musteriDuz.ad||"").trim())).slice(0,5)
-            :[];
-          return oneri4.length>0&&div({style:{position:"absolute",top:"100%",left:0,right:0,
-            background:"var(--bg2)",border:"1px solid #f59e0b",borderRadius:10,
-            zIndex:50,overflow:"hidden",marginTop:3,boxShadow:"0 4px 16px rgba(0,0,0,.18)"}},
-            div({style:{padding:"6px 10px",fontSize:10,fontWeight:700,color:"#b45309",
-              background:"rgba(245,158,11,.08)",letterSpacing:.5}},"⚠ KAYITLI MÜŞTERİ"),
-            oneri4.map(m=>div({key:m.id,
-              style:{padding:"8px 12px",cursor:"pointer",borderTop:"1px solid var(--br)",
-                display:"flex",flexDirection:"column",gap:2},
-              onMouseDown:e=>{e.preventDefault();setMusteriDuz(p=>({...p,ad:m.ad,tel:m.tel||""}));},
-              onMouseEnter:e=>e.currentTarget.style.background="var(--bg3)",
-              onMouseLeave:e=>e.currentTarget.style.background=""},
-              div({style:{fontSize:13,fontWeight:600,color:"var(--tx)"}},m.ad),
-              m.tel&&div({style:{fontSize:11,color:"var(--mu)"}},"📞 "+m.tel)
-            ))
-          );
-        })()
-      ),
-      div(null,lbl({className:"fl"},"Telefon"),
-        inp({className:"fi",placeholder:"05xx xxx xx xx",value:musteriDuz.tel||"",
-          onChange:e=>setMusteriDuz(p=>({...p,tel:e.target.value}))}))
-    ),
-    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
-      div(null,lbl({className:"fl"},"Doğum Tarihi"),
-        h("input",{type:"date",className:"fi",value:musteriDuz.dogumTarihi||"",
-          onChange:e=>setMusteriDuz(p=>({...p,dogumTarihi:e.target.value}))})),
-      div(null,lbl({className:"fl"},"Cinsiyet"),
-        sel({className:"fi",value:musteriDuz.cinsiyet||"",
-          onChange:e=>setMusteriDuz(p=>({...p,cinsiyet:e.target.value}))},
-          opt("","Seçiniz"),opt("Erkek","Erkek"),opt("Kadın","Kadın"),opt("Diğer","Diğer")))
-    ),
-    div({style:{marginBottom:10}},lbl({className:"fl"},"Adres"),
-      h("textarea",{className:"fi",placeholder:"Açık adres...",rows:2,
-        style:{resize:"none",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
-        value:musteriDuz.adres||"",
-        onChange:e=>setMusteriDuz(p=>({...p,adres:e.target.value}))})),
-    div({style:{marginBottom:10}},lbl({className:"fl"},"Kimin Müşterisi"),
-      sel({className:"fi",value:musteriDuz.sahipId||"",
-        onChange:e=>{
-          const p=personeller.find(x=>x.id===e.target.value);
-          setMusteriDuz(prev=>({...prev,sahipId:e.target.value,sahipAd:p?.ad||""}));
-        }},
-        opt("","Seçiniz"),
-        personeller.filter(p=>p.aktif&&p.rol==="personel").map(p=>opt(p.id,p.ad))
-      )),
-    div({style:{marginBottom:16}},lbl({className:"fl"},"Notlar"),
-      h("textarea",{className:"fi",placeholder:"Özel notlar, tercihler...",rows:3,
-        style:{resize:"none",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
-        value:musteriDuz.notlar||"",
-        onChange:e=>setMusteriDuz(p=>({...p,notlar:e.target.value}))})),
-    div({className:"btn-r"},
-      btn({className:"btn-i",onClick:()=>setMusteriDuz(null)},"İptal"),
-      btn({className:"btn-k",
-        disabled:!(musteriDuz.ad||"").trim(),
-        onClick:()=>{
-          const gn={...musteriDuz,ad:(musteriDuz.ad||"").trim()};
-          if(gn.id){
-            setMusteriDB(p=>p.map(m=>m.id===gn.id?gn:m));
-            setMusteriKart(p=>p?.id===gn.id?gn:p);
-            dbGnc("musteriler",{ad:gn.ad,tel:gn.tel,sahip_id:gn.sahipId,sahip_ad:gn.sahipAd,
-              dogum_tarihi:gn.dogumTarihi,cinsiyet:gn.cinsiyet,adres:gn.adres,notlar:gn.notlar},gn.id);
-          } else {
-            const ym={...gn,id:uid(),ilkGiris:TODAY()};
-            setMusteriDB(p=>[...p,ym]);
-            dbEkle("musteriler",{id:ym.id,ad:ym.ad,tel:ym.tel,sahip_id:ym.sahipId,
-              sahip_ad:ym.sahipAd,ilk_giris:ym.ilkGiris,dogum_tarihi:ym.dogumTarihi,
-              cinsiyet:ym.cinsiyet,adres:ym.adres,notlar:ym.notlar});
-          }
-          setMusteriDuz(null);
-          showToast("Müşteri kaydedildi");
-        }},"Kaydet")
-    )
-    )
-    )
-    ), document.body),
 
     aySek==="listeler"&&ayListeSek==="tedarikciListesi"&&div({style:{marginTop:10}},
 
