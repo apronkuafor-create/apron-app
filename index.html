@@ -2194,6 +2194,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [sdDuzAlisF, setSdDuzAlisF] = React.useState("");
   const [sdDuzTarih, setSdDuzTarih] = React.useState("");
   const [sdSilOnay, setSdSilOnay] = React.useState(null); // silinecek parti objesi
+  const [sdSatisBas, setSdSatisBas] = React.useState(""); // satış geçmişi tarih aralığı - başlangıç
+  const [sdSatisBit, setSdSatisBit] = React.useState(""); // satış geçmişi tarih aralığı - bitiş
 
   // Stok özeti hesapla
   const stokOzet = React.useMemo(()=>{
@@ -3695,6 +3697,57 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 )
               );
             })
+          ),
+
+          // Satış Geçmişi
+          div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:16,marginTop:12}},
+            div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},"🧾 Satış Geçmişi"),
+            div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}},
+              div(null,
+                lbl({className:"fl"},"Başlangıç"),
+                h("input",{type:"date",className:"fi",value:sdSatisBas,onChange:e=>setSdSatisBas(e.target.value)})
+              ),
+              div(null,
+                lbl({className:"fl"},"Bitiş"),
+                h("input",{type:"date",className:"fi",value:sdSatisBit,onChange:e=>setSdSatisBit(e.target.value)})
+              )
+            ),
+            (()=>{
+              const satislar = [];
+              (tumK||[]).forEach(r=>{
+                if(sdSatisBas && (r.tarih||"") < sdSatisBas) return;
+                if(sdSatisBit && (r.tarih||"") > sdSatisBit) return;
+                (r.urunler||[]).forEach(item=>{
+                  if(item.b !== u.barkod) return;
+                  const adet = toN(item.qty||1);
+                  const birim = toN(item.sf!==undefined?item.sf:item.fiyat);
+                  const toplam = adet*birim;
+                  const odemeler = [];
+                  if(toN(item.fkk)>0) odemeler.push("Kredi Kartı "+fmt(toN(item.fkk)));
+                  if(toN(item.fib)>0) odemeler.push("Havale/İB "+fmt(toN(item.fib)));
+                  if(toN(item.fnk)>0) odemeler.push("Nakit "+fmt(toN(item.fnk)));
+                  const odemeYontemi = odemeler.length ? odemeler.join(" + ") : (item.odeme||"—");
+                  satislar.push({
+                    tarih:r.tarih||"", kim:item.saticiAd||r.staffAd||"—",
+                    kime:r.musteri||"—", adet, toplam, odemeYontemi
+                  });
+                });
+              });
+              satislar.sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
+              if(satislar.length===0) return div({style:{fontSize:12,color:"var(--mu)",textAlign:"center",padding:"14px 0"}},"Bu tarih aralığında satış kaydı bulunamadı");
+              return div(null,
+                div({style:{fontSize:11,color:"var(--mu)",marginBottom:8}},satislar.length+" satış kaydı"),
+                satislar.map((s,i)=>div({key:i,style:{padding:"10px 12px",background:"var(--bg)",borderRadius:10,
+                  border:"1px solid var(--br)",marginBottom:6}},
+                  div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}},
+                    div({style:{fontSize:13,color:"var(--tx)",fontWeight:600}},fmtT(s.tarih)),
+                    div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt(s.toplam))
+                  ),
+                  div({style:{fontSize:12,color:"var(--mu)"}},"👤 "+s.kim+"  ·  🧑‍🤝‍🧑 "+s.kime),
+                  div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},s.adet+" adet  ·  💳 "+s.odemeYontemi)
+                ))
+              );
+            })()
           )
         );
       })()
