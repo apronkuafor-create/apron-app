@@ -2601,6 +2601,89 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   : "💰 "+tedAd+"'dan şu an "+fmt(Math.abs(bakiye))+" alacağın var (mevcut bakiye)")
             );
           }),
+          btn({style:{width:"100%",marginTop:12,padding:"14px 0",borderRadius:11,
+            border:"1px solid #1F3D2C",background:"transparent",color:"#1F3D2C",fontSize:14,fontWeight:700,cursor:"pointer",
+            display:"flex",alignItems:"center",justifyContent:"center",gap:8},
+            onClick:()=>{
+              const satirlar = siparisListesi.filter(s=>toN(s.siparisAdet)>0);
+              if(satirlar.length===0){ showToast("Adetleri girin","uy"); return; }
+
+              let toplamKdvHaric=0, toplamKdv=0;
+              const satirHtml = satirlar.map((s,i)=>{
+                const oz = stokOzet[s.barkod]||{};
+                const birimF = toN(oz.birimF||0);
+                const kdvOran = toN(oz.kdvOran!==undefined?oz.kdvOran:20);
+                const adet = toN(s.siparisAdet);
+                const satirTutar = birimF*adet;
+                const kdvTutar = satirTutar*(kdvOran/100);
+                toplamKdvHaric += satirTutar;
+                toplamKdv += kdvTutar;
+                return "<tr>"
+                  +"<td style=\"text-align:center;color:#888\">"+(i+1)+"</td>"
+                  +"<td style=\"font-family:'Courier New',monospace;font-size:12px;color:#555\">"+s.barkod+"</td>"
+                  +"<td><div style=\"font-weight:600\">"+s.urunAd+(s.ml?" ("+s.ml+")":"")+"</div>"
+                  +(s.marka?"<div style=\"color:#999;font-size:11px;margin-top:2px\">"+s.marka+"</div>":"")+"</td>"
+                  +"<td style=\"text-align:right\">"+fmt(birimF)+"</td>"
+                  +"<td style=\"text-align:center;font-weight:600\">"+adet+"</td>"
+                  +"<td style=\"text-align:center;color:#888\">%"+kdvOran+"</td>"
+                  +"<td style=\"text-align:right;font-weight:700\">"+fmt(satirTutar+kdvTutar)+"</td>"
+                  +"</tr>";
+              }).join("");
+
+              const genelToplam = toplamKdvHaric+toplamKdv;
+              const bugun = new Date().toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric"});
+
+              const html = "<!DOCTYPE html><html lang=\"tr\"><head><meta charset=\"UTF-8\"><title>Sipariş Formu</title><style>"
+                +"*{box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;margin:0;padding:44px;color:#1a1a1a;background:#fff}"
+                +".header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1F3D2C;padding-bottom:20px;margin-bottom:26px}"
+                +".logo{max-height:70px;max-width:220px;object-fit:contain}"
+                +".baslik{text-align:right}.baslik h1{margin:0;font-size:26px;color:#1F3D2C;letter-spacing:1.5px;font-weight:800}"
+                +".baslik .tarih{color:#777;font-size:13px;margin-top:5px}"
+                +".firma{font-size:12px;color:#666;margin-top:6px;line-height:1.5}"
+                +".meta{display:flex;gap:24px;margin-bottom:26px;font-size:13px;background:#f7f8f7;border-radius:10px;padding:14px 18px}"
+                +".meta div{flex:1}.meta .label{color:#8a8a8a;text-transform:uppercase;font-size:10.5px;letter-spacing:.6px;margin-bottom:4px;font-weight:600}"
+                +".meta .val{font-weight:600;color:#222}"
+                +"table{width:100%;border-collapse:collapse;margin-bottom:22px}"
+                +"thead th{background:#1F3D2C;color:#fff;padding:11px 9px;font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;text-align:left}"
+                +"tbody td{padding:11px 9px;border-bottom:1px solid #eee;font-size:13px;vertical-align:top}"
+                +"tbody tr:nth-child(even){background:#fafafa}"
+                +".totals{margin-left:auto;width:300px}"
+                +".totals div{display:flex;justify-content:space-between;padding:7px 0;font-size:13.5px;color:#444}"
+                +".totals .grand{border-top:2px solid #1F3D2C;margin-top:8px;padding-top:12px;font-size:19px;font-weight:800;color:#1F3D2C}"
+                +".not{margin-top:22px;padding:14px 16px;background:#f7f8f7;border-left:3px solid #1F3D2C;border-radius:6px;font-size:13px;color:#444}"
+                +".footer{margin-top:60px;display:flex;justify-content:space-between;font-size:12px;color:#999}"
+                +".imza{text-align:center;width:210px}.imza .cizgi{border-top:1px solid #ccc;margin-top:44px;padding-top:7px}"
+                +"@media print{body{padding:18px}.noprint{display:none}}"
+                +"</style></head><body>"
+                +"<div class=\"header\">"
+                +"<div><img class=\"logo\" src=\""+AKTIF_LOGO+"\">"
+                +"<div class=\"firma\">"+(isletme.ad||"")+(isletme.tel?" · "+isletme.tel:"")+(isletme.adres?"<br>"+isletme.adres:"")+"</div></div>"
+                +"<div class=\"baslik\"><h1>SİPARİŞ FORMU</h1><div class=\"tarih\">"+bugun+"</div></div>"
+                +"</div>"
+                +"<div class=\"meta\">"
+                +"<div><div class=\"label\">Tedarikçi Telefon</div><div class=\"val\">"+(sipTedarikciTel||"—")+"</div></div>"
+                +"<div><div class=\"label\">Ürün Sayısı</div><div class=\"val\">"+satirlar.length+" kalem</div></div>"
+                +"<div><div class=\"label\">Belge No</div><div class=\"val\">SIP-"+Date.now().toString().slice(-8)+"</div></div>"
+                +"</div>"
+                +"<table><thead><tr><th>#</th><th>Barkod</th><th>Ürün</th><th style=\"text-align:right\">Birim Fiyat</th>"
+                +"<th style=\"text-align:center\">Adet</th><th style=\"text-align:center\">KDV</th><th style=\"text-align:right\">Toplam</th></tr></thead>"
+                +"<tbody>"+satirHtml+"</tbody></table>"
+                +"<div class=\"totals\">"
+                +"<div><span>Ara Toplam (KDV Hariç)</span><span>"+fmt(toplamKdvHaric)+"</span></div>"
+                +"<div><span>KDV Toplamı</span><span>"+fmt(toplamKdv)+"</span></div>"
+                +"<div class=\"grand\"><span>GENEL TOPLAM</span><span>"+fmt(genelToplam)+"</span></div>"
+                +"</div>"
+                +(sipNot?"<div class=\"not\"><strong>Sipariş Notu:</strong> "+sipNot+"</div>":"")
+                +"<div class=\"footer\"><div class=\"imza\"><div class=\"cizgi\">Hazırlayan</div></div>"
+                +"<div class=\"imza\"><div class=\"cizgi\">Onaylayan</div></div></div>"
+                +"<div class=\"noprint\" style=\"text-align:center;margin-top:34px\">"
+                +"<button onclick=\"window.print()\" style=\"padding:13px 30px;border-radius:11px;border:none;background:#1F3D2C;color:#fff;font-size:14px;font-weight:700;cursor:pointer\">🖨️ Yazdır / PDF Olarak Kaydet</button>"
+                +"</div></body></html>";
+
+              const win = window.open("", "_blank");
+              if(win){ win.document.write(html); win.document.close(); }
+              else { showToast("Açılır pencere engellendi, tarayıcı ayarlarını kontrol edin","uy"); }
+            }},"📄 Sipariş PDF'i Oluştur"),
           sipTedarikciTel.trim().length>=10&&btn({style:{width:"100%",marginTop:12,padding:"14px 0",borderRadius:11,
             border:"none",background:"#25D366",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"},
             onClick:()=>{
