@@ -3005,6 +3005,23 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 div({style:{color:"var(--mu)"}},"Geliş: ",h("span",{style:{color:"var(--tx)"}},fmtT(ar.tarih)||"—"))
               )
             ),
+            (()=>{
+              if(!ar.faturaN || !ar.tedarikci) return null;
+              const kardes = mkArsiv.find(x=>x!==ar && x.tedarikci===ar.tedarikci
+                && (x.faturaN||"").trim().toLowerCase()===(ar.faturaN||"").trim().toLowerCase() && x.tip!==ar.tip);
+              if(!kardes) return null;
+              const kardesToplam = kardes.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
+              const kardesIdx = sortedArsiv.indexOf(kardes);
+              return div({style:{margin:"0 14px 10px",padding:"9px 12px",background:"rgba(0,113,227,.06)",
+                border:"1px solid rgba(0,113,227,.25)",borderRadius:9,fontSize:12,color:"#0071E3",
+                display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}},
+                div(null,"ℹ️ Bu fatura no ile ayrıca bir "+(kardes.tip==="sarf"?"🧪 Sarf Malzeme":"🛍️ Satılabilen")
+                  +" kaydı daha var: "+fmt(kardesToplam)),
+                kardesIdx>=0&&btn({style:{fontSize:11,padding:"4px 10px",borderRadius:7,border:"1px solid rgba(0,113,227,.4)",
+                  background:"var(--bg)",color:"#0071E3",fontWeight:700,cursor:"pointer",flexShrink:0},
+                  onClick:()=>{setArsivDuzMod(false);setArsivAc(kardesIdx);}},"Görüntüle →")
+              );
+            })(),
             arsivDuzMod&&div({style:{background:"rgba(0,113,227,.08)",borderBottom:"1px solid rgba(0,113,227,.2)",
               padding:"8px 14px",flexShrink:0,display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#0071E3"}},"✏️ Düzenleme modu — Birim Fiyat, Adet ve İskonto alanlarını değiştirebilirsiniz. Bitince Kaydet'e basın."),
             arsivDuzMod&&div({style:{padding:"10px 14px 0",flexShrink:0}},
@@ -3403,7 +3420,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 (()=>{
                   const fn=(mkFatura||"").trim();
                   if(!fn||mkTip==="acilis") return null;
-                  const eslesen=(mkArsiv||[]).filter(ar=>(ar.faturaN||"").trim().toLowerCase()===fn.toLowerCase());
+                  const eslesen=(mkArsiv||[]).filter(ar=>(ar.faturaN||"").trim().toLowerCase()===fn.toLowerCase() && ar.tip===mkTip);
                   if(eslesen.length===0) return null;
                   return div({style:{marginTop:5,padding:"6px 9px",background:"rgba(255,149,0,.1)",
                     border:"1px solid rgba(255,149,0,.35)",borderRadius:7,fontSize:11,color:"#c25e00",fontWeight:600}},
@@ -3662,7 +3679,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       if(mkTip!=="acilis" && !mkMukerrerGecildi){
                         const fn=(mkFatura||"").trim();
                         if(fn){
-                          const eslesen=(mkArsiv||[]).filter(ar=>(ar.faturaN||"").trim().toLowerCase()===fn.toLowerCase());
+                          const eslesen=(mkArsiv||[]).filter(ar=>(ar.faturaN||"").trim().toLowerCase()===fn.toLowerCase() && ar.tip===mkTip);
                           if(eslesen.length>0){
                             setMkMukerrerUyari({sayi:eslesen.length,tarihler:eslesen.map(a=>fmtT(a.malKabulTarihi||a.tarih))});
                             return;
@@ -4908,7 +4925,14 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}},
                         div(null,
                           ar.tedarikci&&div({style:{fontSize:14,color:"var(--g)",fontWeight:600,marginBottom:3}},ar.tedarikci),
-                          ar.faturaN&&div({style:{fontSize:12,color:"var(--mu)"}},"Fatura: "+ar.faturaN),
+                          div({style:{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}},
+                            ar.faturaN&&div({style:{fontSize:12,color:"var(--mu)"}},"Fatura: "+ar.faturaN),
+                            ar.tip==="sarf"
+                              ?div({style:{fontSize:10,fontWeight:700,color:"#FF9500",background:"rgba(255,149,0,.12)",
+                                  borderRadius:6,padding:"1px 7px"}},"🧪 SARF")
+                              :div({style:{fontSize:10,fontWeight:700,color:"#34C759",background:"rgba(52,199,89,.12)",
+                                  borderRadius:6,padding:"1px 7px"}},"🛍️ SATILABİLEN")
+                          ),
                           div({style:{fontSize:12,color:"var(--di)",marginTop:2}},fmtT(ar.faturaTarih||ar.tarih))
                         ),
                         div({style:{textAlign:"right"}},
@@ -5065,7 +5089,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   border:"1px solid rgba(50,140,100,.15)",opacity:.7}},
                   div(null,
                     ar.tedarikci&&div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},ar.tedarikci),
-                    div({style:{fontSize:12,color:"var(--mu)"}},(ar.faturaN||"—")+" · "+fmtT(ar.faturaTarih||ar.tarih))
+                    div({style:{fontSize:12,color:"var(--mu)"}},(ar.tip==="sarf"?"🧪 ":"🛍️ ")+(ar.faturaN||"—")+" · "+fmtT(ar.faturaTarih||ar.tarih))
                   ),
                   div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:14,color:"#50b880",fontWeight:600}},
                     "✅ "+fmt(odenen))
