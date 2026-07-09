@@ -10744,6 +10744,7 @@ function App() {
   const [urunTipSecim, setUrunTipSecim] = useState(null); // null|"marka"|"urun"
   const [sarfUrunForm, setSarfUrunForm] = useState(false);
   const [sarfAd, setSarfAd] = useState("");
+  const [sarfBarkod, setSarfBarkod] = useState(""); // isteğe bağlı — boşsa otomatik "SARF-..." kodu üretilir
   const [sarfMl, setSarfMl] = useState("");
   const [sarfFiyat, setSarfFiyat] = useState("");
   const [sarfMarka, setSarfMarka] = useState("");
@@ -17765,13 +17766,29 @@ if(DB) dbUpsertAyar("tema",tema);
           position:"sticky",top:0,zIndex:5}},
           div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
             fontSize:18,color:"#FF9500"}},"Sarf Malzeme Ekle"),
-          btn({className:"xbtn",onClick:()=>setSarfUrunForm(false)},"✕")
+          btn({className:"xbtn",onClick:()=>{setSarfUrunForm(false);setSarfBarkod("");}},"✕")
         ),
         div({style:{padding:16,maxWidth:500,margin:"0 auto"}},
       div({style:{display:"grid",gridTemplateColumns:"1fr",gap:10,marginBottom:12}},
         div(null,lbl({className:"fl"},"SARF MALZEME *"),
           inp({className:"fi",placeholder:"Sarf malzeme adı...",value:sarfAd,
             onChange:e=>setSarfAd(e.target.value)})),
+        (()=>{
+          const bVal=sarfBarkod.trim();
+          const cakisma = bVal.length>0 && URUN_DB.some(u=>u.b===bVal);
+          return div(null,
+            lbl({className:"fl"},"BARKOD (opsiyonel)"),
+            inp({className:"fi",placeholder:"Üzerinde barkod varsa okutun/yazın, yoksa boş bırakın...",
+              value:sarfBarkod,
+              style:{borderColor:cakisma?"#FF3B30":undefined,boxShadow:cakisma?"0 0 0 2px rgba(255,59,48,.25)":undefined},
+              onChange:e=>setSarfBarkod(e.target.value)}),
+            cakisma&&div({style:{marginTop:5,padding:"7px 10px",background:"rgba(255,59,48,.12)",
+              border:"1px solid rgba(255,59,48,.3)",borderRadius:8,color:"#FF3B30",fontSize:12,fontWeight:600}},
+              "⚠️  Bu barkod numaralı ürün listede zaten var: "+(URUN_DB.find(u=>u.b===bVal)?.a||"")),
+            !bVal&&div({style:{marginTop:5,fontSize:11,color:"var(--mu)"}},
+              "Boş bırakırsan sistem otomatik bir kod üretir.")
+          );
+        })(),
         div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
           div(null,lbl({className:"fl"},"MARKA"),
             sarfMarkaListesi.length>0
@@ -17792,14 +17809,17 @@ if(DB) dbUpsertAyar("tema",tema);
             onChange:e=>setSarfFiyat(e.target.value)}))
       ),
       div({className:"btn-r"},
-        btn({className:"btn-i",onClick:()=>setSarfUrunForm(false)},"İptal"),
-        btn({className:"btn-k",disabled:!sarfAd.trim(),
+        btn({className:"btn-i",onClick:()=>{setSarfUrunForm(false);setSarfBarkod("");}},"İptal"),
+        btn({className:"btn-k",
+          disabled:!sarfAd.trim()||(sarfBarkod.trim().length>0&&URUN_DB.some(u=>u.b===sarfBarkod.trim())),
           onClick:()=>{
             if(!sarfAd.trim()) return;
-            const uid2="SARF-"+Date.now();
+            const bVal=sarfBarkod.trim();
+            if(bVal && URUN_DB.some(u=>u.b===bVal)) return;
+            const uid2=bVal||("SARF-"+Date.now());
             URUN_DB.push({b:uid2,a:sarfAd.trim(),m:sarfMarka.trim()||"",ml:sarfMl,
               bp:parseFloat(sarfFiyat)||0,ap:parseFloat(sarfFiyat)||0,sp:0,tip:"sarf"});
-            triggerUrunRender(); setSarfAd(""); setSarfMl(""); setSarfFiyat("");
+            triggerUrunRender(); setSarfAd(""); setSarfBarkod(""); setSarfMl(""); setSarfFiyat("");
             setSarfMarka(""); setSarfUrunForm(false); showToast("Sarf malzeme eklendi");
           }},"Ekle")
       )
