@@ -2153,6 +2153,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [mkTip, setMkTip] = React.useState("");
   const [mkTipSecim, setMkTipSecim] = React.useState(false);
   const [mkUrunler, setMkUrunler] = React.useState([]);
+  const [mkFarkAcikIdx, setMkFarkAcikIdx] = React.useState({}); // {satirIndex:true} — fark bildirim paneli açık mı
+  const [mkTeslimAlPrompt, setMkTeslimAlPrompt] = React.useState(null); // {parti, gelenAdet} — "Teslim Aldım" onay penceresi
   const [mkBarkodBulunamadi, setMkBarkodBulunamadi] = React.useState(null); // aranan barkod listede yoksa
   const [mkYeniUrunEkle, setMkYeniUrunEkle] = React.useState(null); // Mal Kabul içinden hızlı ürün ekleme formu
   const [mkBarkod, setMkBarkod] = React.useState("");
@@ -2163,6 +2165,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [arsivDuzMod, setArsivDuzMod] = React.useState(false); // inline düzenleme modu
   const [arsivDuzUrunler, setArsivDuzUrunler] = React.useState([]); // düzenlenen ürün listesi
   const [arsivDuzArama, setArsivDuzArama] = React.useState(""); // düzenleme modunda yeni ürün ekleme arama kutusu
+  const [arsivFarkAcikIdx, setArsivFarkAcikIdx] = React.useState({}); // {satirIndex:true} — Arşiv Detayı'nda fatura/kabul fark paneli açık mı
   const [arsivBarkodBulunamadi, setArsivBarkodBulunamadi] = React.useState(null); // aranan barkod listede yoksa
   const [arsivYeniUrunEkle, setArsivYeniUrunEkle] = React.useState(null); // Arşiv Detayı içinden hızlı ürün ekleme formu
   const mkArsivYuklendiRef = React.useRef(false); // ilk yükleme bitti mi → boş diziyi buluta yazmayı güvenli kılar (silme-boş kalıcı olur, açılışta bulut silinmez)
@@ -2783,12 +2786,44 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         btn({style:{width:"100%",padding:"14px 0",borderRadius:11,border:"none",
           background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)",
           fontSize:14,fontWeight:700,cursor:"pointer"},
-          onClick:()=>{setMkTipSecim(true);setMkTip("");setMkTarih(TODAY());setMkFatura("");setMkIrsaliye("");setMkFaturaTarih("");setMkFaturaImg("");setMkUrunler([]);setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());}},
+          onClick:()=>{setMkTipSecim(true);setMkTip("");setMkTarih(TODAY());setMkFatura("");setMkIrsaliye("");setMkFaturaTarih("");setMkFaturaImg("");setMkUrunler([]);setMkFarkAcikIdx({});setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());}},
           "+ Yeni Mal Kabul"),
         btn({style:{width:"100%",marginTop:10,padding:"11px 0",borderRadius:11,border:"1px dashed var(--g)",
           background:"transparent",color:"var(--g)",fontSize:13,fontWeight:600,cursor:"pointer"},
           onClick:()=>{setMkTip("acilis");setMkForm(true);setMkTarih(TODAY());setMkFatura("");setMkIrsaliye("");setMkFaturaTarih("");setMkFaturaImg("");setMkUrunler([]);setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());}},
-          "+ Açılış / Devir Stoğu")
+          "+ Açılış / Devir Stoğu"),
+        (()=>{
+          const bekleyenler = (stokPartiler||[]).filter(p=>toN(p.beklenenAdet)>0);
+          if(bekleyenler.length===0) return null;
+          const sebepEtiket = {eksik:"Eksik Geldi",hasarli:"Hasarlı Geldi",kayip:"Kayboldu",diger:"Diğer"};
+          return div({style:{background:"rgba(255,149,0,.07)",border:"1px solid rgba(255,149,0,.35)",
+            borderRadius:12,padding:14,marginTop:14}},
+            div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}},
+              div({style:{display:"flex",alignItems:"center",gap:5}},
+                div({style:{fontSize:13,fontWeight:800,color:"#c25e00"}},"📬 Tedarikçiden Bekleyen Teslimatlar"),
+                h("span",{title:"Faturada yazdığın ama henüz fiziksel olarak teslim almadığın ürünler burada toplu görünür. Ürünler gelince ilgili satırdaki 'Teslim Aldım' butonuna basarak stoğu güncelleyebilirsin.",
+                  style:{fontSize:12,color:"#c25e00",cursor:"help",fontWeight:700}},"ⓘ")
+              ),
+              div({style:{fontSize:12,fontWeight:800,color:"#c25e00",background:"rgba(220,110,0,.14)",
+                borderRadius:20,padding:"2px 10px"}},bekleyenler.length+" bekliyor")
+            ),
+            div({style:{display:"flex",flexDirection:"column",gap:8}},
+              bekleyenler.map((p,i)=>div({key:(p.id||i),style:{display:"flex",alignItems:"center",gap:8,
+                background:"var(--bg)",border:"1px solid var(--br)",borderRadius:9,padding:"9px 11px"}},
+                div({style:{flex:1,minWidth:0}},
+                  div({style:{fontSize:12,color:"var(--tx)",fontWeight:600}},p.urunAd),
+                  div({style:{fontSize:11,color:"var(--mu)",marginTop:1}},
+                    (p.marka?p.marka+" · ":"")+fmtT(p.tarih)+(p.faturaN?" · "+p.faturaN:"")
+                    +(p.farkSebep?" · "+(sebepEtiket[p.farkSebep]||p.farkSebep):""))
+                ),
+                div({style:{fontSize:13,fontWeight:700,color:"#FF9500",flexShrink:0}},p.beklenenAdet+" adet"),
+                btn({style:{fontSize:11,padding:"6px 10px",borderRadius:7,border:"1px solid rgba(30,158,70,.4)",
+                  background:"rgba(30,158,70,.1)",color:"var(--gr)",fontWeight:700,cursor:"pointer",flexShrink:0},
+                  onClick:()=>setMkTeslimAlPrompt({parti:p,gelenAdet:String(p.beklenenAdet)})},"✅ Teslim Aldım")
+              ))
+            )
+          );
+        })()
       ),
 
       // ── ARŞİV ──
@@ -2848,8 +2883,12 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       setArsivDuzUrunler(ar.urunler.map(u=>({...u,
                         _adet:String(u.adet||""),
                         _birimF:String(u.birimF||""),
-                        _iskontoOran:String(u.iskontoOran||"0")})));
+                        _iskontoOran:String(u.iskontoOran||"0"),
+                        _kabulAdet:String(u.kabulAdet!==undefined?u.kabulAdet:(u.adet||"")),
+                        _farkSebep:u.farkSebep||"",
+                        _farkNot:u.farkNot||""})));
                       setArsivDuzArama("");
+                      setArsivFarkAcikIdx({});
                       setArsivDuzMod(true);
                     }},"✏ Düzenle"),
                   arsivDuzMod&&btn({style:{padding:"6px 14px",borderRadius:8,border:"1px solid rgba(52,199,89,.4)",
@@ -2868,9 +2907,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         const iskT=b*(toN(u._iskontoOran||"0")/100);
                         const matrah=b-iskT;
                         const kdvT=matrah*(toN(u.kdvOran||"20")/100);
+                        const kabulAdet=(u._kabulAdet!==undefined&&u._kabulAdet!=="")?toN(u._kabulAdet):adet;
                         return {...u,adet,birimF,iskontoOran:toN(u._iskontoOran||"0"),
                           iskontoTutar:iskT,kdvTutar:kdvT,toplamF:matrah+kdvT,
-                          alisF:birimF-isk};
+                          alisF:birimF-isk,
+                          kabulAdet,farkSebep:u._farkSebep||"",farkNot:u._farkNot||""};
                       });
                       // mkArsiv güncelle
                       mkArsivKirliRef.current=true;
@@ -2901,23 +2942,32 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         // 2) Yeni eklenen ürünler → yeni parti
                         yeniUrunler.forEach(u=>{
                           if(!eskiBarkodlar.has(u.barkod)){
+                            const kabul2 = u.kabulAdet!==undefined?toN(u.kabulAdet):u.adet;
+                            const bekleyen2 = Math.max(0,u.adet-kabul2);
                             yeniPartiler.push({
                               id: uid(), barkod:u.barkod, urunAd:u.urunAd, marka:u.marka||"",
-                              adet:u.adet, kalan:u.adet, alisF:u.alisF||u.birimF,
+                              adet:u.adet, kalan:Math.max(0,kabul2), beklenenAdet:bekleyen2,
+                              farkSebep:bekleyen2>0?(u.farkSebep||""):"", farkNot:bekleyen2>0?(u.farkNot||""):"",
+                              alisF:u.alisF||u.birimF,
                               faturaN:ar.faturaN, tarih:ar.tarih, isletme_id:ar.isletme_id||""
                             });
                           }
                         });
 
-                        // 3) Adet değişen mevcut ürünler
+                        // 3) Adet değişen mevcut ürünler (fatura adedi VEYA kabul edilen adet değişmiş olabilir)
                         yeniPartiler = yeniPartiler.map(part=>{
                           if(part.faturaN!==ar.faturaN || part.tarih!==ar.tarih) return part;
                           if(!eskiBarkodlar.has(part.barkod)) return part; // yeni eklenen, zaten adım 2'de doğru oluşturuldu
                           const yeniU = yeniUrunler.find(u=>u.barkod===part.barkod);
                           if(!yeniU) return part;
-                          const eskiAdet = ar.urunler.find(u=>u.barkod===part.barkod)?.adet||0;
-                          const fark = yeniU.adet - eskiAdet;
-                          return {...part, adet:yeniU.adet, kalan:Math.max(0,part.kalan+fark), alisF:yeniU.alisF};
+                          const eskiU = ar.urunler.find(u=>u.barkod===part.barkod);
+                          const eskiAdet = eskiU?.adet||0;
+                          const eskiKabul = eskiU && eskiU.kabulAdet!==undefined ? toN(eskiU.kabulAdet) : eskiAdet;
+                          const yeniKabul = yeniU.kabulAdet!==undefined ? toN(yeniU.kabulAdet) : yeniU.adet;
+                          const kabulFark = yeniKabul - eskiKabul;
+                          const bekleyen3 = Math.max(0, yeniU.adet - yeniKabul);
+                          return {...part, adet:yeniU.adet, kalan:Math.max(0,part.kalan+kabulFark), alisF:yeniU.alisF,
+                            beklenenAdet:bekleyen3, farkSebep:bekleyen3>0?(yeniU.farkSebep||""):"", farkNot:bekleyen3>0?(yeniU.farkNot||""):""};
                         });
 
                         if(DB) dbUpsertAyar("stokPartiler", yeniPartiler);
@@ -2925,11 +2975,12 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       });
 
                       setArsivDuzMod(false);
+                      setArsivFarkAcikIdx({});
                       showToast("Değişiklikler kaydedildi ✓","ba");
                     }},"💾 Kaydet"),
                   arsivDuzMod&&btn({style:{padding:"6px 14px",borderRadius:8,border:"1px solid var(--br)",
                     background:"transparent",color:"var(--mu)",fontSize:12,cursor:"pointer"},
-                    onClick:()=>{setArsivDuzMod(false);setArsivDuzArama("");}},"İptal"),
+                    onClick:()=>{setArsivDuzMod(false);setArsivDuzArama("");setArsivFarkAcikIdx({});}},"İptal"),
                   !arsivDuzMod&&btn({style:{padding:"6px 14px",borderRadius:8,border:"1px solid #3a1010",
                     background:"rgba(160,40,40,.06)",color:"#c05050",fontSize:12,cursor:"pointer"},
                     onClick:()=>{
@@ -2957,7 +3008,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 onEkle:u=>{
                   if(arsivDuzUrunler.find(x=>x.barkod===u.b)){showToast("Zaten eklendi","uy");return;}
                   setArsivDuzUrunler(p=>[...p,{barkod:u.b,urunAd:u.a,marka:u.m,
-                    _adet:"",_birimF:String(u.bp||""),_iskontoOran:"0",kdvOran:"20"}]);
+                    _adet:"",_birimF:String(u.bp||""),_iskontoOran:"0",kdvOran:"20",
+                    _kabulAdet:"",_farkSebep:"",_farkNot:""}]);
                 },
                 onBarkodBulunamadi: kod=>setArsivBarkodBulunamadi(kod),
                 placeholder:"Ürün eklemek için barkod okut veya isim yaz...",
@@ -2983,9 +3035,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   const _liveKdvOran=toN(u.kdvOran||"20");
                   const _liveKdvT=_liveMatrah*(_liveKdvOran/100);
                   const _liveToplam=_liveMatrah+_liveKdvT;
-                  return div({key:j,style:{display:"grid",
+                  return div({key:j},
+                  div({style:{display:"grid",
                     gridTemplateColumns:arsivDuzMod?"38px 1fr 110px 80px 55px 55px 85px 50px 90px 90px 34px":"38px 1fr 110px 80px 55px 55px 85px 50px 90px 90px",
-                    borderBottom:"1px solid var(--br)",
+                    borderBottom:(arsivDuzMod&&arsivFarkAcikIdx[j])?"none":"1px solid var(--br)",
                     background:j%2===0?"var(--bg)":"var(--bg2)"}},
                     div({style:{padding:"9px 5px",textAlign:"center",fontSize:12,color:"var(--di)",borderRight:"1px solid var(--br)"}},(j+1)),
                     div({style:{padding:"9px 7px",borderRight:"1px solid var(--br)"}},
@@ -3003,8 +3056,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                             onChange:e=>setArsivDuzUrunler(p=>p.map((x,i)=>i===j?{...x,_birimF:e.target.value}:x))})
                         : div({style:{fontSize:13,color:"var(--tx)",padding:"5px 0"}},fmt(u.birimF||0))
                     ),
-                    // Adet
-                    div({style:{padding:"4px 5px",textAlign:"center",borderRight:"1px solid var(--br)"}},
+                    // Adet + fark bildirme ikonu
+                    div({style:{padding:"4px 5px",textAlign:"center",borderRight:"1px solid var(--br)",position:"relative"}},
                       arsivDuzMod
                         ? h("input",{type:"number",min:"0",step:"1",
                             style:{width:"100%",
@@ -3015,7 +3068,21 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                               color:"var(--tx)"},
                             value:u._adet,
                             onChange:e=>setArsivDuzUrunler(p=>p.map((x,i)=>i===j?{...x,_adet:e.target.value}:x))})
-                        : div({style:{fontSize:13,color:"var(--tx)",padding:"5px 0"}},(u.adet||0))
+                        : div(null,
+                            div({style:{fontSize:13,color:"var(--tx)",padding:"5px 0"}},(u.adet||0)),
+                            (u.kabulAdet!==undefined&&toN(u.adet)>toN(u.kabulAdet))&&
+                              div({style:{fontSize:9,color:"#FF9500",fontWeight:700},
+                                title:"Tedarikçiden "+(toN(u.adet)-toN(u.kabulAdet))+" adet bekleniyor"},
+                                "⚠ "+(toN(u.adet)-toN(u.kabulAdet))+" bekliyor")
+                          ),
+                      arsivDuzMod&&toN(u._adet)>0&&h("button",{type:"button",
+                        title:"Faturada yazandan farklı miktarda ürün geldiyse (eksik, hasarlı, kayıp vb.) burayı kullan",
+                        style:{position:"absolute",top:2,right:2,width:15,height:15,padding:0,border:"none",
+                          borderRadius:"50%",cursor:"pointer",fontSize:9,lineHeight:"15px",zIndex:2,
+                          background:(u._kabulAdet!==undefined&&u._kabulAdet!==""&&toN(u._kabulAdet)!==toN(u._adet))?"#FF9500":"rgba(255,149,0,.18)",
+                          color:(u._kabulAdet!==undefined&&u._kabulAdet!==""&&toN(u._kabulAdet)!==toN(u._adet))?"#fff":"#FF9500"},
+                        onClick:e=>{ e.stopPropagation(); setArsivFarkAcikIdx(p=>({...p,[j]:!p[j]})); }
+                      },"⚠")
                     ),
                     // İskonto
                     div({style:{padding:"4px 5px",textAlign:"center",borderRight:"1px solid var(--br)"}},
@@ -3036,6 +3103,54 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       btn({style:{background:"transparent",border:"none",color:"var(--mu)",
                         fontSize:13,cursor:"pointer",padding:"8px 6px"},
                         onClick:()=>setArsivDuzUrunler(p=>p.filter((_,i)=>i!==j))},"✕"))
+                  ),
+                  // ── Fatura/Kabul Farkı Bildirme Paneli (açılır) ──
+                  arsivDuzMod&&arsivFarkAcikIdx[j]&&div({style:{padding:"10px 12px",background:"rgba(255,149,0,.06)",
+                    borderBottom:"1px solid var(--br)",display:"flex",flexWrap:"wrap",gap:12,alignItems:"flex-end"}},
+                    div(null,
+                      div({style:{display:"flex",alignItems:"center",gap:4,marginBottom:3}},
+                        lbl({style:{fontSize:10,color:"var(--mu)",textTransform:"uppercase"}},"Şu An Elde Olan"),
+                        h("span",{title:"Bu ürünü fiziksel olarak şu an kaç adet elinde tuttuğunu gir. Stok bu sayıya göre güncellenir; faturadaki tutar değişmez, kalan kısım 'tedarikçiden bekleniyor' olarak işaretlenir.",
+                          style:{fontSize:11,color:"#FF9500",cursor:"help",fontWeight:700}},"ⓘ")
+                      ),
+                      h("input",{type:"number",min:"0",step:"1",
+                        style:{width:80,padding:"6px 8px",borderRadius:7,border:"1px solid var(--br)",
+                          background:"var(--bg)",color:"var(--tx)",fontSize:13,textAlign:"center"},
+                        placeholder:String(toN(u._adet)),
+                        value:u._kabulAdet??"",
+                        onChange:e=>setArsivDuzUrunler(p=>p.map((x,i)=>i===j?{...x,_kabulAdet:e.target.value}:x))})
+                    ),
+                    div(null,
+                      div({style:{display:"flex",alignItems:"center",gap:4,marginBottom:3}},
+                        lbl({style:{fontSize:10,color:"var(--mu)",textTransform:"uppercase"}},"Sebep"),
+                        h("span",{title:"Farkın nedenini seçmen isteğe bağlı — tedarikçiyle görüşürken ve ileride kayıtlara bakarken işine yarar.",
+                          style:{fontSize:11,color:"#FF9500",cursor:"help",fontWeight:700}},"ⓘ")
+                      ),
+                      sel({style:{padding:"6px 8px",borderRadius:7,border:"1px solid var(--br)",
+                        background:"var(--bg)",color:"var(--tx)",fontSize:12},
+                        value:u._farkSebep||"",
+                        onChange:e=>setArsivDuzUrunler(p=>p.map((x,i)=>i===j?{...x,_farkSebep:e.target.value}:x))},
+                        opt("","Seçiniz"),opt("eksik","Eksik Geldi"),opt("hasarli","Hasarlı Geldi"),
+                        opt("kayip","Kayboldu"),opt("diger","Diğer"))
+                    ),
+                    div({style:{flex:1,minWidth:140}},
+                      div({style:{fontSize:10,color:"var(--mu)",textTransform:"uppercase",marginBottom:3}},"Not (opsiyonel)"),
+                      h("input",{style:{width:"100%",padding:"6px 8px",borderRadius:7,border:"1px solid var(--br)",
+                        background:"var(--bg)",color:"var(--tx)",fontSize:12},
+                        placeholder:"örn: kutu ezilmiş gelmiş...",value:u._farkNot||"",
+                        onChange:e=>setArsivDuzUrunler(p=>p.map((x,i)=>i===j?{...x,_farkNot:e.target.value}:x))})
+                    ),
+                    (()=>{
+                      const kabul = (u._kabulAdet!==undefined&&u._kabulAdet!=="")?toN(u._kabulAdet):toN(u._adet);
+                      const fark = toN(u._adet)-kabul;
+                      return fark!==0 ? div({style:{fontSize:12,fontWeight:700,
+                        color:fark>0?"#FF9500":"#0071E3",whiteSpace:"nowrap",paddingBottom:7}},
+                        fark>0?("⚠ "+fark+" adet bekleniyor"):("+"+Math.abs(fark)+" adet fazla geldi")) : null;
+                    })(),
+                    btn({type:"button",style:{fontSize:11,padding:"6px 10px",borderRadius:7,border:"1px solid var(--br)",
+                      background:"transparent",color:"var(--mu)",cursor:"pointer"},
+                      onClick:()=>setArsivFarkAcikIdx(p=>({...p,[j]:false}))},"Kapat")
+                  )
                   );
                 })
               )
@@ -3365,9 +3480,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       color:bedelsiz?"#34C759":"var(--tx)",fontSize:13,padding:"8px 6px",outline:"none",
                       textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",width:"100%",height:"100%",
                       cursor:"text",boxSizing:"border-box"};
-                    return div({key:i,style:{display:"grid",
+                    return div({key:i},
+                    div({style:{display:"grid",
                       gridTemplateColumns:"38px 1fr 110px 82px 62px 62px 88px 58px 88px 92px 34px",
-                      borderBottom:"1px solid var(--br)",
+                      borderBottom:(mkTip!=="acilis"&&mkFarkAcikIdx[i])?"none":"1px solid var(--br)",
                       background:bedelsiz?"rgba(52,199,89,.07)":i%2===0?"var(--bg)":"var(--bg2)"}},
                       // Sıra
                       div({style:{...cel,fontSize:12,color:"var(--di)"}},(i+1)),
@@ -3385,10 +3501,18 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       div({style:celInp},
                         inp({style:cinp,type:"number",inputMode:"decimal",placeholder:"0",value:u.birimF,
                           onChange:e=>setMkUrunler(p=>p.map((x,j)=>j===i?{...x,birimF:e.target.value}:x))})),
-                      // Adet (input - tam hücre)
+                      // Adet (input - tam hücre) + fark bildirme ikonu
                       div({style:celInp},
                         inp({style:cinp,type:"number",inputMode:"numeric",placeholder:"0",value:u.adet,
-                          onChange:e=>setMkUrunler(p=>p.map((x,j)=>j===i?{...x,adet:e.target.value}:x))})),
+                          onChange:e=>setMkUrunler(p=>p.map((x,j)=>j===i?{...x,adet:e.target.value}:x))}),
+                        mkTip!=="acilis"&&toN(u.adet)>0&&h("button",{type:"button",
+                          title:"Faturada yazandan farklı miktarda ürün geldiyse (eksik, hasarlı, kayıp vb.) burayı kullan",
+                          style:{position:"absolute",top:2,right:2,width:15,height:15,padding:0,border:"none",
+                            borderRadius:"50%",cursor:"pointer",fontSize:9,lineHeight:"15px",zIndex:2,
+                            background:(u.kabulAdet!==undefined&&u.kabulAdet!==""&&toN(u.kabulAdet)!==toN(u.adet))?"#FF9500":"rgba(255,149,0,.18)",
+                            color:(u.kabulAdet!==undefined&&u.kabulAdet!==""&&toN(u.kabulAdet)!==toN(u.adet))?"#fff":"#FF9500"},
+                          onClick:e=>{ e.stopPropagation(); setMkFarkAcikIdx(p=>({...p,[i]:!p[i]})); }
+                        },"⚠")),
                       // İskonto % (input - tam hücre)
                       div({style:celInp},
                         inp({style:cinp,type:"number",inputMode:"decimal",placeholder:"0",value:u.iskontoOran||"",
@@ -3422,10 +3546,58 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         btn({style:{background:"transparent",border:"none",color:"var(--mu)",
                           fontSize:13,cursor:"pointer",padding:"8px 6px"},
                           onClick:()=>setMkUrunler(p=>p.filter((_,j)=>j!==i))},"✕"))
+                    ),
+                    // ── Fatura/Kabul Farkı Bildirme Paneli (açılır) ──
+                    mkTip!=="acilis"&&mkFarkAcikIdx[i]&&div({style:{padding:"10px 12px",background:"rgba(255,149,0,.06)",
+                      borderBottom:"1px solid var(--br)",display:"flex",flexWrap:"wrap",gap:12,alignItems:"flex-end"}},
+                      div(null,
+                        div({style:{display:"flex",alignItems:"center",gap:4,marginBottom:3}},
+                          lbl({style:{fontSize:10,color:"var(--mu)",textTransform:"uppercase"}},"Şu An Elde Olan"),
+                          h("span",{title:"Bu ürünü fiziksel olarak şu an kaç adet elinde tuttuğunu gir. Stoğa bu sayı eklenecek; faturadaki tutar/ödeme değişmez, kalan kısım 'tedarikçiden bekleniyor' olarak işaretlenir.",
+                            style:{fontSize:11,color:"#FF9500",cursor:"help",fontWeight:700}},"ⓘ")
+                        ),
+                        inp({style:{width:80,padding:"6px 8px",borderRadius:7,border:"1px solid var(--br)",
+                          background:"var(--bg)",color:"var(--tx)",fontSize:13,textAlign:"center"},
+                          type:"number",inputMode:"numeric",placeholder:String(toN(u.adet)),
+                          value:u.kabulAdet??"",
+                          onChange:e=>setMkUrunler(p=>p.map((x,j)=>j===i?{...x,kabulAdet:e.target.value}:x))})
+                      ),
+                      div(null,
+                        div({style:{display:"flex",alignItems:"center",gap:4,marginBottom:3}},
+                          lbl({style:{fontSize:10,color:"var(--mu)",textTransform:"uppercase"}},"Sebep"),
+                          h("span",{title:"Farkın nedenini seçmen isteğe bağlı — tedarikçiyle görüşürken ve ileride kayıtlara bakarken işine yarar.",
+                            style:{fontSize:11,color:"#FF9500",cursor:"help",fontWeight:700}},"ⓘ")
+                        ),
+                        sel({style:{padding:"6px 8px",borderRadius:7,border:"1px solid var(--br)",
+                          background:"var(--bg)",color:"var(--tx)",fontSize:12},
+                          value:u.farkSebep||"",
+                          onChange:e=>setMkUrunler(p=>p.map((x,j)=>j===i?{...x,farkSebep:e.target.value}:x))},
+                          opt("","Seçiniz"),opt("eksik","Eksik Geldi"),opt("hasarli","Hasarlı Geldi"),
+                          opt("kayip","Kayboldu"),opt("diger","Diğer"))
+                      ),
+                      div({style:{flex:1,minWidth:140}},
+                        div({style:{fontSize:10,color:"var(--mu)",textTransform:"uppercase",marginBottom:3}},"Not (opsiyonel)"),
+                        inp({style:{width:"100%",padding:"6px 8px",borderRadius:7,border:"1px solid var(--br)",
+                          background:"var(--bg)",color:"var(--tx)",fontSize:12},
+                          placeholder:"örn: kutu ezilmiş gelmiş...",value:u.farkNot||"",
+                          onChange:e=>setMkUrunler(p=>p.map((x,j)=>j===i?{...x,farkNot:e.target.value}:x))})
+                      ),
+                      (()=>{
+                        const kabul = (u.kabulAdet!==undefined&&u.kabulAdet!=="")?toN(u.kabulAdet):toN(u.adet);
+                        const fark = toN(u.adet)-kabul;
+                        return fark!==0 ? div({style:{fontSize:12,fontWeight:700,
+                          color:fark>0?"#FF9500":"#0071E3",whiteSpace:"nowrap",paddingBottom:7}},
+                          fark>0?("⚠ "+fark+" adet bekleniyor"):("+"+Math.abs(fark)+" adet fazla geldi")) : null;
+                      })(),
+                      btn({type:"button",style:{fontSize:11,padding:"6px 10px",borderRadius:7,border:"1px solid var(--br)",
+                        background:"transparent",color:"var(--mu)",cursor:"pointer"},
+                        onClick:()=>setMkFarkAcikIdx(p=>({...p,[i]:false}))},"Kapat")
+                    )
                     );
                   })
                 )
           ),
+
 
           // ── FOOTER (özet + Stoğa Ekle — beyaz alana dahil, birlikte kayar) ──
           div({style:{background:"var(--bg2)",borderTop:"2px solid var(--br)",padding:"11px 14px",flexShrink:0}},
@@ -3481,18 +3653,22 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         });
                         stokPartilerYuklendi.current=true;
                         showToast(mkUrunler.length+" ürün açılış stoğuna eklendi");
-                        setMkForm(false);setMkTipSecim(false);setMkTip("");setMkUrunler([]);setMkFatura("");setMkFaturaTarih("");setMkIrsaliye("");setMkTarih(TODAY());setMkFaturaImg("");setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());
+                        setMkForm(false);setMkTipSecim(false);setMkTip("");setMkUrunler([]);setMkFarkAcikIdx({});setMkFatura("");setMkFaturaTarih("");setMkIrsaliye("");setMkTarih(TODAY());setMkFaturaImg("");setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());
                         return;
                       }
                       mkUrunler.forEach(u=>{
                         const ad=toN(u.adet),bf=toN(u.birimF);
+                        const kabul=(u.kabulAdet!==undefined&&u.kabulAdet!=="")?toN(u.kabulAdet):ad;
+                        const bekleyen=Math.max(0,ad-kabul);
                         const isk=bf*(toN(u.iskontoOran||"0")/100);
                         const _iskO8=toN(u.iskontoOran||"0"),_nf8=Math.round(bf*(1-_iskO8/100)*100)/100,_bed8=bf>0&&_nf8<1;
                         setStokPartiler(p=>[...p,{id:uid(),barkod:u.barkod,urunAd:u.urunAd,marka:u.marka,
-                          adet:ad,kalan:ad,alisF:_bed8?0:(bf-isk),kdvOran:_bed8?0:toN(u.kdvOran||"20"),
+                          adet:ad,kalan:Math.max(0,kabul),beklenenAdet:bekleyen,
+                          farkSebep:bekleyen>0?(u.farkSebep||""):"",farkNot:bekleyen>0?(u.farkNot||""):"",
+                          alisF:_bed8?0:(bf-isk),kdvOran:_bed8?0:toN(u.kdvOran||"20"),
                           tarih:mkTarih,faturaN:mkFatura,tip:"malKabul",bedelsiz:_bed8}]);
                         setHareketler(p=>[...p,{id:uid(),barkod:u.barkod,urun_ad:u.urunAd,
-                          tip:"giris",adet:ad,tarih:mkTarih,faturaN:mkFatura,staff_id:"yonetici",staff_name:"Yönetici"}]);
+                          tip:"giris",adet:Math.max(0,kabul),tarih:mkTarih,faturaN:mkFatura,staff_id:"yonetici",staff_name:"Yönetici"}]);
                       });
                       stokPartilerYuklendi.current=true;
                       const arsivKayit={id:uid(),tarih:mkTarih,faturaTarih:mkFaturaTarih,faturaN:mkFatura,irsaliyeN:mkIrsaliye,tedarikci:mkTedarikci,vade:mkVade,malKabulTarihi:mkMalKabulTarihi,tip:mkTip,
@@ -3503,11 +3679,13 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                           const matrah=b-isk;
                           const kdvT=matrah*(toN(u.kdvOran||"20")/100);
                           const _iskO10=toN(u.iskontoOran||"0"),_nf10=Math.round(toN(u.birimF)*(1-_iskO10/100)*100)/100,_bed10=toN(u.birimF)>0&&_nf10<1;
+                          const _kabul10=(u.kabulAdet!==undefined&&u.kabulAdet!=="")?toN(u.kabulAdet):toN(u.adet);
                           return {barkod:u.barkod,urunAd:u.urunAd,marka:u.marka,
                             adet:toN(u.adet),birimF:toN(u.birimF),
                             iskontoOran:_iskO10,iskontoTutar:_bed10?toN(u.birimF)*toN(u.adet):isk,
                             kdvOran:_bed10?0:toN(u.kdvOran||"20"),kdvTutar:_bed10?0:kdvT,
-                            toplamF:_bed10?0:(matrah+kdvT),bedelsiz:_bed10};
+                            toplamF:_bed10?0:(matrah+kdvT),bedelsiz:_bed10,
+                            kabulAdet:_kabul10,farkSebep:u.farkSebep||"",farkNot:u.farkNot||""};
                         })};
                       const yeniArsiv=[arsivKayit,...mkArsiv];
                       mkArsivKirliRef.current=true;
@@ -3515,7 +3693,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
                       if(DB) dbUpsertAyar("mkArsiv", yeniArsiv);
                       showToast(mkUrunler.length+" ürün stoğa eklendi");
-                      setMkForm(false);setMkTipSecim(false);setMkTip("");setMkUrunler([]);setMkFatura("");setMkFaturaTarih("");setMkIrsaliye("");setMkTarih(TODAY());setMkFaturaImg("");setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());
+                      setMkForm(false);setMkTipSecim(false);setMkTip("");setMkUrunler([]);setMkFarkAcikIdx({});setMkFatura("");setMkFaturaTarih("");setMkIrsaliye("");setMkTarih(TODAY());setMkFaturaImg("");setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());
                     }},"✅ Stoğa Ekle")
                 );
               })()
@@ -3549,6 +3727,48 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             }},"+ Ekle")
         )
       )
+      ), document.body
+    ),
+
+    // ── "Teslim Aldım" onay penceresi (Mal Kabul ve Stok Detay'dan ortak erişilir) ──
+    mkTeslimAlPrompt&&!showMenu&&ReactDOM.createPortal(
+      div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:970,
+        display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+        div({style:{background:"var(--bg)",borderRadius:18,padding:22,maxWidth:360,width:"100%",
+          boxShadow:"0 8px 40px rgba(0,0,0,.4)"}},
+          div({style:{fontSize:16,fontWeight:700,color:"var(--tx)",marginBottom:6}},"✅ Teslim Aldım"),
+          div({style:{fontSize:12,color:"var(--mu)",marginBottom:16,lineHeight:1.5}},
+            "Tedarikçiden "+mkTeslimAlPrompt.parti.beklenenAdet+" adet bekleniyordu. Şu an kaç adet geldi? (Kısmi geldiyse azını girebilirsin.)"),
+          div({style:{marginBottom:16}},
+            lbl({className:"fl"},"Gelen Adet"),
+            inp({className:"fi",type:"number",min:"1",max:String(mkTeslimAlPrompt.parti.beklenenAdet),
+              value:mkTeslimAlPrompt.gelenAdet,
+              onChange:e=>setMkTeslimAlPrompt(p=>({...p,gelenAdet:e.target.value}))})
+          ),
+          div({style:{display:"flex",gap:10}},
+            btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",
+              background:"transparent",color:"var(--mu)",fontSize:13,cursor:"pointer"},
+              onClick:()=>setMkTeslimAlPrompt(null)},"Vazgeç"),
+            btn({style:{flex:2,padding:"11px 0",borderRadius:10,border:"none",
+              background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)",fontSize:13,fontWeight:700,cursor:"pointer"},
+              onClick:()=>{
+                const p = mkTeslimAlPrompt.parti;
+                const gelen = Math.min(toN(mkTeslimAlPrompt.gelenAdet), toN(p.beklenenAdet));
+                if(gelen<=0){ showToast("Geçerli bir adet girin","uy"); return; }
+                setStokPartiler(prev=>prev.map(sp=>{
+                  const esles = (p.id && sp.id===p.id)
+                    || (sp.barkod===p.barkod && sp.tarih===p.tarih && sp.faturaN===p.faturaN
+                       && toN(sp.adet)===toN(p.adet) && toN(sp.alisF)===toN(p.alisF));
+                  if(!esles) return sp;
+                  return {...sp, kalan:toN(sp.kalan)+gelen, beklenenAdet:Math.max(0,toN(sp.beklenenAdet)-gelen)};
+                }));
+                setHareketler(prev=>[...prev,{id:uid(),barkod:p.barkod,urun_ad:p.urunAd,
+                  tip:"teslimTamamlandi",adet:gelen,tarih:TODAY(),faturaN:p.faturaN,staff_id:"yonetici",staff_name:"Yönetici"}]);
+                setMkTeslimAlPrompt(null);
+                showToast(gelen+" adet teslim alındı, stoğa eklendi ✓","ba");
+              }},"Onayla")
+          )
+        )
       ), document.body
     ),
 
@@ -3729,6 +3949,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               sdSilOnay.kalan>0&&div({style:{fontSize:12,color:"#c05050",marginBottom:10,
                 padding:"6px 10px",background:"rgba(192,40,40,.06)",borderRadius:6}},
                 "⚠️ Bu partide "+sdSilOnay.kalan+" adet stok var. Silince bu stok da silinecek."),
+              toN(sdSilOnay.beklenenAdet)>0&&div({style:{fontSize:12,color:"#FF9500",marginBottom:10,
+                padding:"6px 10px",background:"rgba(255,149,0,.08)",borderRadius:6}},
+                "⚠️ Bu partide tedarikçiden "+sdSilOnay.beklenenAdet+" adet bekleniyor. Silince bu bekleyen kaydı da kaybolacak."),
               div({style:{display:"flex",gap:8}},
                 btn({style:{flex:2,padding:"9px 0",borderRadius:8,border:"none",
                   background:"#c05050",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"},
@@ -3778,7 +4001,14 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   div({style:{width:6,height:36,borderRadius:3,flexShrink:0,background:p.kalan>0?"var(--gr)":"var(--br)"}}),
                   div({style:{flex:1,minWidth:0}},
                     div({style:{fontSize:13,color:"var(--tx)"}},fmtT(p.tarih)+(p.faturaN?" · "+p.faturaN:"")+(p.tip==="acilis"?" · 🏁 Açılış/Devir":"")),
-                    div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},p.adet+" adet × "+fmt(p.alisF||0)+" · Kalan: "+p.kalan)
+                    div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},p.adet+" adet × "+fmt(p.alisF||0)+" · Kalan: "+p.kalan),
+                    toN(p.beklenenAdet)>0&&div({style:{fontSize:11,fontWeight:700,color:"#FF9500",marginTop:3,
+                      display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}},
+                      "⚠️ "+p.beklenenAdet+" adet tedarikçiden bekleniyor"+(p.farkSebep?" ("+({eksik:"Eksik Geldi",hasarli:"Hasarlı Geldi",kayip:"Kayboldu",diger:"Diğer"}[p.farkSebep]||p.farkSebep)+")":""),
+                      btn({style:{fontSize:10,padding:"3px 9px",borderRadius:6,border:"1px solid rgba(30,158,70,.4)",
+                        background:"rgba(30,158,70,.1)",color:"var(--gr)",fontWeight:700,cursor:"pointer"},
+                        onClick:()=>setMkTeslimAlPrompt({parti:p,gelenAdet:String(p.beklenenAdet)})},"✅ Teslim Aldım")
+                    )
                   ),
                   div({style:{textAlign:"right",flexShrink:0,marginRight:8}},
                     div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt((p.kalan||0)*(p.alisF||0)))
@@ -3921,7 +4151,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 ))
               );
             })()
-          )
+          ),
+
         );
       })()
       ) // scroll div stokDetay
