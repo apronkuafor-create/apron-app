@@ -2281,6 +2281,14 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     });
     return sayim; // {barkod: 90 gündeki satış adedi}
   },[tumK]);
+  // ── Bu üründen elde kalan en eski parti ne zaman girmiş — "kaç gündür rafta" ──
+  const stoktaGun = (barkod) => {
+    const partiler = (stokPartiler||[]).filter(p=>p.barkod===barkod && toN(p.kalan)>0 && p.tarih);
+    if(!partiler.length) return null;
+    const enEski = partiler.reduce((a,b)=> (a.tarih<b.tarih?a:b));
+    const fark = Math.floor((new Date()-new Date(enEski.tarih))/86400000);
+    return fark>=0 ? fark : null;
+  };
   const hizEtiket = (barkod) => {
     const adet = hizMap[barkod]||0;
     if(adet<=0) return {lb:"🔴 Hiç satılmıyor (90g)", c:"#c05050"};
@@ -2409,14 +2417,16 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   };
 
   // Akıllı otomatik sipariş: stok + satış hızı birlikte değerlendirilir (kullanıcının kalıcı olarak çıkardığı ürünler hariç)
+  const KRITIK_STOK_SINIRI = 3;
   React.useEffect(()=>{
     const eksikler = Object.values(stokOzet).filter(u=>{
+      if(u.kalan<=KRITIK_STOK_SINIRI) return true; // Kritik stok: yoksay listesine bakılmaksızın MUTLAKA gösterilir
       if(siparisYoksay.includes(u.barkod)) return false;
       const oneri = siparisOnerisi(u.barkod, u.kalan);
       return oneri.aciliyet==="acil" || oneri.aciliyet==="yakin";
     });
     setSiparisListesi(prev=>{
-      const yeni = prev.filter(s=>!s.otomatik || !siparisYoksay.includes(s.barkod));
+      const yeni = prev.filter(s=>!s.otomatik || s.mevcutStok<=KRITIK_STOK_SINIRI || !siparisYoksay.includes(s.barkod));
       eksikler.forEach(u=>{
         if(!yeni.find(s=>s.barkod===u.barkod)){
           const oneri = siparisOnerisi(u.barkod, u.kalan);
@@ -2714,13 +2724,18 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             const oneri = siparisOnerisi(s.barkod, s.mevcutStok);
             const tedAd = sonTedarikci(s.barkod);
             const bakiye = tedAd ? tedarikciBakiye(tedAd) : 0;
+            const kritik = s.mevcutStok<=KRITIK_STOK_SINIRI;
+            const rafGun = stoktaGun(s.barkod);
             return div({key:s.barkod+i,style:{display:"flex",flexDirection:"column",gap:6,
-              background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:10,padding:"10px 12px",marginBottom:6}},
+              background:"var(--bg2)",border:"1px solid "+(kritik?"rgba(224,96,96,.4)":"var(--br)"),borderRadius:10,padding:"10px 12px",marginBottom:6}},
+              kritik&&div({style:{alignSelf:"flex-start",fontSize:10,fontWeight:800,color:"#fff",
+                background:"#c05050",borderRadius:20,padding:"2px 9px"}},"⚠️ Kritik Stok: "+s.mevcutStok),
               div({style:{display:"flex",alignItems:"center",gap:10}},
                 div({style:{flex:1,minWidth:0}},
                   div({style:{fontSize:14,color:"var(--tx)",fontWeight:500}},urunAdCanli(s.barkod,s.urunAd)),
                   div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},
-                    urunMarkaCanli(s.barkod,s.marka)+(s.ml?" ("+s.ml+")":"")+" · Stok: "+s.mevcutStok+(s.otomatik?" · ⚡":"")),
+                    urunMarkaCanli(s.barkod,s.marka)+(s.ml?" ("+s.ml+")":"")+" · Stok: "+s.mevcutStok+(s.otomatik?" · ⚡":"")
+                    +(rafGun!==null?" · 🗓️ "+rafGun+" gündür rafta":"")),
                   div({style:{fontSize:11,fontWeight:700,color:hiz.c,marginTop:3}},hiz.lb),
                   oneri.tukenmeGunu!==null&&div({style:{fontSize:11,fontWeight:700,marginTop:2,
                     color:oneri.aciliyet==="acil"?"#c05050":(oneri.aciliyet==="yakin"?"#c25e00":"#1e9e46")}},
