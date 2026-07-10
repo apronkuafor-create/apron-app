@@ -12374,34 +12374,21 @@ if(DB) dbUpsertAyar("tema",tema);
     }
 
     // Devamsızlığı "onay bekliyor" olarak kaydet
-    const devId = uid();
-    const devObj = {
-      id: devId,
-      staff_id: kul.id,
-      tarih: ds,
-      aciklama: ac,
-      durum: "onay_bekliyor",   // yönetici onaylamadıkça bu kalır
-      rapor_url: raporUrl,
-      olusturma: Date.now()
-    };
-
     setDevDB(p=>({...p,[ds+"_"+kul.id]: ac+" (Onay Bekliyor)"}));
     dbUpsert("devamsizliklar",[{staff_id:kul.id, tarih:ds, aciklama:ac}],"isletme_id,staff_id,tarih");
 
     // Yönetici bildirim merkezine gönder
+    // NOT: yon_bildirim_merkezi tablosunun gerçek sütunları: id, tip, baslik, mesaj, tarih, okundu, ekstra, created_at, isletme_id
+    // manKulId/manKulAd/rapor_url/durum bu tabloda birer sütun DEĞİL — hepsi 'ekstra' JSON alanına konur.
     const bilId = uid();
     const bilObj = {
       id: bilId,
       tip: "devamsizlik_onay",
       baslik: kul.ad+" — Devamsızlık Bildirimi",
       mesaj: ac,
-      manKulId: kul.id,
-      manKulAd: kul.ad,
       tarih: ds,
-      rapor_url: raporUrl,
-      durum: "bekliyor",
       okundu: false,
-      olusturma: Date.now()
+      ekstra: { manKulId: kul.id, manKulAd: kul.ad, rapor_url: raporUrl, durum: "bekliyor" }
     };
     setYonBildirimMerkezi(p=>[bilObj,...(p||[])]);
     dbUpsert("yon_bildirim_merkezi", bilObj, "isletme_id,id");
@@ -16588,9 +16575,9 @@ if(DB) dbUpsertAyar("tema",tema);
                           }},"✕ İptal Et")
                       ),
                       // ── Devamsızlık Onay Talebi ──
-                      b.tip==="devamsizlik_onay" && b.durum==="bekliyor" && div({style:{display:"flex",flexDirection:"column",gap:8,width:"100%"}},
-                        b.rapor_url && div({style:{marginBottom:4}},
-                          h("a",{href:b.rapor_url,target:"_blank",rel:"noopener noreferrer",
+                      b.tip==="devamsizlik_onay" && (b.ekstra?.durum||"bekliyor")==="bekliyor" && div({style:{display:"flex",flexDirection:"column",gap:8,width:"100%"}},
+                        b.ekstra?.rapor_url && div({style:{marginBottom:4}},
+                          h("a",{href:b.ekstra.rapor_url,target:"_blank",rel:"noopener noreferrer",
                             style:{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,color:"var(--g)",
                               textDecoration:"none",padding:"5px 10px",borderRadius:7,
                               border:"1px solid rgba(37,99,168,.3)",background:"rgba(37,99,168,.06)"}},
@@ -16600,26 +16587,28 @@ if(DB) dbUpsertAyar("tema",tema);
                           btn({style:{flex:1,padding:"9px 0",borderRadius:8,border:"1px solid rgba(52,199,89,.35)",
                             background:"rgba(52,199,89,.1)",color:"#248A3D",fontSize:13,fontWeight:700,cursor:"pointer"},
                             onClick:()=>{
-                              // Devamsızlığı onaylı olarak güncelle (durum sadece bildirim merkezinde tutulur)
-                              DB.from("yon_bildirim_merkezi").update({durum:"onaylandi",okundu:true}).eq("id",b.id).then(()=>{});
-                              setYonBildirimMerkezi(p=>p.map(x=>x.id===b.id?{...x,durum:"onaylandi",okundu:true}:x));
-                              setDevDB(p=>({...p,[b.tarih+"_"+b.manKulId]: b.mesaj}));
-                              showToast(b.manKulAd+" devamsızlığı onaylandı","ba");
+                              // Devamsızlığı onaylı olarak güncelle (durum ekstra JSON içinde tutulur — tabloda ayrı bir durum sütunu yok)
+                              const yeniEkstra = {...(b.ekstra||{}), durum:"onaylandi"};
+                              DB.from("yon_bildirim_merkezi").update({ekstra:yeniEkstra,okundu:true}).eq("id",b.id).then(()=>{});
+                              setYonBildirimMerkezi(p=>p.map(x=>x.id===b.id?{...x,ekstra:yeniEkstra,okundu:true}:x));
+                              setDevDB(p=>({...p,[b.tarih+"_"+(b.ekstra?.manKulId)]: b.mesaj}));
+                              showToast((b.ekstra?.manKulAd||"Personel")+" devamsızlığı onaylandı","ba");
                             }},"✓ Onayla"),
                           btn({style:{flex:1,padding:"9px 0",borderRadius:8,border:"1px solid rgba(224,96,96,.35)",
                             background:"rgba(224,96,96,.08)",color:"#e06060",fontSize:13,fontWeight:700,cursor:"pointer"},
                             onClick:()=>{
-                              DB.from("yon_bildirim_merkezi").update({durum:"onaysiz",okundu:true}).eq("id",b.id).then(()=>{});
-                              setYonBildirimMerkezi(p=>p.map(x=>x.id===b.id?{...x,durum:"onaysiz",okundu:true}:x));
-                              setDevDB(p=>({...p,[b.tarih+"_"+b.manKulId]: b.mesaj+" (onaysiz)"}));
-                              showToast(b.manKulAd+" devamsızlığı onaylanmadı — kayıt tutuldu","uy");
+                              const yeniEkstra = {...(b.ekstra||{}), durum:"onaysiz"};
+                              DB.from("yon_bildirim_merkezi").update({ekstra:yeniEkstra,okundu:true}).eq("id",b.id).then(()=>{});
+                              setYonBildirimMerkezi(p=>p.map(x=>x.id===b.id?{...x,ekstra:yeniEkstra,okundu:true}:x));
+                              setDevDB(p=>({...p,[b.tarih+"_"+(b.ekstra?.manKulId)]: b.mesaj+" (onaysiz)"}));
+                              showToast((b.ekstra?.manKulAd||"Personel")+" devamsızlığı onaylanmadı — kayıt tutuldu","uy");
                             }},"✕ Onaylama")
                         )
                       ),
-                      b.tip==="devamsizlik_onay" && b.durum==="onaylandi" && div({style:{fontSize:12,color:"#248A3D",padding:"6px 0",display:"flex",alignItems:"center",gap:6}},
+                      b.tip==="devamsizlik_onay" && b.ekstra?.durum==="onaylandi" && div({style:{fontSize:12,color:"#248A3D",padding:"6px 0",display:"flex",alignItems:"center",gap:6}},
                         h("span",null,"✓"),"Devamsızlık onaylandı"
                       ),
-                      b.tip==="devamsizlik_onay" && b.durum==="onaysiz" && div({style:{fontSize:12,color:"#e06060",padding:"6px 0",display:"flex",alignItems:"center",gap:6}},
+                      b.tip==="devamsizlik_onay" && b.ekstra?.durum==="onaysiz" && div({style:{fontSize:12,color:"#e06060",padding:"6px 0",display:"flex",alignItems:"center",gap:6}},
                         h("span",null,"✕"),"Onaylanmadı — devamsızlık kaydedildi"
                       ),
                       // ── Gün Sonu Bildirimi: İncele / Onayla ──
