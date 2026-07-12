@@ -2378,6 +2378,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     }).join("");
 
     const genelToplam = toplamKdvHaric+toplamKdv;
+    const toplamAdet = satirlar.reduce((s,x)=>s+toN(x.siparisAdet),0);
     const bugun = new Date().toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric"});
 
     const html = "<!DOCTYPE html><html lang=\"tr\"><head><meta charset=\"UTF-8\"><title>Sipariş Formu</title><style>"
@@ -2417,11 +2418,14 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
       +"<th style=\"text-align:center\">Adet</th><th style=\"text-align:center\">KDV</th><th style=\"text-align:right\">Toplam</th></tr></thead>"
       +"<tbody>"+satirHtml+"</tbody></table>"
       +"<div class=\"totals\">"
+      +"<div><span>Kalem Sayısı</span><span>"+satirlar.length+" kalem</span></div>"
+      +"<div><span>Toplam Sipariş Adedi</span><span>"+toplamAdet+" adet</span></div>"
       +"<div><span>Ara Toplam (KDV Hariç)</span><span>"+fmt(toplamKdvHaric)+"</span></div>"
       +"<div><span>KDV Toplamı</span><span>"+fmt(toplamKdv)+"</span></div>"
       +"<div class=\"grand\"><span>GENEL TOPLAM</span><span>"+fmt(genelToplam)+"</span></div>"
       +"</div>"
       +(sipNot?"<div class=\"not\"><strong>Tedarikçiye Not:</strong> "+sipNot+"</div>":"")
+      +"<div class=\"not\" style=\"margin-top:10px\">Yukarıda belirtilen ürünlerin belirtilen adetlerde tarafımıza gönderilmesini rica eder, ilginiz için teşekkür ederiz.</div>"
       +"<div class=\"footer\"><div class=\"imza\"><div style=\"font-weight:700;color:#333;font-size:13px;min-height:16px\">"+(sipHazirlayan||"")+"</div><div class=\"cizgi\">Hazırlayan</div></div>"
       +"<div class=\"imza\"><div style=\"font-weight:700;color:#333;font-size:13px;min-height:16px\">"+(sipOnaylayan||"")+"</div><div class=\"cizgi\">Onaylayan</div></div></div>"
       +"<div class=\"noprint\" style=\"text-align:center;margin-top:34px\">"
@@ -2435,7 +2439,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   };
 
   // Akıllı otomatik sipariş: stok + satış hızı birlikte değerlendirilir (kullanıcının kalıcı olarak çıkardığı ürünler hariç)
-  const KRITIK_STOK_SINIRI = 1;
+  const KRITIK_STOK_SINIRI = 2;
   React.useEffect(()=>{
     const eksikler = Object.values(stokOzet).filter(u=>{
       if(u.kalan<=KRITIK_STOK_SINIRI) return true; // Kritik stok: yoksay listesine bakılmaksızın MUTLAKA gösterilir
@@ -2873,20 +2877,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           onClick:()=>{
             const ok = siparisPdfOlustur();
             if(!ok) return;
-            const msj=(sipYetkiliAd?"Sayın "+sipYetkiliAd+",\n\n":"")+"📦 Sipariş listemizi PDF olarak hazırladık. Birazdan PDF dosyasını bu sohbete ekleyeceğim, inceleyebilir misiniz?"+(sipNot?"\n\n📝 Not: "+sipNot:"")+"\n\nTeşekkürler.";
+            const msj=(sipYetkiliAd?"Sayın "+sipYetkiliAd+",\n\n":"")+"📦 Sipariş listemizi PDF olarak hazırladık, birazdan bu sohbete ekleyeceğiz.";
             const tel=sipTedarikciTel.replace(/\s/g,"").replace(/^0/,"90");
             setTimeout(()=>{ window.open("https://wa.me/"+tel+"?text="+encodeURIComponent(msj),"_blank"); },300);
-          }},"📄 PDF Oluştur + WhatsApp'ı Aç"),
-        sipTedarikciTel.trim().length>=10&&btn({style:{width:"100%",padding:"14px 0",borderRadius:11,
-          border:"none",background:"#25D366",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"},
-          onClick:()=>{
-            const satir=gorunenListe.filter(s=>toN(s.siparisAdet)>0)
-              .map(s=>"• "+urunAdCanli(s.barkod,s.urunAd)+" ("+urunMarkaCanli(s.barkod,s.marka)+") → "+s.siparisAdet+" adet").join("\n");
-            if(!satir){showToast("Adetleri girin","uy");return;}
-            const msj=(sipYetkiliAd?"Sayın "+sipYetkiliAd+",\n\n":"")+"📦 SİPARİŞ\n\n"+satir+(sipNot?"\n\n📝 Not: "+sipNot:"")+"\n\nTeşekkürler.";
-            const tel=sipTedarikciTel.replace(/\s/g,"").replace(/^0/,"90");
-            window.open("https://wa.me/"+tel+"?text="+encodeURIComponent(msj),"_blank");
-          }},"📱 Sadece Metin Olarak WhatsApp'tan Gönder")
+          }},"📄 PDF Oluştur + WhatsApp'ı Aç")
       )
     ),
 
