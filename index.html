@@ -2340,8 +2340,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   // (varsa kesin doğru kabul edilir), o tedarikçi için hiç atama yapılmamışsa geçmiş Mal Kabul kaydına düşer.
   const barkodTedarikciyeAit = (barkod, tedarikciAd) => {
     const t = tedarikciler.find(x=>(typeof x==="string"?x:x.ad)===tedarikciAd);
-    if(t && typeof t!=="string" && Array.isArray(t.urunler) && t.urunler.length>0){
-      return t.urunler.includes(barkod);
+    if(t && typeof t!=="string" && Array.isArray(t.markalar) && t.markalar.length>0){
+      return t.markalar.includes(urunMarkaCanli(barkod,""));
     }
     return sonTedarikci(barkod)===tedarikciAd;
   };
@@ -11102,7 +11102,6 @@ function App() {
   const hesapSenkRef = useRef(false); // localStorage'daki eski hesap verilerini buluta bir kez taşımak için
   const [yeniMarkaAdi, setYeniMarkaAdi] = useState("");
   const [yeniTedarikciAdi, setYeniTedarikciAdi] = useState("");
-  const [tedarikciUrunArama, setTedarikciUrunArama] = useState("");
   const [tedarikciDuzIdx, setTedarikciDuzIdx]   = useState(null); // {idx, ad}
   const [urunTipSecim, setUrunTipSecim] = useState(null); // null|"marka"|"urun"
   const [sarfUrunForm, setSarfUrunForm] = useState(false);
@@ -18809,14 +18808,16 @@ if(DB) dbUpsertAyar("tema",tema);
           borderBottom: duzAcik ? "none" : undefined}},
           div({style:{flex:1,minWidth:0}},
             div({style:{fontSize:15,color:"var(--tx)",fontWeight:500}},ad),
-            (typeof t!=="string"&&(t.tel||t.yetkiliAd||(t.urunler||[]).length>0))&&div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},
-              [t.yetkiliAd,t.tel,(t.urunler||[]).length>0?(t.urunler.length+" ürün atanmış"):null].filter(Boolean).join(" · "))
+            (typeof t!=="string"&&(t.tel||t.yetkiliAd||(t.markalar||[]).length>0))&&div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},
+              [t.yetkiliAd,t.tel,
+                (t.markalar||[]).length>0?(t.markalar.length+" marka"):null
+              ].filter(Boolean).join(" · "))
           ),
           duzAcik
             ? btn({style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(160,40,40,.2)",borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
                 onClick:()=>setTedarikciDuzIdx(null)},"İptal")
             : btn({style:{background:"rgba(37,99,168,.08)",border:"1px solid rgba(37,99,168,.2)",borderRadius:6,color:"var(--g)",fontSize:13,padding:"4px 10px",cursor:"pointer"},
-                onClick:()=>setTedarikciDuzIdx({idx:i,ad,tel:(typeof t!=="string"&&t.tel)||"",yetkiliAd:(typeof t!=="string"&&t.yetkiliAd)||"",urunler:(typeof t!=="string"&&t.urunler)||[]})},"✏ Düzenle"),
+                onClick:()=>setTedarikciDuzIdx({idx:i,ad,tel:(typeof t!=="string"&&t.tel)||"",yetkiliAd:(typeof t!=="string"&&t.yetkiliAd)||"",markalar:(typeof t!=="string"&&t.markalar)||[]})},"✏ Düzenle"),
           btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",
             borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
             onClick:()=>{setTedarikciler(p=>p.filter((_,j)=>j!==i));if(duzAcik)setTedarikciDuzIdx(null);}},"Sil")
@@ -18840,28 +18841,20 @@ if(DB) dbUpsertAyar("tema",tema);
               onChange:e=>setTedarikciDuzIdx(p=>({...p,yetkiliAd:e.target.value}))})
           ),
           div({style:{marginBottom:10}},
-            lbl({className:"fl"},"Bu Tedarikçinin Sattığı Ürünler"),
+            lbl({className:"fl"},"Marka(lar) — En Kolay Yöntem"),
             div({style:{fontSize:11,color:"var(--mu)",marginBottom:6}},
-              "Sipariş Listesi'nde bu tedarikçiyi seçince sadece buraya eklenen ürünler gösterilir."),
-            h(UrunAramaBilesen,{aramaVal:tedarikciUrunArama,setAramaVal:setTedarikciUrunArama,
-              onEkle:u=>{
-                if((tedarikciDuzIdx.urunler||[]).includes(u.b)){showToast("Zaten ekli","uy");return;}
-                setTedarikciDuzIdx(p=>({...p,urunler:[...(p.urunler||[]),u.b]}));
-                setTedarikciUrunArama("");
-              },
-              placeholder:"Ürün ara ve ekle..."}),
-            div({style:{display:"flex",flexDirection:"column",gap:5,marginTop:8,maxHeight:220,overflowY:"auto"}},
-              (tedarikciDuzIdx.urunler||[]).length===0
-                ? div({style:{fontSize:12,color:"var(--di)",padding:"6px 0"}},"Henüz ürün eklenmedi")
-                : (tedarikciDuzIdx.urunler||[]).map(b=>
-                    div({key:b,style:{display:"flex",alignItems:"center",gap:8,
-                      background:"var(--bg)",border:"1px solid var(--br)",borderRadius:8,padding:"6px 9px"}},
-                      div({style:{flex:1,fontSize:12,color:"var(--tx)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},
-                        urunAdCanli(b,b)+(urunMlCanli(b,"")?" ("+urunMlCanli(b,"")+")":"")),
-                      btn({style:{fontSize:11,color:"#c05050",background:"transparent",border:"none",cursor:"pointer",flexShrink:0},
-                        onClick:()=>setTedarikciDuzIdx(p=>({...p,urunler:(p.urunler||[]).filter(x=>x!==b)}))},"✕")
-                    )
-                  )
+              "Bir markayı işaretlersen, o markanın altındaki TÜM ürünler (ileride eklenecekler dahil) otomatik bu tedarikçiye bağlanır."),
+            div({style:{display:"flex",flexWrap:"wrap",gap:6}},
+              MARKALAR.filter(Boolean).map(m=>{
+                const secili = (tedarikciDuzIdx.markalar||[]).includes(m);
+                return btn({key:m,style:{padding:"6px 12px",borderRadius:20,fontSize:12,cursor:"pointer",
+                  border:"1px solid "+(secili?"rgba(37,99,168,.5)":"var(--br)"),
+                  background:secili?"rgba(37,99,168,.15)":"transparent",
+                  color:secili?"var(--g)":"var(--mu)",fontWeight:secili?700:400},
+                  onClick:()=>setTedarikciDuzIdx(p=>({...p,
+                    markalar: secili ? (p.markalar||[]).filter(x=>x!==m) : [...(p.markalar||[]),m]
+                  }))},(secili?"✓ ":"")+m);
+              })
             )
           ),
           div({className:"btn-r"},
@@ -18872,7 +18865,7 @@ if(DB) dbUpsertAyar("tema",tema);
               setTedarikciler(p=>p.map((x,j)=>j===i?{
                 id:(typeof x!=="string"&&x.id)||uid(),
                 ad:yeniAd, tel:(tedarikciDuzIdx.tel||"").trim(), yetkiliAd:(tedarikciDuzIdx.yetkiliAd||"").trim(),
-                urunler:tedarikciDuzIdx.urunler||[],
+                markalar:tedarikciDuzIdx.markalar||[],
                 adres:(typeof x!=="string"&&x.adres)||"", bakiye:(typeof x!=="string"&&x.bakiye)||0
               }:x));
               setTedarikciDuzIdx(null);
