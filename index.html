@@ -2148,6 +2148,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [siparisListesi, setSiparisListesi] = React.useState([]);
   const [sipTedarikciTel, setSipTedarikciTel] = React.useState("");
   const [sipNot, setSipNot] = React.useState("");
+  const [sipHazirlayan, setSipHazirlayan] = React.useState("");
+  const [sipOnaylayan, setSipOnaylayan] = React.useState("");
   const [sipBarkod, setSipBarkod] = React.useState("");
   const [sipArama, setSipArama] = React.useState("");
   const [sipKarsilaAdet, setSipKarsilaAdet] = React.useState({}); // {onSiparisId: teslim edilecek adet}
@@ -2403,9 +2405,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
       +"<div><span>KDV Toplamı</span><span>"+fmt(toplamKdv)+"</span></div>"
       +"<div class=\"grand\"><span>GENEL TOPLAM</span><span>"+fmt(genelToplam)+"</span></div>"
       +"</div>"
-      +(sipNot?"<div class=\"not\"><strong>Sipariş Notu:</strong> "+sipNot+"</div>":"")
-      +"<div class=\"footer\"><div class=\"imza\"><div class=\"cizgi\">Hazırlayan</div></div>"
-      +"<div class=\"imza\"><div class=\"cizgi\">Onaylayan</div></div></div>"
+      +(sipNot?"<div class=\"not\"><strong>Tedarikçiye Not:</strong> "+sipNot+"</div>":"")
+      +"<div class=\"footer\"><div class=\"imza\"><div style=\"font-weight:700;color:#333;font-size:13px;min-height:16px\">"+(sipHazirlayan||"")+"</div><div class=\"cizgi\">Hazırlayan</div></div>"
+      +"<div class=\"imza\"><div style=\"font-weight:700;color:#333;font-size:13px;min-height:16px\">"+(sipOnaylayan||"")+"</div><div class=\"cizgi\">Onaylayan</div></div></div>"
       +"<div class=\"noprint\" style=\"text-align:center;margin-top:34px\">"
       +"<button onclick=\"window.print()\" style=\"padding:13px 30px;border-radius:11px;border:none;background:#1F3D2C;color:#fff;font-size:14px;font-weight:700;cursor:pointer\">🖨️ Yazdır / PDF Olarak Kaydet</button>"
       +"</div></body></html>";
@@ -2470,6 +2472,30 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     if(!sayimGecmisiYuklendiRef.current){ sayimGecmisiYuklendiRef.current = true; return; }
     if(DB) dbUpsertAyar("sayimGecmisi", sayimGecmisi);
   },[sayimGecmisi]);
+
+  // Sipariş Listesi taslağı — girilen adetler/not/isimler artık kaybolmasın diye otomatik kaydedilir
+  React.useEffect(()=>{
+    if(!DB) return;
+    DB.from("ayarlar").select("deger").eq("id","siparisTaslak").maybeSingle()
+      .then(({data})=>{
+        if(!data || !data.deger || typeof data.deger!=="object") return;
+        const d = data.deger;
+        if(Array.isArray(d.liste) && d.liste.length) setSiparisListesi(d.liste);
+        if(d.tel) setSipTedarikciTel(d.tel);
+        if(d.not) setSipNot(d.not);
+        if(d.hazirlayan) setSipHazirlayan(d.hazirlayan);
+        if(d.onaylayan) setSipOnaylayan(d.onaylayan);
+      })
+      .catch(()=>{});
+  },[]);
+  const siparisTaslakYuklendiRef = React.useRef(false);
+  React.useEffect(()=>{
+    if(!siparisTaslakYuklendiRef.current){ siparisTaslakYuklendiRef.current = true; return; }
+    if(DB) dbUpsertAyar("siparisTaslak", {
+      liste: siparisListesi, tel: sipTedarikciTel, not: sipNot,
+      hazirlayan: sipHazirlayan, onaylayan: sipOnaylayan, guncelleme: Date.now()
+    });
+  },[siparisListesi, sipTedarikciTel, sipNot, sipHazirlayan, sipOnaylayan]);
 
   // mkArsiv Supabase sync — boş dizi de yazılır (silince bulut da boşalır), ama ilk yükleme
   // bitmeden çalışmaz ki açılıştaki başlangıç [] buluttaki veriyi SİLMESİN.
@@ -2695,8 +2721,14 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             )
           )
         ),
-        lbl({className:"fl",style:{marginTop:10}},"Sipariş Notu (isteğe bağlı)"),
-        inp({className:"fi",placeholder:"Ek notlar...",value:sipNot,onChange:e=>setSipNot(e.target.value)})
+        lbl({className:"fl",style:{marginTop:10}},"Tedarikçiye Not (isteğe bağlı)"),
+        inp({className:"fi",placeholder:"Örn: Lütfen faturayı da ekleyin...",value:sipNot,onChange:e=>setSipNot(e.target.value)}),
+        div({style:{display:"flex",gap:10,marginTop:10}},
+          div({style:{flex:1}},lbl({className:"fl"},"Siparişi Hazırlayan"),
+            inp({className:"fi",placeholder:"İsim Soyisim",value:sipHazirlayan,onChange:e=>setSipHazirlayan(e.target.value)})),
+          div({style:{flex:1}},lbl({className:"fl"},"Onaylayan"),
+            inp({className:"fi",placeholder:"İsim Soyisim",value:sipOnaylayan,onChange:e=>setSipOnaylayan(e.target.value)}))
+        )
       ),
 
       // Ürün ekleme (tek kutu)
@@ -2718,7 +2750,16 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           div({style:{fontSize:30,marginBottom:8}},"✅"),
           div({style:{fontSize:13}},"Tüm ürünlerin stoğu yeterli"))
         :div(null,
-          div({style:{fontSize:12,color:"var(--mu)",marginBottom:8}},siparisListesi.length+" ürün sipariş bekliyor"),
+          div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}},
+            div({style:{fontSize:12,color:"var(--mu)"}},siparisListesi.length+" ürün sipariş bekliyor · girdiğin adetler otomatik kaydediliyor"),
+            btn({style:{fontSize:11,color:"var(--di)",background:"transparent",border:"1px solid var(--br)",
+              borderRadius:7,padding:"4px 9px",cursor:"pointer",flexShrink:0},
+              onClick:()=>{
+                if(!window.confirm("Sipariş taslağı temizlensin mi? (Girdiğin tüm adetler/not/isimler silinir)")) return;
+                setSiparisListesi([]); setSipTedarikciTel(""); setSipNot(""); setSipHazirlayan(""); setSipOnaylayan("");
+                showToast("Taslak temizlendi");
+              }},"🗑️ Taslağı Temizle")
+          ),
           siparisListesi.map((s,i)=>{
             const hiz = hizEtiket(s.barkod);
             const oneri = siparisOnerisi(s.barkod, s.mevcutStok);
