@@ -2147,6 +2147,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   // Sipariş listesi state
   const [siparisListesi, setSiparisListesi] = React.useState([]);
   const [sipTedarikciTel, setSipTedarikciTel] = React.useState("");
+  const [sipSecilenTedarikci, setSipSecilenTedarikci] = React.useState(""); // "" = Tümü
+  const [sipYetkiliAd, setSipYetkiliAd] = React.useState("");
   const [sipNot, setSipNot] = React.useState("");
   const [sipHazirlayan, setSipHazirlayan] = React.useState("");
   const [sipOnaylayan, setSipOnaylayan] = React.useState("");
@@ -2334,10 +2336,23 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     });
     return borc-odeme; // >0: ona borcumuz var, <0: bizim alacağımız var
   };
+  // Bir ürün bu tedarikçiye mi ait? Önce Tedarikçi Listesi'nde elle atanmış ürün listesine bakar
+  // (varsa kesin doğru kabul edilir), o tedarikçi için hiç atama yapılmamışsa geçmiş Mal Kabul kaydına düşer.
+  const barkodTedarikciyeAit = (barkod, tedarikciAd) => {
+    const t = tedarikciler.find(x=>(typeof x==="string"?x:x.ad)===tedarikciAd);
+    if(t && typeof t!=="string" && Array.isArray(t.urunler) && t.urunler.length>0){
+      return t.urunler.includes(barkod);
+    }
+    return sonTedarikci(barkod)===tedarikciAd;
+  };
+  // Seçilen tedarikçiye göre filtrelenmiş sipariş listesi — hem liste görünümü hem PDF/WhatsApp burayı kullanır
+  const gorunenListe = sipSecilenTedarikci
+    ? siparisListesi.filter(s=>barkodTedarikciyeAit(s.barkod,sipSecilenTedarikci))
+    : siparisListesi;
 
   // Sipariş PDF'ini yeni sekmede açar. Başarılıysa true döner.
   const siparisPdfOlustur = () => {
-    const satirlar = siparisListesi.filter(s=>toN(s.siparisAdet)>0);
+    const satirlar = gorunenListe.filter(s=>toN(s.siparisAdet)>0);
     if(satirlar.length===0){ showToast("Adetleri girin","uy"); return false; }
 
     let toplamKdvHaric=0, toplamKdv=0;
@@ -2393,8 +2408,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
       +"<div class=\"baslik\"><h1>SİPARİŞ FORMU</h1><div class=\"tarih\">"+bugun+"</div></div>"
       +"</div>"
       +"<div class=\"meta\">"
+      +"<div><div class=\"label\">Tedarikçi</div><div class=\"val\">"+(sipSecilenTedarikci||"—")+"</div></div>"
+      +"<div><div class=\"label\">Yetkili Kişi</div><div class=\"val\">"+(sipYetkiliAd||"—")+"</div></div>"
       +"<div><div class=\"label\">Tedarikçi Telefon</div><div class=\"val\">"+(sipTedarikciTel||"—")+"</div></div>"
-      +"<div><div class=\"label\">Ürün Sayısı</div><div class=\"val\">"+satirlar.length+" kalem</div></div>"
       +"<div><div class=\"label\">Belge No</div><div class=\"val\">SIP-"+Date.now().toString().slice(-8)+"</div></div>"
       +"</div>"
       +"<table><thead><tr><th>#</th><th>Barkod</th><th>Ürün</th><th style=\"text-align:right\">Birim Fiyat</th>"
@@ -2485,6 +2501,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         if(d.not) setSipNot(d.not);
         if(d.hazirlayan) setSipHazirlayan(d.hazirlayan);
         if(d.onaylayan) setSipOnaylayan(d.onaylayan);
+        if(d.tedarikci) setSipSecilenTedarikci(d.tedarikci);
+        if(d.yetkiliAd) setSipYetkiliAd(d.yetkiliAd);
       })
       .catch(()=>{});
   },[]);
@@ -2493,9 +2511,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     if(!siparisTaslakYuklendiRef.current){ siparisTaslakYuklendiRef.current = true; return; }
     if(DB) dbUpsertAyar("siparisTaslak", {
       liste: siparisListesi, tel: sipTedarikciTel, not: sipNot,
-      hazirlayan: sipHazirlayan, onaylayan: sipOnaylayan, guncelleme: Date.now()
+      hazirlayan: sipHazirlayan, onaylayan: sipOnaylayan,
+      tedarikci: sipSecilenTedarikci, yetkiliAd: sipYetkiliAd, guncelleme: Date.now()
     });
-  },[siparisListesi, sipTedarikciTel, sipNot, sipHazirlayan, sipOnaylayan]);
+  },[siparisListesi, sipTedarikciTel, sipNot, sipHazirlayan, sipOnaylayan, sipSecilenTedarikci, sipYetkiliAd]);
 
   // mkArsiv Supabase sync — boş dizi de yazılır (silince bulut da boşalır), ama ilk yükleme
   // bitmeden çalışmaz ki açılıştaki başlangıç [] buluttaki veriyi SİLMESİN.
@@ -2691,6 +2710,27 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         );
       })(),
 
+      // Tedarikçi Seç — sadece seçilen tedarikçinin ürünleri listelensin, karışıklığı önlesin
+      div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:12}},
+        lbl({className:"fl"},"Tedarikçi Seç"),
+        sel({className:"fi",value:sipSecilenTedarikci,onChange:e=>{
+          const ad = e.target.value;
+          setSipSecilenTedarikci(ad);
+          const t = tedarikciler.find(x=>(typeof x==="string"?x:x.ad)===ad);
+          if(t && typeof t!=="string"){
+            setSipTedarikciTel(t.tel||"");
+            setSipYetkiliAd(t.yetkiliAd||"");
+          } else {
+            setSipTedarikciTel(""); setSipYetkiliAd("");
+          }
+        }},
+          opt("","Tümü (karışık — tedarikçi ayrımı yapma)"),
+          tedarikciler.map(t=>{ const ad=typeof t==="string"?t:t.ad; return opt(ad,ad); })
+        ),
+        !sipSecilenTedarikci && div({style:{fontSize:11,color:"#c25e00",marginTop:6}},
+          "⚠️ Tedarikçi seçmezsen farklı firmaların ürünleri karışık gösterilir — yanlışlıkla ilgisiz bir tedarikçiye sipariş verme riski buradan doğar.")
+      ),
+
       // Tedarikçi telefon + rehber ikonu
       div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:12}},
         lbl({className:"fl"},"Tedarikçi Telefon No"),
@@ -2721,6 +2761,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             )
           )
         ),
+        lbl({className:"fl",style:{marginTop:10}},"Yetkili Kişi (siparişin gönderileceği şahıs)"),
+        inp({className:"fi",placeholder:"İsim Soyisim",value:sipYetkiliAd,onChange:e=>setSipYetkiliAd(e.target.value)}),
         lbl({className:"fl",style:{marginTop:10}},"Tedarikçiye Not (isteğe bağlı)"),
         inp({className:"fi",placeholder:"Örn: Lütfen faturayı da ekleyin...",value:sipNot,onChange:e=>setSipNot(e.target.value)}),
         div({style:{display:"flex",gap:10,marginTop:10}},
@@ -2744,23 +2786,25 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           placeholder:"Barkod veya ürün adı ara..."})
       ),
 
-      // Liste
-      siparisListesi.length===0
+      // Liste — tedarikçi seçiliyse sadece o tedarikçinin ürünleri gösterilir
+      (()=>{
+        return gorunenListe.length===0
         ?div({style:{textAlign:"center",padding:30,color:"var(--mu)"}},
           div({style:{fontSize:30,marginBottom:8}},"✅"),
-          div({style:{fontSize:13}},"Tüm ürünlerin stoğu yeterli"))
+          div({style:{fontSize:13}},sipSecilenTedarikci?"Bu tedarikçiden eksik ürün yok":"Tüm ürünlerin stoğu yeterli"))
         :div(null,
           div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}},
-            div({style:{fontSize:12,color:"var(--mu)"}},siparisListesi.length+" ürün sipariş bekliyor · girdiğin adetler otomatik kaydediliyor"),
+            div({style:{fontSize:12,color:"var(--mu)"}},gorunenListe.length+" ürün sipariş bekliyor"+(sipSecilenTedarikci?" ("+sipSecilenTedarikci+")":"")+" · girdiğin adetler otomatik kaydediliyor"),
             btn({style:{fontSize:11,color:"var(--di)",background:"transparent",border:"1px solid var(--br)",
               borderRadius:7,padding:"4px 9px",cursor:"pointer",flexShrink:0},
               onClick:()=>{
                 if(!window.confirm("Sipariş taslağı temizlensin mi? (Girdiğin tüm adetler/not/isimler silinir)")) return;
                 setSiparisListesi([]); setSipTedarikciTel(""); setSipNot(""); setSipHazirlayan(""); setSipOnaylayan("");
+                setSipSecilenTedarikci(""); setSipYetkiliAd("");
                 showToast("Taslak temizlendi");
               }},"🗑️ Taslağı Temizle")
           ),
-          siparisListesi.map((s,i)=>{
+          gorunenListe.map((s,i)=>{
             const hiz = hizEtiket(s.barkod);
             const oneri = siparisOnerisi(s.barkod, s.mevcutStok);
             const tedAd = sonTedarikci(s.barkod);
@@ -2810,11 +2854,12 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   : "💰 "+tedAd+"'dan şu an "+fmt(Math.abs(bakiye))+" alacağın var (mevcut bakiye)")
             );
           }),
-        )
+        );
+      })()
       ), // scroll div
 
       // ── Sabit alt buton çubuğu (kaydırmaya gerek kalmadan her zaman görünür) ──
-      siparisListesi.some(s=>toN(s.siparisAdet)>0)&&div({style:{background:"var(--bg2)",borderTop:"1px solid var(--br)",
+      gorunenListe.some(s=>toN(s.siparisAdet)>0)&&div({style:{background:"var(--bg2)",borderTop:"1px solid var(--br)",
         padding:"12px 14px",flexShrink:0,display:"flex",flexDirection:"column",gap:8}},
         btn({style:{width:"100%",padding:"14px 0",borderRadius:11,
           border:"1px solid #1F3D2C",background:"transparent",color:"#1F3D2C",fontSize:14,fontWeight:700,cursor:"pointer",
@@ -2826,17 +2871,17 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           onClick:()=>{
             const ok = siparisPdfOlustur();
             if(!ok) return;
-            const msj="📦 Sipariş listemizi PDF olarak hazırladık. Birazdan PDF dosyasını bu sohbete ekleyeceğim, inceleyebilir misiniz?"+(sipNot?"\n\n📝 Not: "+sipNot:"")+"\n\nTeşekkürler.";
+            const msj=(sipYetkiliAd?"Sayın "+sipYetkiliAd+",\n\n":"")+"📦 Sipariş listemizi PDF olarak hazırladık. Birazdan PDF dosyasını bu sohbete ekleyeceğim, inceleyebilir misiniz?"+(sipNot?"\n\n📝 Not: "+sipNot:"")+"\n\nTeşekkürler.";
             const tel=sipTedarikciTel.replace(/\s/g,"").replace(/^0/,"90");
             setTimeout(()=>{ window.open("https://wa.me/"+tel+"?text="+encodeURIComponent(msj),"_blank"); },300);
           }},"📄 PDF Oluştur + WhatsApp'ı Aç"),
         sipTedarikciTel.trim().length>=10&&btn({style:{width:"100%",padding:"14px 0",borderRadius:11,
           border:"none",background:"#25D366",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"},
           onClick:()=>{
-            const satir=siparisListesi.filter(s=>toN(s.siparisAdet)>0)
+            const satir=gorunenListe.filter(s=>toN(s.siparisAdet)>0)
               .map(s=>"• "+urunAdCanli(s.barkod,s.urunAd)+" ("+urunMarkaCanli(s.barkod,s.marka)+") → "+s.siparisAdet+" adet").join("\n");
             if(!satir){showToast("Adetleri girin","uy");return;}
-            const msj="📦 SİPARİŞ\n\n"+satir+(sipNot?"\n\n📝 Not: "+sipNot:"")+"\n\nTeşekkürler.";
+            const msj=(sipYetkiliAd?"Sayın "+sipYetkiliAd+",\n\n":"")+"📦 SİPARİŞ\n\n"+satir+(sipNot?"\n\n📝 Not: "+sipNot:"")+"\n\nTeşekkürler.";
             const tel=sipTedarikciTel.replace(/\s/g,"").replace(/^0/,"90");
             window.open("https://wa.me/"+tel+"?text="+encodeURIComponent(msj),"_blank");
           }},"📱 Sadece Metin Olarak WhatsApp'tan Gönder")
@@ -11057,6 +11102,7 @@ function App() {
   const hesapSenkRef = useRef(false); // localStorage'daki eski hesap verilerini buluta bir kez taşımak için
   const [yeniMarkaAdi, setYeniMarkaAdi] = useState("");
   const [yeniTedarikciAdi, setYeniTedarikciAdi] = useState("");
+  const [tedarikciUrunArama, setTedarikciUrunArama] = useState("");
   const [tedarikciDuzIdx, setTedarikciDuzIdx]   = useState(null); // {idx, ad}
   const [urunTipSecim, setUrunTipSecim] = useState(null); // null|"marka"|"urun"
   const [sarfUrunForm, setSarfUrunForm] = useState(false);
@@ -18761,12 +18807,16 @@ if(DB) dbUpsertAyar("tema",tema);
           borderRadius: duzAcik ? "10px 10px 0 0" : 10,
           border:"1px solid var(--br)",
           borderBottom: duzAcik ? "none" : undefined}},
-          div({style:{flex:1,fontSize:15,color:"var(--tx)",fontWeight:500}},ad),
+          div({style:{flex:1,minWidth:0}},
+            div({style:{fontSize:15,color:"var(--tx)",fontWeight:500}},ad),
+            (typeof t!=="string"&&(t.tel||t.yetkiliAd||(t.urunler||[]).length>0))&&div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},
+              [t.yetkiliAd,t.tel,(t.urunler||[]).length>0?(t.urunler.length+" ürün atanmış"):null].filter(Boolean).join(" · "))
+          ),
           duzAcik
             ? btn({style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(160,40,40,.2)",borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
                 onClick:()=>setTedarikciDuzIdx(null)},"İptal")
             : btn({style:{background:"rgba(37,99,168,.08)",border:"1px solid rgba(37,99,168,.2)",borderRadius:6,color:"var(--g)",fontSize:13,padding:"4px 10px",cursor:"pointer"},
-                onClick:()=>setTedarikciDuzIdx({idx:i,ad})},"✏ Düzenle"),
+                onClick:()=>setTedarikciDuzIdx({idx:i,ad,tel:(typeof t!=="string"&&t.tel)||"",yetkiliAd:(typeof t!=="string"&&t.yetkiliAd)||"",urunler:(typeof t!=="string"&&t.urunler)||[]})},"✏ Düzenle"),
           btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",
             borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
             onClick:()=>{setTedarikciler(p=>p.filter((_,j)=>j!==i));if(duzAcik)setTedarikciDuzIdx(null);}},"Sil")
@@ -18779,12 +18829,52 @@ if(DB) dbUpsertAyar("tema",tema);
             inp({className:"fi",value:tedarikciDuzIdx.ad,
               onChange:e=>setTedarikciDuzIdx(p=>({...p,ad:e.target.value}))})
           ),
+          div({style:{marginBottom:10}},
+            lbl({className:"fl"},"Telefon Numarası"),
+            inp({className:"fi",type:"tel",placeholder:"05XX XXX XX XX",value:tedarikciDuzIdx.tel||"",
+              onChange:e=>setTedarikciDuzIdx(p=>({...p,tel:e.target.value}))})
+          ),
+          div({style:{marginBottom:10}},
+            lbl({className:"fl"},"Yetkili Kişi (siparişin gönderileceği şahıs)"),
+            inp({className:"fi",placeholder:"İsim Soyisim",value:tedarikciDuzIdx.yetkiliAd||"",
+              onChange:e=>setTedarikciDuzIdx(p=>({...p,yetkiliAd:e.target.value}))})
+          ),
+          div({style:{marginBottom:10}},
+            lbl({className:"fl"},"Bu Tedarikçinin Sattığı Ürünler"),
+            div({style:{fontSize:11,color:"var(--mu)",marginBottom:6}},
+              "Sipariş Listesi'nde bu tedarikçiyi seçince sadece buraya eklenen ürünler gösterilir."),
+            h(UrunAramaBilesen,{aramaVal:tedarikciUrunArama,setAramaVal:setTedarikciUrunArama,
+              onEkle:u=>{
+                if((tedarikciDuzIdx.urunler||[]).includes(u.b)){showToast("Zaten ekli","uy");return;}
+                setTedarikciDuzIdx(p=>({...p,urunler:[...(p.urunler||[]),u.b]}));
+                setTedarikciUrunArama("");
+              },
+              placeholder:"Ürün ara ve ekle..."}),
+            div({style:{display:"flex",flexDirection:"column",gap:5,marginTop:8,maxHeight:220,overflowY:"auto"}},
+              (tedarikciDuzIdx.urunler||[]).length===0
+                ? div({style:{fontSize:12,color:"var(--di)",padding:"6px 0"}},"Henüz ürün eklenmedi")
+                : (tedarikciDuzIdx.urunler||[]).map(b=>
+                    div({key:b,style:{display:"flex",alignItems:"center",gap:8,
+                      background:"var(--bg)",border:"1px solid var(--br)",borderRadius:8,padding:"6px 9px"}},
+                      div({style:{flex:1,fontSize:12,color:"var(--tx)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},
+                        urunAdCanli(b,b)+(urunMlCanli(b,"")?" ("+urunMlCanli(b,"")+")":"")),
+                      btn({style:{fontSize:11,color:"#c05050",background:"transparent",border:"none",cursor:"pointer",flexShrink:0},
+                        onClick:()=>setTedarikciDuzIdx(p=>({...p,urunler:(p.urunler||[]).filter(x=>x!==b)}))},"✕")
+                    )
+                  )
+            )
+          ),
           div({className:"btn-r"},
             btn({className:"btn-i",onClick:()=>setTedarikciDuzIdx(null)},"İptal"),
             btn({className:"btn-k",onClick:()=>{
               const yeniAd=tedarikciDuzIdx.ad.trim();
               if(!yeniAd) return;
-              setTedarikciler(p=>p.map((x,j)=>j===i?(typeof x==="string"?yeniAd:{...x,ad:yeniAd}):x));
+              setTedarikciler(p=>p.map((x,j)=>j===i?{
+                id:(typeof x!=="string"&&x.id)||uid(),
+                ad:yeniAd, tel:(tedarikciDuzIdx.tel||"").trim(), yetkiliAd:(tedarikciDuzIdx.yetkiliAd||"").trim(),
+                urunler:tedarikciDuzIdx.urunler||[],
+                adres:(typeof x!=="string"&&x.adres)||"", bakiye:(typeof x!=="string"&&x.bakiye)||0
+              }:x));
               setTedarikciDuzIdx(null);
               showToast("Tedarikçi güncellendi");
             }},"Kaydet")
