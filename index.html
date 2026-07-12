@@ -2358,7 +2358,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     let toplamKdvHaric=0, toplamKdv=0;
     const satirHtml = satirlar.map((s,i)=>{
       const oz = stokOzet[s.barkod]||{};
-      const birimF = toN(oz.birimF||0);
+      const urunDb = URUN_DB.find(u=>u.b===s.barkod);
+      const birimF = toN(oz.birimF) || toN(urunDb?.bp) || 0; // önce son alınan fiyat, yoksa Ürünler Listesi'ndeki kayıtlı alış fiyatı
       const kdvOran = toN(oz.kdvOran!==undefined?oz.kdvOran:20);
       const adet = toN(s.siparisAdet);
       const satirTutar = birimF*adet;
@@ -2438,25 +2439,28 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     return false;
   };
 
-  // Akıllı otomatik sipariş: stok + satış hızı birlikte değerlendirilir (kullanıcının kalıcı olarak çıkardığı ürünler hariç)
+  // Akıllı otomatik sipariş: Ürünler Listesi'ndeki TÜM ürünler taranır (Mal Kabul geçmişi olsun olmasın),
+  // stok + satış hızı birlikte değerlendirilir (kullanıcının kalıcı olarak çıkardığı ürünler hariç)
   const KRITIK_STOK_SINIRI = 2;
   React.useEffect(()=>{
-    const eksikler = Object.values(stokOzet).filter(u=>{
-      if(u.kalan<=KRITIK_STOK_SINIRI) return true; // Kritik stok: yoksay listesine bakılmaksızın MUTLAKA gösterilir
-      if(siparisYoksay.includes(u.barkod)) return false;
-      const oneri = siparisOnerisi(u.barkod, u.kalan);
+    const eksikler = URUN_DB.filter(u=>{
+      const kalan = stokOzet[u.b]?.kalan ?? 0; // hiç Mal Kabul edilmemişse stok 0 kabul edilir
+      if(kalan<=KRITIK_STOK_SINIRI) return true; // Kritik stok: yoksay listesine bakılmaksızın MUTLAKA gösterilir
+      if(siparisYoksay.includes(u.b)) return false;
+      const oneri = siparisOnerisi(u.b, kalan);
       return oneri.aciliyet==="acil" || oneri.aciliyet==="yakin";
     });
     setSiparisListesi(prev=>{
       const yeni = prev.filter(s=>!s.otomatik || s.mevcutStok<=KRITIK_STOK_SINIRI || !siparisYoksay.includes(s.barkod));
       eksikler.forEach(u=>{
-        if(!yeni.find(s=>s.barkod===u.barkod)){
-          const oneri = siparisOnerisi(u.barkod, u.kalan);
-          yeni.push({barkod:u.barkod, urunAd:u.urunAd, marka:u.marka, ml:u.ml||"", mevcutStok:u.kalan,
+        if(!yeni.find(s=>s.barkod===u.b)){
+          const kalan = stokOzet[u.b]?.kalan ?? 0;
+          const oneri = siparisOnerisi(u.b, kalan);
+          yeni.push({barkod:u.b, urunAd:u.a, marka:u.m, ml:u.ml||"", mevcutStok:kalan,
             siparisAdet:oneri.onerilenAdet>0?String(oneri.onerilenAdet):"", otomatik:true});
         }
       });
-      return yeni.map(s=>({...s, mevcutStok:stokOzet[s.barkod]?.kalan||0, ml:s.ml||stokOzet[s.barkod]?.ml||""}));
+      return yeni.map(s=>({...s, mevcutStok:stokOzet[s.barkod]?.kalan??0, ml:s.ml||stokOzet[s.barkod]?.ml||""}));
     });
   },[stokOzet, siparisYoksay]);
 
