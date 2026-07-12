@@ -2523,6 +2523,72 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     });
   },[siparisListesi, sipTedarikciTel, sipNot, sipHazirlayan, sipOnaylayan, sipSecilenTedarikci, sipYetkiliAd]);
 
+  // ── Kayıtlı Siparişler — bekletilen/kaydedilmiş siparişler (aktif taslaktan bağımsız kalıcı kayıtlar) ──
+  const [kayitliSiparisler, setKayitliSiparisler] = React.useState([]);
+  const [duzenlenenSiparisId, setDuzenlenenSiparisId] = React.useState(null); // hangi kayıtlı sipariş şu an düzenleniyor
+  React.useEffect(()=>{
+    if(!DB) return;
+    DB.from("ayarlar").select("deger").eq("id","kayitliSiparisler").maybeSingle()
+      .then(({data})=>{ if(data && Array.isArray(data.deger)) setKayitliSiparisler(data.deger); })
+      .catch(()=>{});
+  },[]);
+  const kayitliSiparislerYuklendiRef = React.useRef(false);
+  React.useEffect(()=>{
+    if(!kayitliSiparislerYuklendiRef.current){ kayitliSiparislerYuklendiRef.current = true; return; }
+    if(DB) dbUpsertAyar("kayitliSiparisler", kayitliSiparisler);
+  },[kayitliSiparisler]);
+
+  const siparisKaydet = () => {
+    const satirlar = gorunenListe.filter(s=>toN(s.siparisAdet)>0);
+    if(!satirlar.length){ showToast("Kaydedilecek ürün yok, adet girin","uy"); return; }
+    const toplamTutar = satirlar.reduce((t,s)=>{
+      const oz = stokOzet[s.barkod]||{};
+      const urunDb = URUN_DB.find(u=>u.b===s.barkod);
+      const birimF = toN(oz.birimF) || toN(urunDb?.bp) || 0;
+      return t + birimF*1.20*toN(s.siparisAdet);
+    },0);
+    const kayit = {
+      id: duzenlenenSiparisId || uid(),
+      tedarikci: sipSecilenTedarikci || "Belirtilmemiş",
+      tarih: duzenlenenSiparisId ? (kayitliSiparisler.find(k=>k.id===duzenlenenSiparisId)?.tarih || TODAY()) : TODAY(),
+      guncellemeTarihi: TODAY(),
+      liste: satirlar, tel: sipTedarikciTel, not: sipNot,
+      hazirlayan: sipHazirlayan, onaylayan: sipOnaylayan, yetkiliAd: sipYetkiliAd,
+      kalemSayisi: satirlar.length,
+      toplamAdet: satirlar.reduce((t,s)=>t+toN(s.siparisAdet),0),
+      toplamTutar
+    };
+    setKayitliSiparisler(p=>{
+      const varMi = p.some(k=>k.id===kayit.id);
+      return varMi ? p.map(k=>k.id===kayit.id?kayit:k) : [kayit,...p];
+    });
+    setDuzenlenenSiparisId(kayit.id);
+    showToast(duzenlenenSiparisId ? "Sipariş güncellendi ✓" : "Sipariş kaydedildi ✓");
+  };
+  const kayitliSiparisiDuzenle = (kayit) => {
+    setSipSecilenTedarikci(kayit.tedarikci==="Belirtilmemiş"?"":kayit.tedarikci);
+    setSiparisListesi(prev=>{
+      const yeni = [...prev];
+      kayit.liste.forEach(u=>{
+        const idx = yeni.findIndex(x=>x.barkod===u.barkod);
+        if(idx>=0) yeni[idx] = {...yeni[idx], siparisAdet:u.siparisAdet};
+        else yeni.push({...u, otomatik:false});
+      });
+      return yeni;
+    });
+    setSipTedarikciTel(kayit.tel||""); setSipNot(kayit.not||"");
+    setSipHazirlayan(kayit.hazirlayan||""); setSipOnaylayan(kayit.onaylayan||"");
+    setSipYetkiliAd(kayit.yetkiliAd||"");
+    setDuzenlenenSiparisId(kayit.id);
+    showToast("Sipariş düzenleme için yüklendi — değişiklik yapıp tekrar kaydet");
+  };
+  const kayitliSiparisiSil = (id) => {
+    if(!window.confirm("Bu kayıtlı sipariş silinsin mi?")) return;
+    setKayitliSiparisler(p=>p.filter(k=>k.id!==id));
+    if(duzenlenenSiparisId===id) setDuzenlenenSiparisId(null);
+    showToast("Kayıtlı sipariş silindi");
+  };
+
   // Seçilen tedarikçi Ayarlar/Tedarikçi Listesi'ndeki güncel telefon/yetkili bilgisiyle senkron kalsın
   React.useEffect(()=>{
     if(!sipSecilenTedarikci){ return; }
@@ -2690,6 +2756,38 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
       ),
       div({style:{flex:1,overflowY:"auto",padding:"14px"}},
       div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},"📋 Sipariş Listesi"),
+
+      // ── Kayıtlı Siparişler (bekletilen, henüz gönderilmemiş kaydedilmiş siparişler) ──
+      kayitliSiparisler.length>0&&div({style:{marginBottom:16}},
+        div({style:{fontSize:12,fontWeight:800,color:"var(--g)",marginBottom:8}},"💾 Kayıtlı Siparişler ("+kayitliSiparisler.length+")"),
+        div({style:{display:"flex",flexDirection:"column",gap:8}},
+          kayitliSiparisler.map(k=>
+            div({key:k.id,style:{background:"var(--bg2)",border:"1px solid "+(duzenlenenSiparisId===k.id?"rgba(37,99,168,.5)":"var(--br)"),
+              borderRadius:12,padding:"12px 14px"}},
+              div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}},
+                div({style:{flex:1,minWidth:0}},
+                  div({style:{fontSize:14,fontWeight:700,color:"var(--tx)"}},k.tedarikci),
+                  div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},"Oluşturulma: "+fmtT(k.tarih)+(k.guncellemeTarihi&&k.guncellemeTarihi!==k.tarih?" · Güncelleme: "+fmtT(k.guncellemeTarihi):""))
+                ),
+                duzenlenenSiparisId===k.id&&div({style:{fontSize:10,fontWeight:800,color:"var(--g)",background:"rgba(37,99,168,.12)",borderRadius:20,padding:"3px 9px",flexShrink:0}},"Düzenleniyor")
+              ),
+              div({style:{display:"flex",gap:14,flexWrap:"wrap",marginBottom:10}},
+                div(null,div({style:{fontSize:10,color:"var(--mu)"}},"KALEM"),div({style:{fontSize:13,fontWeight:700,color:"var(--tx)"}},k.kalemSayisi+" kalem")),
+                div(null,div({style:{fontSize:10,color:"var(--mu)"}},"ADET"),div({style:{fontSize:13,fontWeight:700,color:"var(--tx)"}},k.toplamAdet+" adet")),
+                div(null,div({style:{fontSize:10,color:"var(--mu)"}},"TOPLAM"),div({style:{fontSize:13,fontWeight:700,color:"var(--g)"}},fmt(k.toplamTutar)))
+              ),
+              div({style:{display:"flex",gap:8}},
+                btn({style:{flex:1,padding:"8px 0",borderRadius:8,border:"1px solid rgba(37,99,168,.35)",
+                  background:"rgba(37,99,168,.08)",color:"var(--g)",fontSize:12,fontWeight:700,cursor:"pointer"},
+                  onClick:()=>kayitliSiparisiDuzenle(k)},"✏ Düzenle"),
+                btn({style:{padding:"8px 14px",borderRadius:8,border:"1px solid rgba(192,80,80,.35)",
+                  background:"rgba(192,80,80,.08)",color:"#c05050",fontSize:12,fontWeight:700,cursor:"pointer"},
+                  onClick:()=>kayitliSiparisiSil(k.id)},"🗑 Sil")
+              )
+            )
+          )
+        )
+      ),
 
       // ── Müşteri Ön Siparişleri (peşin alındı, stok gelince teslim) ──
       (()=>{
@@ -2873,6 +2971,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
       // ── Sabit alt buton çubuğu (kaydırmaya gerek kalmadan her zaman görünür) ──
       gorunenListe.some(s=>toN(s.siparisAdet)>0)&&div({style:{background:"var(--bg2)",borderTop:"1px solid var(--br)",
         padding:"12px 14px",flexShrink:0,display:"flex",flexDirection:"column",gap:8}},
+        btn({style:{width:"100%",padding:"14px 0",borderRadius:11,
+          border:"1px solid #2563A8",background:"rgba(37,99,168,.08)",color:"var(--g)",fontSize:14,fontWeight:700,cursor:"pointer",
+          display:"flex",alignItems:"center",justifyContent:"center",gap:8},
+          onClick:siparisKaydet},duzenlenenSiparisId?"💾 Kayıtlı Siparişi Güncelle":"💾 Siparişi Kaydet (Beklet)"),
         btn({style:{width:"100%",padding:"14px 0",borderRadius:11,
           border:"1px solid #1F3D2C",background:"transparent",color:"#1F3D2C",fontSize:14,fontWeight:700,cursor:"pointer",
           display:"flex",alignItems:"center",justifyContent:"center",gap:8},
