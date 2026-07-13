@@ -11188,6 +11188,10 @@ function App() {
   // İK — İşten Çıkış İşlemleri: { [personelId]: [{id,cikisTarihi,sebep,ihbarSuresiHafta,sonBrutUcret,kidemTazminati,ihbarTazminati,not,belgeler:{...},tamamlandi,olusturma}] }
   const [cikisIslemleri, setCikisIslemleri] = useState({});
   const [ikCikisForm, setIkCikisForm] = useState(null); // aktif çıkış süreci taslağı
+  // İK — Bayram/Resmi Tatil Günleri: { [personelId]: [{id,tatilAdi,tarih,durum,not,olusturma}] }
+  // durum: "calisti" (genel tatil mesaisi) | "calismadi_izinden_dustu" (yıllık izinden mahsup) | "calismadi_ucretli" (ücretli tatil, izinden düşmez)
+  const [resmiTatilKayitlari, setResmiTatilKayitlari] = useState({});
+  const [ikYeniTatilKaydi, setIkYeniTatilKaydi] = useState(null);
   const [pGruplar, setPGruplar]       = useState([
     {id:"g1", ad:"Gelire Doğrudan Katkı Sağlayanlar"},
     {id:"g2", ad:"Destek Personeli"}
@@ -11554,6 +11558,7 @@ ayarlarRaw.forEach(a=>{ try {
   if(a.id==="ozlukDosyalari" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setOzlukDosyalari(a.deger); // Bulut tek doğru kaynak
   if(a.id==="izinKayitlari" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setIzinKayitlari(a.deger); // Bulut tek doğru kaynak
   if(a.id==="cikisIslemleri" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setCikisIslemleri(a.deger); // Bulut tek doğru kaynak
+  if(a.id==="resmiTatilKayitlari" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setResmiTatilKayitlari(a.deger); // Bulut tek doğru kaynak
 } catch(eAyar){} });
         const [k,m,d] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
@@ -11775,11 +11780,13 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("ozlukDosyalari",ozlukDosyalari); },[ozlukDosyalari]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("izinKayitlari",izinKayitlari); },[izinKayitlari]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("cikisIslemleri",cikisIslemleri); },[cikisIslemleri]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("resmiTatilKayitlari",resmiTatilKayitlari); },[resmiTatilKayitlari]);
   useEffect(()=>{
-    if(panelAdim!=="insanKaynaklari" || (panelAltSek!=="ozluk" && panelAltSek!=="cikis")){
-      setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null);
-    } else if(panelAltSek!=="cikis"){
-      setIkCikisForm(null);
+    if(panelAdim!=="insanKaynaklari" || (panelAltSek!=="ozluk" && panelAltSek!=="cikis" && panelAltSek!=="tatil")){
+      setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null); setIkYeniTatilKaydi(null);
+    } else {
+      if(panelAltSek!=="cikis") setIkCikisForm(null);
+      if(panelAltSek!=="tatil") setIkYeniTatilKaydi(null);
     }
   },[panelAdim,panelAltSek]);
 
@@ -13354,7 +13361,9 @@ if(DB) dbUpsertAyar("tema",tema);
     else if(kidemYil>5) yillikHak = 20;
     else if(kidemYil>=1) yillikHak = 14;
     const kayitlar = izinKayitlari[p.id]||[];
-    const kullanilan = kayitlar.filter(k=>k.durum!=="iptal").reduce((s,k)=>s+toN(k.gunSayisi),0);
+    const izinGunleri = kayitlar.filter(k=>k.durum!=="iptal").reduce((s,k)=>s+toN(k.gunSayisi),0);
+    const tatilIzinGunleri = (resmiTatilKayitlari[p.id]||[]).filter(k=>k.durum==="calismadi_izinden_dustu").length;
+    const kullanilan = izinGunleri + tatilIzinGunleri;
     return {kidemYil, kidemHakEtti:kidemYil>=1, yillikHak, kullanilan, kalan:Math.max(0,yillikHak-kullanilan)};
   };
 
@@ -13523,6 +13532,70 @@ if(DB) dbUpsertAyar("tema",tema);
     return false;
   };
 
+  // Resmi/Dini Bayram Takvimi 2026-2027 (Diyanet/Resmi Gazete kaynaklı, arife günleri öğleden sonra yarım gün)
+  const IK_RESMI_TATILLER = [
+    {ad:"Yılbaşı",tarih:"2026-01-01"},
+    {ad:"Ramazan Bayramı Arifesi",tarih:"2026-03-19"},
+    {ad:"Ramazan Bayramı 1. Gün",tarih:"2026-03-20"},
+    {ad:"Ramazan Bayramı 2. Gün",tarih:"2026-03-21"},
+    {ad:"Ramazan Bayramı 3. Gün",tarih:"2026-03-22"},
+    {ad:"Ulusal Egemenlik ve Çocuk Bayramı",tarih:"2026-04-23"},
+    {ad:"Emek ve Dayanışma Günü",tarih:"2026-05-01"},
+    {ad:"Atatürk'ü Anma, Gençlik ve Spor Bayramı",tarih:"2026-05-19"},
+    {ad:"Kurban Bayramı Arifesi",tarih:"2026-05-26"},
+    {ad:"Kurban Bayramı 1. Gün",tarih:"2026-05-27"},
+    {ad:"Kurban Bayramı 2. Gün",tarih:"2026-05-28"},
+    {ad:"Kurban Bayramı 3. Gün",tarih:"2026-05-29"},
+    {ad:"Kurban Bayramı 4. Gün",tarih:"2026-05-30"},
+    {ad:"Demokrasi ve Millî Birlik Günü",tarih:"2026-07-15"},
+    {ad:"Zafer Bayramı",tarih:"2026-08-30"},
+    {ad:"Cumhuriyet Bayramı Arifesi",tarih:"2026-10-28"},
+    {ad:"Cumhuriyet Bayramı",tarih:"2026-10-29"},
+    {ad:"Yılbaşı",tarih:"2027-01-01"},
+    {ad:"Ramazan Bayramı Arifesi",tarih:"2027-03-08"},
+    {ad:"Ramazan Bayramı 1. Gün",tarih:"2027-03-09"},
+    {ad:"Ramazan Bayramı 2. Gün",tarih:"2027-03-10"},
+    {ad:"Ramazan Bayramı 3. Gün",tarih:"2027-03-11"},
+    {ad:"Ulusal Egemenlik ve Çocuk Bayramı",tarih:"2027-04-23"},
+    {ad:"Emek ve Dayanışma Günü",tarih:"2027-05-01"},
+    {ad:"Kurban Bayramı Arifesi",tarih:"2027-05-15"},
+    {ad:"Kurban Bayramı 1. Gün",tarih:"2027-05-16"},
+    {ad:"Kurban Bayramı 2. Gün",tarih:"2027-05-17"},
+    {ad:"Kurban Bayramı 3. Gün",tarih:"2027-05-18"},
+    {ad:"Kurban Bayramı 4. Gün / Atatürk'ü Anma, Gençlik ve Spor Bayramı",tarih:"2027-05-19"},
+    {ad:"Demokrasi ve Millî Birlik Günü",tarih:"2027-07-15"},
+    {ad:"Zafer Bayramı",tarih:"2027-08-30"},
+    {ad:"Cumhuriyet Bayramı Arifesi",tarih:"2027-10-28"},
+    {ad:"Cumhuriyet Bayramı",tarih:"2027-10-29"},
+  ];
+
+  const tatilBelgesiPdfOlustur = (p, kayit) => {
+    const belgeNo = "TTL-"+String(kayit.id||Date.now()).slice(-8);
+    if(kayit.durum==="calisti"){
+      const icerik =
+        "<p><strong>"+p.ad+"</strong>, "+fmtT(kayit.tarih)+" tarihli <strong>"+kayit.tatilAdi+"</strong> resmi/dini bayram gününde "+(isletme.ad||"işyerimiz")+" bünyesinde fiilen çalışmıştır.</p>"
+        +"<p>4857 sayılı İş Kanunu'nun 47. maddesi uyarınca, genel tatil günlerinde çalışılması halinde personele bu günün ücretine ek olarak bir günlük ücret daha ödenir veya karşılıklı mutabakatla başka bir gün izin olarak kullandırılır.</p>"
+        +(kayit.not?"<p><strong>Not:</strong> "+kayit.not+"</p>":"")
+        +"<p>Çalışan, bu tarihte fiilen çalıştığını ve karşılığının yukarıdaki esaslara göre tarafına ödeneceğini/kullandırılacağını kabul eder.</p>";
+      return _cikisBelgeSarmalaAc("GENEL TATİL ÇALIŞMA ONAY BELGESİ", belgeNo, icerik, "Çalışan İmzası", "Onaylayan (İşveren/Yönetici)");
+    }
+    if(kayit.durum==="calismadi_izinden_dustu"){
+      const icerik =
+        "<p><strong>"+p.ad+"</strong>, "+fmtT(kayit.tarih)+" tarihli <strong>"+kayit.tatilAdi+"</strong> gününde çalışmamış olup, bu gün karşılıklı mutabakat ile personelin yıllık ücretli izin hakkından 1 (bir) gün olarak mahsup edilmiştir.</p>"
+        +(kayit.not?"<p><strong>Not:</strong> "+kayit.not+"</p>":"")
+        +"<p>Çalışan, söz konusu günün yıllık izin hakkından düşüldüğünü kabul ve beyan eder.</p>";
+      return _cikisBelgeSarmalaAc("İZİN KULLANIM BELGESİ (BAYRAM/RESMİ TATİL)", belgeNo, icerik, "Çalışan İmzası", "Onaylayan (İşveren/Yönetici)");
+    }
+    // calismadi_ucretli
+    const icerik =
+      "<p><strong>"+p.ad+"</strong>, "+fmtT(kayit.tarih)+" tarihli <strong>"+kayit.tatilAdi+"</strong> gününde çalışmamıştır.</p>"
+      +"<p>Bu gün, 2429 sayılı Ulusal Bayram ve Genel Tatiller Hakkında Kanun kapsamında ücretli resmi/dini tatil günü olup, personelin yıllık ücretli izin hakkından herhangi bir kesinti yapılmamıştır.</p>"
+      +(kayit.not?"<p><strong>Not:</strong> "+kayit.not+"</p>":"")
+      +"<p>İş bu belge bilgilendirme amacıyla düzenlenmiştir.</p>";
+    return _cikisBelgeSarmalaAc("ÜCRETLİ TATİL BELGESİ (BAYRAM/RESMİ TATİL)", belgeNo, icerik, "Çalışan İmzası", "Onaylayan (İşveren/Yönetici)");
+  };
+
+
   const yonBildirimOkundu = (id) => {
     if(!DB) return;
     DB.from("yon_bildirim_merkezi").update({okundu:true}).eq("id",id).then(()=>{
@@ -13685,6 +13758,9 @@ if(DB) dbUpsertAyar("tema",tema);
         if(ikDetayPersonel){ const p=personeller.find(x=>x.id===ikDetayPersonel); if(p) segs.push({label:p.ad}); }
       } else if(panelAltSek==="cikis"){
         segs.push({label:"İşten Çıkış İşlemleri"});
+        if(ikDetayPersonel){ const p=personeller.find(x=>x.id===ikDetayPersonel); if(p) segs.push({label:p.ad}); }
+      } else if(panelAltSek==="tatil"){
+        segs.push({label:"Bayram / Resmi Tatil Günleri"});
         if(ikDetayPersonel){ const p=personeller.find(x=>x.id===ikDetayPersonel); if(p) segs.push({label:p.ad}); }
       }
       return segs;
@@ -16674,7 +16750,7 @@ if(DB) dbUpsertAyar("tema",tema);
                 setGuncelSifre(""); setYeniSifre1(""); setYeniSifre2(""); setSifreDurum(""); setSifreHata(""); }
               else { setAsek(""); setPanelAdim("ayarlar"); setPanelAltSek(""); }
             } else if(panelAdim==="insanKaynaklari" && ikDetayPersonel){
-              setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null);
+              setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null); setIkYeniTatilKaydi(null);
             } else if(panelAltSek){
               setPanelAltSek("");
             } else if(panelAdim!=="ana"){
@@ -16986,6 +17062,7 @@ if(DB) dbUpsertAyar("tema",tema);
         panelAdim==="insanKaynaklari"&&!panelAltSek&&!asek&&div({style:{padding:"8px 14px"}},
           [
             ["rgba(200,150,0,.13)","🪪","Özlük Dosyası","ozluk"],
+            ["rgba(0,130,120,.13)","🎉","Bayram / Resmi Tatil Günleri","tatil"],
             ["rgba(200,60,60,.13)","🚪","İşten Çıkış İşlemleri","cikis"],
           ].map(([bg,ikon,lb,altSek],i)=>
             div({key:i,onClick:()=>setPanelAltSek(altSek),style:{
@@ -17419,6 +17496,135 @@ if(DB) dbUpsertAyar("tema",tema);
                 width:"100%",background:"var(--re)",color:"#fff",border:"none",borderRadius:12,padding:"13px 0",fontSize:14,fontWeight:700,cursor:"pointer"
               }},"✓ Süreci Tamamla ve Personeli Pasife Al")
             )
+          );
+        })(),
+
+        // ── Bayram/Resmi Tatil Günleri: Personel Seçim Listesi ──
+        panelAdim==="insanKaynaklari"&&panelAltSek==="tatil"&&!asek&&!ikDetayPersonel&&div({style:{padding:"12px 14px 8px"}},
+          (personeller||[]).filter(p=>p.aktif).map(p=>{
+            const kayitlar = resmiTatilKayitlari[p.id]||[];
+            return div({key:p.id,onClick:()=>setIkDetayPersonel(p.id),style:{
+              display:"flex",alignItems:"center",gap:14,
+              background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderLeft:"4px solid rgba(0,130,120,.5)",
+              borderRadius:14,padding:"13px 16px",marginBottom:9,
+              cursor:"pointer",boxShadow:"0 1px 6px rgba(0,0,0,.05)"
+            }},
+              div({style:{
+                width:48,height:48,borderRadius:14,background:"rgba(0,130,120,.13)",
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0
+              }},"👤"),
+              div({style:{flex:1}},
+                div({style:{fontSize:15,fontWeight:600,color:"#1D1D1F"}},p.ad),
+                div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},(p.pozisyon||"Personel")+" · "+kayitlar.length+" kayıt")
+              ),
+              span({style:{fontSize:20,color:"#c0c0c5",flexShrink:0}},"›")
+            );
+          }),
+          (personeller||[]).filter(p=>p.aktif).length===0 && div({style:{fontSize:13,color:"var(--mu)",textAlign:"center",padding:20}},"Aktif personel bulunamadı.")
+        ),
+
+        // ── Bayram/Resmi Tatil Günleri: Personel Detay ──
+        panelAdim==="insanKaynaklari"&&panelAltSek==="tatil"&&!asek&&ikDetayPersonel&&(()=>{
+          const p = (personeller||[]).find(x=>x.id===ikDetayPersonel);
+          if(!p) return null;
+          const kayitlar = resmiTatilKayitlari[p.id]||[];
+          const bugun = TODAY();
+          const DURUM_TANIM = {
+            calisti:{lb:"Çalıştı (Genel Tatil Mesaisi)",renk:"#0071E3"},
+            calismadi_izinden_dustu:{lb:"Çalışmadı — İzinden Düşüldü",renk:"#c25e00"},
+            calismadi_ucretli:{lb:"Çalışmadı — Ücretli Tatil",renk:"#248A3D"}
+          };
+          const kayitEkle = () => {
+            if(!ikYeniTatilKaydi || !ikYeniTatilKaydi.tatilAdi || !ikYeniTatilKaydi.tarih || !ikYeniTatilKaydi.durum) return;
+            const yeni = {
+              id: uid(), tatilAdi: ikYeniTatilKaydi.tatilAdi, tarih: ikYeniTatilKaydi.tarih,
+              durum: ikYeniTatilKaydi.durum, not: ikYeniTatilKaydi.not||"", olusturma: bugun
+            };
+            setResmiTatilKayitlari(prev=>({...prev, [p.id]: [...(prev[p.id]||[]), yeni]}));
+            setIkYeniTatilKaydi(null);
+          };
+          const kayitSil = (kid) => {
+            if(!confirm("Bu kaydı silmek istediğinize emin misiniz?")) return;
+            setResmiTatilKayitlari(prev=>({...prev, [p.id]: (prev[p.id]||[]).filter(k=>k.id!==kid)}));
+          };
+          return div({style:{padding:"12px 14px 24px"}},
+            div({style:{display:"flex",alignItems:"center",gap:12,marginBottom:16,background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"13px 16px"}},
+              div({style:{width:48,height:48,borderRadius:14,background:"rgba(0,130,120,.13)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}},"👤"),
+              div(null,
+                div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F"}},p.ad),
+                div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},p.pozisyon||"Personel")
+              )
+            ),
+            // Yeni kayıt ekleme kartı
+            div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"14px 16px",marginBottom:16}},
+              div({style:{fontSize:12,color:"#008278",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10,fontWeight:700}},"➕ Yeni Bayram/Tatil Kaydı"),
+              !ikYeniTatilKaydi && btn({onClick:()=>setIkYeniTatilKaydi({tatilAdi:"",tarih:"",durum:"calismadi_ucretli",not:""}),style:{
+                background:"rgba(0,130,120,.10)",border:"1px solid rgba(0,130,120,.25)",
+                borderRadius:10,padding:"9px 14px",fontSize:13,color:"#008278",cursor:"pointer",fontWeight:600
+              }},"➕ Kayıt Ekle"),
+              ikYeniTatilKaydi && div(null,
+                div({style:{marginBottom:10}},
+                  lbl({className:"fl"},"Bayram/Resmi Tatil Seçin"),
+                  sel({className:"fi",value:ikYeniTatilKaydi.tatilAdi+"|"+ikYeniTatilKaydi.tarih,onChange:e=>{
+                    const v = e.target.value;
+                    if(v==="ozel|"){ setIkYeniTatilKaydi(p2=>({...p2,tatilAdi:"",tarih:""})); return; }
+                    const [ad,tarih] = v.split("|");
+                    setIkYeniTatilKaydi(p2=>({...p2,tatilAdi:ad,tarih:tarih}));
+                  }},
+                    opt("|","— Seçin —"),
+                    IK_RESMI_TATILLER.map(t=>opt(t.ad+"|"+t.tarih, t.ad+" ("+fmtT(t.tarih)+")")),
+                    opt("ozel|","Diğer / Özel Tarih Girin")
+                  )
+                ),
+                (!IK_RESMI_TATILLER.some(t=>t.ad===ikYeniTatilKaydi.tatilAdi&&t.tarih===ikYeniTatilKaydi.tarih)) && div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                  div(null,lbl({className:"fl"},"Tatil Adı"),inp({className:"fi",placeholder:"Örn. Yerel Bayram",value:ikYeniTatilKaydi.tatilAdi,onChange:e=>setIkYeniTatilKaydi(p2=>({...p2,tatilAdi:e.target.value}))})),
+                  div(null,lbl({className:"fl"},"Tarih"),inp({className:"fi",type:"date",value:ikYeniTatilKaydi.tarih,onChange:e=>setIkYeniTatilKaydi(p2=>({...p2,tarih:e.target.value}))}))
+                ),
+                div({style:{marginBottom:10}},
+                  lbl({className:"fl"},"Durum"),
+                  sel({className:"fi",value:ikYeniTatilKaydi.durum,onChange:e=>setIkYeniTatilKaydi(p2=>({...p2,durum:e.target.value}))},
+                    opt("calismadi_ucretli","Çalışmadı — Ücretli Tatil (izinden düşmez)"),
+                    opt("calismadi_izinden_dustu","Çalışmadı — Yıllık İzinden Düşüldü"),
+                    opt("calisti","Çalıştı — Genel Tatil Mesaisi")
+                  )
+                ),
+                div({style:{marginBottom:10}},
+                  lbl({className:"fl"},"Not (isteğe bağlı)"),
+                  inp({className:"fi",placeholder:"Not ekleyin...",value:ikYeniTatilKaydi.not,onChange:e=>setIkYeniTatilKaydi(p2=>({...p2,not:e.target.value}))})
+                ),
+                div({style:{display:"flex",gap:8}},
+                  btn({onClick:kayitEkle,style:{flex:1,background:"#008278",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontSize:14,fontWeight:700,cursor:"pointer"}},"Kaydet"),
+                  btn({onClick:()=>setIkYeniTatilKaydi(null),style:{background:"rgba(0,0,0,.06)",border:"none",borderRadius:10,padding:"10px 16px",fontSize:14,cursor:"pointer",color:"var(--di)"}},"İptal")
+                )
+              )
+            ),
+            // Kayıt listesi
+            div({style:{fontSize:12,color:"var(--mu)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10,fontWeight:700}},"📋 Kayıtlar ("+kayitlar.length+")"),
+            kayitlar.length===0 && div({style:{fontSize:13,color:"var(--mu)",textAlign:"center",padding:20,background:"#fff",borderRadius:14,border:"1px solid rgba(0,0,0,.07)"}},"Henüz kayıt eklenmedi."),
+            kayitlar.slice().sort((a,b)=>b.tarih.localeCompare(a.tarih)).map(k=>{
+              const d = DURUM_TANIM[k.durum]||{lb:k.durum,renk:"#888"};
+              return div({key:k.id,style:{
+                background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderLeft:"4px solid "+d.renk,
+                borderRadius:14,padding:"13px 16px",marginBottom:9
+              }},
+                div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}},
+                  div({style:{flex:1}},
+                    div({style:{fontSize:14,fontWeight:600,color:"#1D1D1F"}},k.tatilAdi),
+                    div({style:{fontSize:12,color:"var(--mu)",marginTop:3}},fmtT(k.tarih)),
+                    k.not && div({style:{fontSize:12,color:"var(--di)",marginTop:3}},k.not),
+                    span({style:{display:"inline-block",marginTop:6,fontSize:11,fontWeight:700,color:d.renk,background:d.renk+"1A",padding:"2px 8px",borderRadius:8}},d.lb)
+                  ),
+                  div({style:{display:"flex",gap:6,flexShrink:0}},
+                    btn({onClick:()=>tatilBelgesiPdfOlustur(p,k),title:"Belge Oluştur",style:{
+                      background:"rgba(0,113,227,.10)",border:"1px solid rgba(0,113,227,.3)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:13
+                    }},"📄"),
+                    btn({onClick:()=>kayitSil(k.id),title:"Sil",style:{
+                      background:"rgba(255,59,48,.08)",border:"1px solid rgba(255,59,48,.25)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:13
+                    }},"🗑️")
+                  )
+                )
+              );
+            })
           );
         })(),
 
