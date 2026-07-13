@@ -11171,6 +11171,8 @@ function App() {
   const [avanslar, setAvanslar]           = useState([]); // [{id,staffId,staffAd,tutar,tarih,notlar,durum,odendi}]
   const [oduncler, setOduncler]           = useState([]); // [{id,komsuId,komsuAd,barkod,urunAd,miktar,tarih,notlar,geriAlindi,geriAlindiTarih}]
   const [komsular, setKomsular]           = useState([]); // [{id,ad,tel,adres}] // [{id,musteriAd,tel,staffId,tarih,gonderiTarih,gonderildi,tip}]
+  // İnsan Kaynakları — Özlük Dosyası: { [personelId]: [{id,tur,baslik,tarih,hatirlatmaTarihi,durum,not,olusturma}] }
+  const [ozlukDosyalari, setOzlukDosyalari] = useState({});
   const [kullanimlar, setKullanimlar]     = useState([]); // işyeri kullanımı [{id,barkod,urunAd,marka,miktar,tarih,notlar}]
   const [hatYaklasanAcik, setHatYaklasanAcik] = useState(false); // Müşterilerim özetinde "Yaklaşan" listesini aç/kapat
   const [donusKonum, setDonusKonum] = useState(null); // personel paneline geçince geldiğimiz yer (dönüşte buraya döneriz)
@@ -11178,6 +11180,14 @@ function App() {
   const [hatDuzenle, setHatDuzenle] = useState(null); // düzenlenen hatırlatma {id,gonderiTarih,mesaj}
   const [stokSek, setStokSek]         = useState("liste"); // liste|giris|hareketler
   const [pDetay, setPDetay]           = useState(null);
+  const [ikDetayPersonel, setIkDetayPersonel] = useState(null); // İK > Özlük Dosyası: seçili personel id
+  const [ikYeniKayit, setIkYeniKayit] = useState(null); // {tur,baslik,tarih,hatirlatmaTarihi,not} — yeni özlük kaydı formu
+  // İK — Yıllık İzin: { [personelId]: [{id,baslangic,bitis,gunSayisi,not,durum,imzalandi,olusturma}] }
+  const [izinKayitlari, setIzinKayitlari] = useState({});
+  const [ikYeniIzin, setIkYeniIzin] = useState(null); // {baslangic,bitis,not} — yeni izin kaydı formu
+  // İK — İşten Çıkış İşlemleri: { [personelId]: [{id,cikisTarihi,sebep,ihbarSuresiHafta,sonBrutUcret,kidemTazminati,ihbarTazminati,not,belgeler:{...},tamamlandi,olusturma}] }
+  const [cikisIslemleri, setCikisIslemleri] = useState({});
+  const [ikCikisForm, setIkCikisForm] = useState(null); // aktif çıkış süreci taslağı
   const [pGruplar, setPGruplar]       = useState([
     {id:"g1", ad:"Gelire Doğrudan Katkı Sağlayanlar"},
     {id:"g2", ad:"Destek Personeli"}
@@ -11541,6 +11551,9 @@ ayarlarRaw.forEach(a=>{ try {
   if(a.id==="oduncler" && Array.isArray(a.deger)) setOduncler(prev=>birlestirListe(prev,a.deger));
   if(a.id==="komsular" && Array.isArray(a.deger)) setKomsular(prev=>birlestirListe(prev,a.deger));
   if(a.id==="kullanimlar" && Array.isArray(a.deger)) setKullanimlar(prev=>birlestirListe(prev,a.deger));
+  if(a.id==="ozlukDosyalari" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setOzlukDosyalari(a.deger); // Bulut tek doğru kaynak
+  if(a.id==="izinKayitlari" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setIzinKayitlari(a.deger); // Bulut tek doğru kaynak
+  if(a.id==="cikisIslemleri" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setCikisIslemleri(a.deger); // Bulut tek doğru kaynak
 } catch(eAyar){} });
         const [k,m,d] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
@@ -11759,6 +11772,16 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("oduncler",oduncler); },[oduncler]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("komsular",komsular); },[komsular]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("kullanimlar",kullanimlar); },[kullanimlar]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("ozlukDosyalari",ozlukDosyalari); },[ozlukDosyalari]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("izinKayitlari",izinKayitlari); },[izinKayitlari]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("cikisIslemleri",cikisIslemleri); },[cikisIslemleri]);
+  useEffect(()=>{
+    if(panelAdim!=="insanKaynaklari" || (panelAltSek!=="ozluk" && panelAltSek!=="cikis")){
+      setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null);
+    } else if(panelAltSek!=="cikis"){
+      setIkCikisForm(null);
+    }
+  },[panelAdim,panelAltSek]);
 
 
 
@@ -13301,6 +13324,205 @@ if(DB) dbUpsertAyar("tema",tema);
     }).catch(()=>{ skEkle({op:"insert", t:"yon_bildirim_merkezi", r:yeni}); });
   };
 
+  // İK — Özlük Dosyası hatırlatmaları: süresi 7 gün içinde dolan/dolmuş, tamamlanmamış kayıtlar bildirim merkezine düşer.
+  // yonBildirimEkle kendi içinde tip+ekstra bazlı tekrar engelleme yapıyor, bu yüzden burada ayrı bir "gönderildi" takibi gerekmiyor.
+  useEffect(()=>{
+    if(yukleniyor||!DB) return;
+    const bugun = TODAY();
+    const esikTarih = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+    Object.entries(ozlukDosyalari||{}).forEach(([pid,liste])=>{
+      const p = (personeller||[]).find(x=>x.id===pid);
+      if(!p) return;
+      (liste||[]).forEach(k=>{
+        if(k.durum==="tamamlandi" || !k.hatirlatmaTarihi) return;
+        if(k.hatirlatmaTarihi<=esikTarih){
+          const gecikmis = k.hatirlatmaTarihi<bugun;
+          yonBildirimEkle("ozlukHatirlatma", p.ad+" — "+k.baslik, (gecikmis?"Süresi geçti: ":"Yaklaşıyor: ")+k.baslik+" ("+fmtT(k.hatirlatmaTarihi)+")", {kayitId:k.id, personelId:pid});
+        }
+      });
+    });
+  },[ozlukDosyalari, personeller, yukleniyor]);
+
+  // İK — Yıllık İzin: kıdeme göre yasal izin hakkı (İş Kanunu md.53 kademeleri)
+  // 1 yıldan az: henüz hak yok · 1-5 yıl (5 dahil): 14 gün · 5-15 yıl arası: 20 gün · 15 yıl ve üzeri: 26 gün
+  const izinHakkiHesapla = (p) => {
+    if(!p || !p.isBaslama) return {kidemYil:0, kidemHakEtti:false, yillikHak:0, kullanilan:0, kalan:0};
+    const gecenGun = (Date.now() - new Date(p.isBaslama).getTime()) / 86400000;
+    const kidemYil = gecenGun / 365.25;
+    let yillikHak = 0;
+    if(kidemYil>=15) yillikHak = 26;
+    else if(kidemYil>5) yillikHak = 20;
+    else if(kidemYil>=1) yillikHak = 14;
+    const kayitlar = izinKayitlari[p.id]||[];
+    const kullanilan = kayitlar.filter(k=>k.durum!=="iptal").reduce((s,k)=>s+toN(k.gunSayisi),0);
+    return {kidemYil, kidemHakEtti:kidemYil>=1, yillikHak, kullanilan, kalan:Math.max(0,yillikHak-kullanilan)};
+  };
+
+  // İzin Talep ve Onay Formu — sipariş PDF'i ile aynı görsel dilde, yeni sekmede açılır
+  const izinPdfOlustur = (p, izinKaydi) => {
+    const hak = izinHakkiHesapla(p);
+    const bugun = new Date().toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric"});
+    const html = "<!DOCTYPE html><html lang=\"tr\"><head><meta charset=\"UTF-8\"><title>Yıllık İzin Formu</title><style>"
+      +"*{box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;margin:0;padding:44px;color:#1a1a1a;background:#fff}"
+      +".header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1F3D2C;padding-bottom:20px;margin-bottom:26px}"
+      +".logo{max-height:70px;max-width:220px;object-fit:contain}"
+      +".baslik{text-align:right}.baslik h1{margin:0;font-size:24px;color:#1F3D2C;letter-spacing:1.5px;font-weight:800}"
+      +".baslik .tarih{color:#777;font-size:13px;margin-top:5px}"
+      +".firma{font-size:12px;color:#666;margin-top:6px;line-height:1.5}"
+      +".meta{display:grid;grid-template-columns:1fr 1fr;gap:14px 24px;margin-bottom:22px;font-size:13px;background:#f7f8f7;border-radius:10px;padding:16px 18px}"
+      +".meta .label{color:#8a8a8a;text-transform:uppercase;font-size:10.5px;letter-spacing:.6px;margin-bottom:4px;font-weight:600}"
+      +".meta .val{font-weight:600;color:#222}"
+      +".ozet{display:flex;gap:0;margin-bottom:24px;border:1px solid #eee;border-radius:10px;overflow:hidden}"
+      +".ozet div{flex:1;text-align:center;padding:14px 6px;border-right:1px solid #eee}.ozet div:last-child{border-right:none}"
+      +".ozet .n{font-size:22px;font-weight:800;color:#1F3D2C}.ozet .l{font-size:10.5px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.5px;margin-top:3px}"
+      +".beyan{margin-top:8px;padding:16px 18px;background:#f7f8f7;border-left:3px solid #1F3D2C;border-radius:6px;font-size:13.5px;color:#333;line-height:1.7}"
+      +".footer{margin-top:64px;display:flex;justify-content:space-between;font-size:12px;color:#999}"
+      +".imza{text-align:center;width:220px}.imza .cizgi{border-top:1px solid #ccc;margin-top:50px;padding-top:7px}"
+      +"@media print{body{padding:18px}.noprint{display:none}}"
+      +"</style></head><body>"
+      +"<div class=\"header\">"
+      +"<div><img class=\"logo\" src=\""+AKTIF_LOGO+"\">"
+      +"<div class=\"firma\">"+(isletme.ad||"")+(isletme.tel?" · "+isletme.tel:"")+(isletme.adres?"<br>"+isletme.adres:"")+"</div></div>"
+      +"<div class=\"baslik\"><h1>YILLIK ÜCRETLİ İZİN<br>TALEP VE ONAY FORMU</h1><div class=\"tarih\">"+bugun+"</div></div>"
+      +"</div>"
+      +"<div class=\"meta\">"
+      +"<div><div class=\"label\">Personel Adı Soyadı</div><div class=\"val\">"+(p.ad||"—")+"</div></div>"
+      +"<div><div class=\"label\">Pozisyon</div><div class=\"val\">"+(p.pozisyon||"—")+"</div></div>"
+      +"<div><div class=\"label\">TC Kimlik No</div><div class=\"val\">"+(p.tcNo||"—")+"</div></div>"
+      +"<div><div class=\"label\">İşe Başlama Tarihi</div><div class=\"val\">"+(p.isBaslama?fmtT(p.isBaslama):"—")+"</div></div>"
+      +"<div><div class=\"label\">İzin Başlangıç Tarihi</div><div class=\"val\">"+fmtT(izinKaydi.baslangic)+"</div></div>"
+      +"<div><div class=\"label\">İzin Bitiş Tarihi</div><div class=\"val\">"+fmtT(izinKaydi.bitis)+"</div></div>"
+      +"<div><div class=\"label\">Göreve Başlayış Tarihi</div><div class=\"val\">"+fmtT(izinKaydi.donusTarihi||izinKaydi.bitis)+"</div></div>"
+      +"<div><div class=\"label\">Belge No</div><div class=\"val\">IZN-"+String(izinKaydi.id||Date.now()).slice(-8)+"</div></div>"
+      +"</div>"
+      +"<div class=\"ozet\">"
+      +"<div><div class=\"n\">"+hak.yillikHak+"</div><div class=\"l\">Yıllık İzin Hakkı</div></div>"
+      +"<div><div class=\"n\">"+izinKaydi.gunSayisi+"</div><div class=\"l\">Bu Talepteki Gün</div></div>"
+      +"<div><div class=\"n\">"+hak.kullanilan+"</div><div class=\"l\">Toplam Kullanılan</div></div>"
+      +"<div><div class=\"n\">"+hak.kalan+"</div><div class=\"l\">Kalan İzin Hakkı</div></div>"
+      +"</div>"
+      +"<div class=\"beyan\">Yukarıda belirtilen tarihler arasında <strong>"+izinKaydi.gunSayisi+" gün</strong> yıllık ücretli iznimi kullanmak istiyorum. Belirtilen bilgilerin doğruluğunu beyan ederim."
+      +(izinKaydi.not?"<br><br><strong>Not:</strong> "+izinKaydi.not:"")+"</div>"
+      +"<div class=\"footer\"><div class=\"imza\"><div class=\"cizgi\">Çalışan İmzası</div></div>"
+      +"<div class=\"imza\"><div class=\"cizgi\">Onaylayan (İşveren/Yönetici)</div></div></div>"
+      +"<div class=\"noprint\" style=\"text-align:center;margin-top:34px\">"
+      +"<button onclick=\"window.print()\" style=\"padding:13px 30px;border-radius:11px;border:none;background:#1F3D2C;color:#fff;font-size:14px;font-weight:700;cursor:pointer\">🖨️ Yazdır / PDF Olarak Kaydet</button>"
+      +"</div></body></html>";
+    const win = window.open("", "_blank");
+    if(win){ win.document.write(html); win.document.close(); return true; }
+    showToast("Açılır pencere engellendi, tarayıcı ayarlarını kontrol edin","uy");
+    return false;
+  };
+
+  // İşten Çıkış — ortak belge kabuğu (header/footer/imza/print aynı görsel dilde)
+  const _cikisBelgeSarmalaAc = (baslikUst, belgeNo, icerikHtml, imzaSolLb, imzaSagLb) => {
+    const bugun = new Date().toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric"});
+    const html = "<!DOCTYPE html><html lang=\"tr\"><head><meta charset=\"UTF-8\"><title>"+baslikUst+"</title><style>"
+      +"*{box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;margin:0;padding:44px;color:#1a1a1a;background:#fff}"
+      +".header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1F3D2C;padding-bottom:20px;margin-bottom:26px}"
+      +".logo{max-height:70px;max-width:220px;object-fit:contain}"
+      +".baslik{text-align:right}.baslik h1{margin:0;font-size:22px;color:#1F3D2C;letter-spacing:1.2px;font-weight:800}"
+      +".baslik .tarih{color:#777;font-size:13px;margin-top:5px}"
+      +".firma{font-size:12px;color:#666;margin-top:6px;line-height:1.5}"
+      +".govde{font-size:13.5px;color:#2a2a2a;line-height:1.85;text-align:justify}"
+      +".govde p{margin:0 0 14px}"
+      +".footer{margin-top:64px;display:flex;justify-content:space-between;font-size:12px;color:#999}"
+      +".imza{text-align:center;width:220px}.imza .cizgi{border-top:1px solid #ccc;margin-top:50px;padding-top:7px}"
+      +"table.hesap{width:100%;border-collapse:collapse;margin:16px 0}"
+      +"table.hesap td{padding:9px 10px;border-bottom:1px solid #eee;font-size:13px}"
+      +"table.hesap .lb{color:#8a8a8a}.table.hesap .val{text-align:right;font-weight:600}"
+      +"table.hesap tr.grand td{border-top:2px solid #1F3D2C;border-bottom:none;font-size:16px;font-weight:800;color:#1F3D2C;padding-top:12px}"
+      +"@media print{body{padding:18px}.noprint{display:none}}"
+      +"</style></head><body>"
+      +"<div class=\"header\">"
+      +"<div><img class=\"logo\" src=\""+AKTIF_LOGO+"\">"
+      +"<div class=\"firma\">"+(isletme.ad||"")+(isletme.tel?" · "+isletme.tel:"")+(isletme.adres?"<br>"+isletme.adres:"")+"</div></div>"
+      +"<div class=\"baslik\"><h1>"+baslikUst+"</h1><div class=\"tarih\">"+bugun+"</div><div class=\"tarih\">Belge No: "+belgeNo+"</div></div>"
+      +"</div>"
+      +"<div class=\"govde\">"+icerikHtml+"</div>"
+      +"<div class=\"footer\"><div class=\"imza\"><div class=\"cizgi\">"+imzaSolLb+"</div></div>"
+      +"<div class=\"imza\"><div class=\"cizgi\">"+imzaSagLb+"</div></div></div>"
+      +"<div class=\"noprint\" style=\"text-align:center;margin-top:34px\">"
+      +"<button onclick=\"window.print()\" style=\"padding:13px 30px;border-radius:11px;border:none;background:#1F3D2C;color:#fff;font-size:14px;font-weight:700;cursor:pointer\">🖨️ Yazdır / PDF Olarak Kaydet</button>"
+      +"</div></body></html>";
+    const win = window.open("", "_blank");
+    if(win){ win.document.write(html); win.document.close(); return true; }
+    showToast("Açılır pencere engellendi, tarayıcı ayarlarını kontrol edin","uy");
+    return false;
+  };
+
+  const SEBEP_METIN = {
+    istifa:"işçinin kendi isteği ile istifası", haklFesihIsci:"işçinin haklı nedenle feshi",
+    ihbarliFesihIsveren:"işveren tarafından ihbar süreli fesih", hakliFesihIsveren:"işveren tarafından haklı nedenle fesih",
+    anlasmali:"karşılıklı anlaşma (ikale)", emeklilik:"emeklilik", diger:"diğer nedenler"
+  };
+
+  const cikisBelgesiPdfOlustur = (p, surec, belgeTuru) => {
+    const belgeNo = (belgeTuru.toUpperCase().slice(0,3))+"-"+String(surec.id||Date.now()).slice(-8);
+    const sebepMetin = SEBEP_METIN[surec.sebep]||"belirtilen neden";
+
+    if(belgeTuru==="ibraname"){
+      const icerik =
+        "<p><strong>"+p.ad+"</strong> ("+(p.tcNo||"—")+" TC Kimlik No), "+(isletme.ad||"işbu işyeri")+" nezdinde "
+        +(p.isBaslama?fmtT(p.isBaslama):"—")+" tarihinden "+fmtT(surec.cikisTarihi)+" tarihine kadar "+(p.pozisyon||"personel")+" olarak çalışmış olup, "
+        +sebepMetin+" sebebiyle iş sözleşmesi sona ermiştir.</p>"
+        +"<p>İş bu ibraname ile; çalıştığım süre boyunca hak ettiğim ücret, fazla mesai, hafta tatili, genel tatil, yıllık izin, ihbar ve kıdem tazminatı ile diğer tüm hak ve alacaklarımın tarafıma eksiksiz olarak ödendiğini, işverenden bu tarih itibarıyla başkaca herhangi bir hak ve alacağımın kalmadığını, işvereni bu konularda ibra ettiğimi kabul, beyan ve taahhüt ederim.</p>"
+        +"<p>Bu belge, tarafların serbest iradesi ile ve herhangi bir baskı altında kalınmaksızın düzenlenmiştir.</p>";
+      return _cikisBelgeSarmalaAc("İBRANAME", belgeNo, icerik, "Çalışan İmzası", "İşveren/Yönetici İmzası");
+    }
+
+    if(belgeTuru==="calismaBelgesi"){
+      const icerik =
+        "<p>Aşağıda kimlik bilgileri yazılı olan personelimiz, işyerimizde belirtilen tarihler arasında görev yapmıştır.</p>"
+        +"<table class=\"hesap\">"
+        +"<tr><td class=\"lb\">Adı Soyadı</td><td style=\"text-align:right;font-weight:600\">"+p.ad+"</td></tr>"
+        +"<tr><td class=\"lb\">TC Kimlik No</td><td style=\"text-align:right;font-weight:600\">"+(p.tcNo||"—")+"</td></tr>"
+        +"<tr><td class=\"lb\">Görevi</td><td style=\"text-align:right;font-weight:600\">"+(p.pozisyon||"—")+"</td></tr>"
+        +"<tr><td class=\"lb\">İşe Başlama Tarihi</td><td style=\"text-align:right;font-weight:600\">"+(p.isBaslama?fmtT(p.isBaslama):"—")+"</td></tr>"
+        +"<tr><td class=\"lb\">İşten Ayrılış Tarihi</td><td style=\"text-align:right;font-weight:600\">"+fmtT(surec.cikisTarihi)+"</td></tr>"
+        +"</table>"
+        +"<p>Personelimiz, görevi süresince üzerine düşen sorumlulukları yerine getirmiş olup, iş bu belge kendisinin talebi üzerine 4857 sayılı İş Kanunu'nun 28. maddesi gereğince düzenlenmiş ve tarafına verilmiştir.</p>";
+      return _cikisBelgeSarmalaAc("ÇALIŞMA BELGESİ", belgeNo, icerik, "Düzenleyen (İşveren/Yönetici)", "Teslim Alan (Çalışan)");
+    }
+
+    if(belgeTuru==="fesihBildirimi"){
+      const istifaMi = surec.sebep==="istifa" || surec.sebep==="haklFesihIsci";
+      const baslikUst = istifaMi ? "İSTİFA DİLEKÇESİ" : "FESİH BİLDİRİMİ";
+      const icerik = istifaMi
+        ? "<p>Sayın Yetkili,</p>"
+          +"<p>"+(isletme.ad||"işyerinizde")+" nezdinde "+(p.pozisyon||"personel")+" olarak sürdürmekte olduğum görevimden, "+fmtT(surec.cikisTarihi)+" tarihi itibarıyla istifa ettiğimi bilgilerinize sunarım.</p>"
+          +(surec.not?"<p><strong>Açıklama:</strong> "+surec.not+"</p>":"")
+          +"<p>Gereğinin yapılmasını saygılarımla arz ederim.</p>"
+        : "<p>Sayın "+p.ad+",</p>"
+          +"<p>"+(isletme.ad||"İşyerimiz")+" nezdinde "+(p.pozisyon||"personel")+" olarak sürdürmekte olduğunuz iş sözleşmeniz, "+sebepMetin+" gerekçesiyle "+fmtT(surec.cikisTarihi)+" tarihi itibarıyla feshedilmiştir.</p>"
+          +(surec.ihbarSuresiHafta?"<p>Tarafınıza "+surec.ihbarSuresiHafta+" hafta ihbar süresi tanınmış/ihbar tazminatı hesaplanmıştır.</p>":"")
+          +(surec.not?"<p><strong>Açıklama:</strong> "+surec.not+"</p>":"")
+          +"<p>Bilgilerinize sunarız.</p>";
+      return _cikisBelgeSarmalaAc(baslikUst, belgeNo, icerik, istifaMi?"Çalışan İmzası":"İşveren/Yönetici İmzası", istifaMi?"Teslim Alan (İşveren)":"Tebellüğ Eden (Çalışan)");
+    }
+
+    if(belgeTuru==="tazminatMakbuzu"){
+      const kidemYil = p.isBaslama ? ((new Date(surec.cikisTarihi) - new Date(p.isBaslama)) / 86400000 / 365.25) : 0;
+      const kidem = toN(surec.kidemTazminati);
+      const ihbar = toN(surec.ihbarTazminati);
+      const toplam = kidem + ihbar;
+      const icerik =
+        "<p>Aşağıda dökümü yapılan tazminat tutarları, "+p.ad+" isimli personelimize "+fmtT(surec.cikisTarihi)+" tarihli işten ayrılışı nedeniyle hesaplanmıştır.</p>"
+        +"<table class=\"hesap\">"
+        +"<tr><td class=\"lb\">Kıdem Süresi</td><td style=\"text-align:right;font-weight:600\">"+kidemYil.toFixed(1)+" yıl</td></tr>"
+        +"<tr><td class=\"lb\">Son Brüt Ücret</td><td style=\"text-align:right;font-weight:600\">"+(surec.sonBrutUcret?fmt(toN(surec.sonBrutUcret)):"—")+"</td></tr>"
+        +"<tr><td class=\"lb\">Kıdem Tazminatı</td><td style=\"text-align:right;font-weight:600\">"+fmt(kidem)+"</td></tr>"
+        +"<tr><td class=\"lb\">İhbar Tazminatı</td><td style=\"text-align:right;font-weight:600\">"+fmt(ihbar)+"</td></tr>"
+        +"<tr class=\"grand\"><td>TOPLAM ÖDENECEK</td><td style=\"text-align:right\">"+fmt(toplam)+"</td></tr>"
+        +"</table>"
+        +"<p style=\"font-size:11.5px;color:#999\">Bu hesaplama genel bilgilendirme amaçlıdır; yasal tavan tutarları ve kesin hesap için mali müşavirinize danışınız.</p>"
+        +"<p>Yukarıda belirtilen tutarı nakden/hesaben eksiksiz olarak teslim aldığımı beyan ederim.</p>";
+      return _cikisBelgeSarmalaAc("TAZMİNAT HESAP MAKBUZU", belgeNo, icerik, "Çalışan İmzası", "Ödeyen (İşveren/Yönetici)");
+    }
+
+    return false;
+  };
+
   const yonBildirimOkundu = (id) => {
     if(!DB) return;
     DB.from("yon_bildirim_merkezi").update({okundu:true}).eq("id",id).then(()=>{
@@ -13454,6 +13676,17 @@ if(DB) dbUpsertAyar("tema",tema);
     if(panelAdim==="ayarlar"){
       segs.push({label:"Ayarlar"});
       if(panelAltSek==="listeler") segs.push({label:"Listeler"});
+      return segs;
+    }
+    if(panelAdim==="insanKaynaklari"){
+      segs.push({label:"İnsan Kaynakları"});
+      if(panelAltSek==="ozluk"){
+        segs.push({label:"Özlük Dosyası"});
+        if(ikDetayPersonel){ const p=personeller.find(x=>x.id===ikDetayPersonel); if(p) segs.push({label:p.ad}); }
+      } else if(panelAltSek==="cikis"){
+        segs.push({label:"İşten Çıkış İşlemleri"});
+        if(ikDetayPersonel){ const p=personeller.find(x=>x.id===ikDetayPersonel); if(p) segs.push({label:p.ad}); }
+      }
       return segs;
     }
     return segs;
@@ -16440,6 +16673,8 @@ if(DB) dbUpsertAyar("tema",tema);
               else if(aySek){ setAySek(""); setAsek(""); setPanelAdim("ayarlar"); setPanelAltSek("");
                 setGuncelSifre(""); setYeniSifre1(""); setYeniSifre2(""); setSifreDurum(""); setSifreHata(""); }
               else { setAsek(""); setPanelAdim("ayarlar"); setPanelAltSek(""); }
+            } else if(panelAdim==="insanKaynaklari" && ikDetayPersonel){
+              setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null);
             } else if(panelAltSek){
               setPanelAltSek("");
             } else if(panelAdim!=="ana"){
@@ -16573,8 +16808,46 @@ if(DB) dbUpsertAyar("tema",tema);
               }},"🔔"),
               div({style:{fontSize:13,fontWeight:700,color:"#B8431F",letterSpacing:.2,textAlign:"center",lineHeight:1.2}},"BİLDİRİMLER")
             ),
-            // Sağ 2 hücre boş
-            div(null),
+
+            // KART: İnsan Kaynakları
+            div({onClick:()=>setPanelAdim("insanKaynaklari"),style:{
+              background:"linear-gradient(160deg,#FFF8E8,#FFEFC7)",
+              border:"1.5px solid rgba(200,150,0,.20)",
+              borderRadius:20,padding:"22px 8px 18px",
+              display:"flex",flexDirection:"column",alignItems:"center",gap:12,
+              cursor:"pointer",position:"relative",
+              boxShadow:"0 3px 16px rgba(200,150,0,.10), 0 1px 3px rgba(0,0,0,.06)"
+            }},
+              // Rozet — süresi 7 gün içinde dolan/dolmuş, tamamlanmamış özlük kayıtları
+              (()=>{
+                const bugun = TODAY();
+                const yediGunSonra = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+                let sayac = 0;
+                Object.values(ozlukDosyalari||{}).forEach(liste=>{
+                  (liste||[]).forEach(k=>{
+                    if(k.durum!=="tamamlandi" && k.hatirlatmaTarihi && k.hatirlatmaTarihi<=yediGunSonra) sayac++;
+                  });
+                });
+                if(sayac<=0) return null;
+                return div({style:{
+                  position:"absolute",top:8,right:8,
+                  minWidth:22,height:22,padding:"0 6px",borderRadius:11,
+                  background:"#FF3B30",color:"#fff",
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:12,fontWeight:700,
+                  boxShadow:"0 2px 6px rgba(255,59,48,.4)"
+                }},String(sayac));
+              })(),
+              div({style:{
+                width:68,height:68,borderRadius:22,
+                background:"linear-gradient(135deg,#D4A017,#A87B00)",
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:36,boxShadow:"0 4px 18px rgba(200,150,0,.42)"
+              }},"👔"),
+              div({style:{fontSize:13,fontWeight:700,color:"#8A6400",letterSpacing:.2,textAlign:"center",lineHeight:1.2}},"İNSAN KAYNAKLARI")
+            ),
+
+            // Sağ 1 hücre boş
             div(null)
           )
         ),
@@ -16706,6 +16979,448 @@ if(DB) dbUpsertAyar("tema",tema);
             )
           )
         ),
+
+        // ══════════════════════════════════════════
+        // ADIM 2c — İNSAN KAYNAKLARI ALT BAŞLIKLARI
+        // ══════════════════════════════════════════
+        panelAdim==="insanKaynaklari"&&!panelAltSek&&!asek&&div({style:{padding:"8px 14px"}},
+          [
+            ["rgba(200,150,0,.13)","🪪","Özlük Dosyası","ozluk"],
+            ["rgba(200,60,60,.13)","🚪","İşten Çıkış İşlemleri","cikis"],
+          ].map(([bg,ikon,lb,altSek],i)=>
+            div({key:i,onClick:()=>setPanelAltSek(altSek),style:{
+              display:"flex",alignItems:"center",gap:14,
+              background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderLeft:"4px solid "+bg.replace(",.13)",",1)"),
+              borderRadius:14,padding:"13px 16px",
+              marginBottom:9,cursor:"pointer",
+              boxShadow:"0 1px 6px rgba(0,0,0,.05)"
+            }},
+              div({style:{
+                width:48,height:48,borderRadius:14,background:bg,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:26,flexShrink:0
+              }},ikon),
+              div({style:{fontSize:15,fontWeight:600,color:"#1D1D1F",flex:1}},lb),
+              span({style:{fontSize:20,color:"#c0c0c5",flexShrink:0}},"›")
+            )
+          )
+        ),
+
+        // ── Özlük Dosyası: Personel Seçim Listesi ──
+        panelAdim==="insanKaynaklari"&&panelAltSek==="ozluk"&&!asek&&!ikDetayPersonel&&div({style:{padding:"12px 14px 8px"}},
+          (personeller||[]).filter(p=>p.aktif).map(p=>{
+            const kayitlar = ozlukDosyalari[p.id]||[];
+            const bugun = TODAY();
+            const yediGunSonra = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+            const yaklasanSayisi = kayitlar.filter(k=>k.durum!=="tamamlandi" && k.hatirlatmaTarihi && k.hatirlatmaTarihi<=yediGunSonra).length;
+            return div({key:p.id,onClick:()=>setIkDetayPersonel(p.id),style:{
+              display:"flex",alignItems:"center",gap:14,
+              background:"#fff",border:"1px solid rgba(0,0,0,.07)",
+              borderLeft:"4px solid "+(yaklasanSayisi>0?"#FF3B30":"rgba(200,150,0,.6)"),
+              borderRadius:14,padding:"13px 16px",marginBottom:9,
+              cursor:"pointer",boxShadow:"0 1px 6px rgba(0,0,0,.05)",position:"relative"
+            }},
+              div({style:{
+                width:48,height:48,borderRadius:14,background:"rgba(200,150,0,.13)",
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0
+              }},"👤"),
+              div({style:{flex:1}},
+                div({style:{fontSize:15,fontWeight:600,color:"#1D1D1F"}},p.ad),
+                div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},p.pozisyon||(p.rol==="yonetici"?"Yönetici":"Personel")+" · "+kayitlar.length+" kayıt")
+              ),
+              yaklasanSayisi>0 && div({style:{
+                minWidth:22,height:22,padding:"0 6px",borderRadius:11,
+                background:"#FF3B30",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:11,fontWeight:700,flexShrink:0
+              }},String(yaklasanSayisi)),
+              span({style:{fontSize:20,color:"#c0c0c5",flexShrink:0}},"›")
+            );
+          }),
+          (personeller||[]).filter(p=>p.aktif).length===0 && div({style:{fontSize:13,color:"var(--mu)",textAlign:"center",padding:20}},"Aktif personel bulunamadı.")
+        ),
+
+        // ── Özlük Dosyası: Personel Detay (Yasal İşlemler & Belgeler) ──
+        panelAdim==="insanKaynaklari"&&panelAltSek==="ozluk"&&!asek&&ikDetayPersonel&&(()=>{
+          const p = (personeller||[]).find(x=>x.id===ikDetayPersonel);
+          if(!p) return null;
+          const kayitlar = ozlukDosyalari[p.id]||[];
+          const bugun = TODAY();
+          const OZLUK_SABLONLAR = [
+            {tur:"sozlesme",baslik:"Sözleşme Yenileme",ikon:"📄"},
+            {tur:"saglikRaporu",baslik:"Sağlık Raporu",ikon:"🩺"},
+            {tur:"isg",baslik:"İSG Eğitimi",ikon:"🦺"},
+            {tur:"denemeSuresi",baslik:"Deneme Süresi Bitişi",ikon:"⏳"},
+            {tur:"serbest",baslik:"Serbest / Diğer",ikon:"📝"},
+          ];
+          const kayitEkle = () => {
+            if(!ikYeniKayit || !ikYeniKayit.baslik || !ikYeniKayit.tarih){ return; }
+            const yeni = {
+              id: uid(),
+              tur: ikYeniKayit.tur||"serbest",
+              baslik: ikYeniKayit.baslik,
+              tarih: ikYeniKayit.tarih,
+              hatirlatmaTarihi: ikYeniKayit.hatirlatmaTarihi||"",
+              durum: "bekliyor",
+              not: ikYeniKayit.not||"",
+              olusturma: bugun
+            };
+            setOzlukDosyalari(prev=>({...prev, [p.id]: [...(prev[p.id]||[]), yeni]}));
+            setIkYeniKayit(null);
+          };
+          const kayitSil = (kid) => {
+            if(!confirm("Bu kaydı silmek istediğinize emin misiniz?")) return;
+            setOzlukDosyalari(prev=>({...prev, [p.id]: (prev[p.id]||[]).filter(k=>k.id!==kid)}));
+          };
+          const durumDegistir = (kid, yeniDurum) => {
+            setOzlukDosyalari(prev=>({...prev, [p.id]: (prev[p.id]||[]).map(k=>k.id===kid?{...k,durum:yeniDurum}:k)}));
+          };
+          return div({style:{padding:"12px 14px 24px"}},
+            // Personel başlığı
+            div({style:{display:"flex",alignItems:"center",gap:12,marginBottom:16,background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"13px 16px"}},
+              div({style:{width:48,height:48,borderRadius:14,background:"rgba(200,150,0,.13)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}},"👤"),
+              div(null,
+                div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F"}},p.ad),
+                div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},(p.pozisyon||"")+(p.isBaslama?" · İşe Başlama: "+fmtT(p.isBaslama):""))
+              )
+            ),
+
+            // ── Yıllık İzin Kartı ──
+            (()=>{
+              const izinListe = izinKayitlari[p.id]||[];
+              const hak = izinHakkiHesapla(p);
+              const gunHesapla = (baslangic,bitis) => {
+                if(!baslangic||!bitis) return 0;
+                const g = Math.round((new Date(bitis)-new Date(baslangic))/86400000)+1;
+                return g>0?g:0;
+              };
+              const izinEkle = () => {
+                if(!ikYeniIzin || !ikYeniIzin.baslangic || !ikYeniIzin.bitis) return;
+                const gunSayisi = gunHesapla(ikYeniIzin.baslangic, ikYeniIzin.bitis);
+                if(gunSayisi<=0){ showToast("Bitiş tarihi başlangıçtan önce olamaz","uy"); return; }
+                const yeni = {
+                  id: uid(), baslangic: ikYeniIzin.baslangic, bitis: ikYeniIzin.bitis,
+                  gunSayisi, not: ikYeniIzin.not||"", durum:"planlandi", imzalandi:false, olusturma: bugun
+                };
+                setIzinKayitlari(prev=>({...prev, [p.id]: [...(prev[p.id]||[]), yeni]}));
+                setIkYeniIzin(null);
+              };
+              const izinSil = (kid) => {
+                if(!confirm("Bu izin kaydını silmek istediğinize emin misiniz?")) return;
+                setIzinKayitlari(prev=>({...prev, [p.id]: (prev[p.id]||[]).filter(k=>k.id!==kid)}));
+              };
+              const izinImzaToggle = (kid) => {
+                setIzinKayitlari(prev=>({...prev, [p.id]: (prev[p.id]||[]).map(k=>k.id===kid?{...k,imzalandi:!k.imzalandi}:k)}));
+              };
+              return div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"14px 16px",marginBottom:16}},
+                div({style:{fontSize:12,color:"var(--g)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10,fontWeight:700}},"🏖️ Yıllık İzin"),
+                !p.isBaslama && div({style:{fontSize:12,color:"var(--mu)",marginBottom:10}},"İzin hakkı hesaplanamıyor — personelin işe başlama tarihi girilmemiş (Ayarlar → Personel Listesi'nden ekleyin)."),
+                p.isBaslama && !hak.kidemHakEtti && div({style:{fontSize:12,color:"var(--mu)",marginBottom:10}},"Kıdem henüz 1 yılı doldurmadı, yasal yıllık izin hakkı başlamadı."),
+                p.isBaslama && hak.kidemHakEtti && div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}},
+                  [["Yıllık Hak",hak.yillikHak],["Kullanılan",hak.kullanilan],["Kalan",hak.kalan]].map(([lb,v])=>
+                    div({key:lb,style:{background:"var(--bg3)",borderRadius:10,padding:"10px 6px",textAlign:"center"}},
+                      div({style:{fontSize:18,fontWeight:800,color:v>0&&lb==="Kalan"?"#248A3D":"#1D1D1F"}},String(v)),
+                      div({style:{fontSize:10,color:"var(--mu)",textTransform:"uppercase",letterSpacing:.5,marginTop:2}},lb)
+                    )
+                  )
+                ),
+                // Yeni izin ekleme
+                !ikYeniIzin && btn({onClick:()=>setIkYeniIzin({baslangic:bugun,bitis:bugun,not:""}),style:{
+                  background:"rgba(200,150,0,.10)",border:"1px solid rgba(200,150,0,.25)",
+                  borderRadius:10,padding:"9px 14px",fontSize:13,color:"#8A6400",cursor:"pointer",fontWeight:600
+                }},"➕ Yeni İzin Kaydı"),
+                ikYeniIzin && div(null,
+                  div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                    div(null,lbl({className:"fl"},"Başlangıç"),inp({className:"fi",type:"date",value:ikYeniIzin.baslangic,onChange:e=>setIkYeniIzin(p2=>({...p2,baslangic:e.target.value}))})),
+                    div(null,lbl({className:"fl"},"Bitiş"),inp({className:"fi",type:"date",value:ikYeniIzin.bitis,onChange:e=>setIkYeniIzin(p2=>({...p2,bitis:e.target.value}))}))
+                  ),
+                  div({style:{fontSize:12,color:"var(--mu)",marginBottom:10}},"Gün sayısı: "+gunHesapla(ikYeniIzin.baslangic,ikYeniIzin.bitis)),
+                  div({style:{marginBottom:10}},
+                    lbl({className:"fl"},"Not (isteğe bağlı)"),
+                    inp({className:"fi",placeholder:"Not ekleyin...",value:ikYeniIzin.not,onChange:e=>setIkYeniIzin(p2=>({...p2,not:e.target.value}))})
+                  ),
+                  div({style:{display:"flex",gap:8}},
+                    btn({onClick:izinEkle,style:{flex:1,background:"var(--g)",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontSize:14,fontWeight:700,cursor:"pointer"}},"Kaydet"),
+                    btn({onClick:()=>setIkYeniIzin(null),style:{background:"rgba(0,0,0,.06)",border:"none",borderRadius:10,padding:"10px 16px",fontSize:14,cursor:"pointer",color:"var(--di)"}},"İptal")
+                  )
+                ),
+                // İzin geçmişi listesi
+                izinListe.length>0 && div({style:{marginTop:14}},
+                  izinListe.slice().sort((a,b)=>b.baslangic.localeCompare(a.baslangic)).map(k=>
+                    div({key:k.id,style:{
+                      background:"var(--bg3)",borderRadius:10,padding:"10px 12px",marginBottom:8,
+                      borderLeft:"4px solid "+(k.imzalandi?"#34C759":"rgba(200,150,0,.5)")
+                    }},
+                      div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}},
+                        div({style:{flex:1}},
+                          div({style:{fontSize:13,fontWeight:600,color:"#1D1D1F"}},fmtT(k.baslangic)+" – "+fmtT(k.bitis)+" ("+k.gunSayisi+" gün)"),
+                          k.not && div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},k.not),
+                          k.imzalandi && span({style:{display:"inline-block",marginTop:5,fontSize:11,fontWeight:700,color:"#248A3D",background:"rgba(52,199,89,.10)",padding:"2px 8px",borderRadius:8}},"✓ İmzalandı")
+                        ),
+                        div({style:{display:"flex",gap:6,flexShrink:0}},
+                          btn({onClick:()=>izinPdfOlustur(p,k),title:"İzin Formu PDF",style:{
+                            background:"rgba(0,113,227,.10)",border:"1px solid rgba(0,113,227,.3)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:13
+                          }},"📄"),
+                          btn({onClick:()=>izinImzaToggle(k.id),title:k.imzalandi?"İmzayı geri al":"İmzalandı olarak işaretle",style:{
+                            background:"rgba(52,199,89,.10)",border:"1px solid rgba(52,199,89,.3)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:13
+                          }},"✓"),
+                          btn({onClick:()=>izinSil(k.id),title:"Sil",style:{
+                            background:"rgba(255,59,48,.08)",border:"1px solid rgba(255,59,48,.25)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:13
+                          }},"🗑️")
+                        )
+                      )
+                    )
+                  )
+                )
+              );
+            })(),
+
+            // Yeni kayıt ekleme kartı
+            div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"14px 16px",marginBottom:16}},
+              div({style:{fontSize:12,color:"var(--g)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10,fontWeight:700}},"➕ Yeni İşlem/Belge Ekle"),
+              !ikYeniKayit && div({style:{display:"flex",flexWrap:"wrap",gap:8}},
+                OZLUK_SABLONLAR.map(s=>
+                  btn({key:s.tur,onClick:()=>setIkYeniKayit({tur:s.tur,baslik:s.tur==="serbest"?"":s.baslik,tarih:bugun,hatirlatmaTarihi:"",not:""}),style:{
+                    background:"rgba(200,150,0,.10)",border:"1px solid rgba(200,150,0,.25)",
+                    borderRadius:10,padding:"8px 12px",fontSize:13,color:"#8A6400",cursor:"pointer",fontWeight:600
+                  }},s.ikon+" "+s.baslik)
+                )
+              ),
+              ikYeniKayit && div(null,
+                ikYeniKayit.tur==="serbest" && div({style:{marginBottom:10}},
+                  lbl({className:"fl"},"Başlık"),
+                  inp({className:"fi",placeholder:"Örn. Adli Sicil Kaydı",value:ikYeniKayit.baslik,onChange:e=>setIkYeniKayit(p2=>({...p2,baslik:e.target.value}))})
+                ),
+                div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                  div(null,lbl({className:"fl"},"İşlem Tarihi"),inp({className:"fi",type:"date",value:ikYeniKayit.tarih,onChange:e=>setIkYeniKayit(p2=>({...p2,tarih:e.target.value}))})),
+                  div(null,lbl({className:"fl"},"Hatırlatma Tarihi"),inp({className:"fi",type:"date",value:ikYeniKayit.hatirlatmaTarihi,onChange:e=>setIkYeniKayit(p2=>({...p2,hatirlatmaTarihi:e.target.value}))}))
+                ),
+                div({style:{marginBottom:10}},
+                  lbl({className:"fl"},"Not (isteğe bağlı)"),
+                  inp({className:"fi",placeholder:"Not ekleyin...",value:ikYeniKayit.not,onChange:e=>setIkYeniKayit(p2=>({...p2,not:e.target.value}))})
+                ),
+                div({style:{display:"flex",gap:8}},
+                  btn({onClick:kayitEkle,style:{flex:1,background:"var(--g)",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontSize:14,fontWeight:700,cursor:"pointer"}},"Kaydet"),
+                  btn({onClick:()=>setIkYeniKayit(null),style:{background:"rgba(0,0,0,.06)",border:"none",borderRadius:10,padding:"10px 16px",fontSize:14,cursor:"pointer",color:"var(--di)"}},"İptal")
+                )
+              )
+            ),
+            // Kayıt listesi
+            div({style:{fontSize:12,color:"var(--mu)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10,fontWeight:700}},"📋 Kayıtlı İşlemler ("+kayitlar.length+")"),
+            kayitlar.length===0 && div({style:{fontSize:13,color:"var(--mu)",textAlign:"center",padding:20,background:"#fff",borderRadius:14,border:"1px solid rgba(0,0,0,.07)"}},"Henüz kayıt eklenmedi."),
+            kayitlar.slice().sort((a,b)=>(b.hatirlatmaTarihi||b.tarih).localeCompare(a.hatirlatmaTarihi||a.tarih)).map(k=>{
+              const gecikmis = k.durum!=="tamamlandi" && k.hatirlatmaTarihi && k.hatirlatmaTarihi<bugun;
+              const yaklasan = k.durum!=="tamamlandi" && k.hatirlatmaTarihi && !gecikmis && k.hatirlatmaTarihi<=new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+              return div({key:k.id,style:{
+                background:"#fff",border:"1px solid rgba(0,0,0,.07)",
+                borderLeft:"4px solid "+(k.durum==="tamamlandi"?"#34C759":gecikmis?"#FF3B30":yaklasan?"#FF9500":"rgba(200,150,0,.5)"),
+                borderRadius:14,padding:"13px 16px",marginBottom:9
+              }},
+                div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}},
+                  div({style:{flex:1}},
+                    div({style:{fontSize:14,fontWeight:600,color:"#1D1D1F"}},k.baslik),
+                    div({style:{fontSize:12,color:"var(--mu)",marginTop:3}},"İşlem: "+fmtT(k.tarih)+(k.hatirlatmaTarihi?" · Hatırlatma: "+fmtT(k.hatirlatmaTarihi):"")),
+                    k.not && div({style:{fontSize:12,color:"var(--di)",marginTop:3}},k.not),
+                    k.durum==="tamamlandi" && span({style:{display:"inline-block",marginTop:6,fontSize:11,fontWeight:700,color:"#248A3D",background:"rgba(52,199,89,.10)",padding:"2px 8px",borderRadius:8}},"✓ Tamamlandı"),
+                    gecikmis && span({style:{display:"inline-block",marginTop:6,fontSize:11,fontWeight:700,color:"#B8431F",background:"rgba(255,59,48,.10)",padding:"2px 8px",borderRadius:8}},"⚠ Süresi Geçti"),
+                    !gecikmis && yaklasan && span({style:{display:"inline-block",marginTop:6,fontSize:11,fontWeight:700,color:"#c25e00",background:"rgba(255,149,0,.10)",padding:"2px 8px",borderRadius:8}},"⏰ Yaklaşıyor")
+                  ),
+                  div({style:{display:"flex",gap:6,flexShrink:0}},
+                    k.durum!=="tamamlandi" && btn({onClick:()=>durumDegistir(k.id,"tamamlandi"),title:"Tamamlandı olarak işaretle",style:{
+                      background:"rgba(52,199,89,.10)",border:"1px solid rgba(52,199,89,.3)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:14
+                    }},"✓"),
+                    btn({onClick:()=>kayitSil(k.id),title:"Sil",style:{
+                      background:"rgba(255,59,48,.08)",border:"1px solid rgba(255,59,48,.25)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:14
+                    }},"🗑️")
+                  )
+                )
+              );
+            })
+          );
+        })(),
+
+        // ── İşten Çıkış İşlemleri: Personel Seçim Listesi ──
+        panelAdim==="insanKaynaklari"&&panelAltSek==="cikis"&&!asek&&!ikDetayPersonel&&div({style:{padding:"12px 14px 8px"}},
+          div({style:{fontSize:12,color:"var(--mu)",marginBottom:12,lineHeight:1.5}},"Süreç başlatmak istediğiniz personeli seçin. Aktif ve daha önce çıkış süreci başlatılmış (ama pasife alınmamış) personeller listelenir."),
+          (personeller||[]).filter(p=>p.aktif).map(p=>{
+            const kayitlar = cikisIslemleri[p.id]||[];
+            const sonKayit = kayitlar[kayitlar.length-1];
+            return div({key:p.id,onClick:()=>setIkDetayPersonel(p.id),style:{
+              display:"flex",alignItems:"center",gap:14,
+              background:"#fff",border:"1px solid rgba(0,0,0,.07)",
+              borderLeft:"4px solid "+(sonKayit&&!sonKayit.tamamlandi?"#FF3B30":"rgba(200,60,60,.4)"),
+              borderRadius:14,padding:"13px 16px",marginBottom:9,
+              cursor:"pointer",boxShadow:"0 1px 6px rgba(0,0,0,.05)"
+            }},
+              div({style:{
+                width:48,height:48,borderRadius:14,background:"rgba(200,60,60,.13)",
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0
+              }},"👤"),
+              div({style:{flex:1}},
+                div({style:{fontSize:15,fontWeight:600,color:"#1D1D1F"}},p.ad),
+                div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},
+                  sonKayit&&!sonKayit.tamamlandi?"⚠ Yarım kalmış çıkış süreci var":(p.pozisyon||"Personel"))
+              ),
+              span({style:{fontSize:20,color:"#c0c0c5",flexShrink:0}},"›")
+            );
+          }),
+          (personeller||[]).filter(p=>p.aktif).length===0 && div({style:{fontSize:13,color:"var(--mu)",textAlign:"center",padding:20}},"Aktif personel bulunamadı.")
+        ),
+
+        // ── İşten Çıkış İşlemleri: Sihirbaz ──
+        panelAdim==="insanKaynaklari"&&panelAltSek==="cikis"&&!asek&&ikDetayPersonel&&(()=>{
+          const p = (personeller||[]).find(x=>x.id===ikDetayPersonel);
+          if(!p) return null;
+          const kayitlar = cikisIslemleri[p.id]||[];
+          const sonKayit = kayitlar.length ? kayitlar[kayitlar.length-1] : null;
+          const aktifSurec = sonKayit && !sonKayit.tamamlandi ? sonKayit : null;
+          const bugun = TODAY();
+
+          // Yeni süreç başlangıç taslağı — henüz aktif süreç yoksa ve form açılmamışsa "Başlat" ekranı gösterilir
+          if(!aktifSurec && !ikCikisForm){
+            return div({style:{padding:"12px 14px 24px"}},
+              div({style:{display:"flex",alignItems:"center",gap:12,marginBottom:16,background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"13px 16px"}},
+                div({style:{width:48,height:48,borderRadius:14,background:"rgba(200,60,60,.13)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}},"👤"),
+                div(null,
+                  div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F"}},p.ad),
+                  div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},(p.pozisyon||"")+(p.isBaslama?" · İşe Başlama: "+fmtT(p.isBaslama):""))
+                )
+              ),
+              sonKayit && sonKayit.tamamlandi && div({style:{fontSize:12,color:"var(--mu)",marginBottom:14,background:"var(--bg3)",borderRadius:10,padding:"10px 12px"}},
+                "Bu personel için daha önce "+fmtT(sonKayit.cikisTarihi)+" tarihli bir çıkış süreci tamamlanmış. Personel yeniden aktifse ve tekrar süreç başlatmak isterseniz aşağıdan devam edebilirsiniz."),
+              btn({onClick:()=>setIkCikisForm({sebep:"istifa",cikisTarihi:bugun,ihbarSuresiHafta:"",sonBrutUcret:"",kidemTazminati:"",ihbarTazminati:"",not:""}),style:{
+                width:"100%",background:"var(--re)",color:"#fff",border:"none",borderRadius:12,padding:"14px 0",fontSize:14,fontWeight:700,cursor:"pointer"
+              }},"🚪 İşten Çıkış Sürecini Başlat")
+            );
+          }
+
+          const surec = aktifSurec || ikCikisForm;
+          const kidemYil = p.isBaslama ? ((new Date(surec.cikisTarihi||bugun) - new Date(p.isBaslama)) / 86400000 / 365.25) : 0;
+          // İhbar süresi önerisi — İş Kanunu md.17
+          const ihbarOnerisi = (()=>{
+            if(kidemYil<0.5) return 2;
+            if(kidemYil<1.5) return 4;
+            if(kidemYil<3) return 6;
+            return 8;
+          })();
+
+          const alanGuncelle = (k,v) => {
+            if(aktifSurec){
+              setCikisIslemleri(prev=>({...prev, [p.id]: (prev[p.id]||[]).map(x=>x.id===aktifSurec.id?{...x,[k]:v}:x)}));
+            } else {
+              setIkCikisForm(prev=>({...prev,[k]:v}));
+            }
+          };
+
+          const surecKaydet = () => {
+            if(aktifSurec) return; // zaten kayıtlı, alanGuncelle direkt günceller
+            const yeni = {
+              id: uid(), cikisTarihi: ikCikisForm.cikisTarihi||bugun, sebep: ikCikisForm.sebep||"istifa",
+              ihbarSuresiHafta: ikCikisForm.ihbarSuresiHafta||"", sonBrutUcret: ikCikisForm.sonBrutUcret||"",
+              kidemTazminati: ikCikisForm.kidemTazminati||"", ihbarTazminati: ikCikisForm.ihbarTazminati||"",
+              not: ikCikisForm.not||"", belgeler:{ibraname:false,calismaBelgesi:false,fesihBildirimi:false,tazminatMakbuzu:false},
+              sgkHatirlatmaGonderildi:false, tamamlandi:false, olusturma:bugun
+            };
+            setCikisIslemleri(prev=>({...prev, [p.id]: [...(prev[p.id]||[]), yeni]}));
+            setIkCikisForm(null);
+            // SGK 10 gün bildirimi — kayıt oluşturulduğu anda düşer
+            const hatirlatmaTarihi = new Date(new Date(yeni.cikisTarihi).getTime()+10*86400000).toISOString().slice(0,10);
+            yonBildirimEkle("sgkCikisBildirimi", p.ad+" — SGK İşten Çıkış Bildirimi", "SGK işten çıkış bildirgesi, çıkış tarihinden itibaren 10 gün içinde yapılmalıdır. Son tarih: "+fmtT(hatirlatmaTarihi), {personelId:p.id, kayitId:yeni.id});
+          };
+
+          const belgeIsaretle = (belgeAdi) => {
+            setCikisIslemleri(prev=>({...prev, [p.id]: (prev[p.id]||[]).map(x=>x.id===surec.id?{...x,belgeler:{...x.belgeler,[belgeAdi]:true}}:x)}));
+          };
+
+          const surecTamamla = () => {
+            if(!confirm(p.ad+" için işten çıkış sürecini tamamlayıp personeli pasife almak istediğinize emin misiniz?\n\nBu işlem geri alınamaz, personel gerektiğinde Ayarlar > Personel Listesi'nden yeniden aktifleştirilebilir.")) return;
+            setCikisIslemleri(prev=>({...prev, [p.id]: (prev[p.id]||[]).map(x=>x.id===surec.id?{...x,tamamlandi:true}:x)}));
+            setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));
+            setIkDetayPersonel(null);
+            showToast(p.ad+" işten çıkış süreci tamamlandı","ba");
+          };
+
+          const BELGE_TANIM = [
+            {k:"ibraname",lb:"İbraname",ikon:"📜"},
+            {k:"calismaBelgesi",lb:"Çalışma Belgesi",ikon:"📋"},
+            {k:"fesihBildirimi",lb:surec.sebep==="istifa"?"İstifa Dilekçesi":"Fesih Bildirimi",ikon:"📄"},
+            {k:"tazminatMakbuzu",lb:"Tazminat Hesap Makbuzu",ikon:"💰"},
+          ];
+
+          return div({style:{padding:"12px 14px 24px"}},
+            div({style:{display:"flex",alignItems:"center",gap:12,marginBottom:16,background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"13px 16px"}},
+              div({style:{width:48,height:48,borderRadius:14,background:"rgba(200,60,60,.13)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}},"👤"),
+              div(null,
+                div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F"}},p.ad),
+                div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},(p.pozisyon||"")+(p.isBaslama?" · İşe Başlama: "+fmtT(p.isBaslama):"")+" · Kıdem: "+kidemYil.toFixed(1)+" yıl")
+              )
+            ),
+
+            // ── Adım 1: Ayrılık Bilgileri ──
+            div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"14px 16px",marginBottom:16}},
+              div({style:{fontSize:12,color:"var(--re)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:12,fontWeight:700}},"1️⃣ Ayrılık Bilgileri"),
+              div({style:{marginBottom:10}},
+                lbl({className:"fl"},"Ayrılık Sebebi"),
+                sel({className:"fi",value:surec.sebep,onChange:e=>alanGuncelle("sebep",e.target.value),disabled:!!aktifSurec},
+                  opt("istifa","İşçi İstifası"),
+                  opt("haklFesihIsci","İşçi Haklı Fesih"),
+                  opt("ihbarliFesihIsveren","İşveren Feshi (İhbar Süreli)"),
+                  opt("hakliFesihIsveren","İşveren Feshi (Haklı Neden)"),
+                  opt("anlasmali","Anlaşmalı Ayrılık"),
+                  opt("emeklilik","Emeklilik"),
+                  opt("diger","Diğer")
+                )
+              ),
+              div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                div(null,lbl({className:"fl"},"Çıkış Tarihi"),inp({className:"fi",type:"date",value:surec.cikisTarihi,onChange:e=>alanGuncelle("cikisTarihi",e.target.value),disabled:!!aktifSurec})),
+                div(null,lbl({className:"fl"},"Son Brüt Ücret (₺)"),inp({className:"fi",type:"number",placeholder:"Örn. 25000",value:surec.sonBrutUcret,onChange:e=>alanGuncelle("sonBrutUcret",e.target.value)}))
+              ),
+              div({style:{marginBottom:10}},
+                lbl({className:"fl"},"Not (isteğe bağlı)"),
+                inp({className:"fi",placeholder:"Not ekleyin...",value:surec.not,onChange:e=>alanGuncelle("not",e.target.value)})
+              ),
+              !aktifSurec && div({style:{display:"flex",gap:8}},
+                btn({onClick:surecKaydet,style:{flex:1,background:"var(--re)",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontSize:14,fontWeight:700,cursor:"pointer"}},"Süreci Başlat"),
+                btn({onClick:()=>setIkCikisForm(null),style:{background:"rgba(0,0,0,.06)",border:"none",borderRadius:10,padding:"10px 16px",fontSize:14,cursor:"pointer",color:"var(--di)"}},"İptal")
+              )
+            ),
+
+            aktifSurec && div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"14px 16px",marginBottom:16}},
+              div({style:{fontSize:12,color:"var(--re)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:12,fontWeight:700}},"2️⃣ İhbar Süresi & Tazminat (Bilgi Amaçlı)"),
+              div({style:{fontSize:11,color:"var(--mu)",marginBottom:12,lineHeight:1.5,background:"var(--bg3)",borderRadius:8,padding:"8px 10px"}},
+                "Aşağıdaki öneriler genel bilgilendirme amaçlıdır. Yasal tavan, kesin hesap ve ayrılık sebebine göre tazminat hakkı için mali müşavirinize veya avukatınıza danışınız."),
+              div({style:{fontSize:12,color:"var(--di)",marginBottom:10}},"İhbar süresi önerisi (İş Kanunu md.17): "+ihbarOnerisi+" hafta"),
+              div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:6}},
+                div(null,lbl({className:"fl"},"İhbar Süresi (hafta)"),inp({className:"fi",type:"number",placeholder:String(ihbarOnerisi),value:surec.ihbarSuresiHafta,onChange:e=>alanGuncelle("ihbarSuresiHafta",e.target.value)})),
+                div(null,lbl({className:"fl"},"Kıdem Tazminatı (₺)"),inp({className:"fi",type:"number",placeholder:"Elle girin",value:surec.kidemTazminati,onChange:e=>alanGuncelle("kidemTazminati",e.target.value)}))
+              ),
+              div(null,lbl({className:"fl"},"İhbar Tazminatı (₺, varsa)"),inp({className:"fi",type:"number",placeholder:"Elle girin",value:surec.ihbarTazminati,onChange:e=>alanGuncelle("ihbarTazminati",e.target.value)}))
+            ),
+
+            aktifSurec && div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"14px 16px",marginBottom:16}},
+              div({style:{fontSize:12,color:"var(--re)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:12,fontWeight:700}},"3️⃣ Evrak Seti"),
+              div({style:{display:"flex",flexDirection:"column",gap:8}},
+                BELGE_TANIM.map(b=>
+                  div({key:b.k,style:{display:"flex",alignItems:"center",gap:10,background:"var(--bg3)",borderRadius:10,padding:"10px 12px"}},
+                    span({style:{fontSize:18}},b.ikon),
+                    div({style:{flex:1,fontSize:13,fontWeight:600,color:"var(--tx)"}},b.lb),
+                    aktifSurec.belgeler[b.k] && span({style:{fontSize:11,fontWeight:700,color:"#248A3D",background:"rgba(52,199,89,.10)",padding:"2px 8px",borderRadius:8}},"✓ Oluşturuldu"),
+                    btn({onClick:()=>{ cikisBelgesiPdfOlustur(p,surec,b.k); belgeIsaretle(b.k); },style:{
+                      background:"rgba(0,113,227,.10)",border:"1px solid rgba(0,113,227,.3)",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer",color:"var(--g)",fontWeight:600
+                    }},"📄 PDF Oluştur")
+                  )
+                )
+              )
+            ),
+
+            aktifSurec && div({style:{background:"rgba(255,59,48,.06)",border:"1px solid rgba(255,59,48,.2)",borderRadius:14,padding:"14px 16px"}},
+              div({style:{fontSize:12,color:"var(--mu)",marginBottom:12,lineHeight:1.5}},
+                "Tüm evraklar imzalatıldıktan sonra süreci tamamlayın. Bu işlem personeli otomatik olarak pasife alır."),
+              btn({onClick:surecTamamla,style:{
+                width:"100%",background:"var(--re)",color:"#fff",border:"none",borderRadius:12,padding:"13px 0",fontSize:14,fontWeight:700,cursor:"pointer"
+              }},"✓ Süreci Tamamla ve Personeli Pasife Al")
+            )
+          );
+        })(),
 
         // ══════════════════════════════════════════
         // ADIM 2b — BİLDİRİMLER MERKEZİ
