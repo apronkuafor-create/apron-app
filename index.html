@@ -4750,6 +4750,20 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               onClick:()=>setSayimKameraAcik(true)},"📷")
           ),
 
+          // ── Arama sonucu özeti — "Wella" gibi bir marka/kelime yazınca toplam kalem ve adet burada görünür ──
+          q.length>1 && div({style:{display:"flex",gap:10,background:"rgba(37,99,168,.06)",
+            border:"1px solid rgba(37,99,168,.25)",borderRadius:11,padding:"10px 14px",marginBottom:10}},
+            div({style:{flex:1}},
+              div({style:{fontSize:10,color:"var(--mu)",fontWeight:600,letterSpacing:.5}},"\""+q+"\" İÇİN KALEM"),
+              div({style:{fontSize:17,color:"var(--g)",fontWeight:800}},filtreliListe.length)
+            ),
+            div({style:{width:1,background:"rgba(37,99,168,.2)"}}),
+            div({style:{flex:1}},
+              div({style:{fontSize:10,color:"var(--mu)",fontWeight:600,letterSpacing:.5}},"TOPLAM STOK ADEDİ"),
+              div({style:{fontSize:17,color:"var(--g)",fontWeight:800}},filtreliListe.reduce((s,u)=>s+toN(u.kalan),0)+" adet")
+            )
+          ),
+
           sayimKameraAcik&&h(BarkodTarayici,{key:"sayim-barkod-"+Date.now().toString(36),
             onOku:kod=>{
               setSayimKameraAcik(false);
@@ -7646,7 +7660,7 @@ function BarkodTarayici({onOku, onKapat}) {
 }
 
 
-function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonText, onKaydet, onIptal, hizListeleri, hatirlatmalar, setHatirlatmalar, bolumStilleri, devirBildirim, setDevirBildirim, gotoMusteriKart, showToast, pGruplar, stokDB}) {
+function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonText, onKaydet, onIptal, hizListeleri, hatirlatmalar, setHatirlatmalar, bolumStilleri, devirBildirim, setDevirBildirim, gotoMusteriKart, showToast, pGruplar, stokDB, isletme}) {
   const aktifP = personeller.filter(p=>p.rol==="personel"&&p.aktif);
   const _poz = aktifKullanici?.pozisyon||"";
   const _isManikurist = _poz==="Manikurist"||_poz==="Pedikürist"||_poz==="Pedikurist";
@@ -8053,7 +8067,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
         gonderiTarih:gonTarih.toISOString().split("T")[0],
         gonderildi:false,
         tip:"sacKesimi",
-        mesaj:"Merhaba "+musteri+"! Saç kesiminizin üzerinden "+gunSayisi+" gün geçti, yenileme zamanı geldi. Randevu için bizi arayabilirsiniz. 💈",
+        mesaj:"Merhaba Sayın "+musteri+", son saç kesiminizi "+fmtT(formTarih||TODAY())+" tarihinde yapmıştık. Üzerinden "+gunSayisi+" gün geçti. Saçınızın uzama hızını ve kesim hassasiyetinizi göz önünde bulundurarak, saç kesimi zamanınızın geldiğini düşünüyoruz. Randevu için lütfen bizi arayın. 💈\n\n"+(isletme?.ad||"Apron"),
         olusturma:Date.now()
       };
       setHatirlatmalar(p=>{
@@ -13495,7 +13509,7 @@ if(DB) dbUpsertAyar("tema",tema);
     devUnuttum&&kul&&(()=>{
       const ds = eksikGunTarih || (()=>{ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; })();
       const dl = new Date(ds+"T12:00:00").toLocaleDateString("tr-TR",{day:"2-digit",month:"long",year:"numeric"});
-      return h(KayitForm,{bolumStilleri,ilk:{tarih:ds},musteriDB,personeller,aktifKullanici:kul,stokDB:stokKalanMap,
+      return h(KayitForm,{bolumStilleri,ilk:{tarih:ds},musteriDB,personeller,aktifKullanici:kul,stokDB:stokKalanMap,isletme,
         baslik:dl+" Tarihli Kayit",
         devirBildirim,setDevirBildirim,showToast,pGruplar,
         gotoMusteriKart:gotoMusteriKartGenel,
@@ -13585,7 +13599,7 @@ if(DB) dbUpsertAyar("tema",tema);
           // Adım: düzenleme formu
           yonDuzForm.adim==="duzenle"&&h(KayitForm,{bolumStilleri,
             ilk:yonDuzForm.kayit,
-            musteriDB, personeller, aktifKullanici:kul, stokDB:stokKalanMap,
+            musteriDB, personeller, aktifKullanici:kul, stokDB:stokKalanMap, isletme,
             baslik:"Kayıt Düzenle (Yönetici)",
             devirBildirim,setDevirBildirim,showToast,pGruplar,
             gotoMusteriKart:gotoMusteriKartGenel,
@@ -14094,7 +14108,7 @@ if(DB) dbUpsertAyar("tema",tema);
     ),
 
     // Kayit formu
-    kayitForm&&h(KayitForm,{bolumStilleri,ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,stokDB:stokKalanMap,hizListeleri,buttonText:(kayitForm._yonBildirimId||kayitForm._talepOnayId)?"Güncelle ve Gönder":kayitForm._yonDirektDuzenle?"Güncelle":undefined,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null),hatirlatmalar,setHatirlatmalar,devirBildirim,setDevirBildirim,showToast,pGruplar,gotoMusteriKart:(mid)=>{setKayitForm(null);gotoMusteriKartGenel(mid);}}),
+    kayitForm&&h(KayitForm,{bolumStilleri,ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,stokDB:stokKalanMap,isletme,hizListeleri,buttonText:(kayitForm._yonBildirimId||kayitForm._talepOnayId)?"Güncelle ve Gönder":kayitForm._yonDirektDuzenle?"Güncelle":undefined,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null),hatirlatmalar,setHatirlatmalar,devirBildirim,setDevirBildirim,showToast,pGruplar,gotoMusteriKart:(mid)=>{setKayitForm(null);gotoMusteriKartGenel(mid);}}),
 
     // Personel ekle modal
     pEkle&&h(PersonelFormModal,{title:"Yeni Personel",data:yeniP,setData:setYeniP,hata:pHata,gruplar:pGruplar,onKaydet:pEkleKaydet,onIptal:()=>{setPEkle(false);setPHata("");},showDurum:false}),
