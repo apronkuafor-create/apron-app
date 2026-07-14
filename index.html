@@ -11201,6 +11201,8 @@ function App() {
   // İK — Uyarı/İhtar Kayıtları: { [personelId]: [{id,tarih,tur,konu,aciklama,imzalandi,olusturma}] }
   const [uyariKayitlari, setUyariKayitlari] = useState({});
   const [ikYeniUyari, setIkYeniUyari] = useState(null);
+  // İK — Belge Kütüphanesi: aktif belge üretim formu {belgeId, ekVeri}
+  const [ikKutuphaneForm, setIkKutuphaneForm] = useState(null);
   // İK — işe giriş tarihine bağlı otomatik bildirimlerin tekrar etmemesi için kalıcı takip: { [personelId]: {kademeler:[1,5,15], sonYildonumuYili:N} }
   const [ikKidemBildirimGecmisi, setIkKidemBildirimGecmisi] = useState({});
   // İK — Özlük belgesi silme, en üst seviye izin (yönetici PIN) gerektirir
@@ -11801,12 +11803,13 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("uyariKayitlari",uyariKayitlari); },[uyariKayitlari]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("ikKidemBildirimGecmisi",ikKidemBildirimGecmisi); },[ikKidemBildirimGecmisi]);
   useEffect(()=>{
-    if(panelAdim!=="insanKaynaklari" || (panelAltSek!=="ozluk" && panelAltSek!=="cikis" && panelAltSek!=="tatil" && panelAltSek!=="uyari" && panelAltSek!=="personelListesi")){
-      setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null); setIkYeniTatilKaydi(null); setIkYeniUyari(null);
+    if(panelAdim!=="insanKaynaklari" || (panelAltSek!=="ozluk" && panelAltSek!=="cikis" && panelAltSek!=="tatil" && panelAltSek!=="uyari" && panelAltSek!=="personelListesi" && panelAltSek!=="kutuphane")){
+      setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null); setIkYeniTatilKaydi(null); setIkYeniUyari(null); setIkKutuphaneForm(null);
     } else {
       if(panelAltSek!=="cikis") setIkCikisForm(null);
       if(panelAltSek!=="tatil") setIkYeniTatilKaydi(null);
       if(panelAltSek!=="uyari") setIkYeniUyari(null);
+      if(panelAltSek!=="kutuphane") setIkKutuphaneForm(null);
     }
   },[panelAdim,panelAltSek]);
 
@@ -13733,6 +13736,188 @@ if(DB) dbUpsertAyar("tema",tema);
     return _cikisBelgeSarmalaAc(baslikUst, belgeNo, icerik, "Çalışan İmzası (Tebellüğ Eden)", "Düzenleyen (İşveren/Yönetici)");
   };
 
+  // İK — Belge Kütüphanesi: hazırda bekleyen, kanuni içerikli standart belge şablonları
+  const IK_BELGE_KUTUPHANESI = [
+    {kategori:"İşe Giriş", ikon:"🆕", renk:"#5A3CB4", belgeler:[
+      {id:"is_sozlesmesi_belirsiz", ad:"İş Sözleşmesi (Belirsiz Süreli)"},
+      {id:"is_sozlesmesi_belirli", ad:"İş Sözleşmesi (Belirli / Deneme Süreli)", ekAlanlar:[
+        {key:"sureBitis", label:"Sözleşme Bitiş Tarihi (belirli süreli ise)", type:"date"},
+        {key:"denemeSuresiAy", label:"Deneme Süresi (ay, varsa)", type:"text", placeholder:"Örn. 2"}
+      ]},
+      {id:"kvkk_aydinlatma", ad:"KVKK Aydınlatma Metni ve Açık Rıza Beyanı"},
+      {id:"gizlilik_taahhut", ad:"Gizlilik ve Rekabet Yasağı Taahhütnamesi", ekAlanlar:[
+        {key:"rekabetSuresiAy", label:"Rekabet Yasağı Süresi (ay, işten ayrılış sonrası)", type:"text", placeholder:"Örn. 12"}
+      ]},
+      {id:"zimmet_tutanagi", ad:"Zimmet Tutanağı", ekAlanlar:[
+        {key:"esyalar", label:"Teslim Edilen Eşya/Ekipman (madde madde yazın)", type:"textarea", placeholder:"Örn. 1 adet makas seti, 1 adet dükkan anahtarı..."}
+      ]},
+      {id:"goreve_baslama", ad:"Göreve Başlama Tutanağı"},
+    ]},
+    {kategori:"Çalışma Sürecinde", ikon:"🗂️", renk:"#0071E3", belgeler:[
+      {id:"ucretsiz_izin", ad:"Ücretsiz İzin Talep Formu", ekAlanlar:[
+        {key:"baslangic", label:"Başlangıç Tarihi", type:"date"},
+        {key:"bitis", label:"Bitiş Tarihi", type:"date"},
+        {key:"gerekce", label:"Gerekçe", type:"textarea", placeholder:"İzin talebinizin nedenini kısaca açıklayın..."}
+      ]},
+      {id:"mazeret_izni", ad:"Mazeret İzni Formu (Evlilik/Doğum/Ölüm vb.)", ekAlanlar:[
+        {key:"mazeretTuru", label:"Mazeret Türü", type:"select", secenekler:["Evlilik","Yakın Akraba Ölümü","Eş Doğum Yapması","Diğer"]},
+        {key:"tarih", label:"Mazeret Tarihi", type:"date"},
+        {key:"gunSayisi", label:"Talep Edilen Gün Sayısı", type:"text", placeholder:"Örn. 3"}
+      ]},
+      {id:"dogum_babalik_izni", ad:"Doğum / Babalık İzni Formu", ekAlanlar:[
+        {key:"izinTuru", label:"İzin Türü", type:"select", secenekler:["Annelik (Doğum) İzni","Babalık İzni"]},
+        {key:"tahminiDogumTarihi", label:"Doğum Tarihi (gerçek veya tahmini)", type:"date"}
+      ]},
+      {id:"saglik_raporu_bildirim", ad:"Sağlık Raporu Bildirim Formu", ekAlanlar:[
+        {key:"baslangic", label:"Rapor Başlangıç Tarihi", type:"date"},
+        {key:"bitis", label:"Rapor Bitiş Tarihi", type:"date"},
+        {key:"kurum", label:"Sağlık Kuruluşu (isteğe bağlı)", type:"text", placeholder:"Örn. Devlet Hastanesi"}
+      ]},
+    ]},
+    {kategori:"Ayrılma Senaryoları", ikon:"🎯", renk:"#B8431F", belgeler:[
+      {id:"emeklilik_dilekce", ad:"Emeklilik Dilekçesi", ekAlanlar:[
+        {key:"ayrilisTarihi", label:"Ayrılış Tarihi", type:"date"},
+        {key:"sgkBasvuruTarihi", label:"SGK Emeklilik Başvuru Tarihi (varsa)", type:"date"}
+      ]},
+      {id:"askerlik_dilekce", ad:"Askerlik Nedeniyle Ayrılış Dilekçesi", ekAlanlar:[
+        {key:"sevkTarihi", label:"Askerlik Sevk/Celp Tarihi", type:"date"},
+        {key:"ayrilisTarihi", label:"İşten Ayrılış Tarihi", type:"date"}
+      ]},
+    ]}
+  ];
+
+  const ikKutuphaneBelgesiPdfOlustur = (p, belgeId, ekVeri) => {
+    ekVeri = ekVeri||{};
+    const bugun = TODAY();
+    const belgeNo = belgeId.toUpperCase().slice(0,8)+"-"+String(Date.now()).slice(-6);
+    const isyeriAd = isletme.ad||"İşyeri";
+
+    if(belgeId==="is_sozlesmesi_belirsiz"){
+      const icerik =
+        "<p><strong>Madde 1 — Taraflar:</strong> Bir tarafta "+isyeriAd+" (bundan sonra \"İŞVEREN\"), diğer tarafta "+p.ad+" ("+(p.tcNo||"TC Kimlik No belirtilmemiş")+") (bundan sonra \"ÇALIŞAN\") arasında aşağıdaki şartlarla belirsiz süreli iş sözleşmesi akdedilmiştir.</p>"
+        +"<p><strong>Madde 2 — İşin Konusu:</strong> Çalışan, işyerinde \""+(p.pozisyon||"belirtilmemiş")+"\" pozisyonunda görev yapacaktır.</p>"
+        +"<p><strong>Madde 3 — İşe Başlama Tarihi:</strong> "+(p.isBaslama?fmtT(p.isBaslama):fmtT(bugun))+"</p>"
+        +"<p><strong>Madde 4 — Çalışma Süresi:</strong> Haftalık çalışma süresi 4857 sayılı İş Kanunu'na uygun olarak azami 45 saattir. Çalışma saatleri: "+(p.saatler||"işyeri düzenine göre belirlenir")+".</p>"
+        +"<p><strong>Madde 5 — Ücret:</strong> Çalışana "+(p.maas||"taraflarca mutabık kalınan tutar")+" ücret ödenecektir. Ücret her ayın sonunda banka hesabına/elden ödenir.</p>"
+        +"<p><strong>Madde 6 — İzin Hakları:</strong> Çalışan, 4857 sayılı İş Kanunu'nun 53. maddesinde belirtilen yıllık ücretli izin hakkından, kıdemine göre yararlanır.</p>"
+        +"<p><strong>Madde 7 — Fesih:</strong> İş bu sözleşme, İş Kanunu'nun ilgili hükümlerine (madde 17 vd.) göre ihbar süresine uyularak veya haklı nedenle feshedilebilir.</p>"
+        +"<p><strong>Madde 8 — Yürürlük:</strong> İş bu sözleşme "+fmtT(bugun)+" tarihinde iki nüsha olarak düzenlenmiş, taraflarca okunarak imza altına alınmıştır.</p>";
+      return _cikisBelgeSarmalaAc("İŞ SÖZLEŞMESİ (BELİRSİZ SÜRELİ)", belgeNo, icerik, "Çalışan İmzası", "İşveren/Yönetici İmzası");
+    }
+
+    if(belgeId==="is_sozlesmesi_belirli"){
+      const denemeVar = ekVeri.denemeSuresiAy && Number(ekVeri.denemeSuresiAy)>0;
+      const icerik =
+        "<p><strong>Madde 1 — Taraflar:</strong> Bir tarafta "+isyeriAd+" (bundan sonra \"İŞVEREN\"), diğer tarafta "+p.ad+" ("+(p.tcNo||"TC Kimlik No belirtilmemiş")+") (bundan sonra \"ÇALIŞAN\") arasında aşağıdaki şartlarla "+(ekVeri.sureBitis?"belirli süreli":"deneme süreli")+" iş sözleşmesi akdedilmiştir.</p>"
+        +"<p><strong>Madde 2 — İşin Konusu:</strong> Çalışan, işyerinde \""+(p.pozisyon||"belirtilmemiş")+"\" pozisyonunda görev yapacaktır.</p>"
+        +"<p><strong>Madde 3 — İşe Başlama Tarihi:</strong> "+(p.isBaslama?fmtT(p.isBaslama):fmtT(bugun))+"</p>"
+        +(ekVeri.sureBitis?"<p><strong>Madde 4 — Sözleşme Süresi:</strong> İş bu sözleşme "+fmtT(ekVeri.sureBitis)+" tarihine kadar geçerlidir. Sürenin bitiminde taraflarca yenilenmediği takdirde kendiliğinden sona erer.</p>":"")
+        +(denemeVar?"<p><strong>Madde 5 — Deneme Süresi:</strong> İş bu sözleşmeye "+ekVeri.denemeSuresiAy+" aylık deneme süresi konulmuştur. Deneme süresi içinde taraflar iş sözleşmesini bildirim süresine gerek olmaksızın ve tazminatsız feshedebilir.</p>":"")
+        +"<p><strong>Madde 6 — Ücret:</strong> Çalışana "+(p.maas||"taraflarca mutabık kalınan tutar")+" ücret ödenecektir.</p>"
+        +"<p><strong>Madde 7 — Diğer Hükümler:</strong> Bu sözleşmede yer almayan hususlarda 4857 sayılı İş Kanunu hükümleri uygulanır.</p>"
+        +"<p><strong>Madde 8 — Yürürlük:</strong> İş bu sözleşme "+fmtT(bugun)+" tarihinde iki nüsha olarak düzenlenmiş, taraflarca okunarak imza altına alınmıştır.</p>";
+      return _cikisBelgeSarmalaAc("İŞ SÖZLEŞMESİ (BELİRLİ / DENEME SÜRELİ)", belgeNo, icerik, "Çalışan İmzası", "İşveren/Yönetici İmzası");
+    }
+
+    if(belgeId==="kvkk_aydinlatma"){
+      const icerik =
+        "<p><strong>Veri Sorumlusu:</strong> "+isyeriAd+" ("+(isletme.adres||"işyeri adresi")+").</p>"
+        +"<p>6698 sayılı Kişisel Verilerin Korunması Kanunu (\"KVKK\") uyarınca, kimlik, iletişim, sağlık, özlük ve mali bilgileriniz; iş sözleşmesinin kurulması ve ifası, SGK/İŞKUR gibi yasal yükümlülüklerin yerine getirilmesi, bordro ve özlük dosyası yönetimi amaçlarıyla işlenmekte olup, yasal olarak yetkili kamu kurum ve kuruluşları ile paylaşılabilmektedir.</p>"
+        +"<p>KVKK'nın 11. maddesi uyarınca; verilerinizin işlenip işlenmediğini öğrenme, işlenmişse buna ilişkin bilgi talep etme, işlenme amacını ve amacına uygun kullanılıp kullanılmadığını öğrenme, yurt içinde/dışında aktarıldığı üçüncü kişileri bilme, eksik/yanlış işlenmişse düzeltilmesini isteme, silinmesini/yok edilmesini isteme ve zarara uğramanız halinde tazmin talep etme haklarına sahipsiniz.</p>"
+        +"<p><strong>Açık Rıza Beyanı:</strong> Yukarıdaki aydınlatma metnini okuduğumu, kişisel verilerimin belirtilen amaçlarla işlenmesine ve gerekli hallerde ilgili kurum/kuruluşlarla paylaşılmasına açık rızam olduğunu beyan ederim.</p>";
+      return _cikisBelgeSarmalaAc("KVKK AYDINLATMA METNİ VE AÇIK RIZA BEYANI", belgeNo, icerik, "Çalışan İmzası", "Veri Sorumlusu Temsilcisi");
+    }
+
+    if(belgeId==="gizlilik_taahhut"){
+      const rekabetSuresi = ekVeri.rekabetSuresiAy||"12";
+      const icerik =
+        "<p>Aşağıda imzası bulunan "+p.ad+", "+isyeriAd+" bünyesinde çalışması süresince ve çalışmasının sona ermesinden sonra aşağıdaki hususları kabul ve taahhüt eder:</p>"
+        +"<p><strong>1. Gizlilik:</strong> İşyerine ait müşteri bilgileri, fiyatlandırma, iş yöntemleri ve ticari sırlar niteliğindeki her türlü bilgiyi gizli tutacağını, üçüncü kişilerle paylaşmayacağını,</p>"
+        +"<p><strong>2. Rekabet Yasağı:</strong> İş sözleşmesinin sona ermesinden itibaren "+rekabetSuresi+" ay süreyle, işverenin faaliyet gösterdiği coğrafi bölgede doğrudan veya dolaylı olarak rakip bir işletme açmayacağını veya rakip bir işletmede çalışmayacağını,</p>"
+        +"<p><strong>3. Müşteri Devri Yasağı:</strong> İşyerinden ayrılması halinde, işyerinin müşteri portföyünü kendi nam ve hesabına veya başka bir işletme lehine kullanmayacağını,</p>"
+        +"<p>kabul, beyan ve taahhüt eder. Bu taahhüde aykırı davranış halinde doğacak zararlardan sorumlu olduğunu bildiğini beyan eder.</p>";
+      return _cikisBelgeSarmalaAc("GİZLİLİK VE REKABET YASAĞI TAAHHÜTNAMESİ", belgeNo, icerik, "Çalışan İmzası", "İşveren/Yönetici İmzası");
+    }
+
+    if(belgeId==="zimmet_tutanagi"){
+      const esyalar = (ekVeri.esyalar||"—").split("\n").filter(s=>s.trim()).map(s=>"<li>"+s.trim()+"</li>").join("");
+      const icerik =
+        "<p>"+p.ad+" isimli personele, "+isyeriAd+" bünyesindeki görevi kapsamında kullanılmak üzere aşağıda listelenen eşya/ekipman zimmetli olarak teslim edilmiştir.</p>"
+        +"<p><strong>Teslim Edilen Eşya/Ekipman:</strong></p>"
+        +"<ul style=\"margin:0 0 14px;padding-left:20px\">"+(esyalar||"<li>—</li>")+"</ul>"
+        +"<p>Çalışan, yukarıda belirtilen eşya/ekipmanı eksiksiz ve çalışır durumda teslim aldığını, işten ayrılışında veya talep halinde aynı şekilde iade edeceğini, kaybı veya hasarı halinde bedelini karşılayacağını kabul ve taahhüt eder.</p>";
+      return _cikisBelgeSarmalaAc("ZİMMET TUTANAĞI", belgeNo, icerik, "Teslim Alan (Çalışan)", "Teslim Eden (İşveren/Yönetici)");
+    }
+
+    if(belgeId==="goreve_baslama"){
+      const icerik =
+        "<p>"+p.ad+" isimli personel, "+isyeriAd+" bünyesinde \""+(p.pozisyon||"belirtilmemiş pozisyon")+"\" görevine "+(p.isBaslama?fmtT(p.isBaslama):fmtT(bugun))+" tarihinde fiilen başlamıştır.</p>"
+        +"<p>Çalışana işyeri kuralları, çalışma saatleri, iş sağlığı ve güvenliği talimatları ve görev tanımı hakkında gerekli bilgilendirme yapılmış olup, çalışan bu bilgilendirmeyi aldığını ve anladığını beyan eder.</p>";
+      return _cikisBelgeSarmalaAc("GÖREVE BAŞLAMA TUTANAĞI", belgeNo, icerik, "Çalışan İmzası", "İşveren/Yönetici İmzası");
+    }
+
+    if(belgeId==="ucretsiz_izin"){
+      const gunSayisi = (ekVeri.baslangic&&ekVeri.bitis) ? Math.max(0,Math.round((new Date(ekVeri.bitis)-new Date(ekVeri.baslangic))/86400000)+1) : null;
+      const icerik =
+        "<p>Sayın Yetkili,</p>"
+        +"<p>"+(ekVeri.baslangic?fmtT(ekVeri.baslangic):"—")+" – "+(ekVeri.bitis?fmtT(ekVeri.bitis):"—")+" tarihleri arasında"+(gunSayisi?" ("+gunSayisi+" gün)":"")+" ücretsiz izin kullanmak istiyorum.</p>"
+        +(ekVeri.gerekce?"<p><strong>Gerekçe:</strong> "+ekVeri.gerekce+"</p>":"")
+        +"<p style=\"font-size:11.5px;color:#999\">Not: Ücretsiz izin süresince iş sözleşmesi askıya alınır; bu süre için ücret ödenmez ve kural olarak kıdem hesabına dahil edilmez. Genel sağlık sigortası (GSS) yönünden 10 gün içinde bildirim yapılması gerekebilir.</p>"
+        +"<p>Talebimin değerlendirilmesini saygılarımla arz ederim.</p>";
+      return _cikisBelgeSarmalaAc("ÜCRETSİZ İZİN TALEP FORMU", belgeNo, icerik, "Çalışan İmzası", "Onaylayan (İşveren/Yönetici)");
+    }
+
+    if(belgeId==="mazeret_izni"){
+      const icerik =
+        "<p>Sayın Yetkili,</p>"
+        +"<p><strong>"+(ekVeri.mazeretTuru||"belirtilmemiş")+"</strong> nedeniyle, "+(ekVeri.tarih?fmtT(ekVeri.tarih):"—")+" tarihinden itibaren "+(ekVeri.gunSayisi||"—")+" gün mazeret izni kullanmak istiyorum.</p>"
+        +"<p style=\"font-size:11.5px;color:#999\">Not: Mazeret izni süre ve şartları işyeri uygulaması/toplu sözleşme hükümlerine göre değişebilir; genel uygulamada evlilik ve yakın akraba vefatında 3 gün esas alınır.</p>"
+        +"<p>Bilgilerinize sunar, onayınızı rica ederim.</p>";
+      return _cikisBelgeSarmalaAc("MAZERET İZNİ FORMU", belgeNo, icerik, "Çalışan İmzası", "Onaylayan (İşveren/Yönetici)");
+    }
+
+    if(belgeId==="dogum_babalik_izni"){
+      const babalikMi = ekVeri.izinTuru==="Babalık İzni";
+      const icerik =
+        "<p>Sayın Yetkili,</p>"
+        +(babalikMi
+          ? "<p>Eşimin doğum yapması nedeniyle, 4857 sayılı İş Kanunu'nun 74. maddesi uyarınca <strong>5 günlük babalık iznimi</strong> kullanmak istiyorum. Doğum tarihi: "+(ekVeri.tahminiDogumTarihi?fmtT(ekVeri.tahminiDogumTarihi):"—")+".</p>"
+          : "<p>4857 sayılı İş Kanunu'nun 74. maddesi uyarınca, doğumdan önce 8 hafta ve doğumdan sonra 8 hafta olmak üzere toplam <strong>16 haftalık analık (doğum) izni</strong> kullanmak istiyorum (çoğul gebelikte doğum öncesi süre 10 haftadır). Tahmini/gerçekleşen doğum tarihi: "+(ekVeri.tahminiDogumTarihi?fmtT(ekVeri.tahminiDogumTarihi):"—")+".</p>")
+        +"<p style=\"font-size:11.5px;color:#999\">Not: Analık izni süresince SGK tarafından geçici iş göremezlik ödeneği bağlanabilir; hekim onayıyla doğumdan önceki 3 haftaya kadar çalışılabilir, kalan süre doğum sonrasına eklenir.</p>"
+        +"<p>Bilgilerinize sunar, onayınızı rica ederim.</p>";
+      return _cikisBelgeSarmalaAc(babalikMi?"BABALIK İZNİ FORMU":"ANALIK (DOĞUM) İZNİ FORMU", belgeNo, icerik, "Çalışan İmzası", "Onaylayan (İşveren/Yönetici)");
+    }
+
+    if(belgeId==="saglik_raporu_bildirim"){
+      const icerik =
+        "<p>"+p.ad+" isimli personel, "+(ekVeri.baslangic?fmtT(ekVeri.baslangic):"—")+" – "+(ekVeri.bitis?fmtT(ekVeri.bitis):"—")+" tarihleri arasında"+(ekVeri.kurum?" "+ekVeri.kurum+" tarafından":"")+" düzenlenen sağlık raporuna istinaden istirahatli olduğunu işyerine bildirmiştir.</p>"
+        +"<p style=\"font-size:11.5px;color:#999\">Not: Sağlık raporunun aslının/resmi çıktısının işverene ayrıca teslim edilmesi ve SGK'ya süresi içinde bildirilmesi gerekir.</p>"
+        +"<p>Bilgilerinize sunulur.</p>";
+      return _cikisBelgeSarmalaAc("SAĞLIK RAPORU BİLDİRİM FORMU", belgeNo, icerik, "Çalışan İmzası", "Teslim Alan (İşveren/Yönetici)");
+    }
+
+    if(belgeId==="emeklilik_dilekce"){
+      const icerik =
+        "<p>Sayın Yetkili,</p>"
+        +"<p>Yaşlılık/emeklilik aylığına hak kazanmış bulunmam nedeniyle, "+(ekVeri.ayrilisTarihi?fmtT(ekVeri.ayrilisTarihi):"belirtilen tarih")+" itibarıyla "+isyeriAd+" bünyesindeki görevimden emeklilik nedeniyle ayrılmak istiyorum.</p>"
+        +(ekVeri.sgkBasvuruTarihi?"<p>SGK emeklilik başvurumu "+fmtT(ekVeri.sgkBasvuruTarihi)+" tarihinde yaptım/yapacağım.</p>":"")
+        +"<p style=\"font-size:11.5px;color:#999\">Not: Emeklilik nedeniyle işten ayrılma, 1475 sayılı Kanun'un halen yürürlükte olan 14. maddesi kapsamında kıdem tazminatı hakkı doğurur. SGK'dan alınacak yazı/tahsis belgesinin işverene ibraz edilmesi gerekir.</p>"
+        +"<p>Gereğinin buna göre yapılmasını saygılarımla arz ederim.</p>";
+      return _cikisBelgeSarmalaAc("EMEKLİLİK DİLEKÇESİ", belgeNo, icerik, "Çalışan İmzası", "Teslim Alan (İşveren/Yönetici)");
+    }
+
+    if(belgeId==="askerlik_dilekce"){
+      const icerik =
+        "<p>Sayın Yetkili,</p>"
+        +"<p>"+(ekVeri.sevkTarihi?fmtT(ekVeri.sevkTarihi):"belirtilen tarihte")+" askerlik hizmetimi yerine getirmek üzere sevke tabi tutulduğumdan, "+(ekVeri.ayrilisTarihi?fmtT(ekVeri.ayrilisTarihi):"belirtilen tarih")+" itibarıyla "+isyeriAd+" bünyesindeki görevimden ayrılmak istiyorum.</p>"
+        +"<p style=\"font-size:11.5px;color:#999\">Not: Muvazzaf askerlik hizmeti nedeniyle işten ayrılma, 4857 sayılı İş Kanunu'nun 14. maddesi ve 1475 sayılı Kanun'un 14. maddesi kapsamında kıdem tazminatı hakkı doğurur. Askerlik celp/sevk belgesinin işverene ibraz edilmesi gerekir.</p>"
+        +"<p>Gereğinin buna göre yapılmasını saygılarımla arz ederim.</p>";
+      return _cikisBelgeSarmalaAc("ASKERLİK NEDENİYLE AYRILIŞ DİLEKÇESİ", belgeNo, icerik, "Çalışan İmzası", "Teslim Alan (İşveren/Yönetici)");
+    }
+
+    return false;
+  };
+
   const yonBildirimOkundu = (id) => {
     if(!DB) return;
     DB.from("yon_bildirim_merkezi").update({okundu:true}).eq("id",id).then(()=>{
@@ -13905,6 +14090,9 @@ if(DB) dbUpsertAyar("tema",tema);
         if(ikDetayPersonel){ const p=personeller.find(x=>x.id===ikDetayPersonel); if(p) segs.push({label:p.ad}); }
       } else if(panelAltSek==="personelListesi"){
         segs.push({label:"Personel Listesi"});
+      } else if(panelAltSek==="kutuphane"){
+        segs.push({label:"Belge Kütüphanesi"});
+        if(ikDetayPersonel){ const p=personeller.find(x=>x.id===ikDetayPersonel); if(p) segs.push({label:p.ad}); }
       }
       return segs;
     }
@@ -16893,7 +17081,7 @@ if(DB) dbUpsertAyar("tema",tema);
                 setGuncelSifre(""); setYeniSifre1(""); setYeniSifre2(""); setSifreDurum(""); setSifreHata(""); }
               else { setAsek(""); setPanelAdim("ayarlar"); setPanelAltSek(""); }
             } else if(panelAdim==="insanKaynaklari" && ikDetayPersonel){
-              setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null); setIkYeniTatilKaydi(null); setIkYeniUyari(null);
+              setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null); setIkYeniTatilKaydi(null); setIkYeniUyari(null); setIkKutuphaneForm(null);
             } else if(panelAltSek){
               setPanelAltSek("");
             } else if(panelAdim!=="ana"){
@@ -17209,6 +17397,7 @@ if(DB) dbUpsertAyar("tema",tema);
             ["rgba(0,130,120,.13)","🎉","Bayram / Resmi Tatil Günleri","tatil"],
             ["rgba(230,120,0,.13)","⚠️","Uyarı / İhtar Kayıtları","uyari"],
             ["rgba(52,199,89,.13)","👤","Personel Listesi","personelListesi"],
+            ["rgba(90,60,180,.13)","📚","Belge Kütüphanesi","kutuphane"],
             ["rgba(200,60,60,.13)","🚪","İşten Çıkış İşlemleri","cikis"],
           ].map(([bg,ikon,lb,altSek],i)=>
             div({key:i,onClick:()=>setPanelAltSek(altSek),style:{
@@ -18040,6 +18229,114 @@ if(DB) dbUpsertAyar("tema",tema);
 
         ),
 
+        // ── Belge Kütüphanesi: Personel Seçim Listesi ──
+        panelAdim==="insanKaynaklari"&&panelAltSek==="kutuphane"&&!asek&&!ikDetayPersonel&&div({style:{padding:"12px 14px 8px"}},
+          div({style:{fontSize:12,color:"var(--mu)",marginBottom:12,lineHeight:1.5}},"Belge oluşturmak istediğiniz personeli seçin."),
+          (personeller||[]).filter(p=>p.aktif).map(p=>
+            div({key:p.id,onClick:()=>setIkDetayPersonel(p.id),style:{
+              display:"flex",alignItems:"center",gap:14,
+              background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderLeft:"4px solid rgba(90,60,180,.5)",
+              borderRadius:14,padding:"13px 16px",marginBottom:9,
+              cursor:"pointer",boxShadow:"0 1px 6px rgba(0,0,0,.05)"
+            }},
+              div({style:{
+                width:48,height:48,borderRadius:14,background:"rgba(90,60,180,.13)",
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:700,color:"#5A3CB4",flexShrink:0
+              }},p.ad[0].toUpperCase()),
+              div({style:{flex:1}},
+                div({style:{fontSize:15,fontWeight:600,color:"#1D1D1F"}},p.ad),
+                div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},p.pozisyon||"Personel")
+              ),
+              span({style:{fontSize:20,color:"#c0c0c5",flexShrink:0}},"›")
+            )
+          ),
+          (personeller||[]).filter(p=>p.aktif).length===0 && div({style:{fontSize:13,color:"var(--mu)",textAlign:"center",padding:20}},"Aktif personel bulunamadı.")
+        ),
+
+        // ── Belge Kütüphanesi: Kategori/Belge Listesi ──
+        panelAdim==="insanKaynaklari"&&panelAltSek==="kutuphane"&&!asek&&ikDetayPersonel&&(()=>{
+          const p = (personeller||[]).find(x=>x.id===ikDetayPersonel);
+          if(!p) return null;
+          const belgeOlustur = (belge) => {
+            if(belge.ekAlanlar && belge.ekAlanlar.length>0){
+              setIkKutuphaneForm({belgeId:belge.id, ekVeri:{}});
+            } else {
+              ikKutuphaneBelgesiPdfOlustur(p, belge.id, {});
+            }
+          };
+          return div({style:{padding:"12px 14px 24px"}},
+            div({style:{display:"flex",alignItems:"center",gap:12,marginBottom:16,background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"13px 16px"}},
+              div({style:{width:48,height:48,borderRadius:14,background:"rgba(90,60,180,.13)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}},"👤"),
+              div(null,
+                div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F"}},p.ad),
+                div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},p.pozisyon||"Personel")
+              )
+            ),
+            div({style:{background:"rgba(90,60,180,.06)",border:"1px solid rgba(90,60,180,.18)",borderRadius:12,padding:"10px 14px",marginBottom:16,fontSize:11.5,color:"#5A3CB4",lineHeight:1.5}},
+              "Bu belgeler genel bilgilendirme amaçlıdır. Tam yasal uygunluk için mali müşavir/avukatınıza danışmanızı öneririz."),
+            IK_BELGE_KUTUPHANESI.map(kat=>
+              div({key:kat.kategori,style:{marginBottom:18}},
+                div({style:{fontSize:12,color:kat.renk,letterSpacing:1.5,textTransform:"uppercase",marginBottom:10,fontWeight:700}},kat.ikon+" "+kat.kategori),
+                kat.belgeler.map(belge=>
+                  div({key:belge.id,style:{
+                    background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderLeft:"3px solid "+kat.renk,
+                    borderRadius:12,padding:"12px 14px",marginBottom:8,
+                    display:"flex",alignItems:"center",justifyContent:"space-between",gap:10
+                  }},
+                    div({style:{fontSize:13.5,fontWeight:600,color:"var(--tx)"}},belge.ad),
+                    btn({onClick:()=>belgeOlustur(belge),style:{
+                      background:"rgba(90,60,180,.10)",border:"1px solid rgba(90,60,180,.3)",borderRadius:8,
+                      padding:"7px 14px",fontSize:12.5,cursor:"pointer",color:"#5A3CB4",fontWeight:600,flexShrink:0
+                    }},"📄 Oluştur")
+                  )
+                )
+              )
+            )
+          );
+        })(),
+
+        // ── Belge Kütüphanesi: Ek Alan Formu (bazı belgeler için) ──
+        ikKutuphaneForm && ReactDOM.createPortal(
+          div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:1500,
+            display:"flex",alignItems:"center",justifyContent:"center",padding:20},
+            onClick:()=>setIkKutuphaneForm(null)},
+            div({style:{background:"var(--bg)",borderRadius:18,padding:22,maxWidth:420,width:"100%",
+              maxHeight:"80vh",overflow:"auto",boxShadow:"0 8px 40px rgba(0,0,0,.4)"},onClick:e=>e.stopPropagation()},
+              (()=>{
+                const belge = IK_BELGE_KUTUPHANESI.flatMap(k=>k.belgeler).find(b=>b.id===ikKutuphaneForm.belgeId);
+                if(!belge) return null;
+                const p = (personeller||[]).find(x=>x.id===ikDetayPersonel);
+                return div(null,
+                  div({style:{fontSize:16,fontWeight:700,color:"var(--tx)",marginBottom:14}},belge.ad),
+                  belge.ekAlanlar.map(alan=>
+                    div({key:alan.key,style:{marginBottom:12}},
+                      lbl({className:"fl"},alan.label),
+                      alan.type==="textarea"
+                        ? h("textarea",{className:"fi",style:{minHeight:80,resize:"vertical"},placeholder:alan.placeholder||"",
+                            value:ikKutuphaneForm.ekVeri[alan.key]||"",
+                            onChange:e=>setIkKutuphaneForm(prev=>({...prev,ekVeri:{...prev.ekVeri,[alan.key]:e.target.value}}))})
+                        : alan.type==="select"
+                        ? sel({className:"fi",value:ikKutuphaneForm.ekVeri[alan.key]||"",
+                            onChange:e=>setIkKutuphaneForm(prev=>({...prev,ekVeri:{...prev.ekVeri,[alan.key]:e.target.value}}))},
+                            opt("","— Seçin —"),
+                            (alan.secenekler||[]).map(s=>opt(s,s))
+                          )
+                        : inp({className:"fi",type:alan.type||"text",placeholder:alan.placeholder||"",
+                            value:ikKutuphaneForm.ekVeri[alan.key]||"",
+                            onChange:e=>setIkKutuphaneForm(prev=>({...prev,ekVeri:{...prev.ekVeri,[alan.key]:e.target.value}}))})
+                    )
+                  ),
+                  div({style:{display:"flex",gap:8,marginTop:10}},
+                    btn({onClick:()=>setIkKutuphaneForm(null),style:{flex:1,background:"rgba(0,0,0,.06)",border:"none",borderRadius:10,padding:"10px 0",fontSize:13,cursor:"pointer",color:"var(--di)"}},"İptal"),
+                    btn({onClick:()=>{ if(p) ikKutuphaneBelgesiPdfOlustur(p, belge.id, ikKutuphaneForm.ekVeri); setIkKutuphaneForm(null); },style:{
+                      flex:2,background:"#5A3CB4",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontSize:13,fontWeight:700,cursor:"pointer"
+                    }},"📄 Belgeyi Oluştur")
+                  )
+                );
+              })()
+            )
+          ), document.body
+        ),
 
         // ══════════════════════════════════════════
         // ADIM 2b — BİLDİRİMLER MERKEZİ
