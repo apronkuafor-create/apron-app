@@ -13453,10 +13453,13 @@ if(DB) dbUpsertAyar("tema",tema);
   };
 
   // İK — Özlük belgesine tamamlanmış evrakın taranmış/foto kopyasını yükleme (resim veya PDF → PNG)
-  const ikBelgeDosyaYukle = async (personelId, kayitId, file) => {
+  // Genel amaçlı: herhangi bir İK kayıt listesi state'ine (özlük, izin, tatil, uyarı) imzalı/kaşeli belge dosyası yükler.
+  // setStateFn imzası: setOzlukDosyalari / setIzinKayitlari / setResmiTatilKayitlari / setUyariKayitlari ile birebir uyumlu
+  // ({[personelId]: [{id,...}]} şeklinde bir state güncelleyen fonksiyon).
+  const ikKayitDosyaYukle = async (setStateFn, personelId, kayitId, file) => {
     if(!file) return;
     const kaydet = (dataUrl, ad) => {
-      setOzlukDosyalari(prev=>({...prev, [personelId]: (prev[personelId]||[]).map(k=>k.id===kayitId?{...k,dosya:dataUrl,dosyaAdi:ad}:k)}));
+      setStateFn(prev=>({...prev, [personelId]: (prev[personelId]||[]).map(k=>k.id===kayitId?{...k,dosya:dataUrl,dosyaAdi:ad}:k)}));
       showToast("Belge yüklendi","ba");
     };
     if(file.type==="application/pdf" || file.name.toLowerCase().endsWith(".pdf")){
@@ -13480,6 +13483,8 @@ if(DB) dbUpsertAyar("tema",tema);
     rd.onload = e2 => kaydet(e2.target.result, file.name);
     rd.readAsDataURL(file);
   };
+  // Geriye dönük uyumluluk: mevcut Özlük Dosyası çağrıları aynen çalışmaya devam etsin
+  const ikBelgeDosyaYukle = (personelId, kayitId, file) => ikKayitDosyaYukle(setOzlukDosyalari, personelId, kayitId, file);
 
   const izinHakkiHesapla = (p) => {
     if(!p || !p.isBaslama) return {kidemYil:0, kidemHakEtti:false, yillikHak:0, kullanilan:0, kalan:0};
@@ -17858,12 +17863,20 @@ if(DB) dbUpsertAyar("tema",tema);
                         div({style:{flex:1}},
                           div({style:{fontSize:13,fontWeight:600,color:"#1D1D1F"}},fmtT(k.baslangic)+" – "+fmtT(k.bitis)+" ("+k.gunSayisi+" gün)"),
                           k.not && div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},k.not),
-                          k.imzalandi && span({style:{display:"inline-block",marginTop:5,fontSize:11,fontWeight:700,color:"#248A3D",background:"rgba(52,199,89,.10)",padding:"2px 8px",borderRadius:8}},"✓ İmzalandı")
+                          k.imzalandi && span({style:{display:"inline-block",marginTop:5,fontSize:11,fontWeight:700,color:"#248A3D",background:"rgba(52,199,89,.10)",padding:"2px 8px",borderRadius:8}},"✓ İmzalandı"),
+                          k.dosya && h("a",{href:k.dosya,target:"_blank",rel:"noopener",style:{display:"inline-flex",alignItems:"center",gap:4,marginTop:5,marginLeft:6,fontSize:11,fontWeight:700,color:"var(--g)",textDecoration:"none"}},"📎 Yüklü Nüsha")
                         ),
                         div({style:{display:"flex",gap:6,flexShrink:0}},
                           btn({onClick:()=>izinPdfOlustur(p,k),title:"İzin Formu PDF",style:{
                             background:"rgba(0,113,227,.10)",border:"1px solid rgba(0,113,227,.3)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:13
                           }},"📄"),
+                          btn({onClick:()=>{
+                            const fi=document.createElement("input"); fi.type="file"; fi.accept="image/*,application/pdf";
+                            fi.onchange=ev=>{ const f=ev.target.files&&ev.target.files[0]; if(f) ikKayitDosyaYukle(setIzinKayitlari,p.id,k.id,f); };
+                            fi.click();
+                          },title:"İmzalı Belgeyi Yükle",style:{
+                            background:"rgba(90,60,180,.10)",border:"1px solid rgba(90,60,180,.3)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:13
+                          }},"📎"),
                           btn({onClick:()=>izinImzaToggle(k.id),title:k.imzalandi?"İmzayı geri al":"İmzalandı olarak işaretle",style:{
                             background:"rgba(52,199,89,.10)",border:"1px solid rgba(52,199,89,.3)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:13
                           }},"✓"),
@@ -18080,7 +18093,12 @@ if(DB) dbUpsertAyar("tema",tema);
               id: uid(), cikisTarihi: ikCikisForm.cikisTarihi||bugun, sebep: ikCikisForm.sebep||"istifa",
               ihbarSuresiHafta: ikCikisForm.ihbarSuresiHafta||"", sonBrutUcret: ikCikisForm.sonBrutUcret||"",
               kidemTazminati: ikCikisForm.kidemTazminati||"", ihbarTazminati: ikCikisForm.ihbarTazminati||"",
-              not: ikCikisForm.not||"", belgeler:{ibraname:false,calismaBelgesi:false,fesihBildirimi:false,tazminatMakbuzu:false},
+              not: ikCikisForm.not||"", belgeler:{
+                ibraname:{uretildi:false,dosya:null,dosyaAdi:null},
+                calismaBelgesi:{uretildi:false,dosya:null,dosyaAdi:null},
+                fesihBildirimi:{uretildi:false,dosya:null,dosyaAdi:null},
+                tazminatMakbuzu:{uretildi:false,dosya:null,dosyaAdi:null}
+              },
               sgkHatirlatmaGonderildi:false, tamamlandi:false, olusturma:bugun
             };
             setCikisIslemleri(prev=>({...prev, [p.id]: [...(prev[p.id]||[]), yeni]}));
@@ -18091,7 +18109,35 @@ if(DB) dbUpsertAyar("tema",tema);
           };
 
           const belgeIsaretle = (belgeAdi) => {
-            setCikisIslemleri(prev=>({...prev, [p.id]: (prev[p.id]||[]).map(x=>x.id===surec.id?{...x,belgeler:{...x.belgeler,[belgeAdi]:true}}:x)}));
+            setCikisIslemleri(prev=>({...prev, [p.id]: (prev[p.id]||[]).map(x=>x.id===surec.id?{...x,belgeler:{...x.belgeler,[belgeAdi]:{...x.belgeler[belgeAdi],uretildi:true}}}:x)}));
+          };
+
+          const belgeDosyaYukle = async (belgeAdi, file) => {
+            if(!file) return;
+            const kaydet = (dataUrl, ad) => {
+              setCikisIslemleri(prev=>({...prev, [p.id]: (prev[p.id]||[]).map(x=>x.id===surec.id?{...x,belgeler:{...x.belgeler,[belgeAdi]:{...x.belgeler[belgeAdi],dosya:dataUrl,dosyaAdi:ad}}}:x)}));
+              showToast("Belge yüklendi","ba");
+            };
+            if(file.type==="application/pdf" || file.name.toLowerCase().endsWith(".pdf")){
+              if(!window.pdfjsLib){ showToast("PDF.js yüklenemedi","ha"); return; }
+              showToast("PDF işleniyor...","uy");
+              try{
+                const ab = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({data:ab}).promise;
+                const page = await pdf.getPage(1);
+                const vp = page.getViewport({scale:3});
+                const canvas = document.createElement("canvas");
+                canvas.width = vp.width; canvas.height = vp.height;
+                const ctx = canvas.getContext("2d");
+                await page.render({canvasContext:ctx, viewport:vp}).promise;
+                kaydet(canvas.toDataURL("image/png",1.0), file.name.replace(/\.pdf$/i,"")+".png");
+              }catch(err){ showToast("PDF okunamadı: "+err.message,"ha"); }
+              return;
+            }
+            if(file.size>3145728){ showToast("Dosya en fazla 3MB olabilir","uy"); return; }
+            const rd = new FileReader();
+            rd.onload = e2 => kaydet(e2.target.result, file.name);
+            rd.readAsDataURL(file);
           };
 
           const surecTamamla = () => {
@@ -18163,13 +18209,21 @@ if(DB) dbUpsertAyar("tema",tema);
               div({style:{fontSize:12,color:"var(--re)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:12,fontWeight:700}},"3️⃣ Evrak Seti"),
               div({style:{display:"flex",flexDirection:"column",gap:8}},
                 BELGE_TANIM.map(b=>
-                  div({key:b.k,style:{display:"flex",alignItems:"center",gap:10,background:"var(--bg3)",borderRadius:10,padding:"10px 12px"}},
+                  div({key:b.k,style:{display:"flex",alignItems:"center",gap:10,background:"var(--bg3)",borderRadius:10,padding:"10px 12px",flexWrap:"wrap"}},
                     span({style:{fontSize:18}},b.ikon),
                     div({style:{flex:1,fontSize:13,fontWeight:600,color:"var(--tx)"}},b.lb),
-                    aktifSurec.belgeler[b.k] && span({style:{fontSize:11,fontWeight:700,color:"#248A3D",background:"rgba(52,199,89,.10)",padding:"2px 8px",borderRadius:8}},"✓ Oluşturuldu"),
+                    (aktifSurec.belgeler[b.k]||{}).uretildi && span({style:{fontSize:11,fontWeight:700,color:"#248A3D",background:"rgba(52,199,89,.10)",padding:"2px 8px",borderRadius:8}},"✓ Oluşturuldu"),
+                    (aktifSurec.belgeler[b.k]||{}).dosya && h("a",{href:aktifSurec.belgeler[b.k].dosya,target:"_blank",rel:"noopener",style:{fontSize:11,fontWeight:700,color:"var(--g)",textDecoration:"none"}},"📎 Yüklü Nüsha"),
                     btn({onClick:()=>{ cikisBelgesiPdfOlustur(p,surec,b.k); belgeIsaretle(b.k); },style:{
                       background:"rgba(0,113,227,.10)",border:"1px solid rgba(0,113,227,.3)",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer",color:"var(--g)",fontWeight:600
-                    }},"📄 PDF Oluştur")
+                    }},"📄 PDF Oluştur"),
+                    btn({onClick:()=>{
+                      const fi=document.createElement("input"); fi.type="file"; fi.accept="image/*,application/pdf";
+                      fi.onchange=ev=>{ const f=ev.target.files&&ev.target.files[0]; if(f) belgeDosyaYukle(b.k,f); };
+                      fi.click();
+                    },style:{
+                      background:"rgba(90,60,180,.10)",border:"1px solid rgba(90,60,180,.3)",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer",color:"#5A3CB4",fontWeight:600
+                    }},"📎 İmzalı Yükle")
                   )
                 )
               )
@@ -18298,12 +18352,20 @@ if(DB) dbUpsertAyar("tema",tema);
                     div({style:{fontSize:14,fontWeight:600,color:"#1D1D1F"}},k.tatilAdi),
                     div({style:{fontSize:12,color:"var(--mu)",marginTop:3}},fmtT(k.tarih)),
                     k.not && div({style:{fontSize:12,color:"var(--di)",marginTop:3}},k.not),
-                    span({style:{display:"inline-block",marginTop:6,fontSize:11,fontWeight:700,color:d.renk,background:d.renk+"1A",padding:"2px 8px",borderRadius:8}},d.lb)
+                    span({style:{display:"inline-block",marginTop:6,fontSize:11,fontWeight:700,color:d.renk,background:d.renk+"1A",padding:"2px 8px",borderRadius:8}},d.lb),
+                    k.dosya && h("a",{href:k.dosya,target:"_blank",rel:"noopener",style:{display:"inline-flex",alignItems:"center",gap:4,marginTop:6,marginLeft:6,fontSize:11,fontWeight:700,color:"var(--g)",textDecoration:"none"}},"📎 Yüklü Nüsha")
                   ),
                   div({style:{display:"flex",gap:6,flexShrink:0}},
                     btn({onClick:()=>tatilBelgesiPdfOlustur(p,k),title:"Belge Oluştur",style:{
                       background:"rgba(0,113,227,.10)",border:"1px solid rgba(0,113,227,.3)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:13
                     }},"📄"),
+                    btn({onClick:()=>{
+                      const fi=document.createElement("input"); fi.type="file"; fi.accept="image/*,application/pdf";
+                      fi.onchange=ev=>{ const f=ev.target.files&&ev.target.files[0]; if(f) ikKayitDosyaYukle(setResmiTatilKayitlari,p.id,k.id,f); };
+                      fi.click();
+                    },title:"İmzalı Belgeyi Yükle",style:{
+                      background:"rgba(90,60,180,.10)",border:"1px solid rgba(90,60,180,.3)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:13
+                    }},"📎"),
                     btn({onClick:()=>kayitSil(k.id),title:"Sil",style:{
                       background:"rgba(255,59,48,.08)",border:"1px solid rgba(255,59,48,.25)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:13
                     }},"🗑️")
@@ -18419,12 +18481,20 @@ if(DB) dbUpsertAyar("tema",tema);
                     div({style:{fontSize:14,fontWeight:600,color:"#1D1D1F"}},k.konu),
                     div({style:{fontSize:12,color:"var(--mu)",marginTop:3}},fmtT(k.tarih)+" · "+(UYARI_TUR_METIN[k.tur]||k.tur)),
                     k.aciklama && div({style:{fontSize:12,color:"var(--di)",marginTop:5,lineHeight:1.5}},k.aciklama),
-                    k.imzalandi && span({style:{display:"inline-block",marginTop:6,fontSize:11,fontWeight:700,color:"#248A3D",background:"rgba(52,199,89,.10)",padding:"2px 8px",borderRadius:8}},"✓ Tebellüğ Edildi")
+                    k.imzalandi && span({style:{display:"inline-block",marginTop:6,fontSize:11,fontWeight:700,color:"#248A3D",background:"rgba(52,199,89,.10)",padding:"2px 8px",borderRadius:8}},"✓ Tebellüğ Edildi"),
+                    k.dosya && h("a",{href:k.dosya,target:"_blank",rel:"noopener",style:{display:"inline-flex",alignItems:"center",gap:4,marginTop:6,marginLeft:6,fontSize:11,fontWeight:700,color:"var(--g)",textDecoration:"none"}},"📎 Yüklü Nüsha")
                   ),
                   div({style:{display:"flex",gap:6,flexShrink:0}},
                     btn({onClick:()=>uyariBelgesiPdfOlustur(p,k),title:"Belge Oluştur",style:{
                       background:"rgba(0,113,227,.10)",border:"1px solid rgba(0,113,227,.3)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:13
                     }},"📄"),
+                    btn({onClick:()=>{
+                      const fi=document.createElement("input"); fi.type="file"; fi.accept="image/*,application/pdf";
+                      fi.onchange=ev=>{ const f=ev.target.files&&ev.target.files[0]; if(f) ikKayitDosyaYukle(setUyariKayitlari,p.id,k.id,f); };
+                      fi.click();
+                    },title:"İmzalı Belgeyi Yükle",style:{
+                      background:"rgba(90,60,180,.10)",border:"1px solid rgba(90,60,180,.3)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:13
+                    }},"📎"),
                     btn({onClick:()=>imzaToggle(k.id),title:k.imzalandi?"Tebellüğü geri al":"Tebellüğ edildi olarak işaretle",style:{
                       background:"rgba(52,199,89,.10)",border:"1px solid rgba(52,199,89,.3)",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:13
                     }},"✓"),
