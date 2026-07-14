@@ -11203,6 +11203,9 @@ function App() {
   const [ikYeniUyari, setIkYeniUyari] = useState(null);
   // İK — Belge Kütüphanesi: aktif belge üretim formu {belgeId, ekVeri}
   const [ikKutuphaneForm, setIkKutuphaneForm] = useState(null);
+  // İK — Belge Kütüphanesi "Paket" akışı: bir senaryo seçilince (örn. İşe Alım) ek bilgi gereken belgeler sırayla sorulur
+  const [ikPaketState, setIkPaketState] = useState(null); // {personelId, kalanBelgeIdler:[...], tamamlananSayisi, toplamSayisi}
+  const [ikSenaryoSecili, setIkSenaryoSecili] = useState(null); // seçilen senaryo id'si | "tumBelgeler" (kategori bazlı tam liste)
   // İK — işe giriş tarihine bağlı otomatik bildirimlerin tekrar etmemesi için kalıcı takip: { [personelId]: {kademeler:[1,5,15], sonYildonumuYili:N} }
   const [ikKidemBildirimGecmisi, setIkKidemBildirimGecmisi] = useState({});
   // İK — Özlük belgesi silme, en üst seviye izin (yönetici PIN) gerektirir
@@ -11804,14 +11807,16 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("ikKidemBildirimGecmisi",ikKidemBildirimGecmisi); },[ikKidemBildirimGecmisi]);
   useEffect(()=>{
     if(panelAdim!=="insanKaynaklari" || (panelAltSek!=="ozluk" && panelAltSek!=="cikis" && panelAltSek!=="tatil" && panelAltSek!=="uyari" && panelAltSek!=="personelListesi" && panelAltSek!=="kutuphane")){
-      setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null); setIkYeniTatilKaydi(null); setIkYeniUyari(null); setIkKutuphaneForm(null);
+      setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null); setIkYeniTatilKaydi(null); setIkYeniUyari(null); setIkKutuphaneForm(null); setIkPaketState(null); setIkSenaryoSecili(null);
     } else {
       if(panelAltSek!=="cikis") setIkCikisForm(null);
       if(panelAltSek!=="tatil") setIkYeniTatilKaydi(null);
       if(panelAltSek!=="uyari") setIkYeniUyari(null);
-      if(panelAltSek!=="kutuphane") setIkKutuphaneForm(null);
+      if(panelAltSek!=="kutuphane"){ setIkKutuphaneForm(null); setIkPaketState(null); setIkSenaryoSecili(null); }
     }
   },[panelAdim,panelAltSek]);
+
+  useEffect(()=>{ setIkSenaryoSecili(null); },[ikDetayPersonel]); // farklı personel seçilince senaryo ekranına geri dön
 
 
 
@@ -13739,6 +13744,21 @@ if(DB) dbUpsertAyar("tema",tema);
   // İK — Belge Kütüphanesi: hazırda bekleyen, kanuni içerikli standart belge şablonları
   const IK_BELGE_KUTUPHANESI = [
     {kategori:"İşe Giriş", ikon:"🆕", renk:"#5A3CB4", belgeler:[
+      {id:"basvuru_degerlendirme", paketDisi:true, ad:"Başvuru / Mülakat Değerlendirme Formu", ekAlanlar:[
+        {key:"mulakatTarihi", label:"Mülakat Tarihi", type:"date"},
+        {key:"degerlendirme", label:"Genel Değerlendirme", type:"textarea", placeholder:"Adayın uygunluğu, güçlü/zayıf yönleri..."},
+        {key:"sonuc", label:"Sonuç", type:"select", secenekler:["Olumlu — İşe Alınsın","Olumsuz","Beklemede"]}
+      ]},
+      {id:"referans_kontrol", paketDisi:true, ad:"Referans Kontrol Formu", ekAlanlar:[
+        {key:"referansAdi", label:"Referans Kişi Adı ve Ünvanı", type:"text", placeholder:"Örn. Ahmet Yılmaz - Önceki İşveren"},
+        {key:"referansTel", label:"Referans Telefonu", type:"text"},
+        {key:"gorusme", label:"Görüşme Notları", type:"textarea", placeholder:"Referansın adayla ilgili verdiği bilgiler..."}
+      ]},
+      {id:"ise_giris_saglik_takip", paketDisi:true, ad:"İşe Giriş Sağlık Raporu Takip Formu", ekAlanlar:[
+        {key:"raporTarihi", label:"Rapor Tarihi", type:"date"},
+        {key:"kurum", label:"Muayeneyi Yapan Kurum", type:"text", placeholder:"Örn. Aile Sağlığı Merkezi"},
+        {key:"sonuc", label:"Sonuç", type:"select", secenekler:["İşe Uygundur","Şartlı Uygundur","Uygun Değildir"]}
+      ]},
       {id:"is_sozlesmesi_belirsiz", ad:"İş Sözleşmesi (Belirsiz Süreli)"},
       {id:"is_sozlesmesi_belirli", ad:"İş Sözleşmesi (Belirli / Deneme Süreli)", ekAlanlar:[
         {key:"sureBitis", label:"Sözleşme Bitiş Tarihi (belirli süreli ise)", type:"date"},
@@ -13751,6 +13771,15 @@ if(DB) dbUpsertAyar("tema",tema);
       {id:"zimmet_tutanagi", ad:"Zimmet Tutanağı", ekAlanlar:[
         {key:"esyalar", label:"Teslim Edilen Eşya/Ekipman (madde madde yazın)", type:"textarea", placeholder:"Örn. 1 adet makas seti, 1 adet dükkan anahtarı..."}
       ]},
+      {id:"isg_egitimi_tutanagi", ad:"İSG Eğitimi Tutanağı", ekAlanlar:[
+        {key:"egitimTarihi", label:"Eğitim Tarihi", type:"date"},
+        {key:"egitimSuresi", label:"Eğitim Süresi (saat)", type:"text", placeholder:"Örn. 8"},
+        {key:"egitici", label:"Eğitimi Veren", type:"text", placeholder:"Ad Soyad / Kurum"}
+      ]},
+      {id:"kkd_teslim_tutanagi", ad:"Kişisel Koruyucu Donanım (KKD) Teslim Tutanağı", ekAlanlar:[
+        {key:"malzemeler", label:"Teslim Edilen KKD (madde madde yazın)", type:"textarea", placeholder:"Örn. Eldiven, önlük, maske..."}
+      ]},
+      {id:"personel_el_kitabi_teblig", ad:"İşyeri Kuralları / Personel El Kitabı Tebliğ Tutanağı"},
       {id:"goreve_baslama", ad:"Göreve Başlama Tutanağı"},
     ]},
     {kategori:"Çalışma Sürecinde", ikon:"🗂️", renk:"#0071E3", belgeler:[
@@ -13773,6 +13802,35 @@ if(DB) dbUpsertAyar("tema",tema);
         {key:"bitis", label:"Rapor Bitiş Tarihi", type:"date"},
         {key:"kurum", label:"Sağlık Kuruluşu (isteğe bağlı)", type:"text", placeholder:"Örn. Devlet Hastanesi"}
       ]},
+      {id:"terfi_zam_bildirimi", ad:"Terfi / Zam Bildirim Yazısı", ekAlanlar:[
+        {key:"yeniPozisyon", label:"Yeni Pozisyon (terfi ise, boş bırakılabilir)", type:"text"},
+        {key:"yeniUcret", label:"Yeni Ücret / Oran", type:"text", placeholder:"Örn. 20000 TL veya %45"},
+        {key:"gecerlilikTarihi", label:"Geçerlilik Tarihi", type:"date"}
+      ]},
+      {id:"gorev_degisikligi_bildirimi", ad:"Görev Değişikliği / Nakil Bildirimi", ekAlanlar:[
+        {key:"yeniGorev", label:"Yeni Görev / Lokasyon", type:"text"},
+        {key:"tarih", label:"Geçerlilik Tarihi", type:"date"},
+        {key:"aciklama", label:"Açıklama (isteğe bağlı)", type:"textarea"}
+      ]},
+      {id:"egitim_katilim_sertifikasi", ad:"Eğitim Katılım Sertifikası", ekAlanlar:[
+        {key:"egitimAdi", label:"Eğitim Adı", type:"text", placeholder:"Örn. Müşteri İlişkileri Eğitimi"},
+        {key:"tarih", label:"Eğitim Tarihi", type:"date"},
+        {key:"sure", label:"Süre (saat)", type:"text", placeholder:"Örn. 4"}
+      ]},
+      {id:"savunma_istem_yazisi", ad:"Savunma İstem Yazısı", ekAlanlar:[
+        {key:"olay", label:"Olay / Konu Açıklaması", type:"textarea", placeholder:"Savunma istenen olayı açıklayın..."},
+        {key:"sure", label:"Savunma İçin Verilen Süre (iş günü)", type:"text", placeholder:"Örn. 3"}
+      ]},
+      {id:"is_kazasi_bildirim_tutanagi", ad:"İş Kazası Bildirim Tutanağı", ekAlanlar:[
+        {key:"kazaTarihi", label:"Kaza Tarihi ve Saati", type:"text", placeholder:"Örn. 14.07.2026 - 15:30"},
+        {key:"yer", label:"Kazanın Olduğu Yer", type:"text"},
+        {key:"aciklama", label:"Olay Açıklaması", type:"textarea"},
+        {key:"taniklar", label:"Tanıklar (varsa)", type:"text"}
+      ]},
+      {id:"devamsizlik_tutanagi", ad:"Devamsızlık Tutanağı (Resmi)", ekAlanlar:[
+        {key:"tarihler", label:"Devamsızlık Tarihi/Tarihleri", type:"textarea", placeholder:"Örn. 10.07.2026, 11.07.2026"},
+        {key:"tanik", label:"Tutanağı Tutan / Tanık", type:"text", placeholder:"Ad Soyad"}
+      ]},
     ]},
     {kategori:"Ayrılma Senaryoları", ikon:"🎯", renk:"#B8431F", belgeler:[
       {id:"emeklilik_dilekce", ad:"Emeklilik Dilekçesi", ekAlanlar:[
@@ -13783,10 +13841,64 @@ if(DB) dbUpsertAyar("tema",tema);
         {key:"sevkTarihi", label:"Askerlik Sevk/Celp Tarihi", type:"date"},
         {key:"ayrilisTarihi", label:"İşten Ayrılış Tarihi", type:"date"}
       ]},
+      {id:"ikale_sozlesmesi", ad:"İkale (Karşılıklı Sonlandırma) Sözleşmesi", ekAlanlar:[
+        {key:"ayrilisTarihi", label:"Ayrılış Tarihi", type:"date"},
+        {key:"ekMenfaat", label:"Ek Menfaat / Makul Yarar Tutarı (varsa)", type:"text", placeholder:"Örn. 15000 TL"},
+        {key:"gerekce", label:"Gerekçe (isteğe bağlı)", type:"textarea"}
+      ]},
+      {id:"zimmet_iade_tutanagi", ad:"Zimmet İade Tutanağı", ekAlanlar:[
+        {key:"esyalar", label:"İade Edilen Eşya/Ekipman (madde madde yazın)", type:"textarea"},
+        {key:"durum", label:"Genel Durum", type:"select", secenekler:["Eksiksiz ve Sağlam Teslim Edildi","Eksik/Hasarlı Teslim Edildi"]}
+      ]},
+      {id:"referans_mektubu", ad:"Referans Mektubu", ekAlanlar:[
+        {key:"degerlendirme", label:"Genel Değerlendirme (isteğe bağlı)", type:"textarea", placeholder:"Çalışanın performansı, güçlü yönleri..."}
+      ]},
     ]}
   ];
 
-  const ikKutuphaneBelgesiPdfOlustur = (p, belgeId, ekVeri) => {
+  // İK — Belge Senaryoları: "Ne için belge lazım?" sorusuna karşılık gelen, olabilecek her koşulu kapsayan senaryo tanımları.
+  // tip:"paket" → tüm belgeler otomatik/sırayla üretilir (net, tek yönlü süreçler)
+  // tip:"secim" → belgeler birbirinin ALTERNATİFİDİR, kullanıcı sadece ihtiyaç duyduğunu seçer (durumsal senaryolar)
+  const IK_BELGE_SENARYOLARI = [
+    {id:"ise_alim", ad:"İşe Alım", ikon:"🆕", renk:"#5A3CB4", tip:"paket",
+      aciklama:"Yeni bir personel işe başlıyor.",
+      belgeIdler:["is_sozlesmesi_belirsiz","kvkk_aydinlatma","gizlilik_taahhut","zimmet_tutanagi","isg_egitimi_tutanagi","kkd_teslim_tutanagi","personel_el_kitabi_teblig","goreve_baslama"]},
+    {id:"aday_degerlendirme", ad:"Aday Değerlendirme (İşe Alım Öncesi)", ikon:"🔍", renk:"#5A3CB4", tip:"secim",
+      aciklama:"Henüz işe alınmadı, mülakat/referans/sağlık aşamasında.",
+      belgeIdler:["basvuru_degerlendirme","referans_kontrol","ise_giris_saglik_takip"]},
+    {id:"izin_talebi", ad:"İzin Talebi", ikon:"🏖️", renk:"#0071E3", tip:"secim",
+      aciklama:"Personel bir nedenle izin istiyor — durumuna uygun olanı seçin.",
+      belgeIdler:["ucretsiz_izin","mazeret_izni","dogum_babalik_izni","saglik_raporu_bildirim"]},
+    {id:"terfi_degisiklik", ad:"Terfi / Görev veya Ücret Değişikliği", ikon:"📈", renk:"#0071E3", tip:"secim",
+      aciklama:"Personelin pozisyonu, görevi, lokasyonu veya ücreti değişiyor.",
+      belgeIdler:["terfi_zam_bildirimi","gorev_degisikligi_bildirimi","egitim_katilim_sertifikasi"]},
+    {id:"disiplin_uyusmazlik", ad:"Disiplin / Uyuşmazlık / Kaza", ikon:"⚠️", renk:"#E67800", tip:"secim",
+      aciklama:"Bir olay, ihlal veya kaza nedeniyle resmi kayıt tutulacak.",
+      belgeIdler:["savunma_istem_yazisi","is_kazasi_bildirim_tutanagi","devamsizlik_tutanagi"],
+      not:"Savunma alındıktan sonra duruma göre İK → Uyarı/İhtar Kayıtları modülünden yazılı uyarı/ihtar düzenleyebilir, ciddi durumlarda İşten Çıkış İşlemleri sürecini başlatabilirsiniz."},
+    {id:"istifa_ayrilma", ad:"İstifa ile Ayrılma", ikon:"🚪", renk:"#B8431F", tip:"paket",
+      aciklama:"Personel kendi isteğiyle ayrılıyor.",
+      belgeIdler:["zimmet_iade_tutanagi","referans_mektubu"],
+      not:"İbraname, Çalışma Belgesi ve İstifa Dilekçesi için İK → İşten Çıkış İşlemleri sihirbazını kullanın; buradaki belgeler onu tamamlar."},
+    {id:"emeklilik_ayrilma", ad:"Emeklilik ile Ayrılma", ikon:"🎓", renk:"#B8431F", tip:"paket",
+      aciklama:"Personel emeklilik nedeniyle ayrılıyor.",
+      belgeIdler:["emeklilik_dilekce","zimmet_iade_tutanagi","referans_mektubu"],
+      not:"İbraname, Çalışma Belgesi ve Tazminat Makbuzu için İK → İşten Çıkış İşlemleri sihirbazını (sebep: Emeklilik) kullanın."},
+    {id:"askerlik_ayrilma", ad:"Askerlik Nedeniyle Ayrılma", ikon:"🎖️", renk:"#B8431F", tip:"paket",
+      aciklama:"Personel askerlik hizmeti nedeniyle ayrılıyor.",
+      belgeIdler:["askerlik_dilekce","zimmet_iade_tutanagi"],
+      not:"İbraname, Çalışma Belgesi ve Tazminat Makbuzu için İK → İşten Çıkış İşlemleri sihirbazını kullanın."},
+    {id:"ikale_ayrilma", ad:"Anlaşmalı Ayrılma (İkale)", ikon:"🤝", renk:"#B8431F", tip:"paket",
+      aciklama:"İşveren ve personel karşılıklı anlaşarak ayrılıyor.",
+      belgeIdler:["ikale_sozlesmesi","zimmet_iade_tutanagi","referans_mektubu"],
+      not:"Çalışma Belgesi için İK → İşten Çıkış İşlemleri sihirbazını (sebep: Anlaşmalı Ayrılık) kullanın."},
+    {id:"fesih_ayrilma", ad:"İşveren Feshi ile Ayrılma", ikon:"📋", renk:"#B8431F", tip:"secim",
+      aciklama:"İşveren tarafından fesih söz konusu (haklı neden veya ihbarlı).",
+      belgeIdler:["zimmet_iade_tutanagi"],
+      not:"İbraname, Çalışma Belgesi, Fesih Bildirimi ve Tazminat Makbuzu için İK → İşten Çıkış İşlemleri sihirbazını kullanın; buradaki belge sadece ekipman iadesi içindir."},
+  ];
+
+  const _ikKutuphaneBelgesiIcerikVePdf = (p, belgeId, ekVeri) => {
     ekVeri = ekVeri||{};
     const bugun = TODAY();
     const belgeNo = belgeId.toUpperCase().slice(0,8)+"-"+String(Date.now()).slice(-6);
@@ -13915,7 +14027,181 @@ if(DB) dbUpsertAyar("tema",tema);
       return _cikisBelgeSarmalaAc("ASKERLİK NEDENİYLE AYRILIŞ DİLEKÇESİ", belgeNo, icerik, "Çalışan İmzası", "Teslim Alan (İşveren/Yönetici)");
     }
 
+    // ── İşe Giriş — ek belgeler ──
+    if(belgeId==="basvuru_degerlendirme"){
+      const icerik =
+        "<p><strong>Aday:</strong> "+p.ad+" &nbsp; <strong>Başvurulan Pozisyon:</strong> "+(p.pozisyon||"—")+"</p>"
+        +"<p><strong>Mülakat Tarihi:</strong> "+(ekVeri.mulakatTarihi?fmtT(ekVeri.mulakatTarihi):"—")+"</p>"
+        +"<p><strong>Genel Değerlendirme:</strong><br>"+(ekVeri.degerlendirme||"—")+"</p>"
+        +"<p><strong>Sonuç:</strong> "+(ekVeri.sonuc||"—")+"</p>"
+        +"<p style=\"font-size:11.5px;color:#999\">Bu form iç kullanım amaçlıdır, adaya tebliğ edilmesi zorunlu değildir.</p>";
+      return _cikisBelgeSarmalaAc("BAŞVURU / MÜLAKAT DEĞERLENDİRME FORMU", belgeNo, icerik, "Değerlendiren", "Onaylayan (İşveren/Yönetici)");
+    }
+
+    if(belgeId==="referans_kontrol"){
+      const icerik =
+        "<p><strong>Aday:</strong> "+p.ad+"</p>"
+        +"<p><strong>Referans Kişi:</strong> "+(ekVeri.referansAdi||"—")+" &nbsp; <strong>Telefon:</strong> "+(ekVeri.referansTel||"—")+"</p>"
+        +"<p><strong>Görüşme Notları:</strong><br>"+(ekVeri.gorusme||"—")+"</p>"
+        +"<p style=\"font-size:11.5px;color:#999\">Bu form iç kullanım amaçlıdır. Referans bilgileri KVKK kapsamında yalnızca işe alım süreci için kullanılmalı, gereksiz süre saklanmamalıdır.</p>";
+      return _cikisBelgeSarmalaAc("REFERANS KONTROL FORMU", belgeNo, icerik, "Görüşmeyi Yapan", "Onaylayan (İşveren/Yönetici)");
+    }
+
+    if(belgeId==="ise_giris_saglik_takip"){
+      const icerik =
+        "<p>"+p.ad+" isimli aday/personel için işe giriş sağlık muayenesi "+(ekVeri.raporTarihi?fmtT(ekVeri.raporTarihi):"—")+" tarihinde"+(ekVeri.kurum?" "+ekVeri.kurum+" tarafından":"")+" gerçekleştirilmiştir.</p>"
+        +"<p><strong>Sonuç:</strong> "+(ekVeri.sonuc||"—")+"</p>"
+        +"<p style=\"font-size:11.5px;color:#999\">Not: İşe giriş sağlık raporu, 6331 sayılı İş Sağlığı ve Güvenliği Kanunu kapsamında işyeri hekimi veya yetkili sağlık kuruluşu tarafından düzenlenmelidir.</p>";
+      return _cikisBelgeSarmalaAc("İŞE GİRİŞ SAĞLIK RAPORU TAKİP FORMU", belgeNo, icerik, "Çalışan İmzası", "Teslim Alan (İşveren/Yönetici)");
+    }
+
+    if(belgeId==="isg_egitimi_tutanagi"){
+      const icerik =
+        "<p>"+p.ad+" isimli personele, "+(ekVeri.egitimTarihi?fmtT(ekVeri.egitimTarihi):fmtT(bugun))+" tarihinde"+(ekVeri.egitimSuresi?" "+ekVeri.egitimSuresi+" saat süreyle":"")+" iş sağlığı ve güvenliği (İSG) eğitimi verilmiştir.</p>"
+        +(ekVeri.egitici?"<p><strong>Eğitimi Veren:</strong> "+ekVeri.egitici+"</p>":"")
+        +"<p>Eğitim kapsamında; işyerinde karşılaşılabilecek riskler, kişisel koruyucu donanım kullanımı, acil durum ve tahliye prosedürleri, ilk yardım ve iş kazası bildirim usulleri hakkında bilgilendirme yapılmıştır.</p>"
+        +"<p style=\"font-size:11.5px;color:#999\">Not: 6331 sayılı Kanun ve ilgili yönetmelik gereği işe başlamadan önce temel İSG eğitimi verilmesi zorunludur.</p>"
+        +"<p>Çalışan, bu eğitimi aldığını ve içeriğini anladığını beyan eder.</p>";
+      return _cikisBelgeSarmalaAc("İSG EĞİTİMİ TUTANAĞI", belgeNo, icerik, "Çalışan İmzası", "Eğitimi Veren / Onaylayan");
+    }
+
+    if(belgeId==="kkd_teslim_tutanagi"){
+      const malzemeler = (ekVeri.malzemeler||"—").split("\n").filter(s=>s.trim()).map(s=>"<li>"+s.trim()+"</li>").join("");
+      const icerik =
+        "<p>"+p.ad+" isimli personele, görevi gereği aşağıda listelenen kişisel koruyucu donanım (KKD) zimmetli olarak teslim edilmiştir.</p>"
+        +"<ul style=\"margin:0 0 14px;padding-left:20px\">"+(malzemeler||"<li>—</li>")+"</ul>"
+        +"<p>Çalışan, teslim edilen KKD'yi çalışması süresince kullanacağını, hasar/kayıp halinde bildireceğini kabul ve taahhüt eder.</p>";
+      return _cikisBelgeSarmalaAc("KİŞİSEL KORUYUCU DONANIM (KKD) TESLİM TUTANAĞI", belgeNo, icerik, "Teslim Alan (Çalışan)", "Teslim Eden (İşveren/Yönetici)");
+    }
+
+    if(belgeId==="personel_el_kitabi_teblig"){
+      const icerik =
+        "<p>"+p.ad+" isimli personele, "+isyeriAd+" işyerinin çalışma kuralları, disiplin esasları, çalışma saatleri, izin uygulamaları ve genel işyeri politikalarını içeren bilgilendirme yapılmış/personel el kitabı tebliğ edilmiştir.</p>"
+        +"<p>Çalışan, kendisine tebliğ edilen kuralları okuduğunu, anladığını ve bu kurallara uyacağını kabul ve beyan eder.</p>";
+      return _cikisBelgeSarmalaAc("İŞYERİ KURALLARI / PERSONEL EL KİTABI TEBLİĞ TUTANAĞI", belgeNo, icerik, "Çalışan İmzası", "Teslim Eden (İşveren/Yönetici)");
+    }
+
+    // ── Çalışma Sürecinde — ek belgeler ──
+    if(belgeId==="terfi_zam_bildirimi"){
+      const icerik =
+        "<p>Sayın "+p.ad+",</p>"
+        +"<p>"+(ekVeri.gecerlilikTarihi?fmtT(ekVeri.gecerlilikTarihi):fmtT(bugun))+" tarihinden itibaren"
+        +(ekVeri.yeniPozisyon?" \""+ekVeri.yeniPozisyon+"\" pozisyonuna terfi ettiğinizi":"")
+        +(ekVeri.yeniPozisyon&&ekVeri.yeniUcret?" ve ":"")
+        +(ekVeri.yeniUcret?" ücretinizin "+ekVeri.yeniUcret+" olarak güncellendiğini":"")
+        +" bilgilerinize sunarız.</p>"
+        +"<p>Başarılı çalışmalarınızın devamını dileriz.</p>";
+      return _cikisBelgeSarmalaAc("TERFİ / ZAM BİLDİRİM YAZISI", belgeNo, icerik, "Çalışan İmzası (Tebellüğ Eden)", "İşveren/Yönetici İmzası");
+    }
+
+    if(belgeId==="gorev_degisikligi_bildirimi"){
+      const icerik =
+        "<p>Sayın "+p.ad+",</p>"
+        +"<p>"+(ekVeri.tarih?fmtT(ekVeri.tarih):fmtT(bugun))+" tarihinden itibaren göreviniz/çalışma yeriniz \""+(ekVeri.yeniGorev||"—")+"\" olarak değiştirilmiştir.</p>"
+        +(ekVeri.aciklama?"<p><strong>Açıklama:</strong> "+ekVeri.aciklama+"</p>":"")
+        +"<p>Bilgilerinize sunarız.</p>";
+      return _cikisBelgeSarmalaAc("GÖREV DEĞİŞİKLİĞİ / NAKİL BİLDİRİMİ", belgeNo, icerik, "Çalışan İmzası (Tebellüğ Eden)", "İşveren/Yönetici İmzası");
+    }
+
+    if(belgeId==="egitim_katilim_sertifikasi"){
+      const icerik =
+        "<p style=\"text-align:center;font-size:16px;margin:20px 0\">Bu belge,</p>"
+        +"<p style=\"text-align:center;font-size:20px;font-weight:700;margin:0 0 20px\">"+p.ad+"</p>"
+        +"<p style=\"text-align:center\">isimli personelin</p>"
+        +"<p style=\"text-align:center;font-size:17px;font-weight:600;margin:14px 0\">\""+(ekVeri.egitimAdi||"—")+"\"</p>"
+        +"<p style=\"text-align:center\">eğitimine "+(ekVeri.tarih?fmtT(ekVeri.tarih):"—")+" tarihinde"+(ekVeri.sure?" ("+ekVeri.sure+" saat)":"")+" katıldığını ve başarıyla tamamladığını belgelemek üzere düzenlenmiştir.</p>";
+      return _cikisBelgeSarmalaAc("EĞİTİM KATILIM SERTİFİKASI", belgeNo, icerik, "Eğitimi Veren", "Onaylayan (İşveren/Yönetici)");
+    }
+
+    if(belgeId==="savunma_istem_yazisi"){
+      const icerik =
+        "<p>Sayın "+p.ad+",</p>"
+        +"<p>Aşağıda belirtilen konu ile ilgili olarak yazılı savunmanızın alınması gerekmektedir:</p>"
+        +"<p><strong>Konu:</strong><br>"+(ekVeri.olay||"—")+"</p>"
+        +"<p>İş bu yazının tarafınıza tebliğinden itibaren <strong>"+(ekVeri.sure||"3")+" iş günü</strong> içinde yazılı savunmanızı işverene sunmanız rica olunur. Belirtilen süre içinde savunma sunulmaması halinde savunma hakkınızdan feragat ettiğiniz kabul edilecek ve karar buna göre verilecektir.</p>"
+        +"<p style=\"font-size:11.5px;color:#999\">Not: Yargıtay içtihatlarına göre, davranış veya performans nedeniyle yapılacak fesihlerde işçiden yazılı savunma alınması, feshin geçerliliği açısından önemlidir (İş Kanunu md. 19, 25/II).</p>";
+      return _cikisBelgeSarmalaAc("SAVUNMA İSTEM YAZISI", belgeNo, icerik, "Çalışan İmzası (Tebellüğ Eden)", "Düzenleyen (İşveren/Yönetici)");
+    }
+
+    if(belgeId==="is_kazasi_bildirim_tutanagi"){
+      const icerik =
+        "<p><strong>Kazazede:</strong> "+p.ad+"</p>"
+        +"<p><strong>Kaza Tarihi/Saati:</strong> "+(ekVeri.kazaTarihi||"—")+" &nbsp; <strong>Yer:</strong> "+(ekVeri.yer||"—")+"</p>"
+        +"<p><strong>Olay Açıklaması:</strong><br>"+(ekVeri.aciklama||"—")+"</p>"
+        +(ekVeri.taniklar?"<p><strong>Tanıklar:</strong> "+ekVeri.taniklar+"</p>":"")
+        +"<p style=\"font-size:11.5px;color:#999\">Not: İş kazası, 5510 sayılı Kanun uyarınca kazadan sonraki 3 iş günü içinde SGK'ya bildirilmelidir; kolluk kuvvetlerine bildirim gerektiren durumlarda derhal bildirim yapılmalıdır.</p>";
+      return _cikisBelgeSarmalaAc("İŞ KAZASI BİLDİRİM TUTANAĞI", belgeNo, icerik, "Kazazede İmzası (mümkünse)", "Tutanağı Düzenleyen (İşveren/Yönetici)");
+    }
+
+    if(belgeId==="devamsizlik_tutanagi"){
+      const icerik =
+        "<p>"+p.ad+" isimli personelin aşağıda belirtilen tarih/tarihlerde işe gelmediği, herhangi bir mazeret bildirmediği ve izin talebinde bulunmadığı tespit edilmiştir.</p>"
+        +"<p><strong>Devamsızlık Tarihi/Tarihleri:</strong><br>"+(ekVeri.tarihler||"—")+"</p>"
+        +(ekVeri.tanik?"<p><strong>Tutanağı Tutan / Tanık:</strong> "+ekVeri.tanik+"</p>":"")
+        +"<p style=\"font-size:11.5px;color:#999\">Not: 4857 sayılı İş Kanunu'nun 25/II-g maddesi uyarınca; işçinin işverenden izin almaksızın ve haklı bir sebebe dayanmaksızın ardı ardına iki iş günü, bir ayda iki kez herhangi bir tatil gününden sonraki iş günü veya bir ayda üç iş günü işe gelmemesi, işverene haklı fesih hakkı tanır.</p>";
+      return _cikisBelgeSarmalaAc("DEVAMSIZLIK TUTANAĞI", belgeNo, icerik, "Tanık 1", "Tanık 2 / Onaylayan (İşveren)");
+    }
+
+    // ── Ayrılma Senaryoları — ek belgeler ──
+    if(belgeId==="ikale_sozlesmesi"){
+      const icerik =
+        "<p>"+isyeriAd+" (\"İŞVEREN\") ile "+p.ad+" (\"ÇALIŞAN\") arasında, iş sözleşmesinin karşılıklı anlaşma (ikale) yoluyla sona erdirilmesi hususunda aşağıdaki şartlarla mutabakata varılmıştır:</p>"
+        +"<p><strong>1.</strong> Taraflar, iş sözleşmesinin "+(ekVeri.ayrilisTarihi?fmtT(ekVeri.ayrilisTarihi):"—")+" tarihi itibarıyla karşılıklı anlaşma ile sona erdirilmesi konusunda mutabıktır.</p>"
+        +(ekVeri.ekMenfaat?"<p><strong>2.</strong> Çalışana, yasal hak ve alacaklarına ek olarak "+ekVeri.ekMenfaat+" tutarında ek menfaat (makul yarar) ödenecektir.</p>":"<p><strong>2.</strong> Çalışana yasal hak ve alacaklarına ek olarak taraflarca belirlenen bir makul yarar sağlanması, ikale sözleşmesinin geçerliliği açısından önemlidir.</p>")
+        +(ekVeri.gerekce?"<p><strong>3. Gerekçe:</strong> "+ekVeri.gerekce+"</p>":"")
+        +"<p>Taraflar, iş bu anlaşma ile birbirlerini ibra eder ve bundan sonra herhangi bir hak/alacak talebinde bulunmayacaklarını kabul ve beyan ederler.</p>"
+        +"<p style=\"font-size:11.5px;color:#999\">Not: Yargıtay'a göre ikale sözleşmesinin geçerli sayılması için işçiye makul bir yarar (genellikle ihbar ve kıdem tazminatı toplamının belli bir yüzdesi) sağlanması beklenir.</p>";
+      return _cikisBelgeSarmalaAc("İKALE (KARŞILIKLI SONLANDIRMA) SÖZLEŞMESİ", belgeNo, icerik, "Çalışan İmzası", "İşveren/Yönetici İmzası");
+    }
+
+    if(belgeId==="zimmet_iade_tutanagi"){
+      const esyalar = (ekVeri.esyalar||"—").split("\n").filter(s=>s.trim()).map(s=>"<li>"+s.trim()+"</li>").join("");
+      const icerik =
+        "<p>"+p.ad+" isimli personel, işten ayrılışı nedeniyle kendisine zimmetli olarak teslim edilmiş bulunan aşağıdaki eşya/ekipmanı işverene iade etmiştir.</p>"
+        +"<p><strong>İade Edilen Eşya/Ekipman:</strong></p>"
+        +"<ul style=\"margin:0 0 14px;padding-left:20px\">"+(esyalar||"<li>—</li>")+"</ul>"
+        +"<p><strong>Genel Durum:</strong> "+(ekVeri.durum||"—")+"</p>"
+        +"<p>İşveren, listelenen eşya/ekipmanı yukarıda belirtilen durumda teslim aldığını beyan eder.</p>";
+      return _cikisBelgeSarmalaAc("ZİMMET İADE TUTANAĞI", belgeNo, icerik, "Teslim Eden (Çalışan)", "Teslim Alan (İşveren/Yönetici)");
+    }
+
+    if(belgeId==="referans_mektubu"){
+      const kidemYil = p.isBaslama ? ((Date.now()-new Date(p.isBaslama).getTime())/86400000/365.25) : null;
+      const icerik =
+        "<p>Bu mektup, "+p.ad+" isimli çalışanımız hakkında referans amacıyla düzenlenmiştir.</p>"
+        +"<p>"+p.ad+", "+isyeriAd+" bünyesinde"+(p.isBaslama?" "+fmtT(p.isBaslama)+" tarihinden":"")+(kidemYil!==null?" itibaren yaklaşık "+kidemYil.toFixed(1)+" yıl boyunca":"")+" \""+(p.pozisyon||"personel")+"\" olarak görev yapmıştır.</p>"
+        +(ekVeri.degerlendirme?"<p><strong>Değerlendirme:</strong><br>"+ekVeri.degerlendirme+"</p>":"")
+        +"<p>Bilgilerinize sunarız.</p>";
+      return _cikisBelgeSarmalaAc("REFERANS MEKTUBU", belgeNo, icerik, "Düzenleyen (İşveren/Yönetici)", "");
+    }
+
     return false;
+  };
+
+  // Belge Kütüphanesi'nden bir belge üretildiğinde: PDF açılır VE personelin Özlük Dosyası'na
+  // otomatik olarak "bekliyor" durumunda bir kayıt düşülür — imzalı/kaşeli nüsha buradan yüklenebilir.
+  const ikKutuphaneBelgesiPdfOlustur = (p, belgeId, ekVeri) => {
+    const sonuc = _ikKutuphaneBelgesiIcerikVePdf(p, belgeId, ekVeri);
+    if(!sonuc) return sonuc;
+    const belge = IK_BELGE_KUTUPHANESI.flatMap(k=>k.belgeler).find(b=>b.id===belgeId);
+    const belgeAd = belge?belge.ad:belgeId;
+    const bugun = TODAY();
+    setOzlukDosyalari(prev=>{
+      const mevcutListe = prev[p.id]||[];
+      const acikKayit = mevcutListe.find(k=>k.tur==="kutuphaneBelgesi" && k.baslik===belgeAd && k.durum!=="tamamlandi" && !k.dosya);
+      if(acikKayit){
+        // Aynı belge daha önce oluşturulmuş ama henüz imzalı nüshası yüklenmemişse, tarihini güncelle (tekrar kayıt biriktirmesin)
+        return {...prev, [p.id]: mevcutListe.map(k=>k.id===acikKayit.id?{...k,tarih:bugun}:k)};
+      }
+      const yeni = {
+        id: uid(), tur:"kutuphaneBelgesi", baslik: belgeAd, tarih: bugun, hatirlatmaTarihi:"",
+        durum:"bekliyor", not:"Belge Kütüphanesi'nden oluşturuldu. Yazdırıp imzalattıktan/kaşelettikten sonra taranmış halini buraya yükleyin.",
+        olusturma: bugun
+      };
+      return {...prev, [p.id]: [...mevcutListe, yeni]};
+    });
+    showToast(belgeAd+" oluşturuldu — imzalı nüshayı Özlük Dosyası'ndan yükleyebilirsiniz","ba");
+    return sonuc;
   };
 
   const yonBildirimOkundu = (id) => {
@@ -14093,6 +14379,10 @@ if(DB) dbUpsertAyar("tema",tema);
       } else if(panelAltSek==="kutuphane"){
         segs.push({label:"Belge Kütüphanesi"});
         if(ikDetayPersonel){ const p=personeller.find(x=>x.id===ikDetayPersonel); if(p) segs.push({label:p.ad}); }
+        if(ikSenaryoSecili){
+          if(ikSenaryoSecili==="tumBelgeler") segs.push({label:"Tüm Belgeler"});
+          else { const sen=IK_BELGE_SENARYOLARI.find(s=>s.id===ikSenaryoSecili); if(sen) segs.push({label:sen.ad}); }
+        }
       }
       return segs;
     }
@@ -17080,8 +17370,10 @@ if(DB) dbUpsertAyar("tema",tema);
               else if(aySek){ setAySek(""); setAsek(""); setPanelAdim("ayarlar"); setPanelAltSek("");
                 setGuncelSifre(""); setYeniSifre1(""); setYeniSifre2(""); setSifreDurum(""); setSifreHata(""); }
               else { setAsek(""); setPanelAdim("ayarlar"); setPanelAltSek(""); }
+            } else if(panelAdim==="insanKaynaklari" && panelAltSek==="kutuphane" && ikSenaryoSecili){
+              setIkSenaryoSecili(null);
             } else if(panelAdim==="insanKaynaklari" && ikDetayPersonel){
-              setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null); setIkYeniTatilKaydi(null); setIkYeniUyari(null); setIkKutuphaneForm(null);
+              setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null); setIkYeniTatilKaydi(null); setIkYeniUyari(null); setIkKutuphaneForm(null); setIkPaketState(null); setIkSenaryoSecili(null);
             } else if(panelAltSek){
               setPanelAltSek("");
             } else if(panelAdim!=="ana"){
@@ -18231,13 +18523,13 @@ if(DB) dbUpsertAyar("tema",tema);
 
         // ── Belge Kütüphanesi: Personel Seçim Listesi ──
         panelAdim==="insanKaynaklari"&&panelAltSek==="kutuphane"&&!asek&&!ikDetayPersonel&&div({style:{padding:"12px 14px 8px"}},
-          div({style:{fontSize:12,color:"var(--mu)",marginBottom:12,lineHeight:1.5}},"Belge oluşturmak istediğiniz personeli seçin."),
-          (personeller||[]).filter(p=>p.aktif).map(p=>
+          div({style:{fontSize:12,color:"var(--mu)",marginBottom:12,lineHeight:1.5}},"Belge oluşturmak istediğiniz personeli/adayı seçin. Aday değerlendirme belgeleri için henüz aktifleştirilmemiş kayıtlar da listelenir."),
+          (personeller||[]).map(p=>
             div({key:p.id,onClick:()=>setIkDetayPersonel(p.id),style:{
               display:"flex",alignItems:"center",gap:14,
-              background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderLeft:"4px solid rgba(90,60,180,.5)",
+              background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderLeft:"4px solid "+(p.aktif?"rgba(90,60,180,.5)":"rgba(0,0,0,.15)"),
               borderRadius:14,padding:"13px 16px",marginBottom:9,
-              cursor:"pointer",boxShadow:"0 1px 6px rgba(0,0,0,.05)"
+              cursor:"pointer",boxShadow:"0 1px 6px rgba(0,0,0,.05)",opacity:p.aktif?1:.72
             }},
               div({style:{
                 width:48,height:48,borderRadius:14,background:"rgba(90,60,180,.13)",
@@ -18245,25 +18537,18 @@ if(DB) dbUpsertAyar("tema",tema);
               }},p.ad[0].toUpperCase()),
               div({style:{flex:1}},
                 div({style:{fontSize:15,fontWeight:600,color:"#1D1D1F"}},p.ad),
-                div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},p.pozisyon||"Personel")
+                div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},(p.pozisyon||"Personel")+(!p.aktif?" · Pasif/Aday":""))
               ),
               span({style:{fontSize:20,color:"#c0c0c5",flexShrink:0}},"›")
             )
           ),
-          (personeller||[]).filter(p=>p.aktif).length===0 && div({style:{fontSize:13,color:"var(--mu)",textAlign:"center",padding:20}},"Aktif personel bulunamadı.")
+          (personeller||[]).length===0 && div({style:{fontSize:13,color:"var(--mu)",textAlign:"center",padding:20}},"Kayıtlı personel bulunamadı.")
         ),
 
-        // ── Belge Kütüphanesi: Kategori/Belge Listesi ──
-        panelAdim==="insanKaynaklari"&&panelAltSek==="kutuphane"&&!asek&&ikDetayPersonel&&(()=>{
+        // ── Belge Kütüphanesi: Senaryo Seçimi ("Ne için belge lazım?") ──
+        panelAdim==="insanKaynaklari"&&panelAltSek==="kutuphane"&&!asek&&ikDetayPersonel&&!ikSenaryoSecili&&(()=>{
           const p = (personeller||[]).find(x=>x.id===ikDetayPersonel);
           if(!p) return null;
-          const belgeOlustur = (belge) => {
-            if(belge.ekAlanlar && belge.ekAlanlar.length>0){
-              setIkKutuphaneForm({belgeId:belge.id, ekVeri:{}});
-            } else {
-              ikKutuphaneBelgesiPdfOlustur(p, belge.id, {});
-            }
-          };
           return div({style:{padding:"12px 14px 24px"}},
             div({style:{display:"flex",alignItems:"center",gap:12,marginBottom:16,background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"13px 16px"}},
               div({style:{width:48,height:48,borderRadius:14,background:"rgba(90,60,180,.13)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}},"👤"),
@@ -18272,24 +18557,218 @@ if(DB) dbUpsertAyar("tema",tema);
                 div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},p.pozisyon||"Personel")
               )
             ),
-            div({style:{background:"rgba(90,60,180,.06)",border:"1px solid rgba(90,60,180,.18)",borderRadius:12,padding:"10px 14px",marginBottom:16,fontSize:11.5,color:"#5A3CB4",lineHeight:1.5}},
-              "Bu belgeler genel bilgilendirme amaçlıdır. Tam yasal uygunluk için mali müşavir/avukatınıza danışmanızı öneririz."),
-            IK_BELGE_KUTUPHANESI.map(kat=>
-              div({key:kat.kategori,style:{marginBottom:18}},
-                div({style:{fontSize:12,color:kat.renk,letterSpacing:1.5,textTransform:"uppercase",marginBottom:10,fontWeight:700}},kat.ikon+" "+kat.kategori),
-                kat.belgeler.map(belge=>
-                  div({key:belge.id,style:{
-                    background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderLeft:"3px solid "+kat.renk,
-                    borderRadius:12,padding:"12px 14px",marginBottom:8,
-                    display:"flex",alignItems:"center",justifyContent:"space-between",gap:10
-                  }},
+            div({style:{fontSize:13,color:"var(--tx)",fontWeight:600,marginBottom:12}},"Bu personel için ne için belge lazım?"),
+            IK_BELGE_SENARYOLARI.map(sen=>
+              div({key:sen.id,onClick:()=>setIkSenaryoSecili(sen.id),style:{
+                display:"flex",alignItems:"center",gap:14,
+                background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderLeft:"4px solid "+sen.renk,
+                borderRadius:14,padding:"13px 16px",marginBottom:9,
+                cursor:"pointer",boxShadow:"0 1px 6px rgba(0,0,0,.05)"
+              }},
+                div({style:{
+                  width:44,height:44,borderRadius:12,background:sen.renk+"22",
+                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0
+                }},sen.ikon),
+                div({style:{flex:1}},
+                  div({style:{fontSize:14,fontWeight:600,color:"#1D1D1F"}},sen.ad),
+                  sen.aciklama && div({style:{fontSize:11.5,color:"var(--mu)",marginTop:2}},sen.aciklama),
+                  sen.tip==="paket" && span({style:{display:"inline-block",marginTop:5,fontSize:10.5,fontWeight:700,color:sen.renk,background:sen.renk+"18",padding:"1px 7px",borderRadius:7}},"🚀 OTOMATİK PAKET — "+sen.belgeIdler.length+" belge")
+                ),
+                span({style:{fontSize:20,color:"#c0c0c5",flexShrink:0}},"›")
+              )
+            ),
+            div({key:"tumBelgeler",onClick:()=>setIkSenaryoSecili("tumBelgeler"),style:{
+              display:"flex",alignItems:"center",gap:14,
+              background:"var(--bg3)",border:"1px dashed rgba(0,0,0,.15)",
+              borderRadius:14,padding:"13px 16px",marginTop:6,
+              cursor:"pointer"
+            }},
+              div({style:{
+                width:44,height:44,borderRadius:12,background:"rgba(0,0,0,.06)",
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0
+              }},"📋"),
+              div({style:{flex:1}},
+                div({style:{fontSize:14,fontWeight:600,color:"var(--tx)"}},"Tüm Belgeleri Görüntüle"),
+                div({style:{fontSize:11.5,color:"var(--mu)",marginTop:2}},"Senaryo seçmeden, kategoriye göre tüm belgelere gözat")
+              ),
+              span({style:{fontSize:20,color:"#c0c0c5",flexShrink:0}},"›")
+            )
+          );
+        })(),
+
+        // ── Belge Kütüphanesi: Senaryo Detayı (filtrelenmiş belge listesi) ──
+        panelAdim==="insanKaynaklari"&&panelAltSek==="kutuphane"&&!asek&&ikDetayPersonel&&ikSenaryoSecili&&ikSenaryoSecili!=="tumBelgeler"&&(()=>{
+          const p = (personeller||[]).find(x=>x.id===ikDetayPersonel);
+          const senaryo = IK_BELGE_SENARYOLARI.find(s=>s.id===ikSenaryoSecili);
+          if(!p||!senaryo) return null;
+          const tumBelgeler = IK_BELGE_KUTUPHANESI.flatMap(k=>k.belgeler);
+          const senaryoBelgeleri = senaryo.belgeIdler.map(id=>tumBelgeler.find(b=>b.id===id)).filter(Boolean);
+          const ozlukListe = ozlukDosyalari[p.id]||[];
+          const belgeOlustur = (belge) => {
+            if(belge.ekAlanlar && belge.ekAlanlar.length>0){
+              setIkKutuphaneForm({belgeId:belge.id, ekVeri:{}});
+            } else {
+              ikKutuphaneBelgesiPdfOlustur(p, belge.id, {});
+            }
+          };
+          const dosyaSecVeYukle = (kayitId) => {
+            const fi=document.createElement("input"); fi.type="file"; fi.accept="image/*,application/pdf";
+            fi.onchange=ev=>{ const f=ev.target.files&&ev.target.files[0]; if(f) ikBelgeDosyaYukle(p.id,kayitId,f); };
+            fi.click();
+          };
+          const paketBaslat = () => {
+            const ekAlanliOlanlar = [];
+            let hemenUretilen = 0;
+            senaryoBelgeleri.forEach(b=>{
+              if(b.ekAlanlar && b.ekAlanlar.length>0){ ekAlanliOlanlar.push(b.id); }
+              else { ikKutuphaneBelgesiPdfOlustur(p, b.id, {}); hemenUretilen++; }
+            });
+            if(ekAlanliOlanlar.length>0){
+              setIkPaketState({personelId:p.id, kategori:senaryo.ad, kalanBelgeIdler:ekAlanliOlanlar, toplamSayisi:ekAlanliOlanlar.length+hemenUretilen, tamamlananSayisi:hemenUretilen});
+              setIkKutuphaneForm({belgeId:ekAlanliOlanlar[0], ekVeri:{}});
+            } else {
+              showToast(senaryo.ad+" paketindeki tüm belgeler oluşturuldu!","ba");
+            }
+          };
+          return div({style:{padding:"12px 14px 24px"}},
+            btn({onClick:()=>setIkSenaryoSecili(null),style:{
+              background:"none",border:"none",color:"var(--mu)",fontSize:12.5,cursor:"pointer",padding:0,marginBottom:12,display:"flex",alignItems:"center",gap:4
+            }},"‹ Senaryolara Dön"),
+            div({style:{display:"flex",alignItems:"center",gap:12,marginBottom:14,background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"13px 16px"}},
+              div({style:{width:48,height:48,borderRadius:14,background:senaryo.renk+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}},senaryo.ikon),
+              div(null,
+                div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F"}},senaryo.ad),
+                div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},p.ad)
+              )
+            ),
+            senaryo.not && div({style:{background:"rgba(255,149,0,.08)",border:"1px solid rgba(255,149,0,.25)",borderRadius:12,padding:"10px 14px",marginBottom:14,fontSize:11.5,color:"#B8590A",lineHeight:1.5}},"ℹ️ "+senaryo.not),
+            senaryo.tip==="paket" && btn({onClick:paketBaslat,style:{
+              width:"100%",background:senaryo.renk,color:"#fff",border:"none",borderRadius:12,
+              padding:"13px 0",fontSize:14,fontWeight:700,cursor:"pointer",marginBottom:16
+            }},"🚀 Bu Paketteki Tüm Belgeleri Hazırla ("+senaryoBelgeleri.length+" belge)"),
+            senaryo.tip==="secim" && div({style:{fontSize:11.5,color:"var(--mu)",marginBottom:12}},"Bu belgeler durumsal alternatiflerdir — ihtiyacınız olanı seçip oluşturun."),
+            senaryoBelgeleri.map(belge=>{
+              const kayit = ozlukListe.filter(k=>k.tur==="kutuphaneBelgesi"&&k.baslik===belge.ad).sort((a,b)=>b.tarih.localeCompare(a.tarih))[0];
+              return div({key:belge.id,style:{
+                background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderLeft:"3px solid "+senaryo.renk,
+                borderRadius:12,padding:"12px 14px",marginBottom:8
+              }},
+                div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}},
+                  div({style:{flex:1,minWidth:160}},
                     div({style:{fontSize:13.5,fontWeight:600,color:"var(--tx)"}},belge.ad),
+                    kayit && div({style:{marginTop:4}},
+                      kayit.dosya
+                        ? span({style:{fontSize:11,fontWeight:700,color:"#248A3D",background:"rgba(52,199,89,.10)",padding:"2px 8px",borderRadius:8}},"✓ İmzalı Nüsha Yüklü — "+fmtT(kayit.tarih))
+                        : span({style:{fontSize:11,fontWeight:700,color:"#c25e00",background:"rgba(255,149,0,.10)",padding:"2px 8px",borderRadius:8}},"⏳ Oluşturuldu, imzalı nüsha bekleniyor — "+fmtT(kayit.tarih))
+                    )
+                  ),
+                  div({style:{display:"flex",gap:6,flexShrink:0}},
+                    kayit && !kayit.dosya && btn({onClick:()=>dosyaSecVeYukle(kayit.id),style:{
+                      background:"rgba(52,199,89,.10)",border:"1px solid rgba(52,199,89,.3)",borderRadius:8,
+                      padding:"7px 12px",fontSize:12,cursor:"pointer",color:"#248A3D",fontWeight:600
+                    }},"📎 İmzalı Yükle"),
+                    kayit && kayit.dosya && h("a",{href:kayit.dosya,target:"_blank",rel:"noopener",style:{
+                      background:"rgba(0,113,227,.10)",border:"1px solid rgba(0,113,227,.3)",borderRadius:8,
+                      padding:"7px 12px",fontSize:12,color:"var(--g)",fontWeight:600,textDecoration:"none",display:"flex",alignItems:"center"
+                    }},"👁️ Görüntüle"),
                     btn({onClick:()=>belgeOlustur(belge),style:{
                       background:"rgba(90,60,180,.10)",border:"1px solid rgba(90,60,180,.3)",borderRadius:8,
-                      padding:"7px 14px",fontSize:12.5,cursor:"pointer",color:"#5A3CB4",fontWeight:600,flexShrink:0
-                    }},"📄 Oluştur")
+                      padding:"7px 12px",fontSize:12,cursor:"pointer",color:"#5A3CB4",fontWeight:600
+                    }},kayit?"📄 Yeniden Oluştur":"📄 Oluştur")
                   )
                 )
+              );
+            })
+          );
+        })(),
+
+        // ── Belge Kütüphanesi: Kategori/Belge Listesi (Tüm Belgeler görünümü) ──
+        panelAdim==="insanKaynaklari"&&panelAltSek==="kutuphane"&&!asek&&ikDetayPersonel&&ikSenaryoSecili==="tumBelgeler"&&(()=>{
+          const p = (personeller||[]).find(x=>x.id===ikDetayPersonel);
+          if(!p) return null;
+          const ozlukListe = ozlukDosyalari[p.id]||[];
+          const belgeOlustur = (belge) => {
+            if(belge.ekAlanlar && belge.ekAlanlar.length>0){
+              setIkKutuphaneForm({belgeId:belge.id, ekVeri:{}});
+            } else {
+              ikKutuphaneBelgesiPdfOlustur(p, belge.id, {});
+            }
+          };
+          const dosyaSecVeYukle = (kayitId) => {
+            const fi=document.createElement("input"); fi.type="file"; fi.accept="image/*,application/pdf";
+            fi.onchange=ev=>{ const f=ev.target.files&&ev.target.files[0]; if(f) ikBelgeDosyaYukle(p.id,kayitId,f); };
+            fi.click();
+          };
+          const paketBaslat = (belgeIdler, ad) => {
+            const tumBelgeler = IK_BELGE_KUTUPHANESI.flatMap(k=>k.belgeler);
+            const paketBelgeleri = belgeIdler.map(id=>tumBelgeler.find(b=>b.id===id)).filter(Boolean);
+            const ekAlanliOlanlar = [];
+            let hemenUretilen = 0;
+            paketBelgeleri.forEach(b=>{
+              if(b.ekAlanlar && b.ekAlanlar.length>0){ ekAlanliOlanlar.push(b.id); }
+              else { ikKutuphaneBelgesiPdfOlustur(p, b.id, {}); hemenUretilen++; }
+            });
+            if(ekAlanliOlanlar.length>0){
+              setIkPaketState({personelId:p.id, kategori:ad, kalanBelgeIdler:ekAlanliOlanlar, toplamSayisi:ekAlanliOlanlar.length+hemenUretilen, tamamlananSayisi:hemenUretilen});
+              setIkKutuphaneForm({belgeId:ekAlanliOlanlar[0], ekVeri:{}});
+            } else {
+              showToast(ad+" paketindeki tüm belgeler oluşturuldu!","ba");
+            }
+          };
+          return div({style:{padding:"12px 14px 24px"}},
+            btn({onClick:()=>setIkSenaryoSecili(null),style:{
+              background:"none",border:"none",color:"var(--mu)",fontSize:12.5,cursor:"pointer",padding:0,marginBottom:12,display:"flex",alignItems:"center",gap:4
+            }},"‹ Senaryolara Dön"),
+            div({style:{display:"flex",alignItems:"center",gap:12,marginBottom:16,background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"13px 16px"}},
+              div({style:{width:48,height:48,borderRadius:14,background:"rgba(90,60,180,.13)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}},"👤"),
+              div(null,
+                div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F"}},p.ad),
+                div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},p.pozisyon||"Personel")
+              )
+            ),
+            div({style:{background:"rgba(90,60,180,.06)",border:"1px solid rgba(90,60,180,.18)",borderRadius:12,padding:"10px 14px",marginBottom:16,fontSize:11.5,color:"#5A3CB4",lineHeight:1.5}},
+              "Bu belgeler genel bilgilendirme amaçlıdır. Tam yasal uygunluk için mali müşavir/avukatınıza danışmanızı öneririz. Bir belgeyi oluşturduktan sonra yazdırıp imzalattığınız/kaşelettiğiniz nüshayı buradan yükleyerek Özlük Dosyası'na kalıcı olarak kaydedebilirsiniz."),
+            IK_BELGE_KUTUPHANESI.map(kat=>
+              div({key:kat.kategori,style:{marginBottom:18}},
+                div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:8}},
+                  div({style:{fontSize:12,color:kat.renk,letterSpacing:1.5,textTransform:"uppercase",fontWeight:700}},kat.ikon+" "+kat.kategori),
+                  kat.kategori==="İşe Giriş" && btn({onClick:()=>paketBaslat(kat.belgeler.filter(b=>!b.paketDisi).map(b=>b.id),kat.kategori),style:{
+                    background:kat.renk,color:"#fff",border:"none",borderRadius:8,
+                    padding:"7px 14px",fontSize:12,cursor:"pointer",fontWeight:700
+                  }},"🚀 İşe Alım Paketini Hazırla")
+                ),
+                kat.belgeler.map(belge=>{
+                  const kayit = ozlukListe.filter(k=>k.tur==="kutuphaneBelgesi"&&k.baslik===belge.ad).sort((a,b)=>b.tarih.localeCompare(a.tarih))[0];
+                  return div({key:belge.id,style:{
+                    background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderLeft:"3px solid "+kat.renk,
+                    borderRadius:12,padding:"12px 14px",marginBottom:8
+                  }},
+                    div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}},
+                      div({style:{flex:1,minWidth:160}},
+                        div({style:{fontSize:13.5,fontWeight:600,color:"var(--tx)"}},belge.ad),
+                        kayit && div({style:{marginTop:4}},
+                          kayit.dosya
+                            ? span({style:{fontSize:11,fontWeight:700,color:"#248A3D",background:"rgba(52,199,89,.10)",padding:"2px 8px",borderRadius:8}},"✓ İmzalı Nüsha Yüklü — "+fmtT(kayit.tarih))
+                            : span({style:{fontSize:11,fontWeight:700,color:"#c25e00",background:"rgba(255,149,0,.10)",padding:"2px 8px",borderRadius:8}},"⏳ Oluşturuldu, imzalı nüsha bekleniyor — "+fmtT(kayit.tarih))
+                        )
+                      ),
+                      div({style:{display:"flex",gap:6,flexShrink:0}},
+                        kayit && !kayit.dosya && btn({onClick:()=>dosyaSecVeYukle(kayit.id),style:{
+                          background:"rgba(52,199,89,.10)",border:"1px solid rgba(52,199,89,.3)",borderRadius:8,
+                          padding:"7px 12px",fontSize:12,cursor:"pointer",color:"#248A3D",fontWeight:600
+                        }},"📎 İmzalı Yükle"),
+                        kayit && kayit.dosya && h("a",{href:kayit.dosya,target:"_blank",rel:"noopener",style:{
+                          background:"rgba(0,113,227,.10)",border:"1px solid rgba(0,113,227,.3)",borderRadius:8,
+                          padding:"7px 12px",fontSize:12,color:"var(--g)",fontWeight:600,textDecoration:"none",display:"flex",alignItems:"center"
+                        }},"👁️ Görüntüle"),
+                        btn({onClick:()=>belgeOlustur(belge),style:{
+                          background:"rgba(90,60,180,.10)",border:"1px solid rgba(90,60,180,.3)",borderRadius:8,
+                          padding:"7px 12px",fontSize:12,cursor:"pointer",color:"#5A3CB4",fontWeight:600
+                        }},kayit?"📄 Yeniden Oluştur":"📄 Oluştur")
+                      )
+                    )
+                  );
+                })
               )
             )
           );
@@ -18306,7 +18785,26 @@ if(DB) dbUpsertAyar("tema",tema);
                 const belge = IK_BELGE_KUTUPHANESI.flatMap(k=>k.belgeler).find(b=>b.id===ikKutuphaneForm.belgeId);
                 if(!belge) return null;
                 const p = (personeller||[]).find(x=>x.id===ikDetayPersonel);
+                const paketAktif = ikPaketState && ikPaketState.personelId===ikDetayPersonel;
+                const ilerlemeMetni = paketAktif ? (ikPaketState.tamamlananSayisi+1)+" / "+ikPaketState.toplamSayisi+" — "+ikPaketState.kategori : null;
+                const devamEt = () => {
+                  if(p) ikKutuphaneBelgesiPdfOlustur(p, belge.id, ikKutuphaneForm.ekVeri);
+                  if(paketAktif){
+                    const kalanlar = ikPaketState.kalanBelgeIdler.slice(1);
+                    if(kalanlar.length>0){
+                      setIkPaketState(prev=>({...prev, kalanBelgeIdler:kalanlar, tamamlananSayisi:prev.tamamlananSayisi+1}));
+                      setIkKutuphaneForm({belgeId:kalanlar[0], ekVeri:{}});
+                    } else {
+                      setIkPaketState(null);
+                      setIkKutuphaneForm(null);
+                      showToast("Paket tamamlandı — tüm belgeler oluşturuldu!","ba");
+                    }
+                  } else {
+                    setIkKutuphaneForm(null);
+                  }
+                };
                 return div(null,
+                  paketAktif && div({style:{fontSize:11,fontWeight:700,color:"#5A3CB4",background:"rgba(90,60,180,.08)",borderRadius:8,padding:"5px 10px",marginBottom:10,display:"inline-block"}},"📦 "+ilerlemeMetni),
                   div({style:{fontSize:16,fontWeight:700,color:"var(--tx)",marginBottom:14}},belge.ad),
                   belge.ekAlanlar.map(alan=>
                     div({key:alan.key,style:{marginBottom:12}},
@@ -18327,10 +18825,10 @@ if(DB) dbUpsertAyar("tema",tema);
                     )
                   ),
                   div({style:{display:"flex",gap:8,marginTop:10}},
-                    btn({onClick:()=>setIkKutuphaneForm(null),style:{flex:1,background:"rgba(0,0,0,.06)",border:"none",borderRadius:10,padding:"10px 0",fontSize:13,cursor:"pointer",color:"var(--di)"}},"İptal"),
-                    btn({onClick:()=>{ if(p) ikKutuphaneBelgesiPdfOlustur(p, belge.id, ikKutuphaneForm.ekVeri); setIkKutuphaneForm(null); },style:{
+                    btn({onClick:()=>{ setIkKutuphaneForm(null); setIkPaketState(null); },style:{flex:1,background:"rgba(0,0,0,.06)",border:"none",borderRadius:10,padding:"10px 0",fontSize:13,cursor:"pointer",color:"var(--di)"}},paketAktif?"Paketi İptal Et":"İptal"),
+                    btn({onClick:devamEt,style:{
                       flex:2,background:"#5A3CB4",color:"#fff",border:"none",borderRadius:10,padding:"10px 0",fontSize:13,fontWeight:700,cursor:"pointer"
-                    }},"📄 Belgeyi Oluştur")
+                    }},paketAktif&&ikPaketState.kalanBelgeIdler.length>1?"📄 Oluştur ve Devam Et":"📄 Belgeyi Oluştur")
                   )
                 );
               })()
