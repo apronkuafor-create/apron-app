@@ -9045,6 +9045,7 @@ function KayitKarti({r, onDetay, onDuzenle, onSil}) {
           sel({className:"fi",value:data.rol||"personel",onChange:e=>setData(p=>({...p,rol:e.target.value}))},
             opt("personel","Personel"),opt("yonetici","Yonetici"))
         ),
+        div({style:{marginBottom:10}},lbl({className:"fl"},"İşe Başlama Tarihi"),inp({className:"fi",type:"date",value:data.isBaslama||"",onChange:e=>setData(p=>({...p,isBaslama:e.target.value}))})),
         div({style:{marginBottom:10}},lbl({className:"fl"},"Pozisyon"),
           sel({className:"fi",value:data.pozisyon||"",onChange:e=>setData(p=>({...p,pozisyon:e.target.value}))},
             opt("","Seciniz..."),opt("Isyeri Sahibi ve Usta","Isyeri Sahibi ve Usta"),opt("Usta","Usta"),opt("Kalfa","Kalfa"),opt("Cirak","Cirak"),opt("Manikurist","Manikurist"),opt("Pedikürist","Pedikurist"),opt("Diger","Diger"))
@@ -11195,6 +11196,8 @@ function App() {
   // İK — Uyarı/İhtar Kayıtları: { [personelId]: [{id,tarih,tur,konu,aciklama,imzalandi,olusturma}] }
   const [uyariKayitlari, setUyariKayitlari] = useState({});
   const [ikYeniUyari, setIkYeniUyari] = useState(null);
+  // İK — işe giriş tarihine bağlı otomatik bildirimlerin tekrar etmemesi için kalıcı takip: { [personelId]: {kademeler:[1,5,15], sonYildonumuYili:N} }
+  const [ikKidemBildirimGecmisi, setIkKidemBildirimGecmisi] = useState({});
   const [pGruplar, setPGruplar]       = useState([
     {id:"g1", ad:"Gelire Doğrudan Katkı Sağlayanlar"},
     {id:"g2", ad:"Destek Personeli"}
@@ -11563,6 +11566,7 @@ ayarlarRaw.forEach(a=>{ try {
   if(a.id==="cikisIslemleri" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setCikisIslemleri(a.deger); // Bulut tek doğru kaynak
   if(a.id==="resmiTatilKayitlari" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setResmiTatilKayitlari(a.deger); // Bulut tek doğru kaynak
   if(a.id==="uyariKayitlari" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setUyariKayitlari(a.deger); // Bulut tek doğru kaynak
+  if(a.id==="ikKidemBildirimGecmisi" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setIkKidemBildirimGecmisi(a.deger); // Bulut tek doğru kaynak
 } catch(eAyar){} });
         const [k,m,d] = await Promise.all([
           dbAl("kayitlar",{order:"created_at",asc:false}),
@@ -11786,6 +11790,7 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("cikisIslemleri",cikisIslemleri); },[cikisIslemleri]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("resmiTatilKayitlari",resmiTatilKayitlari); },[resmiTatilKayitlari]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("uyariKayitlari",uyariKayitlari); },[uyariKayitlari]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("ikKidemBildirimGecmisi",ikKidemBildirimGecmisi); },[ikKidemBildirimGecmisi]);
   useEffect(()=>{
     if(panelAdim!=="insanKaynaklari" || (panelAltSek!=="ozluk" && panelAltSek!=="cikis" && panelAltSek!=="tatil" && panelAltSek!=="uyari")){
       setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null); setIkYeniTatilKaydi(null); setIkYeniUyari(null);
@@ -13179,8 +13184,18 @@ if(DB) dbUpsertAyar("tema",tema);
     const _gelirGrupId=(pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id;
     const _yeniPersonelId = "s"+uid();
     setPersoneller(p=>[...p,{...yeniP,id:_yeniPersonelId,ad:yeniP.ad.trim(),pin:yeniP.pin,rol:yeniP.rol,grup:yeniP.grup||_gelirGrupId||"",aktif:true}]);
-    // İK — otomatik standart işe giriş evrak checklist'i oluştur
-    setOzlukDosyalari(prev=>({...prev, [_yeniPersonelId]: ikIseGirisChecklistOlustur()}));
+    // İK — otomatik standart işe giriş evrak checklist'i + deneme süresi bitişi hatırlatması oluştur (işe başlama tarihine bağlı)
+    const _otomatikOzlukKayitlari = ikIseGirisChecklistOlustur();
+    if(yeniP.isBaslama){
+      const _denemeBitis = new Date(yeniP.isBaslama);
+      _denemeBitis.setMonth(_denemeBitis.getMonth()+2);
+      const _denemeBitisStr = _denemeBitis.toISOString().slice(0,10);
+      _otomatikOzlukKayitlari.push({
+        id: uid(), tur:"denemeSuresi", baslik:"Deneme Süresi Bitişi", tarih:_denemeBitisStr,
+        hatirlatmaTarihi:_denemeBitisStr, durum:"bekliyor", not:"İşe başlama tarihinden otomatik hesaplandı (2 ay).", olusturma: TODAY()
+      });
+    }
+    setOzlukDosyalari(prev=>({...prev, [_yeniPersonelId]: _otomatikOzlukKayitlari}));
     setYeniP({ad:"",pin:"",rol:"personel"}); setPEkle(false); setPHata("");
     showToast("Personel eklendi ve sisteme dahil edildi");
   };
@@ -13358,6 +13373,36 @@ if(DB) dbUpsertAyar("tema",tema);
       });
     });
   },[ozlukDosyalari, personeller, yukleniyor]);
+
+  // İK — İşe giriş tarihine bağlı otomatik bildirimler: yıllık izin hakkı kademe geçişi (1/5/15 yıl) ve iş yıldönümü.
+  // ikKidemBildirimGecmisi ile kalıcı takip yapılır (okunma durumundan bağımsız), bu yüzden her render'da tekrar bildirim düşmez.
+  useEffect(()=>{
+    if(yukleniyor||!DB) return;
+    (personeller||[]).filter(p=>p.aktif && p.isBaslama).forEach(p=>{
+      const kidemYil = (Date.now() - new Date(p.isBaslama).getTime()) / 86400000 / 365.25;
+      const kidemYilTam = Math.floor(kidemYil);
+      const gecmis = ikKidemBildirimGecmisi[p.id] || {kademeler:[], sonYildonumuYili:0};
+      [1,5,15].forEach(esik=>{
+        if(kidemYil>=esik && !gecmis.kademeler.includes(esik)){
+          const mesaj = esik===1 ? p.ad+" 1 yıllık kıdemi doldurdu, yıllık ücretli izin hakkı başladı (14 gün)."
+            : esik===5 ? p.ad+" 5 yıllık kıdemi doldurdu, yıllık ücretli izin hakkı 20 güne yükseldi."
+            : p.ad+" 15 yıllık kıdemi doldurdu, yıllık ücretli izin hakkı 26 güne yükseldi.";
+          yonBildirimEkle("ikKademeGecisi", p.ad+" — İzin Hakkı Güncellendi", mesaj, {personelId:p.id, esik});
+          setIkKidemBildirimGecmisi(prev=>{
+            const onceki = prev[p.id] || {kademeler:[], sonYildonumuYili:0};
+            return {...prev, [p.id]: {...onceki, kademeler:[...onceki.kademeler, esik]}};
+          });
+        }
+      });
+      if(kidemYilTam>=1 && kidemYilTam>gecmis.sonYildonumuYili){
+        yonBildirimEkle("ikYildonumu", p.ad+" — İş Yıldönümü", p.ad+", "+(p.isBaslama?fmtT(p.isBaslama)+" başlangıçlı ":"")+kidemYilTam+". çalışma yılını tamamladı.", {personelId:p.id, yil:kidemYilTam});
+        setIkKidemBildirimGecmisi(prev=>{
+          const onceki = prev[p.id] || {kademeler:[], sonYildonumuYili:0};
+          return {...prev, [p.id]: {...onceki, sonYildonumuYili:kidemYilTam}};
+        });
+      }
+    });
+  },[personeller, yukleniyor]);
 
   // İK — Yıllık İzin: kıdeme göre yasal izin hakkı (İş Kanunu md.53 kademeleri)
   // 1 yıldan az: henüz hak yok · 1-5 yıl (5 dahil): 14 gün · 5-15 yıl arası: 20 gün · 15 yıl ve üzeri: 26 gün
@@ -20283,7 +20328,7 @@ if(DB) dbUpsertAyar("tema",tema);
     )
     ),
 
-    btn({className:"epb",onClick:()=>{setYeniP({ad:"",pin:"",rol:"personel",grup:(pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id||""});setPHata("");setPEkle(true);}},"+ Yeni Personel Ekle"),
+    btn({className:"epb",onClick:()=>{setYeniP({ad:"",pin:"",rol:"personel",isBaslama:TODAY(),grup:(pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id||""});setPHata("");setPEkle(true);}},"+ Yeni Personel Ekle"),
 
     personeller.filter(p=>!p.aktif&&p.rol!=="yonetici").length>0&&div(null,
     div({className:"sek",style:{color:"#c08040",marginBottom:9}},"Onay Bekleyenler"),
