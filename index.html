@@ -11796,7 +11796,7 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("uyariKayitlari",uyariKayitlari); },[uyariKayitlari]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("ikKidemBildirimGecmisi",ikKidemBildirimGecmisi); },[ikKidemBildirimGecmisi]);
   useEffect(()=>{
-    if(panelAdim!=="insanKaynaklari" || (panelAltSek!=="ozluk" && panelAltSek!=="cikis" && panelAltSek!=="tatil" && panelAltSek!=="uyari")){
+    if(panelAdim!=="insanKaynaklari" || (panelAltSek!=="ozluk" && panelAltSek!=="cikis" && panelAltSek!=="tatil" && panelAltSek!=="uyari" && panelAltSek!=="personelListesi")){
       setIkDetayPersonel(null); setIkYeniKayit(null); setIkYeniIzin(null); setIkCikisForm(null); setIkYeniTatilKaydi(null); setIkYeniUyari(null);
     } else {
       if(panelAltSek!=="cikis") setIkCikisForm(null);
@@ -13856,6 +13856,7 @@ if(DB) dbUpsertAyar("tema",tema);
       } else if(muhSek==="indirimZam") segs.push({label:"İndirim / Zam"});
       else if(muhSek==="giderler") segs.push({label:"Giderler"});
       else if(muhSek==="ozet") segs.push({label:"Genel Özet"});
+      else if(muhSek==="personelPerformans"){ segs.push({label:"Personel Performansı"}); if(pDetay) segs.push({label:pDetay.ad}); }
       return segs;
     }
     // Ayarlar overlay (asek="ayarlar")
@@ -13863,7 +13864,7 @@ if(DB) dbUpsertAyar("tema",tema);
       segs.push({label:"Ayarlar"});
       const aySekMap={listeler:"Listeler",isletme:"İşletme",gruplar:"Gruplar",guvenlik:"Güvenlik",yedekleme:"Yedekleme"};
       if(aySekMap[aySek]) segs.push({label:aySekMap[aySek]});
-      const listeMap={ustaKalfa:"Usta/Kalfa",manikurist:"Manikürist","ürün":"Ürünler Listesi",personel:"Personel",musteriler:"Müşteriler",banka:"Bankalar",giderListesi:"Gider Listesi",tedarikciListesi:"Tedarikçi Listesi"};
+      const listeMap={ustaKalfa:"Usta/Kalfa",manikurist:"Manikürist","ürün":"Ürünler Listesi",musteriler:"Müşteriler",banka:"Bankalar",giderListesi:"Gider Listesi",tedarikciListesi:"Tedarikçi Listesi"};
       if(ayListeSek&&listeMap[ayListeSek]) segs.push({label:listeMap[ayListeSek]});
       return segs;
     }
@@ -13897,6 +13898,8 @@ if(DB) dbUpsertAyar("tema",tema);
       } else if(panelAltSek==="uyari"){
         segs.push({label:"Uyarı / İhtar Kayıtları"});
         if(ikDetayPersonel){ const p=personeller.find(x=>x.id===ikDetayPersonel); if(p) segs.push({label:p.ad}); }
+      } else if(panelAltSek==="personelListesi"){
+        segs.push({label:"Personel Listesi"});
       }
       return segs;
     }
@@ -17082,6 +17085,8 @@ if(DB) dbUpsertAyar("tema",tema);
             ["rgba(220,50,50,.13)","💳","Giderler",null,()=>{setAsek("ozet");setMuhSek("giderler");setMuhAlt("");setMuhAltAcik("");}],
             // Vergi — resmi/devlet → lacivert
             ["rgba(20,60,160,.13)","🏛️","Vergi Muhasebesi",null,()=>{setAsek("ozet");setVergiFull(true);setMuhSek("");setMuhAlt("");setMuhAltAcik("");}],
+            // Personel Performansı — ciro/hizmet/maaş bir arada → mor
+            ["rgba(150,90,220,.13)","👥","Personel Performansı",null,()=>{setAsek("ozet");setMuhSek("personelPerformans");setMuhAlt("");setMuhAltAcik("");}],
           ].map(([bg,ikon,lb,altSek,fn],i)=>
             div({key:i,onClick:()=>{ altSek ? setPanelAltSek(altSek) : fn(); },style:{
               display:"flex",alignItems:"center",gap:14,
@@ -17172,7 +17177,6 @@ if(DB) dbUpsertAyar("tema",tema);
             ["rgba(88,86,214,.10)","💈","Usta/Kalfa Hizmet Listesi","ustaKalfa"],
             ["rgba(255,45,85,.10)","💅","Manikürist Hizmet Listesi","manikurist"],
             ["rgba(255,149,0,.10)","📦","Ürünler Listesi","ürün"],
-            ["rgba(52,199,89,.10)","👤","Personel Listesi","personel"],
             ["rgba(0,113,227,.10)","🙋","Müşteriler Listesi","musteriler"],
             ["rgba(50,173,230,.10)","🏦","Bankalar Listesi","banka"],
             ["rgba(255,59,48,.10)","💸","Gider Listesi","giderListesi"],
@@ -17199,6 +17203,7 @@ if(DB) dbUpsertAyar("tema",tema);
             ["rgba(200,150,0,.13)","🪪","Özlük Dosyası","ozluk"],
             ["rgba(0,130,120,.13)","🎉","Bayram / Resmi Tatil Günleri","tatil"],
             ["rgba(230,120,0,.13)","⚠️","Uyarı / İhtar Kayıtları","uyari"],
+            ["rgba(52,199,89,.13)","👤","Personel Listesi","personelListesi"],
             ["rgba(200,60,60,.13)","🚪","İşten Çıkış İşlemleri","cikis"],
           ].map(([bg,ikon,lb,altSek],i)=>
             div({key:i,onClick:()=>setPanelAltSek(altSek),style:{
@@ -17946,6 +17951,90 @@ if(DB) dbUpsertAyar("tema",tema);
             )
           );
         })(),
+        // ── Personel Listesi (Ayarlar'dan taşındı: kimlik, durum, grup, onay bekleyenler) ──
+        panelAdim==="insanKaynaklari"&&panelAltSek==="personelListesi"&&!asek&&div({style:{padding:"12px 14px 24px"}},
+
+    btn({className:"epb",onClick:()=>{setYeniP({ad:"",pin:"",rol:"personel",isBaslama:TODAY(),grup:(pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id||""});setPHata("");setPEkle(true);}},"+ Yeni Personel Ekle"),
+
+    personeller.filter(p=>!p.aktif&&p.rol!=="yonetici").length>0&&div(null,
+    div({className:"sek",style:{color:"#c08040",marginBottom:9}},"Onay Bekleyenler"),
+    personeller.filter(p=>!p.aktif&&p.rol!=="yonetici").map(p=>
+    div({key:p.id,className:"pk",style:{cursor:"pointer"},onClick:()=>setPDuz({...p})},
+    div({className:"pav pa"},p.ad[0]),
+    div({className:"pi"},div({className:"pad"},p.ad),div({className:"ppin"},"PIN: "+p.pin)),
+    div({className:"pak"},
+      btn({className:"pbt ok2",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:true}:x));}},"Aktifleştir"),
+      btn({className:"pbt",onClick:ev=>{ev.stopPropagation();setPHata("");setPDuz({...p});}},"Düzenle"),
+      btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.filter(x=>x.id!==p.id));}},"Sil")
+    )
+    )
+    ),
+    div({style:{height:1,background:"var(--bg3)",margin:"12px 0"}})
+    ),
+
+    div({className:"sek",style:{marginBottom:9}},"Aktif Personel"),
+
+
+    // Gruplarına göre personel listesi
+    pGruplar.map(g=>{
+    const gruptakiler = personeller.filter(p=>p.aktif&&p.grup===g.id);
+    return div({key:g.id,style:{marginBottom:16}},
+    gruptakiler.length>0&&div(null,
+    div({style:{fontSize:12,color:"#9a7a3a",letterSpacing:2,textTransform:"uppercase",
+      marginBottom:8,paddingBottom:6,borderBottom:"1px solid var(--br)"}},g.ad),
+    gruptakiler.map(p=>{
+
+      return div({key:p.id,className:"pk",style:{cursor:"pointer"},onClick:()=>setPDuz({...p})},
+        div({className:"pav ak"},p.ad[0]),
+        div({className:"pi"},
+          div({className:"pad"},p.ad),
+          p.pozisyon&&div({style:{fontSize:12,color:"var(--g)",marginTop:1}},p.pozisyon),
+          div({className:"ppin"},"PIN: "+p.pin),
+
+          p.telefon&&div({style:{fontSize:12,color:"var(--di)",marginTop:2}},"📞 "+p.telefon),
+          p.isBaslama&&div({style:{fontSize:12,color:"var(--di)"}},"📅 "+p.isBaslama)
+        ),
+        div({className:"pak"},
+          btn({className:"pbt",onClick:ev=>{ev.stopPropagation();setPHata("");setPDuz({...p});}},"Düzenle"),
+          btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));}},"Pasife Al")
+        )
+      );
+    })
+    )
+    );
+    }),
+
+    // Grubu olmayan aktif personel
+    personeller.filter(p=>p.aktif&&(!p.grup||!pGruplar.find(g=>g.id===p.grup))).length>0&&div({style:{marginBottom:16}},
+    div({style:{fontSize:12,color:"var(--di)",letterSpacing:2,textTransform:"uppercase",
+    marginBottom:8,paddingBottom:6,borderBottom:"1px solid var(--br)"}},"Grup Atanmamis"),
+    personeller.filter(p=>p.aktif&&(!p.grup||!pGruplar.find(g=>g.id===p.grup))).map(p=>{
+    const pk=tumK.filter(r=>r.staffId===p.id);
+    const bugunC=pk.filter(r=>r.tarih===TODAY()).reduce((a,r)=>a+r.toplam,0);
+    const topC=pk.reduce((a,r)=>a+r.toplam,0);
+    return div({key:p.id,className:"pk",style:{cursor:"pointer"},onClick:()=>setPDuz({...p})},
+    div({className:"pav ak"},p.ad[0]),
+    div({className:"pi"},
+      div({className:"pad"},p.ad),
+      p.pozisyon&&div({style:{fontSize:12,color:"var(--g)",marginTop:1}},p.pozisyon),
+      div({className:"ppin"},"PIN: "+p.pin),
+      div({style:{display:"flex",gap:12,marginTop:4,flexWrap:"wrap"}},
+        div({style:{fontSize:12,color:"var(--di)"}},"Bugün: ",h("span",{style:{color:"var(--g)",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15}},fmt(bugunC))),
+        div({style:{fontSize:12,color:"var(--di)"}},"Toplam: ",h("span",{style:{color:"var(--g)",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15}},fmt(topC)))
+      ),
+      p.telefon&&div({style:{fontSize:12,color:"var(--di)",marginTop:2}},"📞 "+p.telefon),
+      p.isBaslama&&div({style:{fontSize:12,color:"var(--di)"}},"📅 "+p.isBaslama)
+    ),
+    div({className:"pak"},
+      btn({className:"pbt",onClick:ev=>{ev.stopPropagation();setPHata("");setPDuz({...p});}},"Düzenle"),
+      btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));}},"Pasife Al")
+    )
+    );
+    })
+    )
+
+        ),
+
 
         // ══════════════════════════════════════════
         // ADIM 2b — BİLDİRİMLER MERKEZİ
@@ -18368,6 +18457,211 @@ if(DB) dbUpsertAyar("tema",tema);
             false&&muhSek==="vergiMuhasebesi"&&h(VergiMuhasebesiModul,{tumK,faturalar}),
             muhSek==="indirimZam"&&h(IndirimZamModul,{zamGecmisi,setZamGecmisi,triggerUrunRender,hizListeleri,setHizListeleri,showToast}),
             muhSek==="giderler"&&h(GiderlerModul,{giderler,setGiderler,giderKategoriler,showToast,bankalar}),
+
+            // ── Personel Performansı: personel seçim listesi (ciro + hizmet + maaş) ──
+            muhSek==="personelPerformans"&&div({style:{padding:"8px 14px 24px"}},
+              div({style:{fontSize:12,color:"var(--mu)",marginBottom:12,lineHeight:1.5}},"Ciro, manikürcü hizmetleri ve maaş/komisyon detayını görmek için bir personel seçin."),
+              (personeller||[]).filter(p=>p.aktif).map(p=>{
+                const bugunC = tumK.filter(r=>r.staffId===p.id&&r.tarih===TODAY()).reduce((a,r)=>a+r.toplam,0);
+                const topC = tumK.filter(r=>r.staffId===p.id).reduce((a,r)=>a+r.toplam,0);
+                return div({key:p.id,onClick:()=>setPDetay(p),style:{
+                  display:"flex",alignItems:"center",gap:14,
+                  background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderLeft:"4px solid rgba(150,90,220,.5)",
+                  borderRadius:14,padding:"13px 16px",marginBottom:9,
+                  cursor:"pointer",boxShadow:"0 1px 6px rgba(0,0,0,.05)"
+                }},
+                  div({style:{
+                    width:48,height:48,borderRadius:14,background:"rgba(150,90,220,.13)",
+                    display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:700,color:"#6a3fa8",flexShrink:0
+                  }},p.ad[0].toUpperCase()),
+                  div({style:{flex:1}},
+                    div({style:{fontSize:15,fontWeight:600,color:"#1D1D1F"}},p.ad),
+                    div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},(p.pozisyon||"Personel")+" · Bugün "+fmt(bugunC)+" · Toplam "+fmt(topC))
+                  ),
+                  span({style:{fontSize:20,color:"#c0c0c5",flexShrink:0}},"›")
+                );
+              }),
+              (personeller||[]).filter(p=>p.aktif).length===0 && div({style:{fontSize:13,color:"var(--mu)",textAlign:"center",padding:20}},"Aktif personel bulunamadı.")
+            ),
+
+            // ── Personel Performansı Detayı (taşınan pDetay paneli — Ciro/Manikürcü Hizmetleri/Maaş Formülü) ──
+            muhSek==="personelPerformans"&&
+    pDetay&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:800,overflow:"auto"}},
+    div({style:{background:"#0f0c08",borderBottom:"1px solid #1e4244",padding:"13px 16px",paddingTop:"max(13px, env(safe-area-inset-top))",
+    display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:5}},
+    div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:20,color:"var(--g)"}},pDetay.ad),
+    btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:8,
+    color:"var(--mu)",fontSize:17,width:32,height:32,cursor:"pointer"},onClick:()=>setPDetay(null)},"✕")
+    ),
+    div({style:{padding:16,maxWidth:580,margin:"0 auto",paddingBottom:60}},
+
+    div({style:{background:"var(--bg2)",border:"1.5px solid var(--br)",
+    borderRadius:16,padding:18,marginBottom:14,display:"flex",gap:14,alignItems:"center"}},
+    div({style:{width:60,height:60,borderRadius:15,background:"var(--bg3)",
+      border:"2px solid #3a2e10",display:"flex",alignItems:"center",justifyContent:"center",
+      fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:26,color:"var(--g)",flexShrink:0}},
+      pDetay.ad[0].toUpperCase()),
+    div({style:{flex:1}},
+      div({style:{fontSize:18,color:"var(--tx)",fontWeight:600}},pDetay.ad),
+      div({style:{fontSize:14,color:"var(--g)",marginTop:2}},pDetay.pozisyon||"Pozisyon belirtilmemis"),
+      div({style:{display:"flex",gap:8,marginTop:6,flexWrap:"wrap"}},
+        h("span",{style:{fontSize:12,padding:"2px 8px",borderRadius:20,border:"1px solid",
+          ...(pDetay.aktif
+            ?{background:"rgba(50,140,100,.1)",color:"var(--gr)",borderColor:"#1e5a48"}
+            :{background:"rgba(160,40,40,.1)",color:"#c05050",borderColor:"#6a2020"})}},
+          pDetay.aktif?"Aktif":"Pasif"),
+        h("span",{style:{fontSize:12,padding:"2px 8px",borderRadius:20,
+          background:"rgba(37,99,168,.1)",color:"var(--g)",border:"1px solid #6a5010"}},
+          pDetay.rol==="yonetici"?"Yonetici":"Personel")
+      )
+    )
+    ),
+
+    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}},
+    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:13,textAlign:"center"}},
+      div({style:{fontSize:12,color:"var(--di)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Bugün Ciro"),
+      div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:20,color:"var(--g)",fontWeight:700}},
+        fmt(tumK.filter(r=>r.staffId===pDetay.id&&r.tarih===TODAY()).reduce((a,r)=>a+r.toplam,0)))
+    ),
+    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:13,textAlign:"center"}},
+      div({style:{fontSize:12,color:"var(--di)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Toplam Ciro"),
+      div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:20,color:"var(--g)",fontWeight:700}},
+        fmt(tumK.filter(r=>r.staffId===pDetay.id).reduce((a,r)=>a+r.toplam,0)))
+    )
+    ),
+
+    // Manikürcü Hizmetleri Bölümü
+    (()=>{
+    // Bu personelin müşterilerine verilen manikürcü kayıtları
+    const manKayitlar = tumK.filter(r=>r.anaPersonelId===pDetay.id);
+    if(manKayitlar.length===0) return null;
+
+    // Manikürcülere göre grupla
+    const manGruplar = {};
+    manKayitlar.forEach(r=>{
+      const key = r.staffId;
+      if(!manGruplar[key]) manGruplar[key]={ad:r.staffAd,kayitlar:[]};
+      manGruplar[key].kayitlar.push(r);
+    });
+
+    // Genel toplam
+    const genKK = manKayitlar.reduce((a,r)=>a+(r.hizKK||0)+(r.uKK||0),0);
+    const genIB = manKayitlar.reduce((a,r)=>a+(r.hizIB||0)+(r.uIB||0),0);
+    const genNK = manKayitlar.reduce((a,r)=>a+(r.hizNK||0)+(r.uNK||0),0);
+    const genTop = genKK+genIB+genNK;
+
+    return div({style:{marginBottom:14}},
+      div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:10,marginTop:0}},"💅 Manikurcü Hizmetleri"),
+
+      Object.values(manGruplar).map(grup=>{
+        const gKK=grup.kayitlar.reduce((a,r)=>a+(r.hizKK||0)+(r.uKK||0),0);
+        const gIB=grup.kayitlar.reduce((a,r)=>a+(r.hizIB||0)+(r.uIB||0),0);
+        const gNK=grup.kayitlar.reduce((a,r)=>a+(r.hizNK||0)+(r.uNK||0),0);
+        return div({key:grup.ad,style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:13,padding:13,marginBottom:10}},
+          // Manikürcü başlık
+          div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,paddingBottom:8,borderBottom:"1px solid var(--br)"}},
+            div({style:{fontSize:15,color:"var(--tx)",fontWeight:600}},grup.ad),
+            div({style:{display:"flex",gap:6}},
+              gKK>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:10,border:"1px solid var(--br)",color:"var(--mu)"}},"💳 "+fmt(gKK)),
+              gIB>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:10,border:"1px solid var(--br)",color:"var(--mu)"}},"🏦 "+fmt(gIB)),
+              gNK>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:10,border:"1px solid var(--br)",color:"var(--mu)"}},"💵 "+fmt(gNK))
+            )
+          ),
+          // Kayıtlar listesi
+          grup.kayitlar.sort((a,b)=>b.tarih.localeCompare(a.tarih)).map(r=>{
+            const kk=(r.hizKK||0)+(r.uKK||0), ib=(r.hizIB||0)+(r.uIB||0), nk=(r.hizNK||0)+(r.uNK||0);
+            return div({key:r.id,style:{padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,.03)"}},
+              div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+                div(null,
+                  div({style:{fontSize:14,color:"var(--tx)",fontWeight:500}},r.musteri),
+                  div({style:{fontSize:12,color:"var(--di)",marginTop:2}},fmtT(r.tarih)+" · "+(r.saat||"")),
+                  div({style:{fontSize:12,color:"#6a8a40",marginTop:2}},
+                    (r.hizler||[]).map(h=>h.n||h).join(", "))
+                ),
+                div({style:{textAlign:"right",flexShrink:0}},
+                  div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt(r.toplam)),
+                  div({style:{display:"flex",gap:4,justifyContent:"flex-end",marginTop:3}},
+                    kk>0&&h("span",{style:{fontSize:11,color:"var(--mu)"}},"💳"+fmt(kk)),
+                    ib>0&&h("span",{style:{fontSize:11,color:"var(--mu)"}},"🏦"+fmt(ib)),
+                    nk>0&&h("span",{style:{fontSize:11,color:"var(--mu)"}},"💵"+fmt(nk))
+                  )
+                )
+              )
+            );
+          })
+        );
+      }),
+
+      // Genel toplam
+      div({style:{background:"var(--bg2)",border:"1.5px solid var(--br)",borderRadius:12,padding:13,marginTop:8}},
+        div({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},"Genel Toplam"),
+        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:10}},
+          [["💳","K.Kartı",genKK],["🏦","IBAN",genIB],["💵","Nakit",genNK]].map(([ic,lb,v])=>
+            div({key:lb,style:{background:"var(--bg)",borderRadius:8,padding:"8px 5px",textAlign:"center"}},
+              div({style:{fontSize:14,marginBottom:2}},ic),
+              div({style:{fontSize:10,color:"var(--di)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}},lb),
+              div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:v>0?"var(--g)":"var(--br)",fontWeight:700}},fmt(v))
+            )
+          )
+        ),
+        div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:8,borderTop:"1px solid #1e4244"}},
+          span({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase"}},"TOPLAM"),
+          span({style:{fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:22,color:"var(--g)",fontWeight:700}},fmt(genTop))
+        )
+      )
+    );
+    })(),
+
+    [
+    {b:"Iletisim",i:"📞",a:[
+      ["Telefon",pDetay.telefon],["E-posta",pDetay.eposta],["Ev Adresi",pDetay.adres],
+      ["Acil Kisi",pDetay.acilKisi],["Acil Tel",pDetay.acilTel]
+    ]},
+    {b:"Kimlik",i:"🪪",a:[
+      ["TC Kimlik",pDetay.tcNo],["Dogum Tarihi",pDetay.dogumTarihi],["Kan Grubu",pDetay.kanGrubu]
+    ]},
+    {b:"Is Bilgileri",i:"💼",a:[
+      ["Pozisyon",pDetay.pozisyon],["Ise Baslama",pDetay.isBaslama],
+      ["Calisma Sekli",pDetay.calismaSekli],["Maas / Oran",pDetay.maas],
+      ["Calisma Saatleri",pDetay.saatler]
+    ]},
+    {b:"Sistem",i:"⚙️",a:[
+      ["Uygulama PIN",pDetay.pin],
+      ["Rol",pDetay.rol==="yonetici"?"Yonetici":"Personel"]
+    ]}
+    ].map(bolum=>div({key:bolum.b,style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:13,padding:14,marginBottom:10}},
+    div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:10,marginTop:0}},bolum.i+" "+bolum.b),
+    bolum.a.map(([lb,val])=>
+      div({key:lb,style:{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}},
+        span({style:{fontSize:13,color:"var(--di)"}},lb),
+        span({style:{fontSize:15,color:val?"var(--tx)":"var(--br)"}},val||"—")
+      )
+    )
+    )),
+
+    // Maaş/Komisyon Hesabı
+    h(PersonelMaasGorunum,{
+    personel:pDetay,
+    tumK,
+    formul:pDetay.maasFormulu||[],
+    onChange:(yeniFormul)=>{
+      setPersoneller(prev=>prev.map(x=>x.id===pDetay.id?{...x,maasFormulu:yeniFormul}:x));
+      setPDetay(prev=>({...prev,maasFormulu:yeniFormul}));
+      showToast("Formül güncellendi");
+    },
+    showToast,
+    tumPersoneller:personeller,
+    giderler,
+    avanslar,
+    setAvanslar
+    }),
+
+    div({className:"btn-r",style:{marginTop:14}},
+    btn({className:"btn-k",onClick:()=>{setPHata("");setPDuz({...pDetay});setPDetay(null);}},"Düzenle")
+    )
+    )
+    ),
+
             muhSek==="ozet"&&(()=>{
               // ── Yardımcı: tarih bilgisi ──
               const bugun = new Date();
@@ -20249,263 +20543,6 @@ if(DB) dbUpsertAyar("tema",tema);
     )
     ),
 
-        aySek==="listeler"&&ayListeSek==="personel"&&div({style:{marginTop:10}},
-
-    pDetay&&div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.97)",zIndex:800,overflow:"auto"}},
-    div({style:{background:"#0f0c08",borderBottom:"1px solid #1e4244",padding:"13px 16px",paddingTop:"max(13px, env(safe-area-inset-top))",
-    display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:5}},
-    div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:20,color:"var(--g)"}},pDetay.ad),
-    btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:8,
-    color:"var(--mu)",fontSize:17,width:32,height:32,cursor:"pointer"},onClick:()=>setPDetay(null)},"✕")
-    ),
-    div({style:{padding:16,maxWidth:580,margin:"0 auto",paddingBottom:60}},
-
-    div({style:{background:"var(--bg2)",border:"1.5px solid var(--br)",
-    borderRadius:16,padding:18,marginBottom:14,display:"flex",gap:14,alignItems:"center"}},
-    div({style:{width:60,height:60,borderRadius:15,background:"var(--bg3)",
-      border:"2px solid #3a2e10",display:"flex",alignItems:"center",justifyContent:"center",
-      fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:26,color:"var(--g)",flexShrink:0}},
-      pDetay.ad[0].toUpperCase()),
-    div({style:{flex:1}},
-      div({style:{fontSize:18,color:"var(--tx)",fontWeight:600}},pDetay.ad),
-      div({style:{fontSize:14,color:"var(--g)",marginTop:2}},pDetay.pozisyon||"Pozisyon belirtilmemis"),
-      div({style:{display:"flex",gap:8,marginTop:6,flexWrap:"wrap"}},
-        h("span",{style:{fontSize:12,padding:"2px 8px",borderRadius:20,border:"1px solid",
-          ...(pDetay.aktif
-            ?{background:"rgba(50,140,100,.1)",color:"var(--gr)",borderColor:"#1e5a48"}
-            :{background:"rgba(160,40,40,.1)",color:"#c05050",borderColor:"#6a2020"})}},
-          pDetay.aktif?"Aktif":"Pasif"),
-        h("span",{style:{fontSize:12,padding:"2px 8px",borderRadius:20,
-          background:"rgba(37,99,168,.1)",color:"var(--g)",border:"1px solid #6a5010"}},
-          pDetay.rol==="yonetici"?"Yonetici":"Personel")
-      )
-    )
-    ),
-
-    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}},
-    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:13,textAlign:"center"}},
-      div({style:{fontSize:12,color:"var(--di)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Bugün Ciro"),
-      div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:20,color:"var(--g)",fontWeight:700}},
-        fmt(tumK.filter(r=>r.staffId===pDetay.id&&r.tarih===TODAY()).reduce((a,r)=>a+r.toplam,0)))
-    ),
-    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:13,textAlign:"center"}},
-      div({style:{fontSize:12,color:"var(--di)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Toplam Ciro"),
-      div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:20,color:"var(--g)",fontWeight:700}},
-        fmt(tumK.filter(r=>r.staffId===pDetay.id).reduce((a,r)=>a+r.toplam,0)))
-    )
-    ),
-
-    // Manikürcü Hizmetleri Bölümü
-    (()=>{
-    // Bu personelin müşterilerine verilen manikürcü kayıtları
-    const manKayitlar = tumK.filter(r=>r.anaPersonelId===pDetay.id);
-    if(manKayitlar.length===0) return null;
-
-    // Manikürcülere göre grupla
-    const manGruplar = {};
-    manKayitlar.forEach(r=>{
-      const key = r.staffId;
-      if(!manGruplar[key]) manGruplar[key]={ad:r.staffAd,kayitlar:[]};
-      manGruplar[key].kayitlar.push(r);
-    });
-
-    // Genel toplam
-    const genKK = manKayitlar.reduce((a,r)=>a+(r.hizKK||0)+(r.uKK||0),0);
-    const genIB = manKayitlar.reduce((a,r)=>a+(r.hizIB||0)+(r.uIB||0),0);
-    const genNK = manKayitlar.reduce((a,r)=>a+(r.hizNK||0)+(r.uNK||0),0);
-    const genTop = genKK+genIB+genNK;
-
-    return div({style:{marginBottom:14}},
-      div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:10,marginTop:0}},"💅 Manikurcü Hizmetleri"),
-
-      Object.values(manGruplar).map(grup=>{
-        const gKK=grup.kayitlar.reduce((a,r)=>a+(r.hizKK||0)+(r.uKK||0),0);
-        const gIB=grup.kayitlar.reduce((a,r)=>a+(r.hizIB||0)+(r.uIB||0),0);
-        const gNK=grup.kayitlar.reduce((a,r)=>a+(r.hizNK||0)+(r.uNK||0),0);
-        return div({key:grup.ad,style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:13,padding:13,marginBottom:10}},
-          // Manikürcü başlık
-          div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,paddingBottom:8,borderBottom:"1px solid var(--br)"}},
-            div({style:{fontSize:15,color:"var(--tx)",fontWeight:600}},grup.ad),
-            div({style:{display:"flex",gap:6}},
-              gKK>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:10,border:"1px solid var(--br)",color:"var(--mu)"}},"💳 "+fmt(gKK)),
-              gIB>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:10,border:"1px solid var(--br)",color:"var(--mu)"}},"🏦 "+fmt(gIB)),
-              gNK>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:10,border:"1px solid var(--br)",color:"var(--mu)"}},"💵 "+fmt(gNK))
-            )
-          ),
-          // Kayıtlar listesi
-          grup.kayitlar.sort((a,b)=>b.tarih.localeCompare(a.tarih)).map(r=>{
-            const kk=(r.hizKK||0)+(r.uKK||0), ib=(r.hizIB||0)+(r.uIB||0), nk=(r.hizNK||0)+(r.uNK||0);
-            return div({key:r.id,style:{padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,.03)"}},
-              div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
-                div(null,
-                  div({style:{fontSize:14,color:"var(--tx)",fontWeight:500}},r.musteri),
-                  div({style:{fontSize:12,color:"var(--di)",marginTop:2}},fmtT(r.tarih)+" · "+(r.saat||"")),
-                  div({style:{fontSize:12,color:"#6a8a40",marginTop:2}},
-                    (r.hizler||[]).map(h=>h.n||h).join(", "))
-                ),
-                div({style:{textAlign:"right",flexShrink:0}},
-                  div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt(r.toplam)),
-                  div({style:{display:"flex",gap:4,justifyContent:"flex-end",marginTop:3}},
-                    kk>0&&h("span",{style:{fontSize:11,color:"var(--mu)"}},"💳"+fmt(kk)),
-                    ib>0&&h("span",{style:{fontSize:11,color:"var(--mu)"}},"🏦"+fmt(ib)),
-                    nk>0&&h("span",{style:{fontSize:11,color:"var(--mu)"}},"💵"+fmt(nk))
-                  )
-                )
-              )
-            );
-          })
-        );
-      }),
-
-      // Genel toplam
-      div({style:{background:"var(--bg2)",border:"1.5px solid var(--br)",borderRadius:12,padding:13,marginTop:8}},
-        div({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",marginBottom:10}},"Genel Toplam"),
-        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:10}},
-          [["💳","K.Kartı",genKK],["🏦","IBAN",genIB],["💵","Nakit",genNK]].map(([ic,lb,v])=>
-            div({key:lb,style:{background:"var(--bg)",borderRadius:8,padding:"8px 5px",textAlign:"center"}},
-              div({style:{fontSize:14,marginBottom:2}},ic),
-              div({style:{fontSize:10,color:"var(--di)",textTransform:"uppercase",letterSpacing:1,marginBottom:3}},lb),
-              div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:v>0?"var(--g)":"var(--br)",fontWeight:700}},fmt(v))
-            )
-          )
-        ),
-        div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:8,borderTop:"1px solid #1e4244"}},
-          span({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase"}},"TOPLAM"),
-          span({style:{fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:22,color:"var(--g)",fontWeight:700}},fmt(genTop))
-        )
-      )
-    );
-    })(),
-
-    [
-    {b:"Iletisim",i:"📞",a:[
-      ["Telefon",pDetay.telefon],["E-posta",pDetay.eposta],["Ev Adresi",pDetay.adres],
-      ["Acil Kisi",pDetay.acilKisi],["Acil Tel",pDetay.acilTel]
-    ]},
-    {b:"Kimlik",i:"🪪",a:[
-      ["TC Kimlik",pDetay.tcNo],["Dogum Tarihi",pDetay.dogumTarihi],["Kan Grubu",pDetay.kanGrubu]
-    ]},
-    {b:"Is Bilgileri",i:"💼",a:[
-      ["Pozisyon",pDetay.pozisyon],["Ise Baslama",pDetay.isBaslama],
-      ["Calisma Sekli",pDetay.calismaSekli],["Maas / Oran",pDetay.maas],
-      ["Calisma Saatleri",pDetay.saatler]
-    ]},
-    {b:"Sistem",i:"⚙️",a:[
-      ["Uygulama PIN",pDetay.pin],
-      ["Rol",pDetay.rol==="yonetici"?"Yonetici":"Personel"]
-    ]}
-    ].map(bolum=>div({key:bolum.b,style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:13,padding:14,marginBottom:10}},
-    div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:10,marginTop:0}},bolum.i+" "+bolum.b),
-    bolum.a.map(([lb,val])=>
-      div({key:lb,style:{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}},
-        span({style:{fontSize:13,color:"var(--di)"}},lb),
-        span({style:{fontSize:15,color:val?"var(--tx)":"var(--br)"}},val||"—")
-      )
-    )
-    )),
-
-    // Maaş/Komisyon Hesabı
-    h(PersonelMaasGorunum,{
-    personel:pDetay,
-    tumK,
-    formul:pDetay.maasFormulu||[],
-    onChange:(yeniFormul)=>{
-      setPersoneller(prev=>prev.map(x=>x.id===pDetay.id?{...x,maasFormulu:yeniFormul}:x));
-      setPDetay(prev=>({...prev,maasFormulu:yeniFormul}));
-      showToast("Formül güncellendi");
-    },
-    showToast,
-    tumPersoneller:personeller,
-    giderler,
-    avanslar,
-    setAvanslar
-    }),
-
-    div({className:"btn-r",style:{marginTop:14}},
-    btn({className:"btn-k",onClick:()=>{setPHata("");setPDuz({...pDetay});setPDetay(null);}},"Düzenle")
-    )
-    )
-    ),
-
-    btn({className:"epb",onClick:()=>{setYeniP({ad:"",pin:"",rol:"personel",isBaslama:TODAY(),grup:(pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id||""});setPHata("");setPEkle(true);}},"+ Yeni Personel Ekle"),
-
-    personeller.filter(p=>!p.aktif&&p.rol!=="yonetici").length>0&&div(null,
-    div({className:"sek",style:{color:"#c08040",marginBottom:9}},"Onay Bekleyenler"),
-    personeller.filter(p=>!p.aktif&&p.rol!=="yonetici").map(p=>
-    div({key:p.id,className:"pk",style:{cursor:"pointer"},onClick:()=>setPDetay(p)},
-    div({className:"pav pa"},p.ad[0]),
-    div({className:"pi"},div({className:"pad"},p.ad),div({className:"ppin"},"PIN: "+p.pin)),
-    div({className:"pak"},
-      btn({className:"pbt ok2",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:true}:x));}},"Aktifleştir"),
-      btn({className:"pbt",onClick:ev=>{ev.stopPropagation();setPHata("");setPDuz({...p});}},"Düzenle"),
-      btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.filter(x=>x.id!==p.id));}},"Sil")
-    )
-    )
-    ),
-    div({style:{height:1,background:"var(--bg3)",margin:"12px 0"}})
-    ),
-
-    div({className:"sek",style:{marginBottom:9}},"Aktif Personel"),
-
-
-    // Gruplarına göre personel listesi
-    pGruplar.map(g=>{
-    const gruptakiler = personeller.filter(p=>p.aktif&&p.grup===g.id);
-    return div({key:g.id,style:{marginBottom:16}},
-    gruptakiler.length>0&&div(null,
-    div({style:{fontSize:12,color:"#9a7a3a",letterSpacing:2,textTransform:"uppercase",
-      marginBottom:8,paddingBottom:6,borderBottom:"1px solid var(--br)"}},g.ad),
-    gruptakiler.map(p=>{
-
-      return div({key:p.id,className:"pk",style:{cursor:"pointer"},onClick:()=>setPDetay(p)},
-        div({className:"pav ak"},p.ad[0]),
-        div({className:"pi"},
-          div({className:"pad"},p.ad),
-          p.pozisyon&&div({style:{fontSize:12,color:"var(--g)",marginTop:1}},p.pozisyon),
-          div({className:"ppin"},"PIN: "+p.pin),
-
-          p.telefon&&div({style:{fontSize:12,color:"var(--di)",marginTop:2}},"📞 "+p.telefon),
-          p.isBaslama&&div({style:{fontSize:12,color:"var(--di)"}},"📅 "+p.isBaslama)
-        ),
-        div({className:"pak"},
-          btn({className:"pbt",onClick:ev=>{ev.stopPropagation();setPHata("");setPDuz({...p});}},"Düzenle"),
-          btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));}},"Pasife Al")
-        )
-      );
-    })
-    )
-    );
-    }),
-
-    // Grubu olmayan aktif personel
-    personeller.filter(p=>p.aktif&&(!p.grup||!pGruplar.find(g=>g.id===p.grup))).length>0&&div({style:{marginBottom:16}},
-    div({style:{fontSize:12,color:"var(--di)",letterSpacing:2,textTransform:"uppercase",
-    marginBottom:8,paddingBottom:6,borderBottom:"1px solid var(--br)"}},"Grup Atanmamis"),
-    personeller.filter(p=>p.aktif&&(!p.grup||!pGruplar.find(g=>g.id===p.grup))).map(p=>{
-    const pk=tumK.filter(r=>r.staffId===p.id);
-    const bugunC=pk.filter(r=>r.tarih===TODAY()).reduce((a,r)=>a+r.toplam,0);
-    const topC=pk.reduce((a,r)=>a+r.toplam,0);
-    return div({key:p.id,className:"pk",style:{cursor:"pointer"},onClick:()=>setPDetay(p)},
-    div({className:"pav ak"},p.ad[0]),
-    div({className:"pi"},
-      div({className:"pad"},p.ad),
-      p.pozisyon&&div({style:{fontSize:12,color:"var(--g)",marginTop:1}},p.pozisyon),
-      div({className:"ppin"},"PIN: "+p.pin),
-      div({style:{display:"flex",gap:12,marginTop:4,flexWrap:"wrap"}},
-        div({style:{fontSize:12,color:"var(--di)"}},"Bugün: ",h("span",{style:{color:"var(--g)",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15}},fmt(bugunC))),
-        div({style:{fontSize:12,color:"var(--di)"}},"Toplam: ",h("span",{style:{color:"var(--g)",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15}},fmt(topC)))
-      ),
-      p.telefon&&div({style:{fontSize:12,color:"var(--di)",marginTop:2}},"📞 "+p.telefon),
-      p.isBaslama&&div({style:{fontSize:12,color:"var(--di)"}},"📅 "+p.isBaslama)
-    ),
-    div({className:"pak"},
-      btn({className:"pbt",onClick:ev=>{ev.stopPropagation();setPHata("");setPDuz({...p});}},"Düzenle"),
-      btn({className:"pbt th",onClick:ev=>{ev.stopPropagation();setPersoneller(prev=>prev.map(x=>x.id===p.id?{...x,aktif:false}:x));}},"Pasife Al")
-    )
-    );
-    })
-    )
-    ),
     aySek==="gruplar"&&div(null,
     div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12,userSelect:"none",WebkitUserSelect:"none"}},"👥 Personel Grupları"),
     div({style:{fontSize:13,color:"var(--di)",marginBottom:14}},"Personeli gruplara ayırın."),
