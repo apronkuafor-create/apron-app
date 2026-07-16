@@ -9053,7 +9053,7 @@ function KayitKarti({r, onDetay, onDuzenle, onSil}) {
   );
 }
 
-  function PersonelFormModal({title, data, setData, onKaydet, onIptal, showDurum, hata, gruplar}) {
+  function PersonelFormModal({title, data, setData, onKaydet, onIptal, showDurum, hata, gruplar, pozisyonlar}) {
   const fl2 = {className:"fl",style:{minHeight:34,display:"block"}}; // etiketler 1-2 satır olabildiği için sabit yükseklik — grid satırları düzgün hizalansın
   return div({style:{position:"fixed",inset:0,background:"linear-gradient(180deg,#F7F8FA 0%,#ECEEF1 100%)",zIndex:1000,display:"flex",flexDirection:"column",overflow:"hidden"}},
     div({style:{background:"#0f0c08",borderBottom:"1px solid #1e4244",padding:"13px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}},
@@ -9076,7 +9076,7 @@ function KayitKarti({r, onDetay, onDuzenle, onSil}) {
         div({style:{marginBottom:10}},lbl(fl2,"İşe Başlama Tarihi"),inp({className:"fi",type:"date",value:data.isBaslama||"",onChange:e=>setData(p=>({...p,isBaslama:e.target.value}))})),
         div({style:{marginBottom:10}},lbl(fl2,"Pozisyon"),
           sel({className:"fi",value:data.pozisyon||"",onChange:e=>setData(p=>({...p,pozisyon:e.target.value}))},
-            opt("","Seciniz..."),opt("Isyeri Sahibi ve Usta","Isyeri Sahibi ve Usta"),opt("Usta","Usta"),opt("Kalfa","Kalfa"),opt("Cirak","Cirak"),opt("Manikurist","Manikurist"),opt("Pedikürist","Pedikurist"),opt("Diger","Diger"))
+            opt("","Seciniz..."),(pozisyonlar||[]).map(poz=>opt(poz,poz)))
         ),
         div({style:{marginBottom:10}},lbl(fl2,"Personel Grubu"),
           sel({className:"fi",value:data.grup||"",onChange:e=>setData(p=>({...p,grup:e.target.value}))},
@@ -11194,6 +11194,7 @@ function App() {
   const [randevuForm, setRandevuForm]     = useState(null);
   // Ürün Muhasebesi state'leri
   const [tedarikciler, setTedarikciler]   = useState([]); // [{id,ad,tel,adres,bakiye}]
+  const [pozisyonlar, setPozisyonlar]     = useState(["Isyeri Sahibi ve Usta","Usta","Kalfa","Cirak","Manikurist","Pedikürist","Diger"]); // Personel Pozisyon Listesi
   const [faturalar, setFaturalar]         = useState([]); // [{id,tedarikcId,tarih,vade,tutar,odenen,notlar,kalemler}]
   const [odemeler, setOdemeler]           = useState([]); // [{id,faturId,tedarikcId,tarih,tutar,tip}]
   const [hareketler, setHareketler]       = useState([]); // [{id,barkod,urunAd,tip,miktar,birimMaliyet,tarih,faturId,notlar}]
@@ -11287,6 +11288,8 @@ function App() {
   const [yeniMarkaAdi, setYeniMarkaAdi] = useState("");
   const [yeniTedarikciAdi, setYeniTedarikciAdi] = useState("");
   const [tedarikciDuzIdx, setTedarikciDuzIdx]   = useState(null); // {idx, ad}
+  const [yeniPozisyonAdi, setYeniPozisyonAdi]   = useState("");
+  const [pozisyonDuzIdx, setPozisyonDuzIdx]     = useState(null); // {idx, ad}
   const [urunTipSecim, setUrunTipSecim] = useState(null); // null|"marka"|"urun"
   const [sarfUrunForm, setSarfUrunForm] = useState(false);
   const [sarfAd, setSarfAd] = useState("");
@@ -11582,6 +11585,7 @@ ayarlarRaw.forEach(a=>{ try {
   }
   if(a.id==="bankalar") setBankalar(prev=>birlestirListe(prev,a.deger));
   if(a.id==="tedarikciler") setTedarikciler(prev=>birlestirListe(prev,a.deger));
+  if(a.id==="pozisyonlar" && Array.isArray(a.deger) && a.deger.length>0) setPozisyonlar(a.deger);
   if(a.id==="yonBildirim") setYonBildirim(Array.isArray(a.deger)?a.deger:[]);
   if(a.id==="devirBildirim") setDevirBildirim(Array.isArray(a.deger)?a.deger:[]);
   if(a.id==="bolumStilleri") setBolumStilleri(a.deger||{});
@@ -11806,6 +11810,7 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("hizListeleri",hizListeleri); },[hizListeleri]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("bankalar",bankalar); },[bankalar]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("tedarikciler",tedarikciler); },[tedarikciler]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("pozisyonlar",pozisyonlar); },[pozisyonlar]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("yonBildirim",yonBildirim); },[yonBildirim]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("hesapSaglama",hesapSaglama); },[hesapSaglama]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("bankaKom",bankaKom); },[bankaKom]);
@@ -11988,6 +11993,7 @@ if(DB) dbUpsertAyar("tema",tema);
       }
       if(a.id==="bankalar" && Array.isArray(a.deger)) setBankalar(prev=>_ay(prev,birlestirListe(prev,a.deger)));
       if(a.id==="tedarikciler" && Array.isArray(a.deger)) setTedarikciler(prev=>_ay(prev,birlestirListe(prev,a.deger)));
+      if(a.id==="pozisyonlar" && Array.isArray(a.deger) && a.deger.length>0) setPozisyonlar(a.deger);
       if(a.id==="yonBildirim") setYonBildirim(prev=>_ay(prev,Array.isArray(a.deger)?a.deger:[]));
       if(a.id==="devirBildirim") setDevirBildirim(prev=>_ay(prev,Array.isArray(a.deger)?a.deger:[]));
       if(a.id==="bolumStilleri") setBolumStilleri(prev=>_ay(prev,a.deger||{}));
@@ -14419,7 +14425,7 @@ if(DB) dbUpsertAyar("tema",tema);
       segs.push({label:"Ayarlar"});
       const aySekMap={listeler:"Listeler",isletme:"İşletme",gruplar:"Gruplar",guvenlik:"Güvenlik",yedekleme:"Yedekleme"};
       if(aySekMap[aySek]) segs.push({label:aySekMap[aySek]});
-      const listeMap={ustaKalfa:"Usta/Kalfa",manikurist:"Manikürist","ürün":"Ürünler Listesi",musteriler:"Müşteriler",banka:"Bankalar",giderListesi:"Gider Listesi",tedarikciListesi:"Tedarikçi Listesi"};
+      const listeMap={ustaKalfa:"Usta/Kalfa",manikurist:"Manikürist","ürün":"Ürünler Listesi",musteriler:"Müşteriler",banka:"Bankalar",giderListesi:"Gider Listesi",tedarikciListesi:"Tedarikçi Listesi",pozisyonListesi:"Personel Pozisyon Listesi"};
       if(ayListeSek&&listeMap[ayListeSek]) segs.push({label:listeMap[ayListeSek]});
       return segs;
     }
@@ -15162,10 +15168,10 @@ if(DB) dbUpsertAyar("tema",tema);
       ), document.body
     ),
 
-    pEkle&&h(PersonelFormModal,{title:"Yeni Personel",data:yeniP,setData:setYeniP,hata:pHata,gruplar:pGruplar,onKaydet:pEkleKaydet,onIptal:()=>{setPEkle(false);setPHata("");},showDurum:false}),
+    pEkle&&h(PersonelFormModal,{title:"Yeni Personel",data:yeniP,setData:setYeniP,hata:pHata,gruplar:pGruplar,pozisyonlar,onKaydet:pEkleKaydet,onIptal:()=>{setPEkle(false);setPHata("");},showDurum:false}),
 
     // Personel duzenle modal
-    pDuz&&h(PersonelFormModal,{hata:pHata,gruplar:pGruplar,title:"Personel Düzenle",data:pDuz,setData:setPDuz,onKaydet:pDuzKaydet,onIptal:()=>{setPDuz(null);setPHata("");},showDurum:true}),
+    pDuz&&h(PersonelFormModal,{hata:pHata,gruplar:pGruplar,pozisyonlar,title:"Personel Düzenle",data:pDuz,setData:setPDuz,onKaydet:pDuzKaydet,onIptal:()=>{setPDuz(null);setPHata("");},showDurum:true}),
 
     // ── LOGIN ──
     // Panel seçim ekranı (hem personel hem yönetici olanlar için)
@@ -17787,6 +17793,7 @@ if(DB) dbUpsertAyar("tema",tema);
             ["rgba(50,173,230,.10)","🏦","Bankalar Listesi","banka"],
             ["rgba(255,59,48,.10)","💸","Gider Listesi","giderListesi"],
             ["rgba(52,120,246,.10)","🏭","Tedarikçi Listesi","tedarikciListesi"],
+            ["rgba(90,60,180,.10)","👔","Personel Pozisyon Listesi","pozisyonListesi"],
           ].map(([bg,ikon,lb,id])=>
             div({key:id,onClick:()=>{setAsek("ayarlar");setAySek("listeler");setAyListeSek(id);},style:{
               display:"flex",alignItems:"center",gap:14,
@@ -21537,6 +21544,74 @@ if(DB) dbUpsertAyar("tema",tema);
           if((yeniTedarikciAdi||"").trim()){
             setTedarikciler(p=>[...p,yeniTedarikciAdi.trim()]);
             setYeniTedarikciAdi("");
+          }
+        }},"+ Ekle")
+    )
+    ),
+
+    // ── Personel Pozisyon Listesi ──
+    aySek==="listeler"&&ayListeSek==="pozisyonListesi"&&div({style:{marginTop:10}},
+    div({style:{fontSize:12,color:"var(--mu)",marginBottom:12,lineHeight:1.5}},
+      "Bu liste, Personel Ekle/Düzenle ekranındaki \"Pozisyon\" seçeneklerini besler."),
+
+    pozisyonlar.map((poz,i)=>{
+      const duzAcik = pozisyonDuzIdx?.idx===i;
+      return div({key:i},
+        div({style:{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",
+          marginBottom: duzAcik ? 0 : 6,
+          background:"var(--bg2)",
+          borderRadius: duzAcik ? "10px 10px 0 0" : 10,
+          border:"1px solid var(--br)",
+          borderBottom: duzAcik ? "none" : undefined}},
+          div({style:{flex:1,fontSize:15,color:"var(--tx)",fontWeight:500}},poz),
+          duzAcik
+            ? btn({style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(160,40,40,.2)",borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
+                onClick:()=>setPozisyonDuzIdx(null)},"İptal")
+            : btn({style:{background:"rgba(37,99,168,.08)",border:"1px solid rgba(37,99,168,.2)",borderRadius:6,color:"var(--g)",fontSize:13,padding:"4px 10px",cursor:"pointer"},
+                onClick:()=>setPozisyonDuzIdx({idx:i,ad:poz})},"✏ Düzenle"),
+          btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
+            onClick:()=>{
+              if(!confirm("\""+poz+"\" pozisyonunu silmek istediğinize emin misiniz?\\n\\nBu pozisyonu kullanan mevcut personel kayıtları etkilenmez, sadece yeni seçimlerde bu liste gösterilmez."))return;
+              setPozisyonlar(p=>p.filter((_,j)=>j!==i));
+              if(duzAcik)setPozisyonDuzIdx(null);
+            }},"Sil")
+        ),
+        duzAcik&&div({style:{
+          background:"rgba(37,99,168,.06)",border:"1px solid var(--br)",borderTop:"none",
+          borderRadius:"0 0 10px 10px",padding:13,marginBottom:6}},
+          div({style:{marginBottom:10}},
+            lbl({className:"fl"},"Pozisyon Adı"),
+            inp({className:"fi",value:pozisyonDuzIdx.ad,
+              onChange:e=>setPozisyonDuzIdx(p=>({...p,ad:e.target.value}))})
+          ),
+          div({className:"btn-r"},
+            btn({className:"btn-i",onClick:()=>setPozisyonDuzIdx(null)},"İptal"),
+            btn({className:"btn-k",onClick:()=>{
+              const yeniAd=pozisyonDuzIdx.ad.trim();
+              if(!yeniAd) return;
+              setPozisyonlar(p=>p.map((x,j)=>j===i?yeniAd:x));
+              setPozisyonDuzIdx(null);
+              showToast("Pozisyon güncellendi");
+            }},"Kaydet")
+          )
+        )
+      );
+    }),
+
+    div({style:{display:"flex",gap:8,marginTop:10}},
+      inp({className:"fi",style:{flex:1},placeholder:"Pozisyon adı... (örn: Şef Kuaför)",
+        value:yeniPozisyonAdi||"",
+        onChange:e=>setYeniPozisyonAdi(e.target.value),
+        onKeyDown:e=>{if(e.key==="Enter"&&(yeniPozisyonAdi||"").trim()){
+          setPozisyonlar(p=>[...p,yeniPozisyonAdi.trim()]);
+          setYeniPozisyonAdi("");
+        }}}),
+      btn({style:{background:"rgba(37,99,168,.1)",border:"1px solid rgba(37,99,168,.3)",
+        borderRadius:9,color:"var(--g)",fontSize:14,padding:"0 14px",cursor:"pointer",whiteSpace:"nowrap"},
+        onClick:()=>{
+          if((yeniPozisyonAdi||"").trim()){
+            setPozisyonlar(p=>[...p,yeniPozisyonAdi.trim()]);
+            setYeniPozisyonAdi("");
           }
         }},"+ Ekle")
     )
