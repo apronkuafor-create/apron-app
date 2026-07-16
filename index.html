@@ -11233,6 +11233,9 @@ function App() {
   const [ikSenaryoSecili, setIkSenaryoSecili] = useState(null); // seçilen senaryo id'si | "tumBelgeler" (kategori bazlı tam liste)
   // İK — işe giriş tarihine bağlı otomatik bildirimlerin tekrar etmemesi için kalıcı takip: { [personelId]: {kademeler:[1,5,15], sonYildonumuYili:N} }
   const [ikKidemBildirimGecmisi, setIkKidemBildirimGecmisi] = useState({});
+  // İK — Kritik uyarı ekranı: yönetici girişinde, süresi geçmiş/çok yaklaşmış zorunlu İK işlemleri varsa gösterilir
+  const [ikKritikGateAcik, setIkKritikGateAcik] = useState(false);
+  const ikKritikGateGosterildiRef = React.useRef(false); // bu oturumda bir kez gösterildi mi
   // İK — Özlük belgesi silme, en üst seviye izin (yönetici PIN) gerektirir
   const [ikSilOnayHedef, setIkSilOnayHedef] = useState(null); // {personelId, kayitId}
   const [ikSilOnayPin, setIkSilOnayPin] = useState("");
@@ -13446,6 +13449,52 @@ if(DB) dbUpsertAyar("tema",tema);
     });
   },[personeller, yukleniyor]);
 
+  // İK — Kritik uyarı listesi: süresi geçmiş veya 3 gün içinde dolacak, tamamlanmamış özlük kayıtları + SGK çıkış bildirimleri.
+  // Bu liste dolu ise yönetici girişinde zorunlu farkındalık ekranı gösterilir.
+  const ikKritikListesiHesapla = () => {
+    const bugun = TODAY();
+    const esikTarih = new Date(Date.now()+3*86400000).toISOString().slice(0,10);
+    const liste = [];
+    Object.entries(ozlukDosyalari||{}).forEach(([pid,kayitlar])=>{
+      const p = (personeller||[]).find(x=>x.id===pid);
+      if(!p || !p.aktif) return;
+      (kayitlar||[]).forEach(k=>{
+        if(k.durum==="tamamlandi" || !k.hatirlatmaTarihi) return;
+        if(k.hatirlatmaTarihi<=esikTarih){
+          liste.push({
+            id:"ozluk_"+k.id, personelAd:p.ad, baslik:k.baslik, tarih:k.hatirlatmaTarihi,
+            gecikmis:k.hatirlatmaTarihi<bugun, hedefAltSek:"ozluk", hedefPersonelId:pid
+          });
+        }
+      });
+    });
+    Object.entries(cikisIslemleri||{}).forEach(([pid,kayitlar])=>{
+      const p = (personeller||[]).find(x=>x.id===pid);
+      if(!p) return;
+      (kayitlar||[]).forEach(k=>{
+        if(k.tamamlandi) return;
+        const sgkSonTarih = new Date(new Date(k.cikisTarihi).getTime()+10*86400000).toISOString().slice(0,10);
+        if(sgkSonTarih<=esikTarih){
+          liste.push({
+            id:"sgk_"+k.id, personelAd:p.ad, baslik:"SGK İşten Çıkış Bildirimi", tarih:sgkSonTarih,
+            gecikmis:sgkSonTarih<bugun, hedefAltSek:"cikis", hedefPersonelId:pid
+          });
+        }
+      });
+    });
+    return liste.sort((a,b)=>a.tarih.localeCompare(b.tarih));
+  };
+
+  // Yönetici girişinde (bu oturumda ilk kez), kritik İK kalemi varsa zorunlu uyarı ekranını göster
+  useEffect(()=>{
+    if(yukleniyor || !kul || kul.rol!=="yonetici" || ikKritikGateGosterildiRef.current) return;
+    const liste = ikKritikListesiHesapla();
+    if(liste.length>0){
+      setIkKritikGateAcik(true);
+      ikKritikGateGosterildiRef.current = true;
+    }
+  },[kul, yukleniyor]);
+
   // İK — Yıllık İzin: kıdeme göre yasal izin hakkı (İş Kanunu md.53 kademeleri)
   // 1 yıldan az: henüz hak yok · 1-5 yıl (5 dahil): 14 gün · 5-15 yıl arası: 20 gün · 15 yıl ve üzeri: 26 gün
   // İK — Standart İşe Giriş Evrak Checklist'i: yeni personel eklenince veya elle tetiklenince oluşur.
@@ -15071,6 +15120,48 @@ if(DB) dbUpsertAyar("tema",tema);
     kayitForm&&h(KayitForm,{bolumStilleri,ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,stokDB:stokKalanMap,isletme,hizListeleri,buttonText:(kayitForm._yonBildirimId||kayitForm._talepOnayId)?"Güncelle ve Gönder":kayitForm._yonDirektDuzenle?"Güncelle":undefined,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null),hatirlatmalar,setHatirlatmalar,devirBildirim,setDevirBildirim,showToast,pGruplar,gotoMusteriKart:(mid)=>{setKayitForm(null);gotoMusteriKartGenel(mid);}}),
 
     // Personel ekle modal
+    // ── İK Kritik Uyarı — zorunlu farkındalık ekranı (yönetici girişinde, süresi geçmiş/çok yakın işlemler için) ──
+    ikKritikGateAcik && ReactDOM.createPortal(
+      div({style:{position:"fixed",inset:0,background:"linear-gradient(180deg,#2a1408,#1a0d05)",zIndex:99998,
+        display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflow:"auto"}},
+        div({style:{background:"var(--bg)",borderRadius:20,maxWidth:520,width:"100%",
+          boxShadow:"0 20px 60px rgba(0,0,0,.4)",overflow:"hidden",margin:"20px 0"}},
+          div({style:{background:"linear-gradient(135deg,#B8431F,#7a2a10)",padding:"20px 22px"}},
+            div({style:{fontSize:15,fontWeight:700,color:"#FFD8C0",letterSpacing:.3}},"⚠️ Dikkat Gereken İnsan Kaynakları İşlemleri"),
+            div({style:{fontSize:12,color:"#FFB89A",marginTop:6,lineHeight:1.5}},
+              "Süresi geçmiş veya çok yakında dolacak, tamamlanmamış işlemler var. Devam etmeden önce lütfen gözden geçirin.")
+          ),
+          div({style:{maxHeight:"50vh",overflowY:"auto",padding:"16px 18px"}},
+            ikKritikListesiHesapla().map(item=>
+              div({key:item.id,onClick:()=>{
+                setIkKritikGateAcik(false);
+                setAsek(""); setPanelAdim("insanKaynaklari"); setPanelAltSek(item.hedefAltSek); setIkDetayPersonel(item.hedefPersonelId);
+                setIkSenaryoSecili(null);
+              },style:{
+                display:"flex",alignItems:"center",gap:12,cursor:"pointer",
+                background:item.gecikmis?"rgba(255,59,48,.06)":"rgba(255,149,0,.06)",
+                border:"1px solid "+(item.gecikmis?"rgba(255,59,48,.25)":"rgba(255,149,0,.25)"),
+                borderRadius:12,padding:"12px 14px",marginBottom:9
+              }},
+                div({style:{fontSize:20,flexShrink:0}},item.gecikmis?"⛔":"⏰"),
+                div({style:{flex:1,minWidth:0}},
+                  div({style:{fontSize:13.5,fontWeight:600,color:"var(--tx)"}},item.personelAd+" — "+item.baslik),
+                  div({style:{fontSize:11.5,marginTop:2,fontWeight:700,color:item.gecikmis?"#C0392B":"#B8590A"}},
+                    item.gecikmis?"Süresi geçti — "+fmtT(item.tarih):"Son tarih: "+fmtT(item.tarih))
+                ),
+                span({style:{fontSize:18,color:"#c0c0c5",flexShrink:0}},"›")
+              )
+            )
+          ),
+          div({style:{padding:"14px 18px",borderTop:"1px solid var(--br)",background:"var(--bg2)"}},
+            btn({style:{width:"100%",padding:"13px 0",borderRadius:12,border:"none",
+              background:"linear-gradient(135deg,#B8431F,#7a2a10)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"},
+              onClick:()=>setIkKritikGateAcik(false)},"Anladım, Devam Ediyorum")
+          )
+        )
+      ), document.body
+    ),
+
     pEkle&&h(PersonelFormModal,{title:"Yeni Personel",data:yeniP,setData:setYeniP,hata:pHata,gruplar:pGruplar,onKaydet:pEkleKaydet,onIptal:()=>{setPEkle(false);setPHata("");},showDurum:false}),
 
     // Personel duzenle modal
@@ -19024,10 +19115,6 @@ if(DB) dbUpsertAyar("tema",tema);
                     borderRadius:8,color:"var(--tx)",fontSize:12,padding:"6px 12px",cursor:"pointer",fontWeight:600
                   },onClick:()=>{ setBildirimSilMod(false); setBildirimSecim({}); }},"Vazgeç")
                 : div({style:{display:"flex",gap:8}},
-                    okunmamisListe.length>0 && btn({style:{
-                      background:"rgba(0,113,227,.08)",border:"1px solid rgba(0,113,227,.2)",
-                      borderRadius:8,color:"var(--g)",fontSize:12,padding:"6px 12px",cursor:"pointer",fontWeight:600
-                    },onClick:yonBildirimTumOkundu},"Tümünü Okundu Yap"),
                     silinebilirListe.length>0 && btn({style:{
                       background:"rgba(224,96,96,.08)",border:"1px solid rgba(224,96,96,.25)",
                       borderRadius:8,color:"#e06060",fontSize:12,padding:"6px 12px",cursor:"pointer",fontWeight:600
@@ -19168,7 +19255,7 @@ if(DB) dbUpsertAyar("tema",tema);
                       b.tip==="devamsizlik_onay" && b.ekstra?.durum==="onaysiz" && div({style:{fontSize:12,color:"#e06060",padding:"6px 0",display:"flex",alignItems:"center",gap:6}},
                         h("span",null,"✕"),"Onaylanmadı — devamsızlık kaydedildi"
                       ),
-                      // ── Gün Sonu Bildirimi: İncele / Onayla ──
+                      // ── Gün Sonu Bildirimi: sadece İncele → modal içinden Onayla (körlemesine onay engellendi) ──
                       b.tip==="gunSonu_bildirim" && !b.okundu && div({style:{display:"flex",gap:8,width:"100%"}},
                         btn({style:{flex:1,padding:"9px 0",borderRadius:8,
                           border:"1px solid rgba(0,113,227,.3)",background:"rgba(0,113,227,.08)",
@@ -19178,11 +19265,7 @@ if(DB) dbUpsertAyar("tema",tema);
                             const kayitIdleri = ekstra.kayitIdleri||[];
                             const ilgiliKayitlar = Object.values([...(gecmis||[]),...(records||[])].filter(r=>kayitIdleri.includes(r.id)).reduce((acc,r)=>{acc[r.id]=r;return acc},{}));
                             setGunSonuIncele({bildirimId:b.id, staffAd:ekstra.staffAd||b.baslik, kayitlar:ilgiliKayitlar, kayitIdleri});
-                          }},"🔍 İncele"),
-                        btn({style:{flex:1,padding:"9px 0",borderRadius:8,
-                          border:"1px solid rgba(52,199,89,.35)",background:"rgba(52,199,89,.1)",
-                          color:"#248A3D",fontSize:13,fontWeight:700,cursor:"pointer"},
-                          onClick:()=>{ yonBildirimOkundu(b.id); showToast("Onaylandı","ba"); }},"✓ Onayla")
+                          }},"🔍 İncele ve Onayla")
                       ),
                       b.tip==="gunSonu_bildirim" && b.okundu && div({style:{fontSize:12,color:"var(--mu)",padding:"6px 0",display:"flex",alignItems:"center",gap:6}},
                         h("span",{style:{color:"#34C759"}},"✓"), "Onaylandı"
