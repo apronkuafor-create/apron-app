@@ -7078,6 +7078,24 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
     setKomTutar((hesapSaglama[secTarih] && hesapSaglama[secTarih].komGiris) || {});
   }, [secTarih]);
 
+  // Elle girilen gerçek veriler yazıldıkça otomatik taslak olarak kaydedilir — "Kaydet"e basılmadan
+  // başka bir ekrana gidip geri dönülse bile kaybolmasın. Silme SADECE "Sıfırla" butonuyla yapılır.
+  React.useEffect(() => {
+    const girisBosMu = Object.keys(girisBankalar).length===0 && !girisIban && !girisNakit;
+    const mevcut = hesapSaglama[secTarih];
+    if (girisBosMu && !mevcut) return; // hiç kayıt yok, hiçbir şey de girilmemiş — boşuna taslak oluşturma
+    const ayniMi = mevcut
+      && JSON.stringify(mevcut.kk||{})===JSON.stringify(girisBankalar)
+      && String(mevcut.iban||"")===String(girisIban)
+      && String(mevcut.nakit||"")===String(girisNakit);
+    if (ayniMi) return;
+    setHesapSaglama(p => ({...p, [secTarih]: {
+      ...(p[secTarih]||{}), tarih:secTarih,
+      kk:{...girisBankalar}, iban:girisIban, nakit:girisNakit,
+      komGiris:{...((p[secTarih]||{}).komGiris||{}), ...komTutar}
+    }}));
+  }, [girisBankalar, girisIban, girisNakit]);
+
   // Sistem verileri - seçilen tarih
   const gunKayitlar = (tumK||[]).filter(r => r.tarih === secTarih && r.gonderildi !== false);
   const sistemKK = gunKayitlar.reduce((s,r) => s+(r.hizKK||0)+(r.uKK||0), 0);
@@ -13685,12 +13703,25 @@ if(DB) dbUpsertAyar("tema",tema);
     const sebepMetin = SEBEP_METIN[surec.sebep]||"belirtilen neden";
 
     if(belgeTuru==="ibraname"){
+      const kidem = toN(surec.kidemTazminati);
+      const ihbar = toN(surec.ihbarTazminati);
+      const toplamTazminat = kidem+ihbar;
+      const odemeSatiri = surec.odemeSekli
+        ? "<p><strong>Ödeme Şekli:</strong> "+surec.odemeSekli+(surec.odemeTarihi?" — "+fmtT(surec.odemeTarihi)+" tarihinde":"")+"</p>"
+        : "";
       const icerik =
         "<p><strong>"+p.ad+"</strong> ("+(p.tcNo||"—")+" TC Kimlik No), "+(isletme.ad||"işbu işyeri")+" nezdinde "
         +(p.isBaslama?fmtT(p.isBaslama):"—")+" tarihinden "+fmtT(surec.cikisTarihi)+" tarihine kadar "+(p.pozisyon||"personel")+" olarak çalışmış olup, "
         +sebepMetin+" sebebiyle iş sözleşmesi sona ermiştir.</p>"
-        +"<p>İş bu ibraname ile; çalıştığım süre boyunca hak ettiğim ücret, fazla mesai, hafta tatili, genel tatil, yıllık izin, ihbar ve kıdem tazminatı ile diğer tüm hak ve alacaklarımın tarafıma eksiksiz olarak ödendiğini, işverenden bu tarih itibarıyla başkaca herhangi bir hak ve alacağımın kalmadığını, işvereni bu konularda ibra ettiğimi kabul, beyan ve taahhüt ederim.</p>"
-        +"<p>Bu belge, tarafların serbest iradesi ile ve herhangi bir baskı altında kalınmaksızın düzenlenmiştir.</p>";
+        +"<table class=\"hesap\">"
+        +"<tr><td class=\"lb\">Kıdem Tazminatı</td><td style=\"text-align:right;font-weight:600\">"+(surec.kidemTazminati?fmt(kidem):"—")+"</td></tr>"
+        +"<tr><td class=\"lb\">İhbar Tazminatı</td><td style=\"text-align:right;font-weight:600\">"+(surec.ihbarTazminati?fmt(ihbar):"—")+"</td></tr>"
+        +"<tr class=\"grand\"><td>TOPLAM ÖDENEN TAZMİNAT</td><td style=\"text-align:right\">"+fmt(toplamTazminat)+"</td></tr>"
+        +"</table>"
+        +odemeSatiri
+        +"<p>İş bu ibraname ile; çalıştığım süre boyunca hak ettiğim ücret, fazla mesai, hafta tatili, genel tatil, yıllık izin ücreti, yukarıda kalem kalem belirtilen ihbar ve kıdem tazminatı ile diğer tüm hak ve alacaklarımın tarafıma eksiksiz olarak ve yukarıdaki şekilde ödendiğini, işverenden bu tarih itibarıyla başkaca herhangi bir hak ve alacağımın kalmadığını, işvereni bu konularda ibra ettiğimi kabul, beyan ve taahhüt ederim.</p>"
+        +"<p>Bu belge, tarafların serbest iradesi ile ve herhangi bir baskı altında kalınmaksızın düzenlenmiştir.</p>"
+        +"<p style=\"font-size:11px;color:#999\">Not: Kıdem/ihbar tazminatı dışındaki alacak kalemleri (fazla mesai, izin ücreti vb.) için ayrı tutar belirtilmesi gerekiyorsa, bu belgeyi düzenlemeden önce mali müşavirinizle kesin tutarları teyit ediniz.</p>";
       return _cikisBelgeSarmalaAc("İBRANAME", belgeNo, icerik, "Çalışan İmzası", "İşveren/Yönetici İmzası");
     }
 
@@ -13720,6 +13751,7 @@ if(DB) dbUpsertAyar("tema",tema);
           +"<p>"+(isletme.ad||"İşyerimiz")+" nezdinde "+(p.pozisyon||"personel")+" olarak sürdürmekte olduğunuz iş sözleşmeniz, "+sebepMetin+" gerekçesiyle "+fmtT(surec.cikisTarihi)+" tarihi itibarıyla feshedilmiştir.</p>"
           +(surec.ihbarSuresiHafta?"<p>Tarafınıza "+surec.ihbarSuresiHafta+" hafta ihbar süresi tanınmış/ihbar tazminatı hesaplanmıştır.</p>":"")
           +(surec.not?"<p><strong>Açıklama:</strong> "+surec.not+"</p>":"")
+          +(surec.sebep==="hakliFesihIsveren"?"<p style=\"font-size:11px;color:#999\">Not: 4857 sayılı İş Kanunu'nun 26. maddesi uyarınca, haklı nedenle fesih hakkı; olayın öğrenildiği tarihten itibaren 6 iş günü ve her halükârda olayın gerçekleştiği tarihten itibaren 1 yıl içinde kullanılmalıdır. Bu belgenin süresi içinde düzenlendiğini teyit ediniz.</p>":"")
           +"<p>Bilgilerinize sunarız.</p>";
       return _cikisBelgeSarmalaAc(baslikUst, belgeNo, icerik, istifaMi?"Çalışan İmzası":"İşveren/Yönetici İmzası", istifaMi?"Teslim Alan (İşveren)":"Tebellüğ Eden (Çalışan)");
     }
@@ -13844,7 +13876,11 @@ if(DB) dbUpsertAyar("tema",tema);
         {key:"kurum", label:"Muayeneyi Yapan Kurum", type:"text", placeholder:"Örn. Aile Sağlığı Merkezi"},
         {key:"sonuc", label:"Sonuç", type:"select", secenekler:["İşe Uygundur","Şartlı Uygundur","Uygun Değildir"]}
       ]},
-      {id:"is_sozlesmesi_belirsiz", ad:"İş Sözleşmesi (Belirsiz Süreli)"},
+      {id:"is_sozlesmesi_belirsiz", ad:"İş Sözleşmesi (Belirsiz Süreli)", ekAlanlar:[
+        {key:"gorevTanimi", label:"Görev Tanımı Detayı (isteğe bağlı)", type:"textarea", placeholder:"Örn. Saç kesimi, boya, bakım uygulamaları ve ilgili müşteri hizmetleri..."},
+        {key:"odemeGunu", label:"Maaş Ödeme Günü (isteğe bağlı)", type:"text", placeholder:"Örn. Her ayın 5'i"},
+        {key:"yanHaklar", label:"Yan Haklar (isteğe bağlı)", type:"textarea", placeholder:"Örn. Yemek, yol, prim vb. — yoksa boş bırakın"}
+      ]},
       {id:"is_sozlesmesi_belirli", ad:"İş Sözleşmesi (Belirli / Deneme Süreli)", ekAlanlar:[
         {key:"sureBitis", label:"Sözleşme Bitiş Tarihi (belirli süreli ise)", type:"date"},
         {key:"denemeSuresiAy", label:"Deneme Süresi (ay, varsa)", type:"text", placeholder:"Örn. 2"}
@@ -13992,13 +14028,18 @@ if(DB) dbUpsertAyar("tema",tema);
     if(belgeId==="is_sozlesmesi_belirsiz"){
       const icerik =
         "<p><strong>Madde 1 — Taraflar:</strong> Bir tarafta "+isyeriAd+" (bundan sonra \"İŞVEREN\"), diğer tarafta "+p.ad+" ("+(p.tcNo||"TC Kimlik No belirtilmemiş")+") (bundan sonra \"ÇALIŞAN\") arasında aşağıdaki şartlarla belirsiz süreli iş sözleşmesi akdedilmiştir.</p>"
-        +"<p><strong>Madde 2 — İşin Konusu:</strong> Çalışan, işyerinde \""+(p.pozisyon||"belirtilmemiş")+"\" pozisyonunda görev yapacaktır.</p>"
+        +"<p><strong>Madde 2 — İşin Konusu ve Görev Tanımı:</strong> Çalışan, işyerinde \""+(p.pozisyon||"belirtilmemiş")+"\" pozisyonunda görev yapacaktır."
+        +(ekVeri.gorevTanimi?" Görev kapsamı: "+ekVeri.gorevTanimi+".":"")
+        +" İşveren, gerekli görmesi halinde çalışanın mesleki bilgi ve becerisine uygun, işin esaslı unsurlarını değiştirmeyecek makul ölçüde ilave görevler verebilir; işin esaslı unsurlarında (görev, ücret, çalışma yeri vb.) yapılacak değişiklikler için 4857 sayılı İş Kanunu'nun 22. maddesi uyarınca çalışanın yazılı onayı alınır.</p>"
         +"<p><strong>Madde 3 — İşe Başlama Tarihi:</strong> "+(p.isBaslama?fmtT(p.isBaslama):fmtT(bugun))+"</p>"
-        +"<p><strong>Madde 4 — Çalışma Süresi:</strong> Haftalık çalışma süresi 4857 sayılı İş Kanunu'na uygun olarak azami 45 saattir. Çalışma saatleri: "+(p.saatler||"işyeri düzenine göre belirlenir")+".</p>"
-        +"<p><strong>Madde 5 — Ücret:</strong> Çalışana "+(p.maas||"taraflarca mutabık kalınan tutar")+" ücret ödenecektir. Ücret her ayın sonunda banka hesabına/elden ödenir.</p>"
-        +"<p><strong>Madde 6 — İzin Hakları:</strong> Çalışan, 4857 sayılı İş Kanunu'nun 53. maddesinde belirtilen yıllık ücretli izin hakkından, kıdemine göre yararlanır.</p>"
-        +"<p><strong>Madde 7 — Fesih:</strong> İş bu sözleşme, İş Kanunu'nun ilgili hükümlerine (madde 17 vd.) göre ihbar süresine uyularak veya haklı nedenle feshedilebilir.</p>"
-        +"<p><strong>Madde 8 — Yürürlük:</strong> İş bu sözleşme "+fmtT(bugun)+" tarihinde iki nüsha olarak düzenlenmiş, taraflarca okunarak imza altına alınmıştır.</p>";
+        +"<p><strong>Madde 4 — Çalışma Süresi ve Fazla Çalışma:</strong> Haftalık çalışma süresi 4857 sayılı İş Kanunu'na uygun olarak azami 45 saattir. Çalışma saatleri: "+(p.saatler||"işyeri düzenine göre belirlenir")+". Fazla çalışma, ancak çalışanın açık rızası alınarak ve kanuni sınırlar (yılda azami 270 saat) dahilinde yaptırılır; fazla çalışma ücreti, normal çalışma ücretinden ayrı olarak ve kanunda öngörülen zamlı oranlarla (%50) hesaplanıp bordroda ayrıca gösterilerek ödenir.</p>"
+        +"<p><strong>Madde 5 — Ücret:</strong> Çalışana "+(p.maas||"taraflarca mutabık kalınan tutar")+" ücret ödenecektir. Ücret, "+(ekVeri.odemeGunu?ekVeri.odemeGunu:"her ay sonunda")+" banka hesabına/elden ödenir ve her ay için ücret bordrosu düzenlenerek çalışana tebliğ edilir."
+        +(ekVeri.yanHaklar?" Yan haklar: "+ekVeri.yanHaklar+".":"")+"</p>"
+        +"<p><strong>Madde 6 — İzin Hakları:</strong> Çalışan, 4857 sayılı İş Kanunu'nun 53. maddesinde belirtilen yıllık ücretli izin hakkından, kıdemine göre yararlanır. İzin kullanım tarihleri, çalışanın talebi dikkate alınarak işveren tarafından belirlenir ve izne çıkmadan önce yazılı izin formu ile mutabakata bağlanır.</p>"
+        +"<p><strong>Madde 7 — İşyeri Kuralları ve Gizlilik:</strong> Çalışan, ayrıca imzaladığı İşyeri Kuralları/Personel El Kitabı Tebliğ Tutanağı ve Gizlilik ve Rekabet Yasağı Taahhütnamesi hükümlerine uymayı kabul eder.</p>"
+        +"<p><strong>Madde 8 — Fesih:</strong> İş bu sözleşme, İş Kanunu'nun ilgili hükümlerine (madde 17 vd.) göre ihbar süresine uyularak veya haklı nedenle feshedilebilir.</p>"
+        +"<p><strong>Madde 9 — Yürürlük:</strong> İş bu sözleşme "+fmtT(bugun)+" tarihinde iki nüsha olarak düzenlenmiş, taraflarca okunarak imza altına alınmıştır.</p>"
+        +"<p style=\"font-size:11px;color:#999\">Not: İşe girişte kanuni tazminat ve alacak haklarından (kıdem, ihbar, fazla mesai vb.) önceden feragat edilemeyeceğinden, bu sözleşme bu tür maddeler içermez; koruma, yukarıdaki gibi net ve şeffaf çalışma şartlarından gelir.</p>";
       return _cikisBelgeSarmalaAc("İŞ SÖZLEŞMESİ (BELİRSİZ SÜRELİ)", belgeNo, icerik, "Çalışan İmzası", "İşveren/Yönetici İmzası");
     }
 
@@ -14232,7 +14273,9 @@ if(DB) dbUpsertAyar("tema",tema);
       const icerik =
         "<p>"+isyeriAd+" (\"İŞVEREN\") ile "+p.ad+" (\"ÇALIŞAN\") arasında, iş sözleşmesinin karşılıklı anlaşma (ikale) yoluyla sona erdirilmesi hususunda aşağıdaki şartlarla mutabakata varılmıştır:</p>"
         +"<p><strong>1.</strong> Taraflar, iş sözleşmesinin "+(ekVeri.ayrilisTarihi?fmtT(ekVeri.ayrilisTarihi):"—")+" tarihi itibarıyla karşılıklı anlaşma ile sona erdirilmesi konusunda mutabıktır.</p>"
-        +(ekVeri.ekMenfaat?"<p><strong>2.</strong> Çalışana, yasal hak ve alacaklarına ek olarak "+ekVeri.ekMenfaat+" tutarında ek menfaat (makul yarar) ödenecektir.</p>":"<p><strong>2.</strong> Çalışana yasal hak ve alacaklarına ek olarak taraflarca belirlenen bir makul yarar sağlanması, ikale sözleşmesinin geçerliliği açısından önemlidir.</p>")
+        +(ekVeri.ekMenfaat
+          ?"<p><strong>2.</strong> Çalışana, yasal hak ve alacaklarına ek olarak "+ekVeri.ekMenfaat+" tutarında ek menfaat (makul yarar) ödenecektir.</p>"
+          :"<p style=\"color:#B8590A\"><strong>2. ⚠️ Dikkat:</strong> Bu sözleşmede çalışana sağlanan somut bir ek menfaat (makul yarar) tutarı belirtilmemiştir. Yargıtay'a göre makul yarar içermeyen ikale sözleşmeleri, işveren feshi olarak değerlendirilip kıdem/ihbar tazminatı doğurabilir. Bir tutar belirlemenizi öneririz.</p>")
         +(ekVeri.gerekce?"<p><strong>3. Gerekçe:</strong> "+ekVeri.gerekce+"</p>":"")
         +"<p>Taraflar, iş bu anlaşma ile birbirlerini ibra eder ve bundan sonra herhangi bir hak/alacak talebinde bulunmayacaklarını kabul ve beyan ederler.</p>"
         +"<p style=\"font-size:11.5px;color:#999\">Not: Yargıtay'a göre ikale sözleşmesinin geçerli sayılması için işçiye makul bir yarar (genellikle ihbar ve kıdem tazminatı toplamının belli bir yüzdesi) sağlanması beklenir.</p>";
@@ -18216,6 +18259,7 @@ if(DB) dbUpsertAyar("tema",tema);
               id: uid(), cikisTarihi: ikCikisForm.cikisTarihi||bugun, sebep: ikCikisForm.sebep||"istifa",
               ihbarSuresiHafta: ikCikisForm.ihbarSuresiHafta||"", sonBrutUcret: ikCikisForm.sonBrutUcret||"",
               kidemTazminati: ikCikisForm.kidemTazminati||"", ihbarTazminati: ikCikisForm.ihbarTazminati||"",
+              odemeSekli: ikCikisForm.odemeSekli||"", odemeTarihi: ikCikisForm.odemeTarihi||"",
               not: ikCikisForm.not||"", belgeler:{
                 ibraname:{uretildi:false,dosya:null,dosyaAdi:null},
                 calismaBelgesi:{uretildi:false,dosya:null,dosyaAdi:null},
@@ -18325,7 +18369,19 @@ if(DB) dbUpsertAyar("tema",tema);
                 div(null,lbl({className:"fl"},"İhbar Süresi (hafta)"),inp({className:"fi",type:"number",placeholder:String(ihbarOnerisi),value:surec.ihbarSuresiHafta,onChange:e=>alanGuncelle("ihbarSuresiHafta",e.target.value)})),
                 div(null,lbl({className:"fl"},"Kıdem Tazminatı (₺)"),inp({className:"fi",type:"number",placeholder:"Elle girin",value:surec.kidemTazminati,onChange:e=>alanGuncelle("kidemTazminati",e.target.value)}))
               ),
-              div(null,lbl({className:"fl"},"İhbar Tazminatı (₺, varsa)"),inp({className:"fi",type:"number",placeholder:"Elle girin",value:surec.ihbarTazminati,onChange:e=>alanGuncelle("ihbarTazminati",e.target.value)}))
+              div(null,lbl({className:"fl"},"İhbar Tazminatı (₺, varsa)"),inp({className:"fi",type:"number",placeholder:"Elle girin",value:surec.ihbarTazminati,onChange:e=>alanGuncelle("ihbarTazminati",e.target.value)})),
+              div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:10}},
+                div(null,lbl({className:"fl"},"Ödeme Şekli"),
+                  sel({className:"fi",value:surec.odemeSekli||"",onChange:e=>alanGuncelle("odemeSekli",e.target.value)},
+                    opt("","Seçiniz..."),opt("Banka Havalesi/EFT","Banka Havalesi/EFT"),opt("Elden Nakit","Elden Nakit"))
+                ),
+                div(null,lbl({className:"fl"},"Ödeme Tarihi"),inp({className:"fi",type:"date",value:surec.odemeTarihi||"",onChange:e=>alanGuncelle("odemeTarihi",e.target.value)}))
+              ),
+              (()=>{
+                const gecenGun = Math.floor((new Date(TODAY())-new Date(surec.cikisTarihi))/86400000);
+                return gecenGun<30 && div({style:{marginTop:12,background:"rgba(255,149,0,.08)",border:"1px solid rgba(255,149,0,.25)",borderRadius:8,padding:"9px 11px",fontSize:11.5,color:"#B8590A",lineHeight:1.5}},
+                  "⚠️ Çıkış tarihinin üzerinden henüz "+gecenGun+" gün geçmiş. Yerleşik uygulamada, iş sözleşmesi bitiminden itibaren en az 1 ay geçtikten sonra imzalatılan ibraname daha güvenli kabul edilir; hemen imzalatılan ibralar sonradan itiraza açık olabilir.");
+              })()
             ),
 
             aktifSurec && div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"14px 16px",marginBottom:16}},
