@@ -2207,6 +2207,15 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [cariOdeTarih, setCariOdeTarih] = React.useState(TODAY());
   const [cariOdeTip, setCariOdeTip] = React.useState("Nakit");
   const [cariOdeNot, setCariOdeNot] = React.useState("");
+  // Ödeme tipine özel detay alanları (Banka/EFT/Çek/Senet)
+  const [cariOdeBanka, setCariOdeBanka] = React.useState("");
+  const [cariOdeRefNo, setCariOdeRefNo] = React.useState("");
+  const [cariOdeNo, setCariOdeNo] = React.useState(""); // Çek No / Senet No
+  const [cariOdeVade, setCariOdeVade] = React.useState("");
+  const [cariOdeKisi, setCariOdeKisi] = React.useState(""); // Keşideci / Borçlu-Kefil
+  const [cariOdeGorsel, setCariOdeGorsel] = React.useState([]);
+  const [cariOdeKart, setCariOdeKart] = React.useState(""); // Kredi Kartı — banka/kart adı
+  const [cariOdeTaksit, setCariOdeTaksit] = React.useState(""); // Kredi Kartı — taksit sayısı
   // ── Açılış / Devir borcu (kuruma geçişte mevcut tedarikçi borçları) ──
   const [acilisForm, setAcilisForm] = React.useState(false);
   const [acilisTedarikci, setAcilisTedarikci] = React.useState("");
@@ -5386,7 +5395,21 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     div({key:oi,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
                       padding:"8px 0",borderBottom:oi<gecmisOdemeler.length-1?"1px solid var(--br)":"none"}},
                       div(null,
-                        div({style:{fontSize:13,color:"var(--tx)"}},(od.tip||"Nakit")+" · "+fmtT(od.tarih)),
+                        div({style:{fontSize:13,color:"var(--tx)"}},
+                          ({Nakit:"💵 Nakit",Banka:"🏦 Banka Havalesi",EFT:"🏧 EFT",Çek:"📝 Çek",Senet:"📋 Senet",
+                            KrediKarti:"💳 Kredi Kartı",Diğer:"Diğer"}[od.tip]||od.tip||"Nakit")+" · "+fmtT(od.tarih)),
+                        (()=>{
+                          const d=od.detay||{};
+                          const parcalar=[];
+                          if(d.banka) parcalar.push(d.banka);
+                          if(d.refNo) parcalar.push("Ref: "+d.refNo);
+                          if(d.no) parcalar.push((od.tip||"")+" No: "+d.no);
+                          if(d.vade) parcalar.push("Vade: "+fmtT(d.vade));
+                          if(d.kisi) parcalar.push(d.kisi);
+                          if(d.kart) parcalar.push(d.kart);
+                          if(d.taksit) parcalar.push(d.taksit+" Taksit");
+                          return parcalar.length>0&&div({style:{fontSize:11,color:"var(--mu)",marginTop:1}},parcalar.join(" · "));
+                        })(),
                         od.not&&div({style:{fontSize:11,color:"var(--di)",marginTop:1}},od.not)
                       ),
                       div({style:{display:"flex",gap:8,alignItems:"center"}},
@@ -5416,6 +5439,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     div(null,lbl({className:"fl"},"Ödeme Tipi"),
                       sel({className:"fi",value:cariOdeTip,onChange:e=>setCariOdeTip(e.target.value)},
                         opt("Nakit","💵 Nakit"),opt("Banka","🏦 Banka Havalesi"),
+                        opt("KrediKarti","💳 Kredi Kartı"),
                         opt("EFT","🏧 EFT"),opt("Çek","📝 Çek"),opt("Senet","📋 Senet"),opt("Diğer","Diğer")))
                   ),
                   div({style:{marginBottom:10}},lbl({className:"fl"},"Ödenen Tutar (₺)"),
@@ -5428,6 +5452,51 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         onClick:()=>setCariOdeTutar(String(Math.round(kalan)))},"Tamamını öde")
                     )
                   ),
+                  // ── Ödeme tipine özel detay alanları ──
+                  (cariOdeTip==="Banka"||cariOdeTip==="EFT")&&div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                    div(null,lbl({className:"fl"},"Banka Adı"),
+                      inp({className:"fi",placeholder:"Örn: Ziraat Bankası",value:cariOdeBanka,
+                        onChange:e=>setCariOdeBanka(e.target.value)})),
+                    div(null,lbl({className:"fl"},"Dekont / Referans No"),
+                      inp({className:"fi",placeholder:"Dekont no...",value:cariOdeRefNo,
+                        onChange:e=>setCariOdeRefNo(e.target.value)}))
+                  ),
+                  (cariOdeTip==="Çek"||cariOdeTip==="Senet")&&div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                    div(null,lbl({className:"fl"},cariOdeTip+" No"),
+                      inp({className:"fi",placeholder:cariOdeTip+" no...",value:cariOdeNo,
+                        onChange:e=>setCariOdeNo(e.target.value)})),
+                    div({style:{minWidth:0,overflow:"hidden"}},lbl({className:"fl"},"Vade Tarihi"),
+                      inp({className:"fi",type:"date",style:{width:"100%",maxWidth:"100%",boxSizing:"border-box",display:"block"},
+                        value:cariOdeVade,onChange:e=>setCariOdeVade(e.target.value)})),
+                    div({style:{gridColumn:"1/-1"}},lbl({className:"fl"},cariOdeTip==="Çek"?"Keşideci":"Borçlu / Kefil"),
+                      inp({className:"fi",placeholder:cariOdeTip==="Çek"?"Çeki düzenleyen...":"Borçlu / kefil adı...",value:cariOdeKisi,
+                        onChange:e=>setCariOdeKisi(e.target.value)}))
+                  ),
+                  (cariOdeTip==="KrediKarti")&&div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+                    div(null,lbl({className:"fl"},"Banka / Kart Adı"),
+                      inp({className:"fi",placeholder:"Örn: Garanti BBVA",value:cariOdeKart,
+                        onChange:e=>setCariOdeKart(e.target.value)})),
+                    div(null,lbl({className:"fl"},"Taksit Sayısı"),
+                      inp({className:"fi",type:"number",inputMode:"numeric",placeholder:"Örn: 3 (peşinse boş bırakın)",value:cariOdeTaksit,
+                        onChange:e=>setCariOdeTaksit(e.target.value)}))
+                  ),
+                  (cariOdeTip==="Banka"||cariOdeTip==="EFT"||cariOdeTip==="Çek"||cariOdeTip==="Senet"||cariOdeTip==="KrediKarti")&&div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}},
+                    btn({style:{padding:"7px 12px",borderRadius:8,border:"1px dashed var(--br)",
+                      background:"transparent",color:"var(--mu)",fontSize:12,cursor:"pointer",flexShrink:0},
+                      onClick:()=>{
+                        const fi=document.createElement("input");
+                        fi.type="file";fi.accept="image/*,.pdf";fi.multiple=true;
+                        fi.onchange=ev=>{
+                          Array.from(ev.target.files||[]).forEach(f=>{
+                            if(f.size>5242880)return;
+                            const rd=new FileReader();
+                            rd.onload=e=>{setCariOdeGorsel(p=>[...(Array.isArray(p)?p:[]),e.target.result]);};
+                            rd.readAsDataURL(f);
+                          });
+                        };fi.click();
+                      }},"📎 "+(cariOdeTip==="Çek"||cariOdeTip==="Senet"?cariOdeTip+" Görseli Ekle":"Dekont Ekle")),
+                    cariOdeGorsel.length>0&&div({style:{fontSize:11,color:"var(--g)"}},cariOdeGorsel.length+" görsel eklendi")
+                  ),
                   div({style:{marginBottom:14}},lbl({className:"fl"},"Not (isteğe bağlı)"),
                     inp({className:"fi",placeholder:"Ödeme notu...",value:cariOdeNot,
                       onChange:e=>setCariOdeNot(e.target.value)})),
@@ -5437,14 +5506,29 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     disabled:!toN(cariOdeTutar),
                     onClick:()=>{
                       if(!toN(cariOdeTutar)){showToast("Tutar girin","uy");return;}
+                      const detay={};
+                      if(cariOdeTip==="Banka"||cariOdeTip==="EFT"){
+                        if(cariOdeBanka) detay.banka=cariOdeBanka;
+                        if(cariOdeRefNo) detay.refNo=cariOdeRefNo;
+                      }else if(cariOdeTip==="Çek"||cariOdeTip==="Senet"){
+                        if(cariOdeNo) detay.no=cariOdeNo;
+                        if(cariOdeVade) detay.vade=cariOdeVade;
+                        if(cariOdeKisi) detay.kisi=cariOdeKisi;
+                      }else if(cariOdeTip==="KrediKarti"){
+                        if(cariOdeKart) detay.kart=cariOdeKart;
+                        if(cariOdeTaksit) detay.taksit=cariOdeTaksit;
+                      }
+                      if(cariOdeGorsel.length>0) detay.gorsel=cariOdeGorsel;
                       const yeniOdeme={id:uid(),tarih:cariOdeTarih,tip:cariOdeTip,
-                        tutar:toN(cariOdeTutar),not:cariOdeNot};
+                        tutar:toN(cariOdeTutar),not:cariOdeNot,detay};
                       const yeniArsiv=mkArsiv.map(ar=>ar===secFatura
                         ?{...ar,odemeler:[...(ar.odemeler||[]),yeniOdeme]}:ar);
                       setMkArsiv(yeniArsiv);
                       const guncel=yeniArsiv.find(ar=>ar.faturaN===secFatura.faturaN&&ar.tarih===secFatura.tarih);
                       setSecFatura(guncel||null);
                       setCariOdeTutar(""); setCariOdeNot("");
+                      setCariOdeBanka(""); setCariOdeRefNo(""); setCariOdeNo(""); setCariOdeVade(""); setCariOdeKisi(""); setCariOdeGorsel([]);
+                      setCariOdeKart(""); setCariOdeTaksit("");
                       try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
                       showToast(fmt(toN(cariOdeTutar))+" ödeme kaydedildi");
                     }},toN(cariOdeTutar)>0?"✅ Ödeme Kaydet":"Tutar Girin")
