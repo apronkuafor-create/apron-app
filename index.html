@@ -22054,23 +22054,41 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
   // Yapısal çözüm: üst çubuk (.tbar) artık position:fixed — Safari'nin adres çubuğu ne yaparsa
   // yapsın, her zaman doğrudan viewport'un tepesine sabitlenir, "kaydırma sonrası yeniden
   // hesaplama" gerektirmez. Tek ihtiyaç: altındaki içerik alanının (.pg), çubuğun GERÇEK
-  // yüksekliği kadar üst boşluk bırakması — bu yükseklik ekrana göre (breadcrumb var/yok vb.)
-  // değiştiği için sabit bir piksel yazmak yerine ResizeObserver ile sürekli ölçüp
+  // yüksekliği kadar üst boşluk bırakması — bu yükseklik ekrana göre (breadcrumb var/yok,
+  // yönetici/personel paneli vb.) değiştiği için sabit bir piksel yazmak yerine sürekli ölçüp
   // --tbar-h CSS değişkenine yazıyoruz; .pg de bu değişkeni otomatik kullanıyor.
-  function baslat(){
+  //
+  // Ekranlar arası geçişte (giriş → personel/yönetici paneli, sekme değişimi vb.) React
+  // .tbar elemanının kendisini yeniden oluşturabiliyor — bu yüzden tek bir elemana bağlanıp
+  // kalmak yerine, her DOM değişikliğinde .tbar'ı TAZE bulup gerekirse yeniden bağlanıyoruz.
+  var mevcutEl = null;
+  var ro = null;
+  var pending = false;
+  function olcVeUygula(){
+    pending = false;
     var el = document.querySelector(".tbar");
-    if (!el){ setTimeout(baslat, 100); return; }
-    function guncelle(){
-      document.documentElement.style.setProperty("--tbar-h", el.offsetHeight + "px");
+    if (!el) return;
+    if (el !== mevcutEl){
+      mevcutEl = el;
+      if (ro) ro.disconnect();
+      if (window.ResizeObserver){
+        ro = new ResizeObserver(function(){ document.documentElement.style.setProperty("--tbar-h", el.offsetHeight + "px"); });
+        ro.observe(el);
+      }
     }
-    guncelle();
-    if (window.ResizeObserver){
-      new ResizeObserver(guncelle).observe(el);
-    } else {
-      window.addEventListener("resize", guncelle);
-    }
+    document.documentElement.style.setProperty("--tbar-h", el.offsetHeight + "px");
   }
-  baslat();
+  function tetikle(){
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(olcVeUygula);
+  }
+  var mo = new MutationObserver(tetikle);
+  mo.observe(document.documentElement, {childList:true, subtree:true});
+  window.addEventListener("resize", tetikle);
+  window.addEventListener("load", tetikle);
+  setInterval(tetikle, 1000); // düşük maliyetli ekstra güvence
+  tetikle();
 })();
 </script>
 
