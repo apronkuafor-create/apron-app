@@ -590,7 +590,7 @@ input[type="date"]::-webkit-inner-spin-button{display:none}
 .dev-upload-btn{display:flex;align-items:center;gap:8px;padding:11px 13px;border-radius:10px;border:0.5px dashed var(--br);background:var(--bg3);color:var(--mu);font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;font-size:13px;cursor:pointer;width:100%;box-sizing:border-box;margin-top:8px;transition:all .15s}
 .dev-upload-btn:hover{border-color:var(--g);color:var(--g)}
 .dev-onay-info{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:10px;background:rgba(var(--g-rgb,30,158,70),.06);border:0.5px solid rgba(var(--g-rgb,30,158,70),.2);margin-top:12px;font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;font-size:12px;color:var(--mu);line-height:1.5}
-.atabs{display:flex;background:#1F3D2C;border-bottom:1px solid #2D5440;overflow-x:auto;width:100%;box-sizing:border-box;-webkit-overflow-scrolling:touch;margin-top:var(--tbar-h, 100px)}
+.atabs{display:flex;background:#1F3D2C;border-bottom:1px solid #2D5440;overflow-x:auto;width:100%;box-sizing:border-box;-webkit-overflow-scrolling:touch;margin-top:var(--tbar-h, calc(env(safe-area-inset-top) + 120px))}
 .atab{padding:11px 14px;font-size:14px;letter-spacing:2px;text-transform:uppercase;color:#7AAF90;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all .2s}
 .atab.a{color:#FFFFFF;border-bottom-color:#FFFFFF}
 .kpi2{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:16px}
@@ -17557,7 +17557,7 @@ if(DB) dbUpsertAyar("tema",tema);
         ),
 
       ),
-      div({className:"pg",style:{paddingTop:"var(--tbar-h, 130px)",paddingBottom:asek==="kayitlar"?0:undefined}},
+      div({className:"pg",style:{paddingTop:"var(--tbar-h, calc(env(safe-area-inset-top) + 170px))",paddingBottom:asek==="kayitlar"?0:undefined}},
 
         // ── Yönetici Mesajlar Overlay ──
 
@@ -22051,44 +22051,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
 
 <script>
 (function(){
-  // Yapısal çözüm: üst çubuk (.tbar) artık position:fixed — Safari'nin adres çubuğu ne yaparsa
-  // yapsın, her zaman doğrudan viewport'un tepesine sabitlenir, "kaydırma sonrası yeniden
-  // hesaplama" gerektirmez. Tek ihtiyaç: altındaki içerik alanının (.pg), çubuğun GERÇEK
-  // yüksekliği kadar üst boşluk bırakması — bu yükseklik ekrana göre (breadcrumb var/yok,
-  // yönetici/personel paneli vb.) değiştiği için sabit bir piksel yazmak yerine sürekli ölçüp
-  // --tbar-h CSS değişkenine yazıyoruz; .pg de bu değişkeni otomatik kullanıyor.
-  //
-  // Ekranlar arası geçişte (giriş → personel/yönetici paneli, sekme değişimi vb.) React
-  // .tbar elemanının kendisini yeniden oluşturabiliyor — bu yüzden tek bir elemana bağlanıp
-  // kalmak yerine, her DOM değişikliğinde .tbar'ı TAZE bulup gerekirse yeniden bağlanıyoruz.
-  var mevcutEl = null;
-  var ro = null;
-  var pending = false;
-  function olcVeUygula(){
-    pending = false;
-    var el = document.querySelector(".tbar");
-    if (!el) return;
-    if (el !== mevcutEl){
-      mevcutEl = el;
-      if (ro) ro.disconnect();
-      if (window.ResizeObserver){
-        ro = new ResizeObserver(function(){ document.documentElement.style.setProperty("--tbar-h", el.offsetHeight + "px"); });
-        ro.observe(el);
-      }
-    }
-    document.documentElement.style.setProperty("--tbar-h", el.offsetHeight + "px");
-  }
-  function tetikle(){
-    if (pending) return;
-    pending = true;
-    requestAnimationFrame(olcVeUygula);
-  }
-  var mo = new MutationObserver(tetikle);
-  mo.observe(document.documentElement, {childList:true, subtree:true});
-  window.addEventListener("resize", tetikle);
-  window.addEventListener("load", tetikle);
-  setInterval(tetikle, 1000); // düşük maliyetli ekstra güvence
-  tetikle();
+  // NOT: Daha önce burada .tbar yüksekliğini JS ile ölçüp --tbar-h değişkenine yazan bir
+  // ResizeObserver/MutationObserver mekanizması vardı. Kaldırıldı çünkü: sayfa ilk boyandığında
+  // (fontlar/görsel henüz tam yüklenmeden) JS bazen ÇOK ERKEN çalışıp .tbar'ın henüz olgunlaşmamış,
+  // eksik yüksekliğini ölçüyor ve bunu kalıcı olarak --tbar-h'a yazıyordu — bu da güvenli CSS
+  // yedek değerinin (fallback) üzerine yanlış/küçük bir değer yazarak asıl sorunu (başlıkların
+  // sabit header altında kalması) DEVAM ETTİRİYORDU. Artık .pg ve .atabs, tamamen JS'siz,
+  // saf CSS calc(env(safe-area-inset-top) + sabit px) formülüyle besleniyor — ilk kareden
+  // itibaren doğru, hiçbir ölçüm/zamanlama riski yok.
 })();
 </script>
 
