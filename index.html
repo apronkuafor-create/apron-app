@@ -11226,6 +11226,7 @@ function App() {
   const [detay, setDetay]             = useState(null);
   const [silOnay, setSilOnay]         = useState(null);
   const [gsOnay, setGsOnay]           = useState(false);
+  const [hatBildirimGoster, setHatBildirimGoster] = useState(false); // gün açılışında bekleyen hatırlatma uyarısı
   const [gunSonuIncele, setGunSonuIncele] = useState(null); // {bildirimId, staffAd, kayitlar}
   const [toast, setToast]             = useState({g:false,m:"",t:"ba"});
   const [asek, setAsek]               = useState("");
@@ -11593,6 +11594,21 @@ function App() {
     hatKontrol();
     const interval = setInterval(hatKontrol, 60 * 60 * 1000);
     return () => clearInterval(interval);
+  },[kul, hatirlatmalar]);
+
+  // ── Uygulama içi hatırlatma pop-up'ı — tarayıcı bildirim izni olmasa/kapalı olsa bile,
+  // personel "Bugün" ekranına girdiğinde günde 1 kez gözden kaçırılamayacak bir pop-up gösterir. ──
+  React.useEffect(()=>{
+    if(!kul || !hatirlatmalar) return;
+    const bugun = TODAY();
+    const vadesi = hatirlatmalar.filter(h=>h.staffId===kul.id && !h.gonderildi && h.gonderiTarih<=bugun);
+    if(vadesi.length===0) return;
+    const popKey = "apron_hat_popup_"+kul.id+"_"+bugun;
+    if(localStorage.getItem(popKey)) return;
+    localStorage.setItem(popKey,"1");
+    Object.keys(localStorage).filter(k=>k.startsWith("apron_hat_popup_"+kul.id+"_") && k!==popKey)
+      .forEach(k=>localStorage.removeItem(k));
+    setHatBildirimGoster(true);
   },[kul, hatirlatmalar]);
 
   useEffect(()=>{
@@ -15100,6 +15116,34 @@ if(DB) dbUpsertAyar("tema",tema);
         )
       )
     ),
+
+    // ── Gün açılışında bekleyen hatırlatma pop-up'ı (ara çözüm — otomatik gönderim yerine) ──
+    hatBildirimGoster&&kul&&(()=>{
+      const bugunPop = TODAY();
+      const vadesiPop = (hatirlatmalar||[]).filter(h=>h.staffId===kul.id&&!h.gonderildi&&h.gonderiTarih<=bugunPop);
+      if(vadesiPop.length===0) return null;
+      return div({className:"conf-ov",style:{alignItems:"center",padding:"0 16px"}},
+        div({className:"gs-k"},
+          div({style:{fontSize:34,textAlign:"center",marginBottom:6}},"💈"),
+          div({style:{fontSize:18,color:"#1A4D8F",fontWeight:700,marginBottom:8,textAlign:"center",letterSpacing:-.3}},"Gönderilecek Hatırlatmanız Var"),
+          div({style:{fontSize:13,color:"var(--di)",marginBottom:14,lineHeight:1.7,textAlign:"center"}},
+            vadesiPop.length===1
+              ? h(Fragment,null,h("strong",{style:{color:"var(--tx)"}},vadesiPop[0].musteriAd)," için WhatsApp saç kesimi hatırlatması gönderme zamanı geldi.")
+              : vadesiPop.length+" müşteri için WhatsApp saç kesimi hatırlatması gönderme zamanı geldi."),
+          div({style:{background:"rgba(37,99,168,.06)",border:"1px solid rgba(37,99,168,.18)",borderRadius:14,padding:"10px 14px",marginBottom:18,maxHeight:160,overflowY:"auto"}},
+            vadesiPop.slice(0,8).map(h3=>
+              div({key:h3.id,style:{fontSize:13,color:"#1a4d8f",padding:"5px 0",borderBottom:"1px solid rgba(37,99,168,.1)"}},"👤 "+h3.musteriAd)
+            ),
+            vadesiPop.length>8&&div({style:{fontSize:12,color:"var(--mu)",paddingTop:5}},"+ "+(vadesiPop.length-8)+" daha")
+          ),
+          div({className:"btn-r"},
+            btn({className:"btn-i",onClick:()=>setHatBildirimGoster(false)},"Daha Sonra"),
+            btn({className:"btn-k",style:{background:"#2563A8",color:"#fff"},
+              onClick:()=>{ setHatBildirimGoster(false); setPsek("musterilerim"); }},"Şimdi Gör")
+          )
+        )
+      );
+    })(),
 
     // Detay modal
     detay&&div({className:"ov",style:{zIndex:600}},
