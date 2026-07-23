@@ -17433,13 +17433,112 @@ if(DB) dbUpsertAyar("tema",tema);
                     hizKK+=toN(r.hizKK||0);hizIB+=toN(r.hizIB||0);hizNK+=toN(r.hizNK||0);
                     uKK+=toN(r.uKK||0);uIB+=toN(r.uIB||0);uNK+=toN(r.uNK||0);
                   });
+
+                  // ── Zaman Bazlı Müşteri İstatistikleri ──
+                  // Not: isim/telefon filtresinden bağımsız — dönem içindeki TÜM işleriniz baz alınır.
+                  const anahtar=r=>(r.musteri||"").trim().toLowerCase()+"|"+String(r.tel||"").replace(/\D/g,"");
+                  let donemListe=tumBenim;
+                  if(gecmisPanelTarihBas) donemListe=donemListe.filter(r=>r.tarih&&r.tarih>=gecmisPanelTarihBas);
+                  if(gecmisPanelTarihBit) donemListe=donemListe.filter(r=>r.tarih&&r.tarih<=gecmisPanelTarihBit);
+
+                  // Müşteri bazlı grup (dönem içi)
+                  const mGrup={};
+                  donemListe.forEach(r=>{
+                    const k=anahtar(r); if(k==="|") return;
+                    if(!mGrup[k]) mGrup[k]={ad:r.musteri||"—",tel:r.tel||"",ziyaret:0,tutar:0,tarihler:[]};
+                    mGrup[k].ziyaret++; mGrup[k].tutar+=toN(r.toplam||0); mGrup[k].tarihler.push(r.tarih);
+                  });
+                  const mListe=Object.values(mGrup);
+
+                  // Müşteri bazlı ilk kayıt tarihi (tüm zamanlar — yeni/tekrar ayrımı için)
+                  const ilkKayit={};
+                  tumBenim.forEach(r=>{
+                    const k=anahtar(r); if(k==="|") return;
+                    if(!ilkKayit[k]||r.tarih<ilkKayit[k]) ilkKayit[k]=r.tarih;
+                  });
+                  const periyotBas = gecmisPanelTarihBas || (tumBenim.length?tumBenim.reduce((m,r)=>r.tarih&&r.tarih<m?r.tarih:m,TODAY()):TODAY());
+                  let yeniSay=0,tekrarSay=0;
+                  Object.keys(mGrup).forEach(k=>{
+                    if((ilkKayit[k]||"")>=periyotBas) yeniSay++; else tekrarSay++;
+                  });
+
+                  // En sık gelen Top 5 (ziyaret sayısına göre)
+                  const enSikTop5=[...mListe].sort((a,b)=>b.ziyaret-a.ziyaret||b.tutar-a.tutar).slice(0,5);
+                  // En yüksek harcama Top 5 (VIP)
+                  const enYuksekTop5=[...mListe].sort((a,b)=>b.tutar-a.tutar).slice(0,5);
+
+                  // Aylık trend — son 6 ay, her ayda gelen farklı müşteri sayısı + ciro (tüm zamanlar üzerinden, filtreden bağımsız)
+                  const aylikTrend=[];
+                  { const simdi=new Date();
+                    for(let i=5;i>=0;i--){
+                      const d=new Date(simdi.getFullYear(),simdi.getMonth()-i,1);
+                      const ayPre=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+                      const ayKayitlar=tumBenim.filter(r=>(r.tarih||"").startsWith(ayPre));
+                      const ayMusteriSet=new Set(); let ayCiro=0;
+                      ayKayitlar.forEach(r=>{ const k=anahtar(r); if(k!=="|") ayMusteriSet.add(k); ayCiro+=toN(r.toplam||0); });
+                      aylikTrend.push({ay:ayPre,ayEtiket:["Oca","Şub","Mar","Nis","May","Haz","Tem","Ağu","Eyl","Eki","Kas","Ara"][d.getMonth()],musteriSay:ayMusteriSet.size,ciro:ayCiro});
+                    }
+                  }
+
+                  // En yoğun gün (haftanın günü — dönem içi)
+                  const gunAdlari=["Pazar","Pazartesi","Salı","Çarşamba","Perşembe","Cuma","Cumartesi"];
+                  const gunSayim=[0,0,0,0,0,0,0];
+                  donemListe.forEach(r=>{ if(r.tarih){ const gi=new Date(r.tarih+"T12:00:00").getDay(); gunSayim[gi]++; } });
+                  let enYogunGunIdx=0; gunSayim.forEach((v,i)=>{ if(v>gunSayim[enYogunGunIdx]) enYogunGunIdx=i; });
+                  const enYogunGun = donemListe.length>0 ? {ad:gunAdlari[enYogunGunIdx],sayi:gunSayim[enYogunGunIdx]} : null;
+
+                  // En yoğun saat aralığı (r.saat varsa "HH:MM" formatında bekleniyor)
+                  const saatSayim={};
+                  donemListe.forEach(r=>{ if(r.saat){ const sh=String(r.saat).split(":")[0]; if(sh) saatSayim[sh]=(saatSayim[sh]||0)+1; } });
+                  let enYogunSaat=null;
+                  Object.keys(saatSayim).forEach(sh=>{ if(!enYogunSaat||saatSayim[sh]>saatSayim[enYogunSaat]) enYogunSaat=sh; });
+                  const enYogunSaatBilgi = enYogunSaat!==null ? {aralik:enYogunSaat+":00–"+enYogunSaat+":59",sayi:saatSayim[enYogunSaat]} : null;
+
+                  // Ortalama ziyaret aralığı (gün) — dönem içinde 2+ ziyareti olan müşteriler için
+                  let araToplam=0,araSay=0;
+                  mListe.forEach(m=>{
+                    if(m.tarihler.length<2) return;
+                    const st=[...m.tarihler].sort();
+                    for(let i=1;i<st.length;i++){
+                      const gun=(new Date(st[i]+"T12:00:00")-new Date(st[i-1]+"T12:00:00"))/86400000;
+                      araToplam+=gun; araSay++;
+                    }
+                  });
+                  const ortZiyaretAralik = araSay>0 ? Math.round(araToplam/araSay) : null;
+
+                  // Önceki eşit uzunlukta dönemle karşılaştırma (yalnızca tarih aralığı seçilmişse)
+                  let oncekiKarsilastirma=null;
+                  if(gecmisPanelTarihBas && gecmisPanelTarihBit){
+                    const basD=new Date(gecmisPanelTarihBas+"T12:00:00"), bitD=new Date(gecmisPanelTarihBit+"T12:00:00");
+                    const gunFarki=Math.max(1,Math.round((bitD-basD)/86400000)+1);
+                    const oncekiBit=new Date(basD); oncekiBit.setDate(oncekiBit.getDate()-1);
+                    const oncekiBas=new Date(oncekiBit); oncekiBas.setDate(oncekiBas.getDate()-(gunFarki-1));
+                    const f=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+                    const oncekiListe=tumBenim.filter(r=>r.tarih&&r.tarih>=f(oncekiBas)&&r.tarih<=f(oncekiBit));
+                    const oncekiMusteriSet=new Set(); let oncekiCiro=0;
+                    oncekiListe.forEach(r=>{ const k=anahtar(r); if(k!=="|") oncekiMusteriSet.add(k); oncekiCiro+=toN(r.toplam||0); });
+                    const yeniCiro=hizKK+hizIB+hizNK+uKK+uIB+uNK;
+                    oncekiKarsilastirma={
+                      musteriSay:oncekiMusteriSet.size, ciro:oncekiCiro,
+                      musteriDegisimYuzde: oncekiMusteriSet.size>0 ? Math.round(((musteriSet.size-oncekiMusteriSet.size)/oncekiMusteriSet.size)*100) : null,
+                      ciroDegisimYuzde: oncekiCiro>0 ? Math.round(((yeniCiro-oncekiCiro)/oncekiCiro)*100) : null
+                    };
+                  }
+
+                  const ist={
+                    yeniSay,tekrarSay,enSikTop5,enYuksekTop5,aylikTrend,enYogunGun,enYogunSaatBilgi,
+                    ortZiyaretAralik,oncekiKarsilastirma,
+                    ortalamaIslem: liste.length>0 ? (hizKK+hizIB+hizNK+uKK+uIB+uNK)/liste.length : 0
+                  };
+
                   setGecmisPanelSonuc({
                     musteriSay:musteriSet.size,kayitSay:liste.length,
                     hizKK,hizIB,hizNK,hizTop:hizKK+hizIB+hizNK,
                     uKK,uIB,uNK,uTop:uKK+uIB+uNK,
                     topKK:hizKK+uKK,topIB:hizIB+uIB,topNK:hizNK+uNK,
                     genelTop:hizKK+hizIB+hizNK+uKK+uIB+uNK,
-                    kayitlar:[...liste].sort((a,b)=>b.tarih.localeCompare(a.tarih)||(b.saat||"").localeCompare(a.saat||""))
+                    kayitlar:[...liste].sort((a,b)=>b.tarih.localeCompare(a.tarih)||(b.saat||"").localeCompare(a.saat||"")),
+                    ist
                   });
                 }
               },"Getir")
@@ -17516,6 +17615,86 @@ if(DB) dbUpsertAyar("tema",tema);
                   bolum(ikGenel,"Toplam Getiri",fmt(gecmisPanelSonuc.genelTop),
                     odemeSatir(gecmisPanelSonuc.topKK,gecmisPanelSonuc.topIB,gecmisPanelSonuc.topNK),true)
                 ),
+                gecmisPanelSonuc.ist&&(()=>{
+                  const ist=gecmisPanelSonuc.ist;
+                  const maxAy=Math.max(1,...ist.aylikTrend.map(a=>a.musteriSay));
+                  return div({style:{marginTop:14,background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,overflow:"hidden",boxShadow:"0 2px 10px rgba(0,0,0,.04)"}},
+                    div({style:{padding:"14px 14px 10px",borderBottom:"1px solid rgba(0,0,0,.06)"}},
+                      div({style:{fontSize:13,fontWeight:700,color:"#1D1D1F",letterSpacing:"-.1px"}},"📊 Zaman Bazlı Müşteri İstatistikleri")
+                    ),
+                    div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",borderBottom:"1px solid rgba(0,0,0,.06)"}},
+                      div({style:{padding:"12px 14px",textAlign:"center",borderRight:"1px solid rgba(0,0,0,.06)"}},
+                        div({style:{fontSize:20,fontWeight:800,color:"#0071E3"}},String(ist.yeniSay)),
+                        div({style:{fontSize:10.5,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginTop:2}},"🆕 Yeni Müşteri")
+                      ),
+                      div({style:{padding:"12px 14px",textAlign:"center"}},
+                        div({style:{fontSize:20,fontWeight:800,color:"#0071E3"}},String(ist.tekrarSay)),
+                        div({style:{fontSize:10.5,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginTop:2}},"🔁 Tekrar Eden")
+                      )
+                    ),
+                    div({style:{display:"grid",gridTemplateColumns:ist.ortZiyaretAralik!==null?"1fr 1fr":"1fr",borderBottom:"1px solid rgba(0,0,0,.06)"}},
+                      div({style:{padding:"12px 14px",textAlign:"center",borderRight:ist.ortZiyaretAralik!==null?"1px solid rgba(0,0,0,.06)":"none"}},
+                        div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F"}},fmt(ist.ortalamaIslem)),
+                        div({style:{fontSize:10.5,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginTop:2}},"💳 Ort. İşlem Tutarı")
+                      ),
+                      ist.ortZiyaretAralik!==null&&div({style:{padding:"12px 14px",textAlign:"center"}},
+                        div({style:{fontSize:16,fontWeight:700,color:"#1D1D1F"}},ist.ortZiyaretAralik+" gün"),
+                        div({style:{fontSize:10.5,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginTop:2}},"🔄 Ort. Ziyaret Aralığı")
+                      )
+                    ),
+                    (ist.enYogunGun||ist.enYogunSaatBilgi)&&div({style:{display:"grid",gridTemplateColumns:(ist.enYogunGun&&ist.enYogunSaatBilgi)?"1fr 1fr":"1fr",borderBottom:"1px solid rgba(0,0,0,.06)"}},
+                      ist.enYogunGun&&div({style:{padding:"12px 14px",textAlign:"center",borderRight:ist.enYogunSaatBilgi?"1px solid rgba(0,0,0,.06)":"none"}},
+                        div({style:{fontSize:15,fontWeight:700,color:"#1D1D1F"}},ist.enYogunGun.ad),
+                        div({style:{fontSize:10.5,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginTop:2}},"📅 En Yoğun Gün · "+ist.enYogunGun.sayi+" kayıt")
+                      ),
+                      ist.enYogunSaatBilgi&&div({style:{padding:"12px 14px",textAlign:"center"}},
+                        div({style:{fontSize:15,fontWeight:700,color:"#1D1D1F"}},ist.enYogunSaatBilgi.aralik),
+                        div({style:{fontSize:10.5,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginTop:2}},"⏰ En Yoğun Saat · "+ist.enYogunSaatBilgi.sayi+" kayıt")
+                      )
+                    ),
+                    ist.oncekiKarsilastirma&&div({style:{padding:"12px 14px",borderBottom:"1px solid rgba(0,0,0,.06)"}},
+                      div({style:{fontSize:10.5,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginBottom:8,fontWeight:600}},"📈 Önceki Eşit Dönemle Kıyas"),
+                      div({style:{display:"flex",gap:8}},
+                        div({style:{flex:1,textAlign:"center",padding:"8px 4px",borderRadius:8,
+                          background:(ist.oncekiKarsilastirma.musteriDegisimYuzde||0)>=0?"rgba(52,199,89,.08)":"rgba(255,59,48,.08)"}},
+                          div({style:{fontSize:14,fontWeight:800,color:(ist.oncekiKarsilastirma.musteriDegisimYuzde||0)>=0?"#1a7a34":"#c0392b"}},
+                            ist.oncekiKarsilastirma.musteriDegisimYuzde===null?"—":(ist.oncekiKarsilastirma.musteriDegisimYuzde>=0?"+":"")+ist.oncekiKarsilastirma.musteriDegisimYuzde+"%"),
+                          div({style:{fontSize:9.5,color:"#6b7280",marginTop:2}},"Müşteri")
+                        ),
+                        div({style:{flex:1,textAlign:"center",padding:"8px 4px",borderRadius:8,
+                          background:(ist.oncekiKarsilastirma.ciroDegisimYuzde||0)>=0?"rgba(52,199,89,.08)":"rgba(255,59,48,.08)"}},
+                          div({style:{fontSize:14,fontWeight:800,color:(ist.oncekiKarsilastirma.ciroDegisimYuzde||0)>=0?"#1a7a34":"#c0392b"}},
+                            ist.oncekiKarsilastirma.ciroDegisimYuzde===null?"—":(ist.oncekiKarsilastirma.ciroDegisimYuzde>=0?"+":"")+ist.oncekiKarsilastirma.ciroDegisimYuzde+"%"),
+                          div({style:{fontSize:9.5,color:"#6b7280",marginTop:2}},"Ciro")
+                        )
+                      )
+                    ),
+                    div({style:{padding:"12px 14px",borderBottom:"1px solid rgba(0,0,0,.06)"}},
+                      div({style:{fontSize:10.5,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginBottom:10,fontWeight:600}},"📊 Son 6 Ay — Müşteri Trendi"),
+                      div({style:{display:"flex",alignItems:"flex-end",gap:6,height:70}},
+                        ist.aylikTrend.map((a,i)=>div({key:i,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}},
+                          div({style:{width:"100%",maxWidth:26,height:Math.max(3,Math.round((a.musteriSay/maxAy)*50)),background:"linear-gradient(180deg,#0071E3,#0058B0)",borderRadius:4}}),
+                          div({style:{fontSize:9,color:"#9ca3af"}},a.ayEtiket),
+                          div({style:{fontSize:9.5,color:"#1D1D1F",fontWeight:700}},String(a.musteriSay))
+                        ))
+                      )
+                    ),
+                    ist.enSikTop5.length>0&&div({style:{padding:"12px 14px",borderBottom:ist.enYuksekTop5.length>0?"1px solid rgba(0,0,0,.06)":"none"}},
+                      div({style:{fontSize:10.5,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginBottom:8,fontWeight:600}},"⭐ En Sık Gelen Müşterileriniz"),
+                      ist.enSikTop5.map((m,i)=>div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:i<ist.enSikTop5.length-1?"1px solid rgba(0,0,0,.04)":"none"}},
+                        div({style:{fontSize:13,color:"#1D1D1F",fontWeight:600}},(i+1)+". "+m.ad),
+                        div({style:{fontSize:12,color:"#0071E3",fontWeight:700,whiteSpace:"nowrap"}},m.ziyaret+" ziyaret · "+fmt(m.tutar))
+                      ))
+                    ),
+                    ist.enYuksekTop5.length>0&&div({style:{padding:"12px 14px"}},
+                      div({style:{fontSize:10.5,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginBottom:8,fontWeight:600}},"💎 En Yüksek Harcama Yapanlar (VIP)"),
+                      ist.enYuksekTop5.map((m,i)=>div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:i<ist.enYuksekTop5.length-1?"1px solid rgba(0,0,0,.04)":"none"}},
+                        div({style:{fontSize:13,color:"#1D1D1F",fontWeight:600}},(i+1)+". "+m.ad),
+                        div({style:{fontSize:12,color:"#0071E3",fontWeight:700,whiteSpace:"nowrap"}},fmt(m.tutar))
+                      ))
+                    )
+                  );
+                })(),
                 gecmisPanelSonuc.kayitlar&&gecmisPanelSonuc.kayitlar.length>0&&div({style:{marginTop:12}},
                   gecmisPanelSonuc.kayitlar.map(r=>h(KayitKarti,{
                     r, key:r.id,
