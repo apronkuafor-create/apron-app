@@ -194,6 +194,8 @@ const MRENK = {"Wella":"#8B5CF6","Morgans":"#2563a8","Screen":"#3B82F6","TT":"#E
 const HIZMETLER = ["Saç Kesimi","Sakal Traşı","Çocuk Saç Kesimi","Saç Bakım","Saç Renklendirme","Keratin Botoks","Damat Paketi","Manikür","Pedikür","El Tırnağı","Ayak Tırnağı","Kaş","Cilt Bakımı"];
 const MANIKURIST_HIZMETLER_VARSAYILAN = ["Manikür","Pedikür","El Tırnağı","Ayak Tırnağı","Ağda","Cilt Bakımı"];
 const USTA_KALFA_HIZMETLER_VARSAYILAN = ["Saç Kesimi","Sakal Traşı","Çocuk Saç Kesimi","Saç Bakım","Saç Renklendirme","Keratin Botoks","Damat Paketi"];
+// Sesle Doldur — Yeni Kayıt formunu konuşmadan otomatik dolduran Supabase Edge Function
+const SES_DOLDUR_URL = "https://txbvqwcwarpkwvvhxdoo.supabase.co/functions/v1/kayit-sesli-doldur";
 const DEV_SECENEKLER = ["Haftalık İzin","İş Yapamama","Unutma","Hastalık Devamsızlığı","Mazeret Devamsızlığı","Resmi Tatil","Dini Bayram Tatili","Diğer"];
 const RESMI_TATILLER = ["1 Ocak — Yılbaşı","23 Nisan — Ulusal Egemenlik ve Çocuk Bayramı","1 Mayıs — Emek ve Dayanışma Günü","19 Mayıs — Atatürk'ü Anma, Gençlik ve Spor Bayramı","15 Temmuz — Demokrasi ve Millî Birlik Günü","30 Ağustos — Zafer Bayramı","29 Ekim — Cumhuriyet Bayramı"];
 const DEFAULT_PERSONELLER = [
@@ -7885,6 +7887,13 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [hizmetOdemeUyariId, setHizmetOdemeUyariId] = useState("");
   const [urunOdemeUyariId, setUrunOdemeUyariId] = useState("");
   const [siparisSor, setSiparisSor] = useState(null); // {u, mevcut, istenen} — stok yetersizken ön sipariş sorusu
+  // ── Sesle Doldur (konuşarak form doldurma) ──
+  const [sesPanelAcik, setSesPanelAcik] = useState(false);
+  const [sesDinliyor, setSesDinliyor] = useState(false);
+  const [sesTranskript, setSesTranskript] = useState("");
+  const [sesYukleniyor, setSesYukleniyor] = useState(false);
+  const [sesHata, setSesHata] = useState("");
+  const sesTanimaRef = useRef(null);
   const hizmetBolumRef = useRef(null);
   const urunBolumRef = useRef(null);
 
@@ -8041,6 +8050,82 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const ibanPersonelSec = (tip, pId, pAd) => {
     if(tip==="hiz") setHIbanSec(pId);
     else setUIbanSec(pId);
+  };
+
+  // ── Sesle Doldur — konuşmayı dinle, metne çevir ──
+  const sesKayitBaslat = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!SR){ setSesHata("Bu tarayıcı sesle yazmayı desteklemiyor. Chrome kullanmanızı öneririz."); return; }
+    setSesHata("");
+    setSesTranskript("");
+    const tanima = new SR();
+    tanima.lang = "tr-TR";
+    tanima.continuous = true;
+    tanima.interimResults = true;
+    tanima.onresult = (e) => {
+      let metin = "";
+      for(let i=0;i<e.results.length;i++) metin += e.results[i][0].transcript;
+      setSesTranskript(metin);
+    };
+    tanima.onerror = () => { setSesHata("Ses tanıma sırasında bir sorun oluştu, tekrar deneyin."); setSesDinliyor(false); };
+    tanima.onend = () => setSesDinliyor(false);
+    sesTanimaRef.current = tanima;
+    tanima.start();
+    setSesDinliyor(true);
+  };
+  const sesKayitDurdur = () => {
+    if(sesTanimaRef.current) sesTanimaRef.current.stop();
+    setSesDinliyor(false);
+  };
+
+  // ── Sesle Doldur — dökülen metni Supabase Edge Function'a gönderip forma uygula ──
+  const sesiFormaUygula = async () => {
+    if(!sesTranskript.trim()){ setSesHata("Önce konuşarak bir metin oluşturun."); return; }
+    setSesYukleniyor(true); setSesHata("");
+    try{
+      const { data: sessionData } = await DB.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if(!token){ setSesHata("Oturum bulunamadı, lütfen tekrar giriş yapın."); setSesYukleniyor(false); return; }
+      const resp = await fetch(SES_DOLDUR_URL, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+token },
+        body: JSON.stringify({ transkript: sesTranskript, hizmetListesi: _hizListesi, bugun: TODAY() })
+      });
+      const veri = await resp.json().catch(()=>null);
+      if(!resp.ok || !veri){ setSesHata("Sunucudan geçerli bir yanıt alınamadı."); setSesYukleniyor(false); return; }
+
+      if(veri.musteri) setMusteri(veri.musteri);
+      if(veri.tel) setTel(veri.tel);
+
+      if(Array.isArray(veri.hizmetler) && veri.hizmetler.length>0){
+        const odemeMap = {nakit:"nk", kart:"kk", "kredi kartı":"kk", havale:"ib", eft:"ib", iban:"ib"};
+        const yeniSatirlar = veri.hizmetler.map(hh=>{
+          // Sesle söylenen hizmet adını, personelin gerçek hizmet listesiyle eşleştir (yakın eşleşme)
+          const soylenen = normText(hh.isim||"");
+          const eslesen = _hizListesi.find(ad=>normText(ad)===soylenen)
+            || _hizListesi.find(ad=>normText(ad).includes(soylenen)||soylenen.includes(normText(ad)))
+            || hh.isim || "";
+          const od = odemeMap[normText(hh.odemeTipi||"")] || "";
+          const tutar = toN(hh.tutar)||0;
+          const satir = {id:uid(),n:eslesen,f:tutar?String(tutar):"",listef:HIZ_LISTE_FIYAT[eslesen]||0,
+            fkk:"",fib:"",fnk:"",odeme:od,pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""};
+          if(od==="kk") satir.fkk = tutar?String(tutar):"";
+          else if(od==="ib") satir.fib = tutar?String(tutar):"";
+          else if(od==="nk") satir.fnk = tutar?String(tutar):"";
+          return satir;
+        });
+        const yeni = [...yeniSatirlar, bosHizmet()];
+        setHizler(yeni);
+        hizmetOdemeToplamlariniYaz(yeni);
+      }
+
+      setSesPanelAcik(false);
+      setSesTranskript("");
+      showToast("Form konuşmadan dolduruldu — lütfen kontrol edip kaydedin");
+    }catch(e){
+      setSesHata("Bağlantı hatası — internet bağlantınızı kontrol edin.");
+    }
+    setSesYukleniyor(false);
   };
 
   const hSil = id => setHizler(p=>{
@@ -8247,6 +8332,41 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
           fontFamily:musteriBilgileriFont
         }},
         div({style:{background:"#FAF9F6",borderRadius:16,border:"1px solid rgba(0,0,0,.13)",padding:"14px 14px 10px",marginBottom:14}},
+        // ── Sesle Doldur ──
+        div({style:{marginBottom:12}},
+          !sesPanelAcik
+            ? btn({type:"button",style:{width:"100%",padding:"11px 0",borderRadius:11,
+                border:"1.5px dashed rgba(37,99,168,.4)",background:"rgba(37,99,168,.06)",
+                color:"#1a56a8",fontSize:13.5,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7},
+                onClick:()=>{setSesPanelAcik(true);setSesHata("");setSesTranskript("");}},
+                "🎤 Sesle Doldur")
+            : div({style:{background:"#fff",border:"1.5px solid rgba(37,99,168,.3)",borderRadius:14,padding:12}},
+                div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+                  div({style:{fontSize:12.5,fontWeight:700,color:"#1a56a8"}},"🎤 Sesle Doldur"),
+                  btn({type:"button",style:{background:"transparent",border:"none",color:"#9ca3af",fontSize:13,cursor:"pointer"},
+                    onClick:()=>{ if(sesDinliyor) sesKayitDurdur(); setSesPanelAcik(false); setSesTranskript(""); setSesHata(""); }},"✕ Kapat")
+                ),
+                div({style:{fontSize:11.5,color:"#8a8a8e",marginBottom:10,lineHeight:1.5}},
+                  "Müşteri adı ve yapılan hizmetleri, tutarları ve ödeme şeklini doğal şekilde söyleyin. Örn: \"Ahmet Yılmaz geldi, saç kesimi yaptık 300 lira nakit aldık.\""),
+                div({style:{display:"flex",gap:8,marginBottom:sesTranskript?10:0}},
+                  btn({type:"button",disabled:sesYukleniyor,style:{flex:1,padding:"11px 0",borderRadius:10,border:"none",
+                    background:sesDinliyor?"linear-gradient(135deg,#e02020,#b01818)":"linear-gradient(135deg,#0071E3,#0058B0)",
+                    color:"#fff",fontSize:13.5,fontWeight:700,cursor:sesYukleniyor?"default":"pointer",opacity:sesYukleniyor?.6:1},
+                    onClick:()=>{ sesDinliyor ? sesKayitDurdur() : sesKayitBaslat(); }},
+                    sesDinliyor ? "⏹ Dinlemeyi Durdur" : "🎙️ Konuşmaya Başla")
+                ),
+                sesTranskript&&div({style:{marginBottom:10}},
+                  h("textarea",{className:"fi",rows:3,style:{width:"100%",boxSizing:"border-box",fontSize:12.5,resize:"vertical"},
+                    value:sesTranskript,onChange:e=>setSesTranskript(e.target.value),
+                    placeholder:"Konuştukça metin burada görünecek, gerekirse elle düzeltebilirsiniz..."})
+                ),
+                sesHata&&div({style:{color:"#c05050",fontSize:12,marginBottom:10,padding:"7px 9px",background:"rgba(224,32,32,.06)",borderRadius:8}},sesHata),
+                sesTranskript&&!sesDinliyor&&btn({type:"button",disabled:sesYukleniyor,style:{width:"100%",padding:"11px 0",borderRadius:10,border:"none",
+                  background:sesYukleniyor?"rgba(0,0,0,.08)":"linear-gradient(135deg,#34C759,#28A745)",
+                  color:sesYukleniyor?"#9ca3af":"#fff",fontSize:13.5,fontWeight:700,cursor:sesYukleniyor?"default":"pointer"},
+                  onClick:sesiFormaUygula},sesYukleniyor?"⏳ Forma İşleniyor...":"✅ Forma Uygula")
+              )
+        ),
         div(null,
           lbl({className:"fl"},"Kayıt Tarihi *"),
           h("input",{type:"date",className:"fi",style:{width:"100%",boxSizing:"border-box"},
@@ -17566,7 +17686,28 @@ if(DB) dbUpsertAyar("tema",tema);
                 Object.keys(mGrup).forEach(k=>{ if((ilkKayit[k]||"")>=periyotBas) yeniSay++; else tekrarSay++; });
                 setIstSonuc({tip:"yeniTekrar",yeniSay,tekrarSay,toplam:yeniSay+tekrarSay});
               } else if(istSecili==="enSik"){
-                setIstSonuc({tip:"enSik",liste:[...mListe].sort((a,b)=>b.ziyaret-a.ziyaret||b.tutar-a.tutar).slice(0,10)});
+                // Ziyaret eşiği, seçilen tarih aralığının uzunluğuna göre kademeli artıyor:
+                // ≤10 gün: eşik yok (1) · 28 gün: 2 · 3 ay(90g): 5 · 6 ay(180g): 10 · 9 ay(270g): 15 · 12 ay(365g): 18
+                // Aradaki değerler bu noktalar arasında orantılı (lineer) olarak hesaplanır.
+                const esikNoktalar=[[10,1],[28,2],[90,5],[180,10],[270,15],[365,18]];
+                const esikHesapla=(gun)=>{
+                  if(gun<=esikNoktalar[0][0]) return esikNoktalar[0][1];
+                  for(let i=0;i<esikNoktalar.length-1;i++){
+                    const [g1,e1]=esikNoktalar[i], [g2,e2]=esikNoktalar[i+1];
+                    if(gun<=g2){ const oran=(gun-g1)/(g2-g1); return Math.max(1,Math.round(e1+oran*(e2-e1))); }
+                  }
+                  const [g1,e1]=esikNoktalar[esikNoktalar.length-2], [g2,e2]=esikNoktalar[esikNoktalar.length-1];
+                  const egim=(e2-e1)/(g2-g1);
+                  return Math.max(1,Math.round(e2+egim*(gun-g2)));
+                };
+                let gunSayisi=null, esik=1;
+                if(istTarihBas&&istTarihBit){
+                  const basD=new Date(istTarihBas+"T12:00:00"), bitD=new Date(istTarihBit+"T12:00:00");
+                  gunSayisi=Math.max(1,Math.round((bitD-basD)/86400000)+1);
+                  esik=esikHesapla(gunSayisi);
+                }
+                const filtreli=[...mListe].filter(m=>m.ziyaret>=esik).sort((a,b)=>b.ziyaret-a.ziyaret||b.tutar-a.tutar);
+                setIstSonuc({tip:"enSik",liste:filtreli,esik,gunSayisi});
               } else if(istSecili==="enYuksek"){
                 setIstSonuc({tip:"enYuksek",liste:[...mListe].sort((a,b)=>b.tutar-a.tutar).slice(0,10)});
               } else if(istSecili==="ortIslem"){
@@ -17672,14 +17813,29 @@ if(DB) dbUpsertAyar("tema",tema);
                   div({style:{fontSize:11,color:"#6b7280",marginTop:3}},"🔁 Tekrar Eden"))
               ),
 
-              istSonuc&&(istSonuc.tip==="enSik"||istSonuc.tip==="enYuksek")&&div({style:{marginTop:14,background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"14px"}},
+              istSonuc&&istSonuc.tip==="enSik"&&div({style:{marginTop:14}},
+                div({style:{background:"rgba(0,113,227,.06)",border:"1px solid rgba(0,113,227,.18)",borderRadius:10,padding:"9px 12px",marginBottom:10,fontSize:12,color:"#1a56a8",lineHeight:1.5}},
+                  istSonuc.gunSayisi===null
+                    ? "Tarih aralığı seçilmediği için eşik uygulanmadı — tüm müşteriler ziyaret sayısına göre sıralandı."
+                    : istSonuc.gunSayisi+" günlük aralık için eşik: en az "+istSonuc.esik+" ziyaret"),
+                div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"14px"}},
+                  istSonuc.liste.length===0
+                    ? div({style:{fontSize:13,color:"#9ca3af",textAlign:"center",padding:"10px 0"}},"Bu eşiği karşılayan müşteri bulunamadı")
+                    : istSonuc.liste.map((m,i)=>div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",
+                        borderBottom:i<istSonuc.liste.length-1?"1px solid rgba(0,0,0,.05)":"none"}},
+                        div({style:{fontSize:13.5,color:"#1D1D1F",fontWeight:600}},(i+1)+". "+m.ad),
+                        div({style:{fontSize:12.5,color:"#0071E3",fontWeight:700,whiteSpace:"nowrap"}},m.ziyaret+" ziyaret · "+fmt(m.tutar))
+                      ))
+                )
+              ),
+
+              istSonuc&&istSonuc.tip==="enYuksek"&&div({style:{marginTop:14,background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"14px"}},
                 istSonuc.liste.length===0
                   ? div({style:{fontSize:13,color:"#9ca3af",textAlign:"center",padding:"10px 0"}},"Bu aralıkta kayıt bulunamadı")
                   : istSonuc.liste.map((m,i)=>div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",
                       borderBottom:i<istSonuc.liste.length-1?"1px solid rgba(0,0,0,.05)":"none"}},
                       div({style:{fontSize:13.5,color:"#1D1D1F",fontWeight:600}},(i+1)+". "+m.ad),
-                      div({style:{fontSize:12.5,color:"#0071E3",fontWeight:700,whiteSpace:"nowrap"}},
-                        istSonuc.tip==="enSik" ? m.ziyaret+" ziyaret · "+fmt(m.tutar) : fmt(m.tutar))
+                      div({style:{fontSize:12.5,color:"#0071E3",fontWeight:700,whiteSpace:"nowrap"}},fmt(m.tutar))
                     ))
               ),
 
