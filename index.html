@@ -11656,6 +11656,8 @@ function App() {
   const [istTarihBit, setIstTarihBit] = useState(TODAY());
   const [istSonuc, setIstSonuc] = useState(null);
   const [istHoverIdx, setIstHoverIdx] = useState(null); // İnteraktif zaman çizelgesinde gezinilen nokta
+  const [istAcikHizmet, setIstAcikHizmet] = useState(""); // detay açık olan hizmet adı
+  const [istAcikOdeme, setIstAcikOdeme] = useState(""); // detay açık olan ödeme tipi
   const [ayFil, setAyFil]   = useState("");
   const [tAyFil, setTAyFil]   = useState(String(new Date().getMonth()+1));
   const [tGun, setTGun]       = useState("");
@@ -17741,224 +17743,49 @@ if(DB) dbUpsertAyar("tema",tema);
                 sonuc.zamanSerisi={granularite,veri:zamanSerisi};
               }
 
-              // Yeni / Tekrar Eden
-              {
-                const ilkKayit={};
-                tumBenim.forEach(r=>{ const k=anahtar(r); if(k==="|") return; if(!ilkKayit[k]||r.tarih<ilkKayit[k]) ilkKayit[k]=r.tarih; });
-                let yeniSay=0,tekrarSay=0;
-                Object.keys(mGrup).forEach(k=>{ if((ilkKayit[k]||"")>=istTarihBas2) yeniSay++; else tekrarSay++; });
-                sonuc.yeniTekrar={yeniSay,tekrarSay};
-              }
-
-              // En Sık Gelenler (eşik, aralık uzunluğuna göre kademeli)
-              {
-                const esikNoktalar=[[10,1],[28,2],[90,5],[180,10],[270,15],[365,18]];
-                const esikHesapla=(gun)=>{
-                  if(gun<=esikNoktalar[0][0]) return esikNoktalar[0][1];
-                  for(let i=0;i<esikNoktalar.length-1;i++){
-                    const [g1,e1]=esikNoktalar[i], [g2,e2]=esikNoktalar[i+1];
-                    if(gun<=g2){ const oran=(gun-g1)/(g2-g1); return Math.max(1,Math.round(e1+oran*(e2-e1))); }
-                  }
-                  const [g1,e1]=esikNoktalar[esikNoktalar.length-2], [g2,e2]=esikNoktalar[esikNoktalar.length-1];
-                  const egim=(e2-e1)/(g2-g1);
-                  return Math.max(1,Math.round(e2+egim*(gun-g2)));
-                };
-                const basD=new Date(istTarihBas2+"T12:00:00"), bitD=new Date(istTarihBit2+"T12:00:00");
-                const gunSayisi=Math.max(1,Math.round((bitD-basD)/86400000)+1);
-                const esik=esikHesapla(gunSayisi);
-                const filtreli=[...mListe].filter(m=>m.ziyaret>=esik).sort((a,b)=>b.ziyaret-a.ziyaret||b.tutar-a.tutar);
-                sonuc.enSik={liste:filtreli,esik,gunSayisi};
-              }
-
-              // En Yüksek Harcama (VIP)
-              sonuc.enYuksek={liste:[...mListe].sort((a,b)=>b.tutar-a.tutar).slice(0,10)};
-
-              // Ortalama İşlem Tutarı
-              {
-                const toplam=liste.reduce((s,r)=>s+toN(r.toplam||0),0);
-                sonuc.ortIslem={ort:liste.length>0?toplam/liste.length:0,kayitSay:liste.length,toplam};
-              }
-
-              // Ortalama Ziyaret Aralığı
-              {
-                let araToplam=0,araSay=0;
-                mListe.forEach(m=>{
-                  if(m.tarihler.length<2) return;
-                  const st=[...m.tarihler].sort();
-                  for(let i=1;i<st.length;i++){ araToplam+=(new Date(st[i]+"T12:00:00")-new Date(st[i-1]+"T12:00:00"))/86400000; araSay++; }
-                });
-                sonuc.ortAralik={gun:araSay>0?Math.round(araToplam/araSay):null,musteriSay:mListe.filter(m=>m.tarihler.length>=2).length};
-              }
-
-              // En Yoğun Gün
-              {
-                const gunAdlari=["Pazar","Pazartesi","Salı","Çarşamba","Perşembe","Cuma","Cumartesi"];
-                const gunSayim=[0,0,0,0,0,0,0];
-                liste.forEach(r=>{ if(r.tarih){ gunSayim[new Date(r.tarih+"T12:00:00").getDay()]++; } });
-                let idx=0; gunSayim.forEach((v,i)=>{ if(v>gunSayim[idx]) idx=i; });
-                sonuc.enYogunGun={dagilim:gunAdlari.map((ad,i)=>({ad,sayi:gunSayim[i]})),enYogunIdx:idx};
-              }
-
-              // En Yoğun Saat — "hizmetSaati" (manuel girilen gerçek hizmet saati) kullanılır,
-              // sistemin otomatik kayıt anı (r.saat) toplu/gecikmeli giriş yüzünden güvenilir değildir.
-              {
-                const saatSayim={};
-                let hizmetSaatiOlanSay=0;
-                liste.forEach(r=>{ if(r.hizmetSaati){ hizmetSaatiOlanSay++; const sh=String(r.hizmetSaati).split(":")[0]; if(sh) saatSayim[sh]=(saatSayim[sh]||0)+1; } });
-                const saatler=Object.keys(saatSayim).sort((a,b)=>saatSayim[b]-saatSayim[a]).map(sh=>({aralik:sh+":00–"+sh+":59",sayi:saatSayim[sh]}));
-                sonuc.enYogunSaat={saatler:saatler.slice(0,6),veriSay:hizmetSaatiOlanSay,toplamKayit:liste.length};
-              }
-
-              // Önceki Eşit Dönemle Kıyas
-              {
-                const basD=new Date(istTarihBas2+"T12:00:00"), bitD=new Date(istTarihBit2+"T12:00:00");
-                const gunFarki=Math.max(1,Math.round((bitD-basD)/86400000)+1);
-                const oncekiBit=new Date(basD); oncekiBit.setDate(oncekiBit.getDate()-1);
-                const oncekiBas=new Date(oncekiBit); oncekiBas.setDate(oncekiBas.getDate()-(gunFarki-1));
-                const f=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
-                const oncekiListe=tumBenim.filter(r=>r.tarih&&r.tarih>=f(oncekiBas)&&r.tarih<=f(oncekiBit));
-                const oncekiMusteriSet=new Set(); let oncekiCiro=0;
-                oncekiListe.forEach(r=>{ const k=anahtar(r); if(k!=="|") oncekiMusteriSet.add(k); oncekiCiro+=toN(r.toplam||0); });
-                const yeniMusteriSet=new Set(liste.map(anahtar).filter(k=>k!=="|"));
-                const yeniCiro=liste.reduce((s,r)=>s+toN(r.toplam||0),0);
-                sonuc.oncekiKiyas={
-                  buDonem:{musteriSay:yeniMusteriSet.size,ciro:yeniCiro},
-                  oncekiDonem:{musteriSay:oncekiMusteriSet.size,ciro:oncekiCiro},
-                  musteriDegisimYuzde: oncekiMusteriSet.size>0?Math.round(((yeniMusteriSet.size-oncekiMusteriSet.size)/oncekiMusteriSet.size)*100):null,
-                  ciroDegisimYuzde: oncekiCiro>0?Math.round(((yeniCiro-oncekiCiro)/oncekiCiro)*100):null
-                };
-              }
-
-              // ── Genel Özet ──
-              {
-                const toplamCiro=liste.reduce((s,r)=>s+toN(r.toplam||0),0);
-                let enBuyukIslem=null;
-                liste.forEach(r=>{ const t=toN(r.toplam||0); if(!enBuyukIslem||t>enBuyukIslem.tutar) enBuyukIslem={tutar:t,ad:r.musteri||"—",tarih:r.tarih}; });
-                sonuc.genel={
-                  kayitSay:liste.length, musteriSay:mListe.length, toplamCiro,
-                  musteriBasiOrtZiyaret: mListe.length>0?(liste.length/mListe.length):0,
-                  enBuyukIslem
-                };
-              }
-
-              // ── Müşteri Durum Dağılımı (tüm zamanlar baz alınır, "şu an" için) ──
-              {
-                const bugun=TODAY();
-                const tumGrup={};
-                tumBenim.forEach(r=>{
-                  const k=anahtar(r); if(k==="|") return;
-                  if(!tumGrup[k]) tumGrup[k]={ad:r.musteri||"—",tarihler:[]};
-                  tumGrup[k].tarihler.push(r.tarih);
-                });
-                // Genel ortalama aralık (tekrarlayan tüm müşteriler baz alınarak) — tek ziyaretliler için referans
-                let genelAraToplam=0,genelAraSay=0;
-                Object.values(tumGrup).forEach(m=>{
-                  if(m.tarihler.length<2) return;
-                  const st=[...m.tarihler].sort();
-                  for(let i=1;i<st.length;i++){ genelAraToplam+=(new Date(st[i]+"T12:00:00")-new Date(st[i-1]+"T12:00:00"))/86400000; genelAraSay++; }
-                });
-                const genelOrtAralik = genelAraSay>0 ? genelAraToplam/genelAraSay : 30;
-
-                let sadik=0,risk=0,kayip=0,yeni=0,tekSeferlik=0;
-                const riskListesi=[], kayipListesi=[];
-                Object.entries(tumGrup).forEach(([k,m])=>{
-                  const st=[...m.tarihler].sort();
-                  const sonZiyaret=st[st.length-1];
-                  const gunGecen=(new Date(bugun+"T12:00:00")-new Date(sonZiyaret+"T12:00:00"))/86400000;
-                  if(st.length<2){
-                    if(gunGecen<=genelOrtAralik) yeni++;
-                    else tekSeferlik++;
-                    return;
-                  }
-                  let araToplam=0;
-                  for(let i=1;i<st.length;i++) araToplam+=(new Date(st[i]+"T12:00:00")-new Date(st[i-1]+"T12:00:00"))/86400000;
-                  const kendiOrt=araToplam/(st.length-1);
-                  if(gunGecen<=kendiOrt*2) sadik++;
-                  else if(gunGecen<=kendiOrt*3){ risk++; riskListesi.push({ad:m.ad,gunGecen:Math.round(gunGecen)}); }
-                  else { kayip++; kayipListesi.push({ad:m.ad,gunGecen:Math.round(gunGecen)}); }
-                });
-                riskListesi.sort((a,b)=>b.gunGecen-a.gunGecen);
-                kayipListesi.sort((a,b)=>b.gunGecen-a.gunGecen);
-                sonuc.durumDagilimi={sadik,risk,kayip,yeni,tekSeferlik,
-                  riskListesi:riskListesi.slice(0,8), kayipListesi:kayipListesi.slice(0,8),
-                  toplam:sadik+risk+kayip+yeni+tekSeferlik};
-              }
-
-              // ── Ödeme Tipi Dağılımı (Nakit / Kart / Havale) ──
-              {
-                let kk=0,ib=0,nk=0;
-                liste.forEach(r=>{ kk+=toN(r.hizKK||0)+toN(r.uKK||0); ib+=toN(r.hizIB||0)+toN(r.uIB||0); nk+=toN(r.hizNK||0)+toN(r.uNK||0); });
-                const top=kk+ib+nk;
-                sonuc.odemeDagilimi={kk,ib,nk,top,
-                  kkYuzde:top>0?Math.round(kk/top*100):0, ibYuzde:top>0?Math.round(ib/top*100):0, nkYuzde:top>0?Math.round(nk/top*100):0};
-              }
-
-              // ── En Çok Yapılan Hizmetler ──
+              // ── En Çok Tercih Edilen Hizmetler (sayı + yüzde, tıklanınca detay açılır) ──
               {
                 const hGrup={};
+                let toplamHizAdet=0;
                 liste.forEach(r=>(r.hizler||[]).forEach(h=>{
                   const ad=(h.n||"").trim(); if(!ad) return;
-                  if(!hGrup[ad]) hGrup[ad]={ad,adet:0,ciro:0};
-                  hGrup[ad].adet++; hGrup[ad].ciro+=toN(h.f||0);
+                  if(!hGrup[ad]) hGrup[ad]={ad,adet:0,detaylar:[]};
+                  hGrup[ad].adet++; toplamHizAdet++;
+                  hGrup[ad].detaylar.push({tarih:r.tarih,musteri:r.musteri||"—",tutar:toN(h.f||0)});
                 }));
-                sonuc.topHizmetler={liste:Object.values(hGrup).sort((a,b)=>b.adet-a.adet).slice(0,6)};
+                const hListe=Object.values(hGrup).sort((a,b)=>b.adet-a.adet).map(h=>({
+                  ...h, yuzde: toplamHizAdet>0?Math.round(h.adet/toplamHizAdet*100):0,
+                  detaylar:h.detaylar.sort((a,b)=>b.tarih.localeCompare(a.tarih))
+                }));
+                sonuc.hizmetTercih={liste:hListe, toplamAdet:toplamHizAdet};
               }
 
-              // ── En Çok Satılan Ürünler ──
+              // ── En Çok Tercih Edilen Ödeme Yöntemi (tutar + yüzde, tıklanınca detay açılır) ──
               {
-                const uGrup={};
-                liste.forEach(r=>(r.urunler||[]).forEach(u=>{
-                  const ad=(u.n||"").trim(); if(!ad) return;
-                  if(!uGrup[ad]) uGrup[ad]={ad,adet:0,ciro:0};
-                  uGrup[ad].adet+=toN(u.adet||1); uGrup[ad].ciro+=toN(u.f||0);
+                const odemeGrup={
+                  Nakit:{tip:"Nakit",ikon:"💵",tutar:0,detaylar:[]},
+                  Kart:{tip:"Kart",ikon:"💳",tutar:0,detaylar:[]},
+                  "Havale/EFT":{tip:"Havale/EFT",ikon:"🏦",tutar:0,detaylar:[]}
+                };
+                liste.forEach(r=>{
+                  const nk=toN(r.hizNK||0)+toN(r.uNK||0);
+                  const kk=toN(r.hizKK||0)+toN(r.uKK||0);
+                  const ib=toN(r.hizIB||0)+toN(r.uIB||0);
+                  if(nk>0){ odemeGrup.Nakit.tutar+=nk; odemeGrup.Nakit.detaylar.push({tarih:r.tarih,musteri:r.musteri||"—",tutar:nk}); }
+                  if(kk>0){ odemeGrup.Kart.tutar+=kk; odemeGrup.Kart.detaylar.push({tarih:r.tarih,musteri:r.musteri||"—",tutar:kk}); }
+                  if(ib>0){ odemeGrup["Havale/EFT"].tutar+=ib; odemeGrup["Havale/EFT"].detaylar.push({tarih:r.tarih,musteri:r.musteri||"—",tutar:ib}); }
+                });
+                const toplamOdeme=odemeGrup.Nakit.tutar+odemeGrup.Kart.tutar+odemeGrup["Havale/EFT"].tutar;
+                const oListe=Object.values(odemeGrup).filter(o=>o.tutar>0).sort((a,b)=>b.tutar-a.tutar).map(o=>({
+                  ...o, yuzde: toplamOdeme>0?Math.round(o.tutar/toplamOdeme*100):0,
+                  detaylar:o.detaylar.sort((a,b)=>b.tarih.localeCompare(a.tarih))
                 }));
-                sonuc.topUrunler={liste:Object.values(uGrup).sort((a,b)=>b.adet-a.adet).slice(0,6)};
-              }
-
-              // ── Akıllı Öneriler (kural bazlı, veriden otomatik üretilir) ──
-              {
-                const oneriler=[];
-                const dd=sonuc.durumDagilimi;
-                if(dd.risk+dd.kayip>0){
-                  oneriler.push({ikon:"⚠️",metin:(dd.risk+dd.kayip)+" müşteriniz normalden uzun süredir gelmiyor ("+dd.risk+" risk altında, "+dd.kayip+" muhtemelen kaybedilmiş). Bu müşterilere hatırlatma göndermeyi düşünebilirsiniz."});
-                }
-                if(dd.tekSeferlik>0){
-                  oneriler.push({ikon:"👋",metin:dd.tekSeferlik+" müşteri sadece bir kez gelip bir daha dönmedi. İlk deneyimi iyileştirmek ya da özel bir geri kazanım teklifi sunmak faydalı olabilir."});
-                }
-                const yt=sonuc.yeniTekrar;
-                if(yt.yeniSay+yt.tekrarSay>0){
-                  const yeniOran=yt.yeniSay/(yt.yeniSay+yt.tekrarSay);
-                  if(yeniOran<0.15) oneriler.push({ikon:"📣",metin:"Bu dönemde gelen müşterilerin çoğu eski müşteriniz, yeni müşteri kazanımı düşük görünüyor. Tanıtım/kampanya çalışması yeni müşteri akışını artırabilir."});
-                  else if(yeniOran>0.6) oneriler.push({ikon:"🌱",metin:"Bu dönemde çok sayıda yeni müşteri kazanmışsınız. Bu müşterileri tekrar ziyarete teşvik edecek bir hatırlatma/indirim iyi bir zamanlama olabilir."});
-                }
-                if(sonuc.enYuksek.liste.length>=3 && sonuc.genel.toplamCiro>0){
-                  const top3Ciro=sonuc.enYuksek.liste.slice(0,3).reduce((s,m)=>s+m.tutar,0);
-                  const oran=Math.round(top3Ciro/sonuc.genel.toplamCiro*100);
-                  if(oran>=35) oneriler.push({ikon:"💎",metin:"Cironuzun %"+oran+" kadarı yalnızca en yüksek harcayan 3 müşteriden geliyor. Bu müşterilere özel bir sadakat avantajı sunmak, onları elde tutmak açısından değerli olabilir."});
-                }
-                if(sonuc.enYogunGun.dagilim.length>0){
-                  const en=sonuc.enYogunGun.dagilim[sonuc.enYogunGun.enYogunIdx];
-                  const toplam=sonuc.enYogunGun.dagilim.reduce((s,g)=>s+g.sayi,0);
-                  if(toplam>0 && en.sayi/toplam>=0.25) oneriler.push({ikon:"📅",metin:en.ad+" günleri belirgin şekilde daha yoğun. Bu günlerde personel/randevu kapasitesini gözden geçirmek bekleme sürelerini azaltabilir."});
-                }
-                if(sonuc.ortAralik.gun!==null && sonuc.ortAralik.gun>0){
-                  oneriler.push({ikon:"🔄",metin:"Tekrarlayan müşterileriniz ortalama "+sonuc.ortAralik.gun+" günde bir geliyor. Hatırlatma mesajlarınızı bu süreye yakın zamanlamak dönüş oranını artırabilir."});
-                }
-                if(sonuc.topHizmetler.liste.length>0){
-                  const enPop=sonuc.topHizmetler.liste[0];
-                  const toplamHizmet=sonuc.topHizmetler.liste.reduce((s,h)=>s+h.adet,0);
-                  if(toplamHizmet>0 && enPop.adet/toplamHizmet>=0.5) oneriler.push({ikon:"✂️",metin:"'"+enPop.ad+"' hizmeti bu dönemdeki işlemlerin yarısından fazlasını oluşturuyor. Diğer hizmetleri müşterilere hatırlatmak (örn. paket teklifleriyle) ciro çeşitliliğini artırabilir."});
-                }
-                if(sonuc.oncekiKiyas && sonuc.oncekiKiyas.ciroDegisimYuzde!==null){
-                  if(sonuc.oncekiKiyas.ciroDegisimYuzde<=-15) oneriler.push({ikon:"📉",metin:"Ciro, önceki eşit döneme göre %"+Math.abs(sonuc.oncekiKiyas.ciroDegisimYuzde)+" azalmış. Bu düşüşün sebebini (mevsimsellik, müşteri kaybı, rekabet) incelemek faydalı olabilir."});
-                  else if(sonuc.oncekiKiyas.ciroDegisimYuzde>=15) oneriler.push({ikon:"📈",metin:"Ciro, önceki eşit döneme göre %"+sonuc.oncekiKiyas.ciroDegisimYuzde+" artmış — iyi gidiyor, bu dönemde neyin farklı yapıldığını not almak gelecekte tekrarlanabilir."});
-                }
-                if(oneriler.length===0) oneriler.push({ikon:"✅",metin:"Bu dönemde verileriniz dengeli görünüyor, dikkat çeken belirgin bir risk ya da fırsat tespit edilmedi."});
-                sonuc.oneriler=oneriler;
+                sonuc.odemeTercih={liste:oListe, toplamTutar:toplamOdeme};
               }
 
               setIstSonuc(sonuc);
             };
+
 
             return div({style:{
               background:"#FAF9F6",border:"1px solid rgba(0,0,0,.07)",borderRadius:18,
@@ -18078,227 +17905,65 @@ if(DB) dbUpsertAyar("tema",tema);
                   )
                 );
               })(),
-
-              istSonuc&&istSonuc.genel&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
-                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:8}},"📌 Genel Özet"),
-                div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:9}},
-                  div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"13px",textAlign:"center"}},
-                    div({style:{fontSize:19,fontWeight:800,color:"#1D1D1F"}},String(istSonuc.genel.kayitSay)),
-                    div({style:{fontSize:10.5,color:"#6b7280",marginTop:2}},"Toplam Kayıt")),
-                  div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"13px",textAlign:"center"}},
-                    div({style:{fontSize:19,fontWeight:800,color:"#1D1D1F"}},String(istSonuc.genel.musteriSay)),
-                    div({style:{fontSize:10.5,color:"#6b7280",marginTop:2}},"Benzersiz Müşteri"))
-                ),
-                div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:9}},
-                  div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"13px",textAlign:"center"}},
-                    div({style:{fontSize:17,fontWeight:800,color:"#0071E3"}},fmt(istSonuc.genel.toplamCiro)),
-                    div({style:{fontSize:10.5,color:"#6b7280",marginTop:2}},"Toplam Ciro")),
-                  div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"13px",textAlign:"center"}},
-                    div({style:{fontSize:17,fontWeight:800,color:"#1D1D1F"}},istSonuc.genel.musteriBasiOrtZiyaret.toFixed(1)),
-                    div({style:{fontSize:10.5,color:"#6b7280",marginTop:2}},"Müşteri Başı Ort. Ziyaret"))
-                ),
-                istSonuc.genel.enBuyukIslem&&div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"13px",textAlign:"center"}},
-                  div({style:{fontSize:17,fontWeight:800,color:"#1a7a34"}},fmt(istSonuc.genel.enBuyukIslem.tutar)),
-                  div({style:{fontSize:10.5,color:"#6b7280",marginTop:2}},"🏆 En Yüksek Tek İşlem · "+istSonuc.genel.enBuyukIslem.ad+" · "+fmtT(istSonuc.genel.enBuyukIslem.tarih))
-                )
-              ),
-
-              istSonuc&&istSonuc.yeniTekrar&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
-                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:8}},"🆕 Yeni / Tekrar Eden"),
-                div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}},
-                  div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"14px",textAlign:"center"}},
-                    div({style:{fontSize:22,fontWeight:800,color:"#0071E3"}},String(istSonuc.yeniTekrar.yeniSay)),
-                    div({style:{fontSize:11,color:"#6b7280",marginTop:3}},"🆕 Yeni Müşteri")),
-                  div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"14px",textAlign:"center"}},
-                    div({style:{fontSize:22,fontWeight:800,color:"#0071E3"}},String(istSonuc.yeniTekrar.tekrarSay)),
-                    div({style:{fontSize:11,color:"#6b7280",marginTop:3}},"🔁 Tekrar Eden"))
-                )
-              ),
-
-              istSonuc&&istSonuc.durumDagilimi&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
-                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:4}},"🧭 Müşteri Durum Dağılımı (Şu An — Tüm Zamanlar Baz Alınır)"),
-                div({style:{fontSize:11,color:"#9ca3af",marginBottom:9,lineHeight:1.5}},"Her müşterinin kendi ortalama geliş sıklığına göre hesaplanır, seçilen tarih aralığından bağımsızdır."),
-                div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:9}},
-                  div({style:{background:"rgba(52,199,89,.08)",border:"1px solid rgba(52,199,89,.25)",borderRadius:12,padding:"12px",textAlign:"center"}},
-                    div({style:{fontSize:19,fontWeight:800,color:"#1a7a34"}},String(istSonuc.durumDagilimi.sadik)),
-                    div({style:{fontSize:10.5,color:"#1a7a34",marginTop:2}},"✅ Düzenli/Sadık")),
-                  div({style:{background:"rgba(255,159,10,.08)",border:"1px solid rgba(255,159,10,.25)",borderRadius:12,padding:"12px",textAlign:"center"}},
-                    div({style:{fontSize:19,fontWeight:800,color:"#b8720a"}},String(istSonuc.durumDagilimi.risk)),
-                    div({style:{fontSize:10.5,color:"#b8720a",marginTop:2}},"⚠️ Risk Altında")),
-                  div({style:{background:"rgba(255,59,48,.08)",border:"1px solid rgba(255,59,48,.25)",borderRadius:12,padding:"12px",textAlign:"center"}},
-                    div({style:{fontSize:19,fontWeight:800,color:"#c0392b"}},String(istSonuc.durumDagilimi.kayip)),
-                    div({style:{fontSize:10.5,color:"#c0392b",marginTop:2}},"❌ Kaybedilmiş")),
-                  div({style:{background:"rgba(0,113,227,.08)",border:"1px solid rgba(0,113,227,.25)",borderRadius:12,padding:"12px",textAlign:"center"}},
-                    div({style:{fontSize:19,fontWeight:800,color:"#0071E3"}},String(istSonuc.durumDagilimi.yeni)),
-                    div({style:{fontSize:10.5,color:"#0071E3",marginTop:2}},"🆕 Yeni (Bekleniyor)"))
-                ),
-                istSonuc.durumDagilimi.tekSeferlik>0&&div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"10px 13px",marginBottom:9,textAlign:"center"}},
-                  div({style:{fontSize:13,color:"#4a5568"}},"👋 "+istSonuc.durumDagilimi.tekSeferlik+" müşteri sadece bir kez geldi, bir daha dönmedi")
-                ),
-                istSonuc.durumDagilimi.riskListesi.length>0&&div({style:{background:"#fff",border:"1px solid rgba(255,159,10,.2)",borderRadius:12,padding:"12px",marginBottom:9}},
-                  div({style:{fontSize:11,color:"#b8720a",fontWeight:700,marginBottom:7}},"⚠️ Risk Altındaki Müşteriler"),
-                  istSonuc.durumDagilimi.riskListesi.map((m,i)=>div({key:i,style:{display:"flex",justifyContent:"space-between",padding:"4px 0",
-                    borderBottom:i<istSonuc.durumDagilimi.riskListesi.length-1?"1px solid rgba(0,0,0,.04)":"none"}},
-                    div({style:{fontSize:12.5,color:"#1D1D1F"}},m.ad),
-                    div({style:{fontSize:12,color:"#b8720a"}},m.gunGecen+" gündür yok")
-                  ))
-                ),
-                istSonuc.durumDagilimi.kayipListesi.length>0&&div({style:{background:"#fff",border:"1px solid rgba(255,59,48,.2)",borderRadius:12,padding:"12px"}},
-                  div({style:{fontSize:11,color:"#c0392b",fontWeight:700,marginBottom:7}},"❌ Kaybedilmiş Görünen Müşteriler"),
-                  istSonuc.durumDagilimi.kayipListesi.map((m,i)=>div({key:i,style:{display:"flex",justifyContent:"space-between",padding:"4px 0",
-                    borderBottom:i<istSonuc.durumDagilimi.kayipListesi.length-1?"1px solid rgba(0,0,0,.04)":"none"}},
-                    div({style:{fontSize:12.5,color:"#1D1D1F"}},m.ad),
-                    div({style:{fontSize:12,color:"#c0392b"}},m.gunGecen+" gündür yok")
-                  ))
-                )
-              ),
-
-              istSonuc&&istSonuc.enSik&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
-                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:8}},"⭐ En Sık Gelenler"),
-                div({style:{background:"rgba(0,113,227,.06)",border:"1px solid rgba(0,113,227,.18)",borderRadius:10,padding:"9px 12px",marginBottom:10,fontSize:12,color:"#1a56a8",lineHeight:1.5}},
-                  istSonuc.enSik.gunSayisi+" günlük aralık için eşik: en az "+istSonuc.enSik.esik+" ziyaret"),
-                div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"14px"}},
-                  istSonuc.enSik.liste.length===0
-                    ? div({style:{fontSize:13,color:"#9ca3af",textAlign:"center",padding:"10px 0"}},"Bu eşiği karşılayan müşteri bulunamadı")
-                    : istSonuc.enSik.liste.map((m,i)=>div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",
-                        borderBottom:i<istSonuc.enSik.liste.length-1?"1px solid rgba(0,0,0,.05)":"none"}},
-                        div({style:{fontSize:13.5,color:"#1D1D1F",fontWeight:600}},(i+1)+". "+m.ad),
-                        div({style:{fontSize:12.5,color:"#0071E3",fontWeight:700,whiteSpace:"nowrap"}},m.ziyaret+" ziyaret · "+fmt(m.tutar))
-                      ))
-                )
-              ),
-
-              istSonuc&&istSonuc.enYuksek&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
-                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:8}},"💎 En Yüksek Harcama (VIP)"),
-                div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"14px"}},
-                  istSonuc.enYuksek.liste.length===0
-                    ? div({style:{fontSize:13,color:"#9ca3af",textAlign:"center",padding:"10px 0"}},"Bu aralıkta kayıt bulunamadı")
-                    : istSonuc.enYuksek.liste.map((m,i)=>div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",
-                        borderBottom:i<istSonuc.enYuksek.liste.length-1?"1px solid rgba(0,0,0,.05)":"none"}},
-                        div({style:{fontSize:13.5,color:"#1D1D1F",fontWeight:600}},(i+1)+". "+m.ad),
-                        div({style:{fontSize:12.5,color:"#0071E3",fontWeight:700,whiteSpace:"nowrap"}},fmt(m.tutar))
-                      ))
-                )
-              ),
-
-              istSonuc&&istSonuc.odemeDagilimi&&istSonuc.odemeDagilimi.top>0&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
-                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:9}},"💳 Ödeme Tipi Dağılımı"),
-                div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"14px"}},
-                  [["💵 Nakit",istSonuc.odemeDagilimi.nk,istSonuc.odemeDagilimi.nkYuzde,"#34C759"],
-                   ["💳 Kart",istSonuc.odemeDagilimi.kk,istSonuc.odemeDagilimi.kkYuzde,"#0071E3"],
-                   ["🏦 Havale/EFT",istSonuc.odemeDagilimi.ib,istSonuc.odemeDagilimi.ibYuzde,"#9B59FF"]
-                  ].map(([lb,tutar,yuzde,renk],i)=>div({key:i,style:{marginBottom:i<2?11:0}},
-                    div({style:{display:"flex",justifyContent:"space-between",marginBottom:4,fontSize:12.5}},
-                      div({style:{color:"#1D1D1F",fontWeight:600}},lb),
-                      div({style:{color:renk,fontWeight:700}},fmt(tutar)+" · %"+yuzde)
-                    ),
-                    div({style:{height:9,background:"rgba(0,0,0,.05)",borderRadius:5,overflow:"hidden"}},
-                      div({style:{height:"100%",width:yuzde+"%",background:renk,borderRadius:5}})
-                    )
-                  ))
-                )
-              ),
-
-              istSonuc&&istSonuc.topHizmetler&&istSonuc.topHizmetler.liste.length>0&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
-                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:8}},"✂️ En Çok Yapılan Hizmetler"),
-                div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"14px"}},
-                  istSonuc.topHizmetler.liste.map((h2,i)=>div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",
-                    borderBottom:i<istSonuc.topHizmetler.liste.length-1?"1px solid rgba(0,0,0,.05)":"none"}},
-                    div({style:{fontSize:13,color:"#1D1D1F",fontWeight:600}},(i+1)+". "+h2.ad),
-                    div({style:{fontSize:12,color:"#0071E3",fontWeight:700,whiteSpace:"nowrap"}},h2.adet+" kez · "+fmt(h2.ciro))
-                  ))
-                )
-              ),
-
-              istSonuc&&istSonuc.topUrunler&&istSonuc.topUrunler.liste.length>0&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
-                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:8}},"🛍️ En Çok Satılan Ürünler"),
-                div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"14px"}},
-                  istSonuc.topUrunler.liste.map((u,i)=>div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",
-                    borderBottom:i<istSonuc.topUrunler.liste.length-1?"1px solid rgba(0,0,0,.05)":"none"}},
-                    div({style:{fontSize:13,color:"#1D1D1F",fontWeight:600}},(i+1)+". "+u.ad),
-                    div({style:{fontSize:12,color:"#0071E3",fontWeight:700,whiteSpace:"nowrap"}},u.adet+" adet · "+fmt(u.ciro))
-                  ))
-                )
-              ),
-
-              istSonuc&&istSonuc.ortIslem&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
-                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:8}},"💳 Ortalama İşlem Tutarı"),
-                div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"16px",textAlign:"center"}},
-                  div({style:{fontSize:26,fontWeight:800,color:"#0071E3"}},fmt(istSonuc.ortIslem.ort)),
-                  div({style:{fontSize:11,color:"#6b7280",marginTop:4}},istSonuc.ortIslem.kayitSay+" kayıt · toplam "+fmt(istSonuc.ortIslem.toplam))
-                )
-              ),
-
-              istSonuc&&istSonuc.ortAralik&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
-                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:8}},"🔄 Ortalama Ziyaret Aralığı"),
-                div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"16px",textAlign:"center"}},
-                  istSonuc.ortAralik.gun===null
-                    ? div({style:{fontSize:13,color:"#9ca3af"}},"Bu aralıkta 2+ ziyareti olan müşteri bulunamadı")
-                    : h(Fragment,null,
-                        div({style:{fontSize:26,fontWeight:800,color:"#0071E3"}},istSonuc.ortAralik.gun+" gün"),
-                        div({style:{fontSize:11,color:"#6b7280",marginTop:4}},istSonuc.ortAralik.musteriSay+" tekrarlayan müşteri baz alındı")
-                      )
-                )
-              ),
-
-              istSonuc&&istSonuc.enYogunGun&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
-                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:8}},"📅 En Yoğun Gün"),
-                div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"14px"}},
-                  istSonuc.enYogunGun.dagilim.map((g,i)=>{
-                    const maxG=Math.max(1,...istSonuc.enYogunGun.dagilim.map(x=>x.sayi));
-                    return div({key:i,style:{display:"flex",alignItems:"center",gap:10,padding:"5px 0"}},
-                      div({style:{width:80,fontSize:12.5,color:i===istSonuc.enYogunGun.enYogunIdx?"#0071E3":"#4a5568",fontWeight:i===istSonuc.enYogunGun.enYogunIdx?700:500}},g.ad),
-                      div({style:{flex:1,height:8,background:"rgba(0,0,0,.05)",borderRadius:4,overflow:"hidden"}},
-                        div({style:{height:"100%",width:((g.sayi/maxG)*100)+"%",background:i===istSonuc.enYogunGun.enYogunIdx?"#0071E3":"rgba(0,113,227,.35)",borderRadius:4}})
+              istSonuc&&istSonuc.hizmetTercih&&istSonuc.hizmetTercih.liste.length>0&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
+                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:9}},"✂️ En Çok Tercih Edilen Hizmetler"),
+                div({style:{display:"flex",flexDirection:"column",gap:7}},
+                  istSonuc.hizmetTercih.liste.map((h2,i)=>{
+                    const acik=istAcikHizmet===h2.ad;
+                    return div({key:i,style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,overflow:"hidden"}},
+                      btn({type:"button",onClick:()=>setIstAcikHizmet(acik?"":h2.ad),
+                        style:{width:"100%",display:"block",background:"none",border:"none",cursor:"pointer",padding:"12px 13px",textAlign:"left"}},
+                        div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
+                          div({style:{fontSize:13,color:"#1D1D1F",fontWeight:600}},(i+1)+". "+h2.ad),
+                          div({style:{display:"flex",alignItems:"center",gap:8}},
+                            div({style:{fontSize:12.5,color:"#0071E3",fontWeight:700}},h2.adet+" kez · %"+h2.yuzde),
+                            div({style:{fontSize:11,color:"#9ca3af",transform:acik?"rotate(180deg)":"none",transition:"transform .15s"}},"▾")
+                          )
+                        ),
+                        div({style:{height:7,background:"rgba(0,0,0,.05)",borderRadius:4,overflow:"hidden"}},
+                          div({style:{height:"100%",width:h2.yuzde+"%",background:"linear-gradient(90deg,#0071E3,#0058B0)",borderRadius:4}})
+                        )
                       ),
-                      div({style:{width:24,textAlign:"right",fontSize:12,color:"#6b7280",fontWeight:600}},String(g.sayi))
+                      acik&&div({style:{borderTop:"1px solid rgba(0,0,0,.06)",padding:"9px 13px",background:"rgba(0,113,227,.03)"}},
+                        h2.detaylar.map((d,j)=>div({key:j,style:{display:"flex",justifyContent:"space-between",padding:"5px 0",
+                          borderBottom:j<h2.detaylar.length-1?"1px solid rgba(0,0,0,.05)":"none",fontSize:12}},
+                          div({style:{color:"#4a5568"}},fmtT(d.tarih)+" · "+d.musteri),
+                          div({style:{color:"#0071E3",fontWeight:600}},fmt(d.tutar))
+                        ))
+                      )
                     );
                   })
                 )
               ),
 
-              istSonuc&&istSonuc.enYogunSaat&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
-                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:4}},"⏰ En Yoğun Saat"),
-                div({style:{fontSize:10.5,color:"#9ca3af",marginBottom:9,lineHeight:1.4}},
-                  "Personelin \"Yeni Kayıt\" formunda elle girdiği gerçek hizmet saatine göre hesaplanır ("+istSonuc.enYogunSaat.veriSay+"/"+istSonuc.enYogunSaat.toplamKayit+" kayıtta bu bilgi mevcut)."),
-                div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"14px"}},
-                  istSonuc.enYogunSaat.saatler.length===0
-                    ? div({style:{fontSize:13,color:"#9ca3af",textAlign:"center",padding:"10px 0"}},"Bu aralıkta hizmet saati girilmiş kayıt bulunamadı")
-                    : istSonuc.enYogunSaat.saatler.map((s,i)=>div({key:i,style:{display:"flex",justifyContent:"space-between",padding:"6px 0",
-                        borderBottom:i<istSonuc.enYogunSaat.saatler.length-1?"1px solid rgba(0,0,0,.05)":"none"}},
-                        div({style:{fontSize:13,color:"#1D1D1F",fontWeight:600}},s.aralik),
-                        div({style:{fontSize:12.5,color:"#0071E3",fontWeight:700}},s.sayi+" kayıt")
-                      ))
-                )
-              ),
-
-              istSonuc&&istSonuc.oncekiKiyas&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
-                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:8}},"📈 Önceki Eşit Dönemle Kıyas"),
-                div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"14px"}},
-                  div({style:{display:"flex",gap:9}},
-                    div({style:{flex:1,textAlign:"center",padding:"10px 6px",borderRadius:9,
-                      background:(istSonuc.oncekiKiyas.musteriDegisimYuzde||0)>=0?"rgba(52,199,89,.08)":"rgba(255,59,48,.08)"}},
-                      div({style:{fontSize:16,fontWeight:800,color:(istSonuc.oncekiKiyas.musteriDegisimYuzde||0)>=0?"#1a7a34":"#c0392b"}},
-                        istSonuc.oncekiKiyas.musteriDegisimYuzde===null?"—":(istSonuc.oncekiKiyas.musteriDegisimYuzde>=0?"+":"")+istSonuc.oncekiKiyas.musteriDegisimYuzde+"%"),
-                      div({style:{fontSize:10,color:"#6b7280",marginTop:3}},"Müşteri Sayısı ("+istSonuc.oncekiKiyas.buDonem.musteriSay+" / "+istSonuc.oncekiKiyas.oncekiDonem.musteriSay+")")
-                    ),
-                    div({style:{flex:1,textAlign:"center",padding:"10px 6px",borderRadius:9,
-                      background:(istSonuc.oncekiKiyas.ciroDegisimYuzde||0)>=0?"rgba(52,199,89,.08)":"rgba(255,59,48,.08)"}},
-                      div({style:{fontSize:16,fontWeight:800,color:(istSonuc.oncekiKiyas.ciroDegisimYuzde||0)>=0?"#1a7a34":"#c0392b"}},
-                        istSonuc.oncekiKiyas.ciroDegisimYuzde===null?"—":(istSonuc.oncekiKiyas.ciroDegisimYuzde>=0?"+":"")+istSonuc.oncekiKiyas.ciroDegisimYuzde+"%"),
-                      div({style:{fontSize:10,color:"#6b7280",marginTop:3}},"Ciro ("+fmt(istSonuc.oncekiKiyas.buDonem.ciro)+" / "+fmt(istSonuc.oncekiKiyas.oncekiDonem.ciro)+")")
-                    )
-                  )
-                )
-              ),
-
-              istSonuc&&istSonuc.oneriler&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
-                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:9}},"💡 Akıllı Öneriler"),
-                div({style:{display:"flex",flexDirection:"column",gap:8}},
-                  istSonuc.oneriler.map((o,i)=>div({key:i,style:{display:"flex",gap:9,background:"rgba(155,89,255,.06)",border:"1px solid rgba(155,89,255,.2)",borderRadius:12,padding:"11px 13px"}},
-                    div({style:{fontSize:16,lineHeight:1.4,flexShrink:0}},o.ikon),
-                    div({style:{fontSize:12.5,color:"#3a3a3c",lineHeight:1.55}},o.metin)
-                  ))
+              istSonuc&&istSonuc.odemeTercih&&istSonuc.odemeTercih.liste.length>0&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
+                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:9}},"💳 En Çok Tercih Edilen Ödeme Yöntemi"),
+                div({style:{display:"flex",flexDirection:"column",gap:7}},
+                  istSonuc.odemeTercih.liste.map((o,i)=>{
+                    const acik=istAcikOdeme===o.tip;
+                    return div({key:i,style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,overflow:"hidden"}},
+                      btn({type:"button",onClick:()=>setIstAcikOdeme(acik?"":o.tip),
+                        style:{width:"100%",display:"block",background:"none",border:"none",cursor:"pointer",padding:"12px 13px",textAlign:"left"}},
+                        div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
+                          div({style:{fontSize:13,color:"#1D1D1F",fontWeight:600}},(i+1)+". "+o.ikon+" "+o.tip),
+                          div({style:{display:"flex",alignItems:"center",gap:8}},
+                            div({style:{fontSize:12.5,color:"#0071E3",fontWeight:700}},fmt(o.tutar)+" · %"+o.yuzde),
+                            div({style:{fontSize:11,color:"#9ca3af",transform:acik?"rotate(180deg)":"none",transition:"transform .15s"}},"▾")
+                          )
+                        ),
+                        div({style:{height:7,background:"rgba(0,0,0,.05)",borderRadius:4,overflow:"hidden"}},
+                          div({style:{height:"100%",width:o.yuzde+"%",background:"linear-gradient(90deg,#34C759,#28A745)",borderRadius:4}})
+                        )
+                      ),
+                      acik&&div({style:{borderTop:"1px solid rgba(0,0,0,.06)",padding:"9px 13px",background:"rgba(52,199,89,.03)"}},
+                        o.detaylar.map((d,j)=>div({key:j,style:{display:"flex",justifyContent:"space-between",padding:"5px 0",
+                          borderBottom:j<o.detaylar.length-1?"1px solid rgba(0,0,0,.05)":"none",fontSize:12}},
+                          div({style:{color:"#4a5568"}},fmtT(d.tarih)+" · "+d.musteri),
+                          div({style:{color:"#0071E3",fontWeight:600}},fmt(d.tutar))
+                        ))
+                      )
+                    );
+                  })
                 )
               )
             );
