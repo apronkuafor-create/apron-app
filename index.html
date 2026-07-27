@@ -11652,9 +11652,10 @@ function App() {
   const [gecmisPanelAdOneri, setGecmisPanelAdOneri] = useState([]);
   const [gecmisPanelTelOneri, setGecmisPanelTelOneri] = useState([]);
   // ── Müşteri İstatistiklerim (müşteri arama filtresinden bağımsız, ayrı bölüm) ──
-  const [istTarihBas, setIstTarihBas] = useState("");
-  const [istTarihBit, setIstTarihBit] = useState("");
+  const [istTarihBas, setIstTarihBas] = useState(()=>{ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-01"; });
+  const [istTarihBit, setIstTarihBit] = useState(TODAY());
   const [istSonuc, setIstSonuc] = useState(null);
+  const [istHoverIdx, setIstHoverIdx] = useState(null); // İnteraktif zaman çizelgesinde gezinilen nokta
   const [ayFil, setAyFil]   = useState("");
   const [tAyFil, setTAyFil]   = useState(String(new Date().getMonth()+1));
   const [tGun, setTGun]       = useState("");
@@ -17670,11 +17671,13 @@ if(DB) dbUpsertAyar("tema",tema);
           (()=>{
             const anahtar=r=>(r.musteri||"").trim().toLowerCase()+"|"+String(r.tel||"").replace(/\D/g,"");
 
-            const hesaplaTumu=()=>{
-              if(!istTarihBas||!istTarihBit){ showToast("Başlangıç ve bitiş tarihi seçin","uy"); return; }
+            const hesaplaTumu=(basOverride,bitOverride)=>{
+              const istTarihBas2 = basOverride!==undefined?basOverride:istTarihBas;
+              const istTarihBit2 = bitOverride!==undefined?bitOverride:istTarihBit;
+              if(!istTarihBas2||!istTarihBit2){ showToast("Başlangıç ve bitiş tarihi seçin","uy"); return; }
               let liste=tumBenim;
-              if(istTarihBas) liste=liste.filter(r=>r.tarih&&r.tarih>=istTarihBas);
-              if(istTarihBit) liste=liste.filter(r=>r.tarih&&r.tarih<=istTarihBit);
+              if(istTarihBas2) liste=liste.filter(r=>r.tarih&&r.tarih>=istTarihBas2);
+              if(istTarihBit2) liste=liste.filter(r=>r.tarih&&r.tarih<=istTarihBit2);
               const mGrup={};
               liste.forEach(r=>{
                 const k=anahtar(r); if(k==="|") return;
@@ -17684,12 +17687,66 @@ if(DB) dbUpsertAyar("tema",tema);
               const mListe=Object.values(mGrup);
               const sonuc={};
 
+              // ── Zaman Çizelgesi (interaktif grafik verisi) — aralık uzunluğuna göre gün/hafta/ay bazlı gruplanır ──
+              {
+                const basD=new Date(istTarihBas2+"T12:00:00"), bitD=new Date(istTarihBit2+"T12:00:00");
+                const gunFarki=Math.max(1,Math.round((bitD-basD)/86400000)+1);
+                const granularite = gunFarki<=45?"gun":gunFarki<=210?"hafta":"ay";
+                const kovaAnahtar = tarih=>{
+                  const d=new Date(tarih+"T12:00:00");
+                  if(granularite==="gun") return tarih;
+                  if(granularite==="hafta"){
+                    const gunIdx=(d.getDay()+6)%7; // Pazartesi=0
+                    const pztD=new Date(d); pztD.setDate(d.getDate()-gunIdx);
+                    return pztD.getFullYear()+"-"+String(pztD.getMonth()+1).padStart(2,"0")+"-"+String(pztD.getDate()).padStart(2,"0");
+                  }
+                  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+                };
+                const kovalar={};
+                liste.forEach(r=>{
+                  const ka=kovaAnahtar(r.tarih);
+                  if(!kovalar[ka]) kovalar[ka]={ciro:0,musteriSet:new Set(),kayitSay:0,hizSayim:{},kk:0,ib:0,nk:0};
+                  const kv=kovalar[ka];
+                  kv.ciro+=toN(r.toplam||0); kv.kayitSay++;
+                  const k2=anahtar(r); if(k2!=="|") kv.musteriSet.add(k2);
+                  kv.kk+=toN(r.hizKK||0)+toN(r.uKK||0); kv.ib+=toN(r.hizIB||0)+toN(r.uIB||0); kv.nk+=toN(r.hizNK||0)+toN(r.uNK||0);
+                  (r.hizler||[]).forEach(h=>{ const ad=(h.n||"").trim(); if(ad) kv.hizSayim[ad]=(kv.hizSayim[ad]||0)+1; });
+                });
+                // Boş kovaları da (0 değerle) diziye ekleyip sıralı, kesintisiz bir zaman ekseni oluştur
+                const siraliAnahtarlar=[];
+                if(granularite==="gun"){
+                  for(let d=new Date(basD); d<=bitD; d.setDate(d.getDate()+1)){
+                    siraliAnahtarlar.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"));
+                  }
+                } else if(granularite==="hafta"){
+                  const ilkGunIdx=(basD.getDay()+6)%7; const bas2=new Date(basD); bas2.setDate(basD.getDate()-ilkGunIdx);
+                  for(let d=new Date(bas2); d<=bitD; d.setDate(d.getDate()+7)){
+                    siraliAnahtarlar.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"));
+                  }
+                } else {
+                  const d=new Date(basD.getFullYear(),basD.getMonth(),1);
+                  while(d<=bitD){ siraliAnahtarlar.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")); d.setMonth(d.getMonth()+1); }
+                }
+                const zamanSerisi=siraliAnahtarlar.map(ka=>{
+                  const kv=kovalar[ka]||{ciro:0,musteriSet:new Set(),kayitSay:0,hizSayim:{},kk:0,ib:0,nk:0};
+                  let enHizmet=null;
+                  Object.entries(kv.hizSayim).forEach(([ad,say])=>{ if(!enHizmet||say>enHizmet.say) enHizmet={ad,say}; });
+                  let etiket;
+                  if(granularite==="gun"){ const p=ka.split("-"); etiket=p[2]+"."+p[1]; }
+                  else if(granularite==="hafta"){ const p=ka.split("-"); etiket=p[2]+"."+p[1]; }
+                  else { const p=ka.split("-"); etiket=["Oca","Şub","Mar","Nis","May","Haz","Tem","Ağu","Eyl","Eki","Kas","Ara"][parseInt(p[1])-1]+" "+p[0].slice(2); }
+                  return {ka,etiket,ciro:kv.ciro,musteriSay:kv.musteriSet.size,kayitSay:kv.kayitSay,enHizmet,
+                    kk:kv.kk,ib:kv.ib,nk:kv.nk};
+                });
+                sonuc.zamanSerisi={granularite,veri:zamanSerisi};
+              }
+
               // Yeni / Tekrar Eden
               {
                 const ilkKayit={};
                 tumBenim.forEach(r=>{ const k=anahtar(r); if(k==="|") return; if(!ilkKayit[k]||r.tarih<ilkKayit[k]) ilkKayit[k]=r.tarih; });
                 let yeniSay=0,tekrarSay=0;
-                Object.keys(mGrup).forEach(k=>{ if((ilkKayit[k]||"")>=istTarihBas) yeniSay++; else tekrarSay++; });
+                Object.keys(mGrup).forEach(k=>{ if((ilkKayit[k]||"")>=istTarihBas2) yeniSay++; else tekrarSay++; });
                 sonuc.yeniTekrar={yeniSay,tekrarSay};
               }
 
@@ -17706,7 +17763,7 @@ if(DB) dbUpsertAyar("tema",tema);
                   const egim=(e2-e1)/(g2-g1);
                   return Math.max(1,Math.round(e2+egim*(gun-g2)));
                 };
-                const basD=new Date(istTarihBas+"T12:00:00"), bitD=new Date(istTarihBit+"T12:00:00");
+                const basD=new Date(istTarihBas2+"T12:00:00"), bitD=new Date(istTarihBit2+"T12:00:00");
                 const gunSayisi=Math.max(1,Math.round((bitD-basD)/86400000)+1);
                 const esik=esikHesapla(gunSayisi);
                 const filtreli=[...mListe].filter(m=>m.ziyaret>=esik).sort((a,b)=>b.ziyaret-a.ziyaret||b.tutar-a.tutar);
@@ -17752,24 +17809,9 @@ if(DB) dbUpsertAyar("tema",tema);
                 sonuc.enYogunSaat={saatler:saatler.slice(0,6),veriSay:hizmetSaatiOlanSay,toplamKayit:liste.length};
               }
 
-              // Aylık Trend (son 6 ay, tüm zamanlar üzerinden)
-              {
-                const aylikTrend=[];
-                const simdi=new Date();
-                for(let i=5;i>=0;i--){
-                  const d=new Date(simdi.getFullYear(),simdi.getMonth()-i,1);
-                  const ayPre=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
-                  const ayKayitlar=tumBenim.filter(r=>(r.tarih||"").startsWith(ayPre));
-                  const ayMusteriSet=new Set(); let ayCiro=0;
-                  ayKayitlar.forEach(r=>{ const k=anahtar(r); if(k!=="|") ayMusteriSet.add(k); ayCiro+=toN(r.toplam||0); });
-                  aylikTrend.push({ayEtiket:["Oca","Şub","Mar","Nis","May","Haz","Tem","Ağu","Eyl","Eki","Kas","Ara"][d.getMonth()],musteriSay:ayMusteriSet.size,ciro:ayCiro});
-                }
-                sonuc.aylikTrend={aylikTrend};
-              }
-
               // Önceki Eşit Dönemle Kıyas
               {
-                const basD=new Date(istTarihBas+"T12:00:00"), bitD=new Date(istTarihBit+"T12:00:00");
+                const basD=new Date(istTarihBas2+"T12:00:00"), bitD=new Date(istTarihBit2+"T12:00:00");
                 const gunFarki=Math.max(1,Math.round((bitD-basD)/86400000)+1);
                 const oncekiBit=new Date(basD); oncekiBit.setDate(oncekiBit.getDate()-1);
                 const oncekiBas=new Date(oncekiBit); oncekiBas.setDate(oncekiBas.getDate()-(gunFarki-1));
@@ -17831,8 +17873,8 @@ if(DB) dbUpsertAyar("tema",tema);
                   let araToplam=0;
                   for(let i=1;i<st.length;i++) araToplam+=(new Date(st[i]+"T12:00:00")-new Date(st[i-1]+"T12:00:00"))/86400000;
                   const kendiOrt=araToplam/(st.length-1);
-                  if(gunGecen<=kendiOrt*1.5) sadik++;
-                  else if(gunGecen<=kendiOrt*2.5){ risk++; riskListesi.push({ad:m.ad,gunGecen:Math.round(gunGecen)}); }
+                  if(gunGecen<=kendiOrt*2) sadik++;
+                  else if(gunGecen<=kendiOrt*3){ risk++; riskListesi.push({ad:m.ad,gunGecen:Math.round(gunGecen)}); }
                   else { kayip++; kayipListesi.push({ad:m.ad,gunGecen:Math.round(gunGecen)}); }
                 });
                 riskListesi.sort((a,b)=>b.gunGecen-a.gunGecen);
@@ -17922,8 +17964,21 @@ if(DB) dbUpsertAyar("tema",tema);
               background:"#FAF9F6",border:"1px solid rgba(0,0,0,.07)",borderRadius:18,
               padding:"18px 16px",marginBottom:14,boxShadow:"0 4px 24px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.04)"
             }},
-              div({style:{fontSize:11.5,color:"#8a8a8e",marginBottom:14,lineHeight:1.5}},
-                "Bir tarih aralığı seçip \"Göster\"e basın — o aralığa ait tüm istatistikler birlikte listelenir."),
+              div({style:{fontSize:11.5,color:"#8a8a8e",marginBottom:12,lineHeight:1.5}},
+                "Hızlı bir aralık seçin ya da özel tarih girin — grafik üzerinde gezinerek her günün ayrıntısını görebilirsiniz."),
+
+              div({style:{display:"flex",flexWrap:"wrap",gap:7,marginBottom:12}},
+                [["Bu Ay",()=>{ const d=new Date(); return [d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-01",TODAY()]; }],
+                 ["Son 30 Gün",()=>{ const d=new Date(); d.setDate(d.getDate()-29); return [d.toISOString().slice(0,10),TODAY()]; }],
+                 ["Son 3 Ay",()=>{ const d=new Date(); d.setMonth(d.getMonth()-3); return [d.toISOString().slice(0,10),TODAY()]; }],
+                 ["Son 6 Ay",()=>{ const d=new Date(); d.setMonth(d.getMonth()-6); return [d.toISOString().slice(0,10),TODAY()]; }],
+                 ["Son 12 Ay",()=>{ const d=new Date(); d.setFullYear(d.getFullYear()-1); return [d.toISOString().slice(0,10),TODAY()]; }]
+                ].map(([lb,fn],i)=>btn({key:i,type:"button",
+                  style:{padding:"8px 13px",borderRadius:20,fontSize:12.5,fontWeight:600,cursor:"pointer",
+                    border:"1px solid rgba(0,113,227,.3)",background:"rgba(0,113,227,.06)",color:"#0071E3"},
+                  onClick:()=>{ const [b,bt]=fn(); setIstTarihBas(b); setIstTarihBit(bt); setIstHoverIdx(null); hesaplaTumu(b,bt); }
+                },lb))
+              ),
 
               div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:12}},
                 div(null,
@@ -17945,8 +18000,84 @@ if(DB) dbUpsertAyar("tema",tema);
                   background: (istTarihBas&&istTarihBit) ? "linear-gradient(135deg,#0071E3,#0058B0)" : "rgba(0,0,0,.06)",
                   color: (istTarihBas&&istTarihBit) ? "#fff" : "#9ca3af",fontSize:14,fontWeight:700,cursor:"pointer",
                   boxShadow: (istTarihBas&&istTarihBit) ? "0 4px 14px rgba(0,113,227,.28)" : "none",letterSpacing:"-.1px"},
-                onClick:hesaplaTumu
+                onClick:()=>{ setIstHoverIdx(null); hesaplaTumu(); }
               },"Göster"),
+
+              // ── İnteraktif Zaman Çizelgesi Grafiği (Ciro çubuk + Müşteri Sayısı çizgi, üzerinde gezinilebilir) ──
+              istSonuc&&istSonuc.zamanSerisi&&istSonuc.zamanSerisi.veri.length>0&&(()=>{
+                const seri=istSonuc.zamanSerisi.veri;
+                const gosterilen = istHoverIdx!==null && seri[istHoverIdx] ? seri[istHoverIdx] : null;
+                const maxCiro=Math.max(1,...seri.map(s=>s.ciro));
+                const maxMus=Math.max(1,...seri.map(s=>s.musteriSay));
+                const W=Math.max(seri.length*(seri.length>40?14:seri.length>20?22:34),320);
+                const H=210, padBottom=28, padTop=10, chartH=H-padBottom-padTop;
+                const barW=Math.min(26,(W/seri.length)*0.55);
+                const xOf=i=> (i+0.5)*(W/seri.length);
+                const yOfMus=v=> padTop + chartH - (v/maxMus)*chartH;
+                const noktalar=seri.map((s,i)=>xOf(i)+","+yOfMus(s.musteriSay)).join(" ");
+                return div({style:{marginTop:6,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
+                  div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+                    div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700}},
+                      "📈 Zaman Çizelgesi ("+({gun:"Günlük",hafta:"Haftalık",ay:"Aylık"}[istSonuc.zamanSerisi.granularite])+")"),
+                    div({style:{display:"flex",gap:10,fontSize:10.5}},
+                      div({style:{display:"flex",alignItems:"center",gap:4,color:"#0071E3"}},div({style:{width:9,height:9,borderRadius:2,background:"#0071E3"}}),"Ciro"),
+                      div({style:{display:"flex",alignItems:"center",gap:4,color:"#FF9F0A"}},div({style:{width:9,height:9,borderRadius:"50%",background:"#FF9F0A"}}),"Müşteri")
+                    )
+                  ),
+                  div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"12px 8px 6px",overflowX:seri.length>20?"auto":"visible"}},
+                    h("svg",{viewBox:"0 0 "+W+" "+H,width:W,height:H,style:{display:"block",touchAction:"pan-y",cursor:"crosshair",minWidth:"100%"},
+                      onMouseMove:e=>{
+                        const rect=e.currentTarget.getBoundingClientRect();
+                        const relX=(e.clientX-rect.left)/rect.width*W;
+                        const idx=Math.max(0,Math.min(seri.length-1,Math.floor(relX/(W/seri.length))));
+                        setIstHoverIdx(idx);
+                      },
+                      onMouseLeave:()=>setIstHoverIdx(null),
+                      onTouchMove:e=>{
+                        const t=e.touches[0]; if(!t) return;
+                        const rect=e.currentTarget.getBoundingClientRect();
+                        const relX=(t.clientX-rect.left)/rect.width*W;
+                        const idx=Math.max(0,Math.min(seri.length-1,Math.floor(relX/(W/seri.length))));
+                        setIstHoverIdx(idx);
+                      }},
+                      // Çubuklar (Ciro)
+                      seri.map((s,i)=>h("rect",{key:"b"+i,
+                        x:xOf(i)-barW/2, y:padTop+chartH-(s.ciro/maxCiro)*chartH,
+                        width:barW, height:Math.max(1,(s.ciro/maxCiro)*chartH),
+                        rx:3, fill:istHoverIdx===i?"#0071E3":"rgba(0,113,227,.45)"
+                      })),
+                      // Müşteri sayısı çizgisi
+                      h("polyline",{points:noktalar,fill:"none",stroke:"#FF9F0A",strokeWidth:2}),
+                      seri.map((s,i)=>h("circle",{key:"c"+i,cx:xOf(i),cy:yOfMus(s.musteriSay),r:istHoverIdx===i?4.5:2.5,fill:"#FF9F0A"})),
+                      // Gezinme dikey çizgisi
+                      istHoverIdx!==null&&h("line",{x1:xOf(istHoverIdx),x2:xOf(istHoverIdx),y1:padTop,y2:padTop+chartH,stroke:"#9ca3af",strokeWidth:1,strokeDasharray:"3,3"}),
+                      // X ekseni etiketleri (aşırı kalabalık olmasın diye aralıklı gösterilir)
+                      seri.map((s,i)=>{
+                        const atlaAraligi=Math.ceil(seri.length/(W>700?14:8));
+                        if(i%atlaAraligi!==0 && i!==seri.length-1) return null;
+                        return h("text",{key:"t"+i,x:xOf(i),y:H-8,fontSize:9,fill:"#9ca3af",textAnchor:"middle"},s.etiket);
+                      })
+                    )
+                  ),
+                  div({style:{background: gosterilen ? "rgba(0,113,227,.06)" : "#fff",
+                      border:"1px solid "+(gosterilen?"rgba(0,113,227,.25)":"rgba(0,0,0,.08)"),
+                      borderRadius:12,padding:"12px 14px",marginTop:9}},
+                    gosterilen
+                      ? h(Fragment,null,
+                          div({style:{fontSize:12.5,fontWeight:700,color:"#0071E3",marginBottom:6}},"📍 "+gosterilen.etiket),
+                          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:12}},
+                            div(null,h("span",{style:{color:"#6b7280"}},"Ciro: "),h("b",null,fmt(gosterilen.ciro))),
+                            div(null,h("span",{style:{color:"#6b7280"}},"Müşteri: "),h("b",null,String(gosterilen.musteriSay))),
+                            div(null,h("span",{style:{color:"#6b7280"}},"Kayıt: "),h("b",null,String(gosterilen.kayitSay))),
+                            gosterilen.enHizmet&&div(null,h("span",{style:{color:"#6b7280"}},"En Çok: "),h("b",null,gosterilen.enHizmet.ad))
+                          ),
+                          gosterilen.kk+gosterilen.ib+gosterilen.nk>0&&div({style:{marginTop:7,fontSize:11,color:"#6b7280"}},
+                            "💵 "+fmt(gosterilen.nk)+" · 💳 "+fmt(gosterilen.kk)+" · 🏦 "+fmt(gosterilen.ib))
+                        )
+                      : div({style:{fontSize:12,color:"#9ca3af",textAlign:"center"}},"Detayları görmek için grafiğin üzerinde gezinin")
+                  )
+                );
+              })(),
 
               istSonuc&&istSonuc.genel&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
                 div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:8}},"📌 Genel Özet"),
@@ -18138,21 +18269,6 @@ if(DB) dbUpsertAyar("tema",tema);
                         div({style:{fontSize:13,color:"#1D1D1F",fontWeight:600}},s.aralik),
                         div({style:{fontSize:12.5,color:"#0071E3",fontWeight:700}},s.sayi+" kayıt")
                       ))
-                )
-              ),
-
-              istSonuc&&istSonuc.aylikTrend&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
-                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:8}},"📊 Aylık Trend (Son 6 Ay)"),
-                div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"14px"}},
-                  (()=>{ const maxAy=Math.max(1,...istSonuc.aylikTrend.aylikTrend.map(a=>a.musteriSay));
-                    return div({style:{display:"flex",alignItems:"flex-end",gap:8,height:80}},
-                      istSonuc.aylikTrend.aylikTrend.map((a,i)=>div({key:i,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:5}},
-                        div({style:{width:"100%",maxWidth:28,height:Math.max(3,Math.round((a.musteriSay/maxAy)*55)),background:"linear-gradient(180deg,#0071E3,#0058B0)",borderRadius:4}}),
-                        div({style:{fontSize:10,color:"#9ca3af"}},a.ayEtiket),
-                        div({style:{fontSize:10.5,color:"#1D1D1F",fontWeight:700}},String(a.musteriSay))
-                      ))
-                    );
-                  })()
                 )
               ),
 
