@@ -2213,7 +2213,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         body: JSON.stringify({ image_base64: base64Veri, media_type: mediaType })
       });
       const veri = await resp.json().catch(()=>null);
-      if(!resp.ok || !veri){ setMkFaturaOkuHata("Fatura okunamadı, lütfen alanları elle doldurun."); setMkFaturaOkuYukleniyor(false); return; }
+      if(!resp.ok || !veri){
+        const detay = veri?.error ? " ("+veri.error+")" : "";
+        setMkFaturaOkuHata("Fatura okunamadı, lütfen alanları elle doldurun."+detay);
+        setMkFaturaOkuYukleniyor(false); return;
+      }
 
       if(veri.faturaNo) setMkFatura(veri.faturaNo);
       if(veri.faturaTarihi) setMkFaturaTarih(veri.faturaTarihi);
@@ -3740,12 +3744,27 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 background:"transparent",color:"var(--mu)",fontSize:12,cursor:"pointer",flexShrink:0},
                 onClick:()=>{
                   const fi=document.createElement("input");
-                  fi.type="file";fi.accept="image/*,.pdf";fi.multiple=true;
+                  fi.type="file";fi.accept="image/*,.pdf,application/pdf";fi.multiple=true;
                   fi.onchange=ev=>{
                     Array.from(ev.target.files||[]).forEach(f=>{
                       if(f.size>5242880)return;
                       const rd=new FileReader();
-                      rd.onload=e=>{setMkFaturaImg(p=>{const a=(Array.isArray(p)?p:[p]).filter(Boolean);return [...a,e.target.result];});};
+                      rd.onload=e=>{
+                        let sonuc=e.target.result;
+                        // Bazı tarayıcılar/dosyalar için MIME türü boş/yanlış gelebilir — uzantıya göre düzelt
+                        const bilinenTipler=["image/jpeg","image/png","image/webp","image/gif","application/pdf"];
+                        const mevcutTip=(sonuc.match(/^data:([^;]+);/)||[])[1]||"";
+                        if(!bilinenTipler.includes(mevcutTip)){
+                          const adi=(f.name||"").toLowerCase();
+                          const dogruTip = adi.endsWith(".pdf")?"application/pdf"
+                            : adi.endsWith(".png")?"image/png"
+                            : adi.endsWith(".webp")?"image/webp"
+                            : adi.endsWith(".gif")?"image/gif"
+                            : (adi.endsWith(".jpg")||adi.endsWith(".jpeg"))?"image/jpeg" : "";
+                          if(dogruTip) sonuc=sonuc.replace(/^data:[^;]*;/, "data:"+dogruTip+";");
+                        }
+                        setMkFaturaImg(p=>{const a=(Array.isArray(p)?p:[p]).filter(Boolean);return [...a,sonuc];});
+                      };
                       rd.readAsDataURL(f);
                     });
                   };fi.click();
