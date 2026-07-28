@@ -11657,6 +11657,7 @@ function App() {
   const [istSonuc, setIstSonuc] = useState(null);
   const [istHoverIdx, setIstHoverIdx] = useState(null); // İnteraktif zaman çizelgesinde gezinilen nokta
   const [istAcikHizmet, setIstAcikHizmet] = useState(""); // detay açık olan hizmet adı
+  const [istAcikUrun, setIstAcikUrun] = useState(""); // detay açık olan ürün adı
   const [istAcikOdeme, setIstAcikOdeme] = useState(""); // detay açık olan ödeme tipi
   const [ayFil, setAyFil]   = useState("");
   const [tAyFil, setTAyFil]   = useState(String(new Date().getMonth()+1));
@@ -17767,27 +17768,60 @@ if(DB) dbUpsertAyar("tema",tema);
                 sonuc.hizmetTercih={liste:hListe, toplamAdet:toplamHizAdet};
               }
 
-              // ── En Çok Tercih Edilen Ödeme Yöntemi (tutar + yüzde, tıklanınca detay açılır) ──
+              // ── En Çok Tercih Edilen Ürünler (hizmetlerle aynı tasarım) ──
+              {
+                const uGrup={};
+                let toplamUrunAdet=0;
+                liste.forEach(r=>(r.urunler||[]).forEach(u=>{
+                  const ad=(u.n||"").trim(); if(!ad) return;
+                  const adet=toN(u.adet||1)||1;
+                  if(!uGrup[ad]) uGrup[ad]={ad,adet:0,ciro:0,musteriler:{}};
+                  uGrup[ad].adet+=adet; toplamUrunAdet+=adet; uGrup[ad].ciro+=toN(u.f||0);
+                  const mKey=anahtar(r);
+                  if(!uGrup[ad].musteriler[mKey]) uGrup[ad].musteriler[mKey]={ad:r.musteri||"—",ziyaretler:[],toplam:0};
+                  uGrup[ad].musteriler[mKey].ziyaretler.push({tarih:r.tarih,saat:r.hizmetSaati||"",tutar:toN(u.f||0),adet});
+                  uGrup[ad].musteriler[mKey].toplam+=toN(u.f||0);
+                }));
+                const uListe=Object.values(uGrup).sort((a,b)=>b.adet-a.adet).map(u=>{
+                  const musteriListesi=Object.values(u.musteriler).map(m=>({
+                    ...m, ziyaretler:m.ziyaretler.sort((a,b)=>a.tarih.localeCompare(b.tarih)||(a.saat||"").localeCompare(b.saat||"")),
+                    ziyaretYuzde: u.adet>0?Math.round(m.ziyaretler.reduce((s,z)=>s+(z.adet||1),0)/u.adet*100):0,
+                    ucretYuzde: u.ciro>0?Math.round(m.toplam/u.ciro*100):0
+                  })).sort((a,b)=>b.ziyaretler.length-a.ziyaretler.length||b.toplam-a.toplam);
+                  return {ad:u.ad, adet:u.adet, ciro:u.ciro, yuzde: toplamUrunAdet>0?Math.round(u.adet/toplamUrunAdet*100):0, musteriListesi};
+                });
+                sonuc.urunTercih={liste:uListe, toplamAdet:toplamUrunAdet};
+              }
+
+              // ── En Çok Tercih Edilen Ödeme Yöntemi (hizmetlerle aynı tasarım — müşteri bazlı detay) ──
               {
                 const odemeGrup={
-                  Nakit:{tip:"Nakit",ikon:"💵",tutar:0,detaylar:[]},
-                  Kart:{tip:"Kart",ikon:"💳",tutar:0,detaylar:[]},
-                  "Havale/EFT":{tip:"Havale/EFT",ikon:"🏦",tutar:0,detaylar:[]}
+                  Nakit:{tip:"Nakit",ikon:"💵",adet:0,ciro:0,musteriler:{}},
+                  Kart:{tip:"Kart",ikon:"💳",adet:0,ciro:0,musteriler:{}},
+                  "Havale/EFT":{tip:"Havale/EFT",ikon:"🏦",adet:0,ciro:0,musteriler:{}}
                 };
+                let toplamOdemeAdet=0;
                 liste.forEach(r=>{
-                  const nk=toN(r.hizNK||0)+toN(r.uNK||0);
-                  const kk=toN(r.hizKK||0)+toN(r.uKK||0);
-                  const ib=toN(r.hizIB||0)+toN(r.uIB||0);
-                  if(nk>0){ odemeGrup.Nakit.tutar+=nk; odemeGrup.Nakit.detaylar.push({tarih:r.tarih,musteri:r.musteri||"—",tutar:nk}); }
-                  if(kk>0){ odemeGrup.Kart.tutar+=kk; odemeGrup.Kart.detaylar.push({tarih:r.tarih,musteri:r.musteri||"—",tutar:kk}); }
-                  if(ib>0){ odemeGrup["Havale/EFT"].tutar+=ib; odemeGrup["Havale/EFT"].detaylar.push({tarih:r.tarih,musteri:r.musteri||"—",tutar:ib}); }
+                  const mKey=anahtar(r);
+                  [["Nakit",toN(r.hizNK||0)+toN(r.uNK||0)],["Kart",toN(r.hizKK||0)+toN(r.uKK||0)],["Havale/EFT",toN(r.hizIB||0)+toN(r.uIB||0)]].forEach(([tip,tutar])=>{
+                    if(tutar<=0) return;
+                    const og=odemeGrup[tip];
+                    og.adet++; toplamOdemeAdet++; og.ciro+=tutar;
+                    if(!og.musteriler[mKey]) og.musteriler[mKey]={ad:r.musteri||"—",ziyaretler:[],toplam:0};
+                    og.musteriler[mKey].ziyaretler.push({tarih:r.tarih,saat:r.hizmetSaati||"",tutar});
+                    og.musteriler[mKey].toplam+=tutar;
+                  });
                 });
-                const toplamOdeme=odemeGrup.Nakit.tutar+odemeGrup.Kart.tutar+odemeGrup["Havale/EFT"].tutar;
-                const oListe=Object.values(odemeGrup).filter(o=>o.tutar>0).sort((a,b)=>b.tutar-a.tutar).map(o=>({
-                  ...o, yuzde: toplamOdeme>0?Math.round(o.tutar/toplamOdeme*100):0,
-                  detaylar:o.detaylar.sort((a,b)=>b.tarih.localeCompare(a.tarih))
-                }));
-                sonuc.odemeTercih={liste:oListe, toplamTutar:toplamOdeme};
+                const oListe=Object.values(odemeGrup).filter(o=>o.adet>0).sort((a,b)=>b.ciro-a.ciro).map(o=>{
+                  const musteriListesi=Object.values(o.musteriler).map(m=>({
+                    ...m, ziyaretler:m.ziyaretler.sort((a,b)=>a.tarih.localeCompare(b.tarih)||(a.saat||"").localeCompare(b.saat||"")),
+                    ziyaretYuzde: o.adet>0?Math.round(m.ziyaretler.length/o.adet*100):0,
+                    ucretYuzde: o.ciro>0?Math.round(m.toplam/o.ciro*100):0
+                  })).sort((a,b)=>b.ziyaretler.length-a.ziyaretler.length||b.toplam-a.toplam);
+                  return {tip:o.tip, ikon:o.ikon, adet:o.adet, tutar:o.ciro,
+                    yuzde: toplamOdemeAdet>0?Math.round(o.adet/toplamOdemeAdet*100):0, musteriListesi};
+                });
+                sonuc.odemeTercih={liste:oListe, toplamAdet:toplamOdemeAdet};
               }
 
               setIstSonuc(sonuc);
@@ -17964,6 +17998,55 @@ if(DB) dbUpsertAyar("tema",tema);
                 )
               ),
 
+              istSonuc&&istSonuc.urunTercih&&istSonuc.urunTercih.liste.length>0&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
+                div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:9}},"🛍️ En Çok Tercih Edilen Ürünler"),
+                div({style:{display:"flex",flexDirection:"column",gap:7}},
+                  istSonuc.urunTercih.liste.map((u,i)=>{
+                    const acik=istAcikUrun===u.ad;
+                    return div({key:i,style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,overflow:"hidden"}},
+                      btn({type:"button",onClick:()=>setIstAcikUrun(acik?"":u.ad),
+                        style:{width:"100%",display:"block",background:"none",border:"none",cursor:"pointer",padding:"12px 13px",textAlign:"left"}},
+                        div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
+                          div({style:{fontSize:13,color:"#1D1D1F",fontWeight:600}},(i+1)+". "+u.ad),
+                          div({style:{display:"flex",alignItems:"center",gap:8}},
+                            div({style:{fontSize:12.5,color:"#0071E3",fontWeight:700}},u.adet+" adet · %"+u.yuzde),
+                            div({style:{fontSize:11,color:"#9ca3af",transform:acik?"rotate(180deg)":"none",transition:"transform .15s"}},"▾")
+                          )
+                        ),
+                        div({style:{height:7,background:"rgba(0,0,0,.05)",borderRadius:4,overflow:"hidden"}},
+                          div({style:{height:"100%",width:u.yuzde+"%",background:"linear-gradient(90deg,#0071E3,#0058B0)",borderRadius:4}})
+                        )
+                      ),
+                      acik&&div({style:{borderTop:"1px solid rgba(0,0,0,.06)",padding:"9px 13px",background:"rgba(0,113,227,.03)"}},
+                        u.musteriListesi.map((m,j)=>div({key:j,style:{padding:"7px 0",
+                          borderBottom:j<u.musteriListesi.length-1?"1px solid rgba(0,0,0,.06)":"none"}},
+                          div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}},
+                            div({style:{fontSize:12.5,color:"#1D1D1F",fontWeight:600}},
+                              m.ad+(m.ziyaretler.length>1?"  ·  "+m.ziyaretler.length+" alım":"")),
+                            div({style:{fontSize:12,color:"#0071E3",fontWeight:700}},
+                              (m.ziyaretler.length>1?"Toplam ":"")+fmt(m.toplam))
+                          ),
+                          div({style:{display:"flex",gap:6,marginBottom:m.ziyaretler.length>1?4:2}},
+                            div({style:{fontSize:10.5,color:"#1a7a34",background:"rgba(52,199,89,.1)",borderRadius:5,padding:"1px 6px"}},
+                              "🔁 Alımların %"+m.ziyaretYuzde+"'i"),
+                            div({style:{fontSize:10.5,color:"#0071E3",background:"rgba(0,113,227,.1)",borderRadius:5,padding:"1px 6px"}},
+                              "💰 Cironun %"+m.ucretYuzde+"'i")
+                          ),
+                          m.ziyaretler.length>1&&div({style:{display:"flex",flexDirection:"column",gap:2,paddingLeft:4}},
+                            m.ziyaretler.map((z,k)=>div({key:k,style:{display:"flex",justifyContent:"space-between",fontSize:11.5,color:"#6b7280"}},
+                              div(null,(k+1)+". alım — "+fmtT(z.tarih)+(z.saat?" "+z.saat:"")),
+                              div(null,fmt(z.tutar))
+                            ))
+                          ),
+                          m.ziyaretler.length===1&&div({style:{fontSize:11.5,color:"#9ca3af"}},
+                            fmtT(m.ziyaretler[0].tarih)+(m.ziyaretler[0].saat?" "+m.ziyaretler[0].saat:""))
+                        ))
+                      )
+                    );
+                  })
+                )
+              ),
+
               istSonuc&&istSonuc.odemeTercih&&istSonuc.odemeTercih.liste.length>0&&div({style:{marginTop:16,paddingTop:14,borderTop:"1px dashed rgba(0,0,0,.1)"}},
                 div({style:{fontSize:11,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",fontWeight:700,marginBottom:9}},"💳 En Çok Tercih Edilen Ödeme Yöntemi"),
                 div({style:{display:"flex",flexDirection:"column",gap:7}},
@@ -17984,10 +18067,28 @@ if(DB) dbUpsertAyar("tema",tema);
                         )
                       ),
                       acik&&div({style:{borderTop:"1px solid rgba(0,0,0,.06)",padding:"9px 13px",background:"rgba(52,199,89,.03)"}},
-                        o.detaylar.map((d,j)=>div({key:j,style:{display:"flex",justifyContent:"space-between",padding:"5px 0",
-                          borderBottom:j<o.detaylar.length-1?"1px solid rgba(0,0,0,.05)":"none",fontSize:12}},
-                          div({style:{color:"#4a5568"}},fmtT(d.tarih)+" · "+d.musteri),
-                          div({style:{color:"#0071E3",fontWeight:600}},fmt(d.tutar))
+                        o.musteriListesi.map((m,j)=>div({key:j,style:{padding:"7px 0",
+                          borderBottom:j<o.musteriListesi.length-1?"1px solid rgba(0,0,0,.06)":"none"}},
+                          div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}},
+                            div({style:{fontSize:12.5,color:"#1D1D1F",fontWeight:600}},
+                              m.ad+(m.ziyaretler.length>1?"  ·  "+m.ziyaretler.length+" işlem":"")),
+                            div({style:{fontSize:12,color:"#0071E3",fontWeight:700}},
+                              (m.ziyaretler.length>1?"Toplam ":"")+fmt(m.toplam))
+                          ),
+                          div({style:{display:"flex",gap:6,marginBottom:m.ziyaretler.length>1?4:2}},
+                            div({style:{fontSize:10.5,color:"#1a7a34",background:"rgba(52,199,89,.1)",borderRadius:5,padding:"1px 6px"}},
+                              "🔁 İşlemlerin %"+m.ziyaretYuzde+"'i"),
+                            div({style:{fontSize:10.5,color:"#0071E3",background:"rgba(0,113,227,.1)",borderRadius:5,padding:"1px 6px"}},
+                              "💰 Cironun %"+m.ucretYuzde+"'i")
+                          ),
+                          m.ziyaretler.length>1&&div({style:{display:"flex",flexDirection:"column",gap:2,paddingLeft:4}},
+                            m.ziyaretler.map((z,k)=>div({key:k,style:{display:"flex",justifyContent:"space-between",fontSize:11.5,color:"#6b7280"}},
+                              div(null,(k+1)+". işlem — "+fmtT(z.tarih)+(z.saat?" "+z.saat:"")),
+                              div(null,fmt(z.tutar))
+                            ))
+                          ),
+                          m.ziyaretler.length===1&&div({style:{fontSize:11.5,color:"#9ca3af"}},
+                            fmtT(m.ziyaretler[0].tarih)+(m.ziyaretler[0].saat?" "+m.ziyaretler[0].saat:""))
                         ))
                       )
                     );
