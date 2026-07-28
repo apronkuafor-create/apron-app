@@ -17743,20 +17743,27 @@ if(DB) dbUpsertAyar("tema",tema);
                 sonuc.zamanSerisi={granularite,veri:zamanSerisi};
               }
 
-              // ── En Çok Tercih Edilen Hizmetler (sayı + yüzde, tıklanınca detay açılır) ──
+              // ── En Çok Tercih Edilen Hizmetler (sayı + yüzde, tıklanınca müşteri bazlı detay açılır) ──
               {
                 const hGrup={};
                 let toplamHizAdet=0;
                 liste.forEach(r=>(r.hizler||[]).forEach(h=>{
                   const ad=(h.n||"").trim(); if(!ad) return;
-                  if(!hGrup[ad]) hGrup[ad]={ad,adet:0,detaylar:[]};
-                  hGrup[ad].adet++; toplamHizAdet++;
-                  hGrup[ad].detaylar.push({tarih:r.tarih,musteri:r.musteri||"—",tutar:toN(h.f||0)});
+                  if(!hGrup[ad]) hGrup[ad]={ad,adet:0,ciro:0,musteriler:{}};
+                  hGrup[ad].adet++; toplamHizAdet++; hGrup[ad].ciro+=toN(h.f||0);
+                  const mKey=anahtar(r);
+                  if(!hGrup[ad].musteriler[mKey]) hGrup[ad].musteriler[mKey]={ad:r.musteri||"—",ziyaretler:[],toplam:0};
+                  hGrup[ad].musteriler[mKey].ziyaretler.push({tarih:r.tarih,saat:r.hizmetSaati||"",tutar:toN(h.f||0)});
+                  hGrup[ad].musteriler[mKey].toplam+=toN(h.f||0);
                 }));
-                const hListe=Object.values(hGrup).sort((a,b)=>b.adet-a.adet).map(h=>({
-                  ...h, yuzde: toplamHizAdet>0?Math.round(h.adet/toplamHizAdet*100):0,
-                  detaylar:h.detaylar.sort((a,b)=>b.tarih.localeCompare(a.tarih))
-                }));
+                const hListe=Object.values(hGrup).sort((a,b)=>b.adet-a.adet).map(h=>{
+                  const musteriListesi=Object.values(h.musteriler).map(m=>({
+                    ...m, ziyaretler:m.ziyaretler.sort((a,b)=>a.tarih.localeCompare(b.tarih)||(a.saat||"").localeCompare(b.saat||"")),
+                    ziyaretYuzde: h.adet>0?Math.round(m.ziyaretler.length/h.adet*100):0,
+                    ucretYuzde: h.ciro>0?Math.round(m.toplam/h.ciro*100):0
+                  })).sort((a,b)=>b.ziyaretler.length-a.ziyaretler.length||b.toplam-a.toplam);
+                  return {ad:h.ad, adet:h.adet, ciro:h.ciro, yuzde: toplamHizAdet>0?Math.round(h.adet/toplamHizAdet*100):0, musteriListesi};
+                });
                 sonuc.hizmetTercih={liste:hListe, toplamAdet:toplamHizAdet};
               }
 
@@ -17925,10 +17932,28 @@ if(DB) dbUpsertAyar("tema",tema);
                         )
                       ),
                       acik&&div({style:{borderTop:"1px solid rgba(0,0,0,.06)",padding:"9px 13px",background:"rgba(0,113,227,.03)"}},
-                        h2.detaylar.map((d,j)=>div({key:j,style:{display:"flex",justifyContent:"space-between",padding:"5px 0",
-                          borderBottom:j<h2.detaylar.length-1?"1px solid rgba(0,0,0,.05)":"none",fontSize:12}},
-                          div({style:{color:"#4a5568"}},fmtT(d.tarih)+" · "+d.musteri),
-                          div({style:{color:"#0071E3",fontWeight:600}},fmt(d.tutar))
+                        h2.musteriListesi.map((m,j)=>div({key:j,style:{padding:"7px 0",
+                          borderBottom:j<h2.musteriListesi.length-1?"1px solid rgba(0,0,0,.06)":"none"}},
+                          div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}},
+                            div({style:{fontSize:12.5,color:"#1D1D1F",fontWeight:600}},
+                              m.ad+(m.ziyaretler.length>1?"  ·  "+m.ziyaretler.length+" ziyaret":"")),
+                            div({style:{fontSize:12,color:"#0071E3",fontWeight:700}},
+                              (m.ziyaretler.length>1?"Toplam ":"")+fmt(m.toplam))
+                          ),
+                          div({style:{display:"flex",gap:6,marginBottom:m.ziyaretler.length>1?4:2}},
+                            div({style:{fontSize:10.5,color:"#1a7a34",background:"rgba(52,199,89,.1)",borderRadius:5,padding:"1px 6px"}},
+                              "🔁 Ziyaretlerin %"+m.ziyaretYuzde+"'i"),
+                            div({style:{fontSize:10.5,color:"#0071E3",background:"rgba(0,113,227,.1)",borderRadius:5,padding:"1px 6px"}},
+                              "💰 Cironun %"+m.ucretYuzde+"'i")
+                          ),
+                          m.ziyaretler.length>1&&div({style:{display:"flex",flexDirection:"column",gap:2,paddingLeft:4}},
+                            m.ziyaretler.map((z,k)=>div({key:k,style:{display:"flex",justifyContent:"space-between",fontSize:11.5,color:"#6b7280"}},
+                              div(null,(k+1)+". ziyaret — "+fmtT(z.tarih)+(z.saat?" "+z.saat:"")),
+                              div(null,fmt(z.tutar))
+                            ))
+                          ),
+                          m.ziyaretler.length===1&&div({style:{fontSize:11.5,color:"#9ca3af"}},
+                            fmtT(m.ziyaretler[0].tarih)+(m.ziyaretler[0].saat?" "+m.ziyaretler[0].saat:""))
                         ))
                       )
                     );
