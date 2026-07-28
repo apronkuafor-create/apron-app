@@ -2194,6 +2194,49 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [mkIsimArama, setMkIsimArama] = React.useState("");
   const [mkSarfAd, setMkSarfAd] = React.useState(""); // Sarf malzeme serbest metin ekleme — katalog yok
   const [mkSarfFiyat, setMkSarfFiyat] = React.useState("");
+
+  const mkFaturaOku = async () => {
+    const gorseller = (Array.isArray(mkFaturaImg)?mkFaturaImg:[mkFaturaImg]).filter(Boolean);
+    const sonGorsel = gorseller[gorseller.length-1];
+    if(!sonGorsel){ setMkFaturaOkuHata("Önce bir fatura görseli/PDF ekleyin."); return; }
+    setMkFaturaOkuYukleniyor(true); setMkFaturaOkuHata("");
+    try{
+      const eslesme = sonGorsel.match(/^data:([^;]+);base64,(.+)$/);
+      if(!eslesme){ setMkFaturaOkuHata("Görsel formatı okunamadı."); setMkFaturaOkuYukleniyor(false); return; }
+      const mediaType = eslesme[1], base64Veri = eslesme[2];
+      const { data: sessionData } = await DB.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if(!token){ setMkFaturaOkuHata("Oturum bulunamadı, lütfen tekrar giriş yapın."); setMkFaturaOkuYukleniyor(false); return; }
+      const resp = await fetch(FATURA_OKU_URL, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+token },
+        body: JSON.stringify({ image_base64: base64Veri, media_type: mediaType })
+      });
+      const veri = await resp.json().catch(()=>null);
+      if(!resp.ok || !veri){ setMkFaturaOkuHata("Fatura okunamadı, lütfen alanları elle doldurun."); setMkFaturaOkuYukleniyor(false); return; }
+
+      if(veri.faturaNo) setMkFatura(veri.faturaNo);
+      if(veri.faturaTarihi) setMkFaturaTarih(veri.faturaTarihi);
+      if(veri.tedarikciAdi) setMkTedarikci(veri.tedarikciAdi);
+
+      if(Array.isArray(veri.kalemler) && veri.kalemler.length>0){
+        const yeniSatirlar = veri.kalemler
+          .filter(k=>(k.urunAdi||"").trim())
+          .map(k=>({
+            barkod:"SARF-"+uid(), urunAd:(k.urunAdi||"").trim(), marka:"", ml:"",
+            adet:k.adet!=null?String(k.adet):"",
+            birimF:k.birimFiyat!=null?String(k.birimFiyat):"",
+            iskontoOran:k.iskontoOrani!=null?String(k.iskontoOrani):"0",
+            kdvOran:k.kdvOrani!=null?String(k.kdvOrani):"20"
+          }));
+        setMkUrunler(p=>[...p,...yeniSatirlar]);
+      }
+      showToast("Fatura okundu — lütfen kontrol edip düzenleyin");
+    }catch(e){
+      setMkFaturaOkuHata("Bağlantı hatası — internet bağlantınızı kontrol edin.");
+    }
+    setMkFaturaOkuYukleniyor(false);
+  };
   const [mkArsiv, setMkArsiv] = React.useState([]);
   const [mkAlt, setMkAlt] = React.useState("liste"); // liste | arsiv
   const [arsivAc, setArsivAc] = React.useState(null); // arşiv detay index
@@ -3716,6 +3759,15 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 )
               )
             ),
+            mkTip==="sarf"&&(Array.isArray(mkFaturaImg)?mkFaturaImg:[mkFaturaImg]).filter(Boolean).length>0&&
+              div({style:{marginBottom:10}},
+                btn({type:"button",disabled:mkFaturaOkuYukleniyor,
+                  style:{width:"100%",padding:"11px 0",borderRadius:10,border:"1.5px solid rgba(155,89,255,.4)",
+                    background:mkFaturaOkuYukleniyor?"rgba(155,89,255,.06)":"linear-gradient(135deg,#9B59FF,#6C3FD1)",
+                    color:mkFaturaOkuYukleniyor?"#8a6fc9":"#fff",fontSize:13.5,fontWeight:700,cursor:mkFaturaOkuYukleniyor?"default":"pointer"},
+                  onClick:mkFaturaOku},mkFaturaOkuYukleniyor?"⏳ Fatura Okunuyor...":"✨ Faturadan Doldur"),
+                mkFaturaOkuHata&&div({style:{color:"#c05050",fontSize:12,marginTop:8,padding:"7px 9px",background:"rgba(224,32,32,.06)",borderRadius:8}},mkFaturaOkuHata)
+              ),
             mkTip==="sarf"
               ? div({style:{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"flex-end"}},
                   div({style:{flex:"2 1 160px"}},
