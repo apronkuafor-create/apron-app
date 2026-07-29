@@ -2237,15 +2237,40 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           }));
           setMkUrunler(p=>[...p,...yeniSatirlar]);
         } else {
-          // Satılabilen: kataloğa (URUN_DB) isim bazlı eşleştirme yapılır — sahte barkod uydurulmaz
+          // Satılabilen: kataloğa (URUN_DB) önce barkod, sonra kelime-bazlı esnek isim eşleştirmesi yapılır — sahte barkod uydurulmaz
           const katalog = URUN_DB.filter(u=>u.tip!=="sarf");
+          // Metni kelime köklerine ayırıp karşılaştırmak için: noktalama/ölçü birimlerini temizler
+          const kelimelestir = s => normText(s)
+            .replace(/[\/\-_,.]/g," ")
+            .replace(/\b(ml|adet|lt|gr|kg)\b/g," ")
+            .replace(/[^a-z0-9\s]/g," ")
+            .split(/\s+/).filter(w=>w.length>1);
+          const benzerlikSkoru = (a,b) => {
+            const wa=kelimelestir(a), wb=kelimelestir(b);
+            if(wa.length===0||wb.length===0) return {skor:0,ortak:0};
+            const setB=new Set(wb);
+            const ortak = wa.filter(w=>setB.has(w)).length;
+            return {skor: ortak / Math.min(wa.length, wb.length), ortak};
+          };
           const yeniSatirlar = [];
           const eslesmeyenler = [];
           gecerliKalemler.forEach(k=>{
-            const soylenen = normText(k.urunAdi||"");
-            const eslesen = katalog.find(u=>normText(u.a)===soylenen)
-              || katalog.find(u=>normText(u.a).includes(soylenen)||soylenen.includes(normText(u.a)));
-            if(eslesen && !mkUrunler.find(x=>x.barkod===eslesen.b)){
+            const eklenenBarkodlar = new Set([...mkUrunler, ...yeniSatirlar].map(x=>x.barkod));
+            // 1) Barkod eşleşmesi (faturada barkod sütunu varsa ve tam eşleşiyorsa en güvenilir yol)
+            let eslesen = null;
+            const faturaBarkod = (k.barkod||"").trim();
+            if(faturaBarkod) eslesen = katalog.find(u=>u.b && u.b.trim()===faturaBarkod);
+            // 2) İsim benzerliği (kelime bazlı, sıralama/ekstra kelime farkına toleranslı)
+            if(!eslesen){
+              let enIyi=null, enIyiSkor=0, enIyiOrtak=0;
+              katalog.forEach(u=>{
+                const {skor,ortak} = benzerlikSkoru(k.urunAdi||"", u.a||"");
+                if(skor>enIyiSkor){ enIyiSkor=skor; enIyiOrtak=ortak; enIyi=u; }
+              });
+              // Kelimelerin en az %60'ı örtüşmeli VE en az 2 anlamlı kelime ortak olmalı (kısa/genel isimlerde yanlış eşleşmeyi önler)
+              if(enIyi && enIyiSkor>=0.6 && enIyiOrtak>=2) eslesen = enIyi;
+            }
+            if(eslesen && !eklenenBarkodlar.has(eslesen.b)){
               yeniSatirlar.push({barkod:eslesen.b, urunAd:eslesen.a, marka:eslesen.m, ml:eslesen.ml,
                 adet:k.adet!=null?String(k.adet):"",
                 birimF:k.birimFiyat!=null?String(k.birimFiyat):String(eslesen.bp||""),
