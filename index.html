@@ -11741,6 +11741,8 @@ function App() {
   const [urunDuzData, setUrunDuzData] = useState(null);
   const [adOneriGizli, setAdOneriGizli] = useState(false); // Ürün Adı öneri kutusu manuel kapatıldı mı
   const [ekMarkalar, setEkMarkalar]   = useState([]);
+  const [markaTopluModal, setMarkaTopluModal] = useState(null); // marka adı, açık modal
+  const [markaTopluCarpan, setMarkaTopluCarpan] = useState("2");
   const [sarfEkMarkalar, setSarfEkMarkalar] = useState([]);
   const [urunListeSek, setUrunListeSek] = useState("satilabilen");
   const [bankalar, setBankalar]         = useState([]);
@@ -21815,7 +21817,12 @@ if(DB) dbUpsertAyar("tema",tema);
         div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",
           marginBottom:8,paddingBottom:5,borderBottom:"1px solid var(--br)"}},
           div({style:{fontSize:12,color:"#9a7a3a",letterSpacing:2,textTransform:"uppercase"}},marka),
-          div({style:{fontSize:12,color:"var(--di)"}},mUrunler.length+" ürün")
+          div({style:{display:"flex",alignItems:"center",gap:8}},
+            div({style:{fontSize:12,color:"var(--di)"}},mUrunler.length+" ürün"),
+            btn({style:{fontSize:11,padding:"3px 9px",borderRadius:6,border:"1px solid rgba(37,99,168,.3)",
+              background:"rgba(37,99,168,.08)",color:"var(--g)",cursor:"pointer",fontWeight:600},
+              onClick:()=>{setMarkaTopluModal(marka);setMarkaTopluCarpan("2");}},"💰 Toplu Fiyat")
+          )
         ),
         mUrunler.map(u=>
           div({key:u.b,id:"ul-"+u.b,style:{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",
@@ -21846,6 +21853,58 @@ if(DB) dbUpsertAyar("tema",tema);
         )
       );
     }),
+
+    // Toplu Fiyat modalı — bir markanın tüm ürünlerine katsayı uygulama / satış fiyatlarını temizleme
+    markaTopluModal&&div({style:{position:"fixed",inset:0,zIndex:920,background:"rgba(0,0,0,.6)",
+      display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+      div({style:{background:"var(--bg)",borderRadius:18,padding:24,maxWidth:380,width:"100%",
+        boxShadow:"0 8px 40px rgba(0,0,0,.4)"}},
+        div({style:{fontSize:16,fontWeight:700,color:"var(--tx)",marginBottom:4}},"💰 Toplu Fiyat — "+markaTopluModal),
+        div({style:{fontSize:12,color:"var(--mu)",marginBottom:18}},
+          URUN_DB.filter(u=>u.m===markaTopluModal&&u.tip!=="sarf").length+" ürünü etkiler"),
+
+        div({style:{marginBottom:8,fontSize:12,color:"var(--tx)",fontWeight:600}},"Satış Fiyatını Belirle"),
+        div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
+          div({style:{fontSize:13,color:"var(--mu)",whiteSpace:"nowrap"}},"Birim Fiyat ×"),
+          inp({className:"fi",type:"number",style:{textAlign:"center"},value:markaTopluCarpan,
+            onChange:e=>setMarkaTopluCarpan(e.target.value)})
+        ),
+        btn({style:{width:"100%",padding:"11px 0",borderRadius:10,border:"none",marginBottom:18,
+          background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)",fontSize:13.5,fontWeight:700,cursor:"pointer"},
+          onClick:()=>{
+            const c=parseFloat(String(markaTopluCarpan).replace(",","."));
+            if(!c||c<=0){showToast("Geçerli bir çarpan girin","uy");return;}
+            let sayac=0;
+            URUN_DB.forEach(u=>{
+              if(u.m===markaTopluModal&&u.tip!=="sarf"){
+                const birim=u.bp||u.ap||0;
+                if(birim>0){ u.sp=Math.round(birim*c*100)/100; sayac++; }
+              }
+            });
+            triggerUrunRender();
+            showToast(sayac+" ürünün satış fiyatı güncellendi");
+            setMarkaTopluModal(null);
+          }},"✅ Uygula (Birim Fiyat × "+(markaTopluCarpan||"?")+")"),
+
+        div({style:{borderTop:"1px solid var(--br)",paddingTop:16,marginBottom:16}},
+          div({style:{fontSize:12,color:"var(--tx)",fontWeight:600,marginBottom:8}},"Tehlikeli Alan"),
+          btn({style:{width:"100%",padding:"11px 0",borderRadius:10,border:"1px solid rgba(224,32,32,.35)",
+            background:"rgba(224,32,32,.06)",color:"#c05050",fontSize:13,fontWeight:600,cursor:"pointer"},
+            onClick:()=>{
+              if(!confirm("\""+markaTopluModal+"\" markasındaki TÜM ürünlerin satış fiyatı sıfırlanacak. Emin misiniz?")) return;
+              let sayac=0;
+              URUN_DB.forEach(u=>{ if(u.m===markaTopluModal&&u.tip!=="sarf"){ u.sp=0; sayac++; } });
+              triggerUrunRender();
+              showToast(sayac+" ürünün satış fiyatı temizlendi","uy");
+              setMarkaTopluModal(null);
+            }},"🗑️ Bu Markanın Satış Fiyatlarını Temizle")
+        ),
+
+        btn({style:{width:"100%",padding:"10px 0",borderRadius:10,border:"1px solid var(--br)",
+          background:"transparent",color:"var(--mu)",fontSize:13,cursor:"pointer"},
+          onClick:()=>setMarkaTopluModal(null)},"Kapat")
+      )
+    ),
     );
     })(),
 
