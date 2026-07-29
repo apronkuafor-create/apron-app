@@ -2183,6 +2183,42 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [mkTip, setMkTip] = React.useState("");
   const [mkTipSecim, setMkTipSecim] = React.useState(false);
   const [mkUrunler, setMkUrunler] = React.useState([]);
+
+  // ── Yeni Mal Kabul — taslak otomatik kaydetme (başka sayfaya gidip dönünce kaybolmasın) ──
+  const MK_TASLAK_KEY = "apron_mk_taslak";
+  const mkTaslakYuklendiRef = React.useRef(false);
+  React.useEffect(()=>{
+    // Sayfa ilk açıldığında, daha önce yarım kalmış bir taslak var mı diye bak
+    if(mkTaslakYuklendiRef.current) return;
+    mkTaslakYuklendiRef.current = true;
+    try{
+      const ham = localStorage.getItem(MK_TASLAK_KEY);
+      if(!ham) return;
+      const t = JSON.parse(ham);
+      if(!t || !t.mkTip) return;
+      setMkTip(t.mkTip); setMkTarih(t.mkTarih||TODAY()); setMkFatura(t.mkFatura||"");
+      setMkIrsaliye(t.mkIrsaliye||""); setMkFaturaTarih(t.mkFaturaTarih||""); setMkTedarikci(t.mkTedarikci||"");
+      setMkVade(t.mkVade||""); setMkMalKabulTarihi(t.mkMalKabulTarihi||TODAY());
+      setMkFaturaImg(t.mkFaturaImg||""); setMkUrunler(Array.isArray(t.mkUrunler)?t.mkUrunler:[]);
+      setMkForm(true); setMkTipSecim(false);
+      showToast("Yarım kalan Mal Kabul taslağınız geri yüklendi");
+    }catch(e){}
+  },[]);
+  React.useEffect(()=>{
+    // Form aktifken her değişiklikte taslağı güncelle; form kapandığında/tip boşaldığında taslağı temizle
+    if(!mkTaslakYuklendiRef.current) return; // ilk yükleme tamamlanmadan üzerine yazma
+    try{
+      if(!mkForm || !mkTip){
+        localStorage.removeItem(MK_TASLAK_KEY);
+      } else {
+        localStorage.setItem(MK_TASLAK_KEY, JSON.stringify({
+          mkTip, mkTarih, mkFatura, mkIrsaliye, mkFaturaTarih, mkTedarikci, mkVade, mkMalKabulTarihi,
+          mkFaturaImg, mkUrunler
+        }));
+      }
+    }catch(e){}
+  },[mkForm, mkTip, mkTarih, mkFatura, mkIrsaliye, mkFaturaTarih, mkTedarikci, mkVade, mkMalKabulTarihi, mkFaturaImg, mkUrunler]);
+
   const [mkFarkAcikIdx, setMkFarkAcikIdx] = React.useState({}); // {satirIndex:true} — fark bildirim paneli açık mı
   const [mkMukerrerUyari, setMkMukerrerUyari] = React.useState(null); // {sayi,tarihler} — aynı fatura no'yla önceki kayıt(lar)
   const [mkMukerrerGecildi, setMkMukerrerGecildi] = React.useState(false); // kullanıcı "Yine de Ekle" dedi mi
