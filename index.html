@@ -9620,6 +9620,7 @@ function IndirimZamModul({zamGecmisi, setZamGecmisi, triggerUrunRender, hizListe
   const [seciliKayitlar, setSeciliKayitlar] = React.useState([]); // tek tek seçim için (barkod veya hizmet adı)
   const [oran, setOran] = React.useState("");
   const [yon, setYon] = React.useState("zam"); // zam | indirim
+  const [hedefFiyat, setHedefFiyat] = React.useState("ikisi"); // urun için: satis | alis | ikisi
   const [aciklama, setAciklama] = React.useState("");
   const [onayModal, setOnayModal] = React.useState(null); // {hedefler, oncekiSonra, ozet}
   const [aramaQ, setAramaQ] = React.useState("");
@@ -9644,7 +9645,11 @@ function IndirimZamModul({zamGecmisi, setZamGecmisi, triggerUrunRender, hizListe
       if(kapsam==="hepsi") urunler = [...URUN_DB];
       else if(kapsam==="marka") urunler = URUN_DB.filter(u=>seciliMarkalar.includes(u.m));
       else if(kapsam==="secili") urunler = URUN_DB.filter(u=>seciliKayitlar.includes(u.b));
-      return urunler.filter(u=>(u.sp||0)>0 || (u.bp||0)>0 || (u.ap||0)>0);
+      return urunler.filter(u=>{
+        if(hedefFiyat==="satis") return (u.sp||0)>0;
+        if(hedefFiyat==="alis") return (u.bp||0)>0 || (u.ap||0)>0;
+        return (u.sp||0)>0 || (u.bp||0)>0 || (u.ap||0)>0;
+      });
     }
   };
 
@@ -9669,21 +9674,21 @@ function IndirimZamModul({zamGecmisi, setZamGecmisi, triggerUrunRender, hizListe
         const eskiSp = u.sp||0;
         const eskiBp = u.bp||0;
         const eskiAp = u.ap||0;
-        const yeniSp = Math.round(eskiSp * carpan * 100) / 100;
-        const yeniBp = Math.round(eskiBp * carpan * 100) / 100;
-        const yeniAp = Math.round(eskiAp * carpan * 100) / 100;
+        const yeniSp = hedefFiyat!=="alis" ? Math.round(eskiSp * carpan * 100) / 100 : eskiSp;
+        const yeniBp = hedefFiyat!=="satis" ? Math.round(eskiBp * carpan * 100) / 100 : eskiBp;
+        const yeniAp = hedefFiyat!=="satis" ? Math.round(eskiAp * carpan * 100) / 100 : eskiAp;
         oncekiSonra.push({barkod:u.b, ad:u.a, marka:u.m, eskiSp, yeniSp, eskiBp, yeniBp, eskiAp, yeniAp});
       });
     }
 
     const toplamEski = tip==="hizmet"
       ? oncekiSonra.reduce((s,x)=>s+x.eski,0)
-      : oncekiSonra.reduce((s,x)=>s+x.eskiSp,0);
+      : (hedefFiyat==="alis" ? oncekiSonra.reduce((s,x)=>s+x.eskiBp,0) : oncekiSonra.reduce((s,x)=>s+x.eskiSp,0));
     const toplamYeni = tip==="hizmet"
       ? oncekiSonra.reduce((s,x)=>s+x.yeni,0)
-      : oncekiSonra.reduce((s,x)=>s+x.yeniSp,0);
+      : (hedefFiyat==="alis" ? oncekiSonra.reduce((s,x)=>s+x.yeniBp,0) : oncekiSonra.reduce((s,x)=>s+x.yeniSp,0));
 
-    setOnayModal({hedefler, oncekiSonra, oran:o, yon, tip, kapsam, toplamEski, toplamYeni, aciklama});
+    setOnayModal({hedefler, oncekiSonra, oran:o, yon, tip, kapsam, hedefFiyat, toplamEski, toplamYeni, aciklama});
   };
 
   // ─ Onaylandı: uygula ve geçmişe kaydet ─
@@ -9695,6 +9700,7 @@ function IndirimZamModul({zamGecmisi, setZamGecmisi, triggerUrunRender, hizListe
       kapsam: onayModal.kapsam,
       yon: onayModal.yon,
       oran: onayModal.oran,
+      hedefFiyat: onayModal.hedefFiyat || "ikisi",
       aciklama: onayModal.aciklama || "",
       degisimler: onayModal.oncekiSonra,
       geriAlindi: false
@@ -9794,11 +9800,13 @@ function IndirimZamModul({zamGecmisi, setZamGecmisi, triggerUrunRender, hizListe
           div({style:{background:"rgba(0,113,227,.06)",border:"1px solid rgba(0,113,227,.2)",
             borderRadius:11,padding:"12px 14px",marginBottom:14,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
             div(null,
-              div({style:{fontSize:11,color:"#86868B",letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}},"Toplam Eski"),
+              div({style:{fontSize:11,color:"#86868B",letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}},
+                "Toplam Eski"+(onayModal.tip==="urun"&&onayModal.hedefFiyat==="alis"?" (Alış)":onayModal.tip==="urun"?" (Satış)":"")),
               div({style:{fontSize:18,fontWeight:700,color:"#1D1D1F"}},fmt(onayModal.toplamEski))
             ),
             div(null,
-              div({style:{fontSize:11,color:"#86868B",letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}},"Toplam Yeni"),
+              div({style:{fontSize:11,color:"#86868B",letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}},
+                "Toplam Yeni"+(onayModal.tip==="urun"&&onayModal.hedefFiyat==="alis"?" (Alış)":onayModal.tip==="urun"?" (Satış)":"")),
               div({style:{fontSize:18,fontWeight:700,color:onayModal.yon==="zam"?"#FF9F0A":"#34C759"}},fmt(onayModal.toplamYeni))
             )
           ),
@@ -9825,13 +9833,18 @@ function IndirimZamModul({zamGecmisi, setZamGecmisi, triggerUrunRender, hizListe
                       div({style:{fontSize:11,color:"#86868B",marginTop:1}},x.marka+" · "+x.barkod)
                     ),
                     div({style:{textAlign:"right",fontSize:12,fontFamily:"'Inter',monospace"}},
-                      div(null,
+                      onayModal.hedefFiyat!=="alis"&&div(null,
+                        span({style:{color:"#86868B",fontSize:10}},"Satış: "),
                         span({style:{color:"#86868B",textDecoration:"line-through"}},fmt(x.eskiSp)),
                         span({style:{color:"#86868B",margin:"0 4px"}},"→"),
                         span({style:{color:onayModal.yon==="zam"?"#FF9F0A":"#34C759",fontWeight:700}},fmt(x.yeniSp))
                       ),
-                      x.eskiBp>0&&div({style:{fontSize:10,color:"#86868B",marginTop:2}},
-                        "Alış: "+fmt(x.eskiBp)+" → "+fmt(x.yeniBp))
+                      onayModal.hedefFiyat!=="satis"&&x.eskiBp>0&&div({style:{marginTop:2}},
+                        span({style:{color:"#86868B",fontSize:10}},"Alış: "),
+                        span({style:{color:"#86868B",textDecoration:"line-through"}},fmt(x.eskiBp)),
+                        span({style:{color:"#86868B",margin:"0 4px"}},"→"),
+                        span({style:{color:onayModal.yon==="zam"?"#FF9F0A":"#34C759",fontWeight:700}},fmt(x.yeniBp))
+                      )
                     )
                   )
                 )
@@ -9877,7 +9890,7 @@ function IndirimZamModul({zamGecmisi, setZamGecmisi, triggerUrunRender, hizListe
               color:tip===id?"#0071E3":"#86868B",
               fontSize:13.5,fontWeight:tip===id?700:500,cursor:"pointer",
               boxShadow:tip===id?"0 1px 3px rgba(0,0,0,.10)":"none",transition:"all .2s"},
-              onClick:()=>{setTip(id);setKapsam("hepsi");setSeciliMarkalar([]);setSeciliKayitlar([]);setAramaQ("");}},lb)
+              onClick:()=>{setTip(id);setKapsam("hepsi");setSeciliMarkalar([]);setSeciliKayitlar([]);setAramaQ("");setHedefFiyat("ikisi");}},lb)
           )
         )
       ),
@@ -10002,6 +10015,25 @@ function IndirimZamModul({zamGecmisi, setZamGecmisi, triggerUrunRender, hizListe
           tip==="urun"&&secilebilirListe.length>200&&div({style:{textAlign:"center",fontSize:12,color:"#86868B",padding:10}},
             "İlk 200 ürün gösteriliyor. Daha çok daraltmak için arama kullanın.")
         )
+      ),
+
+      // -- Ürün: hangi fiyat alanına uygulansın (satış / alış / ikisi birden — birbirinden bağımsız)
+      tip==="urun"&&div({style:{marginBottom:14}},
+        div({style:{fontSize:11,color:"#86868B",letterSpacing:1.5,textTransform:"uppercase",fontWeight:600,marginBottom:6}},"HANGİ FİYATA UYGULANSIN?"),
+        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}},
+          [["satis","💵 Sadece Satış"],["alis","📥 Sadece Alış"],["ikisi","🔁 İkisi Birden"]].map(([id,lb])=>
+            btn({key:id,style:{padding:"9px 6px",borderRadius:9,
+              border:"1.5px solid "+(hedefFiyat===id?"#0071E3":"rgba(0,0,0,.10)"),
+              background:hedefFiyat===id?"rgba(0,113,227,.08)":"#fff",
+              color:hedefFiyat===id?"#0071E3":"#1D1D1F",
+              fontSize:12.5,fontWeight:hedefFiyat===id?700:500,cursor:"pointer"},
+              onClick:()=>setHedefFiyat(id)},lb)
+          )
+        ),
+        div({style:{fontSize:11,color:"#86868B",marginTop:6,lineHeight:1.5}},
+          hedefFiyat==="satis" ? "Sadece müşteriye satılan fiyat değişir, alış (birim) fiyatı aynı kalır."
+          : hedefFiyat==="alis" ? "Sadece tedarikçiden alış (birim) fiyatı değişir, satış fiyatı aynı kalır."
+          : "Hem satış hem alış (birim) fiyatı aynı oranda değişir.")
       ),
 
       // İşlem yönü ve oran
