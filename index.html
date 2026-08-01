@@ -16462,16 +16462,21 @@ if(DB) dbUpsertAyar("tema",tema);
         (()=>{
           const benimId = String(kul?.id||"");
           // Bugün rozeti: eksik gün + yönetici bildirimleri + IBAN bildirimleri
-          const bugunStr2 = TODAY(); const ayPrefix2 = bugunStr2.slice(0,7);
-          const ptTarihler = [...records.filter(r=>r.staffId===kul.id&&r.tarih&&r.tarih.startsWith(ayPrefix2)).map(r=>r.tarih),...bekleyen.filter(r=>r.staffId===kul.id&&r.tarih&&r.tarih.startsWith(ayPrefix2)).map(r=>r.tarih),...Object.keys(devDB).filter(k=>k.endsWith("_"+kul.id)).map(k=>k.split("_")[0]).filter(t=>t.startsWith(ayPrefix2))];
+          const bugunStr2 = TODAY();
+          const oncekiAyBas2 = new Date(new Date().getFullYear(), new Date().getMonth()-1, 1);
+          const altSinir2 = oncekiAyBas2.getFullYear()+"-"+String(oncekiAyBas2.getMonth()+1).padStart(2,"0")+"-01";
+          const ptTarihler = [...records.filter(r=>r.staffId===kul.id&&r.tarih&&r.tarih>=altSinir2).map(r=>r.tarih),...bekleyen.filter(r=>r.staffId===kul.id&&r.tarih&&r.tarih>=altSinir2).map(r=>r.tarih),...Object.keys(devDB).filter(k=>k.endsWith("_"+kul.id)).map(k=>k.split("_")[0]).filter(t=>t>=altSinir2)];
           let eksikSayi = 0;
           if(ptTarihler.length > 0){
-            const enErken2 = parseInt(ptTarihler.sort()[0].split("-")[2]);
-            const bugunDate2 = new Date(); const yil2=bugunDate2.getFullYear(); const ay2=bugunDate2.getMonth();
-            for(let g=enErken2;g<=bugunDate2.getDate();g++){
-              const d2=new Date(yil2,ay2,g); const ds2=d2.getFullYear()+"-"+String(d2.getMonth()+1).padStart(2,"0")+"-"+String(d2.getDate()).padStart(2,"0");
+            const enErken2D = new Date(ptTarihler.sort()[0]+"T12:00:00");
+            const bugunDate2 = new Date();
+            for(let d2=new Date(enErken2D); d2<=bugunDate2; d2.setDate(d2.getDate()+1)){
+              const ds2=d2.getFullYear()+"-"+String(d2.getMonth()+1).padStart(2,"0")+"-"+String(d2.getDate()).padStart(2,"0");
               if(ds2===bugunStr2) continue;
-              if(!records.some(r=>r.staffId===kul.id&&r.tarih===ds2)&&!devDB[ds2+"_"+kul.id]) eksikSayi++;
+              const gercekKayitVar2 = records.some(r=>r.staffId===kul.id&&r.tarih===ds2);
+              const devAciklama2 = devDB[ds2+"_"+kul.id];
+              const gecerliMazeret2 = devAciklama2 && devAciklama2!=="Çalıştı - kayıt yapıldı";
+              if(!gercekKayitVar2 && !gecerliMazeret2) eksikSayi++;
             }
           }
           // Yönetici→Personel okunmamış bildirimler (düzenleme onayı, silme sonucu, yonDirekt vb.)
@@ -17380,7 +17385,14 @@ if(DB) dbUpsertAyar("tema",tema);
           for(let d=new Date(enErkenD); d<=bugunEksik; d.setDate(d.getDate()+1)){
             const ds = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
             if(ds === bugunStrEksik) continue;
-            if(!records.some(r=>r.staffId===kul.id && r.tarih===ds) && !devDB[ds+"_"+kul.id]) gunler.push(ds);
+            const gercekKayitVar = records.some(r=>r.staffId===kul.id && r.tarih===ds);
+            const devAciklama = devDB[ds+"_"+kul.id];
+            // "Çalıştı - kayıt yapıldı" damgası OTOMATİK üretilir (gün sonu göndermede) ve kayıt
+            // silinse/taşınsa bile eski tarihte kalabilir — bu yüzden gerçek bir kayıtla doğrulanmadıkça
+            // tek başına güvenilmez sayılır. İzin/hastalık/mazeret gibi ELLE seçilmiş nedenler ise her
+            // zaman geçerlidir (bunların karşılığında zaten bir "kayıt" beklenmez).
+            const gecerliMazeret = devAciklama && devAciklama!=="Çalıştı - kayıt yapıldı";
+            if(!gercekKayitVar && !gecerliMazeret) gunler.push(ds);
           }
           if(gunler.length === 0) return null;
           return div({style:{background:"rgba(255,59,48,.06)",border:"1.5px solid rgba(255,59,48,.3)",
