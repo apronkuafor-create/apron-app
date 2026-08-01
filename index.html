@@ -8442,6 +8442,11 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   };
 
   const kaydet = () => {
+    // Güvenlik ağı: ileri tarihli kayıt hiçbir şekilde kaydedilemez (alandaki max sınırı aşılsa bile).
+    if(formTarih && formTarih>TODAY()){
+      showToast("İleri bir tarih seçemezsiniz — Kayıt Tarihi'ni bugün veya geçmiş bir tarihe düzeltin","uy");
+      return;
+    }
     // Kaydetmeden önce hizmet/ürün satırlarında ödeme tipi seçimi zorunludur.
     const odemesizHizmet = odemesizIlkHizmet();
     if(odemesizHizmet){
@@ -8572,8 +8577,15 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
           div(null,
             lbl({className:"fl"},"Kayıt Tarihi *"),
             h("input",{type:"date",className:"fi",style:{width:"100%",boxSizing:"border-box"},
-              value:formTarih||TODAY(),
-              onChange:e=>setFormTarih(e.target.value)})
+              value:formTarih||TODAY(), max:TODAY(),
+              onChange:e=>{
+                const secilen=e.target.value;
+                if(secilen && secilen>TODAY()){
+                  showToast("İleri bir tarih seçemezsiniz — sadece bugün ve geçmiş tarihler için kayıt girilebilir","uy");
+                  return;
+                }
+                setFormTarih(secilen);
+              }})
           ),
           div(null,
             lbl({className:"fl"},"Hizmet Saati"),
@@ -13511,6 +13523,19 @@ if(DB) dbUpsertAyar("tema",tema);
       setGecmis(p=>p.map(r=>r.id===gn.id?gn:r));
       setKayitPanelSonuc(p=>p?{...p,kayitlar:(p.kayitlar||[]).map(r=>String(r.id)===String(gn.id)?gn:r)}:p);
       kayitDuzenlemeStokFarkiUygula(eskiKayit, gn);
+      // Tarih düzeltildiyse (örn. yanlışlıkla farklı bir aya kaydedilmiş kayıt geri düzeltildi) ve eski
+      // tarihte artık bu personele ait başka kayıt kalmadıysa, o günün otomatik "Çalıştı - kayıt yapıldı"
+      // damgasını temizle — yoksa gerçek tarih geldiğinde personel veri girmese bile "eksik veri" uyarısı
+      // hiç tetiklenmez (damga, eski/yanlış tarihte asılı kalır).
+      if(eskiKayit.tarih && gn.tarih && eskiKayit.tarih!==gn.tarih && gn.staffId){
+        const eskiTarihteBaskaKayitVarMi =
+          records.some(r=>r.id!==gn.id && r.staffId===gn.staffId && r.tarih===eskiKayit.tarih) ||
+          bekleyen.some(r=>r.id!==gn.id && r.staffId===gn.staffId && r.tarih===eskiKayit.tarih) ||
+          gecmis.some(r=>r.id!==gn.id && r.staffId===gn.staffId && r.tarih===eskiKayit.tarih);
+        if(!eskiTarihteBaskaKayitVarMi && devDB[eskiKayit.tarih+"_"+gn.staffId]==="Çalıştı - kayıt yapıldı"){
+          devKayitlariSil(gn.staffId, [eskiKayit.tarih]);
+        }
+      }
       onSiparisSatistanOlustur(gn.id, gn.urunler, {staffId:gn.staffId, staffAd:gn.staffAd, musteri:gn.musteri, tarih:gn.tarih});
       dbGnc("kayitlar",{musteri:gn.musteri,telefon:gn.tel,hizmetler:gn.hizler,hiz_kk:hKK,hiz_ib:hIB,hiz_nk:hNK,
         urunler:gn.urunler,urun_kk:uKK,urun_ib:uIB,urun_nk:uNK,toplam:top,tarih:gn.tarih,saat:gn.saat},gn.id);
@@ -17327,20 +17352,21 @@ if(DB) dbUpsertAyar("tema",tema);
         // ── Eksik Gün Bannerı (Bugün sekmesine taşındı) ──
         (()=>{
           const bugunEksik = new Date();
-          const yilEksik = bugunEksik.getFullYear();
-          const ayEksik = bugunEksik.getMonth();
           const bugunStrEksik = TODAY();
-          const ayPrefixEksik = bugunStrEksik.slice(0,7);
+          // Ay sınırına takılmasın diye: son 60 gün içindeki her türlü aktiviteye (kayıt/bekleyen/devDB)
+          // bakılır — böylece ay değiştiğinde önceki ayın hâlâ çözülmemiş eksik günleri unutulmaz.
+          const altSinirD = new Date(bugunEksik); altSinirD.setDate(altSinirD.getDate()-60);
+          const altSinirStr = altSinirD.getFullYear()+"-"+String(altSinirD.getMonth()+1).padStart(2,"0")+"-"+String(altSinirD.getDate()).padStart(2,"0");
           const personelTumTarihlerEksik = [
-            ...records.filter(r=>r.staffId===kul.id && r.tarih && r.tarih.startsWith(ayPrefixEksik)).map(r=>r.tarih),
-            ...bekleyen.filter(r=>r.staffId===kul.id && r.tarih && r.tarih.startsWith(ayPrefixEksik)).map(r=>r.tarih),
-            ...Object.keys(devDB).filter(k=>k.endsWith("_"+kul.id)).map(k=>k.split("_")[0]).filter(t=>t.startsWith(ayPrefixEksik))
+            ...records.filter(r=>r.staffId===kul.id && r.tarih && r.tarih>=altSinirStr).map(r=>r.tarih),
+            ...bekleyen.filter(r=>r.staffId===kul.id && r.tarih && r.tarih>=altSinirStr).map(r=>r.tarih),
+            ...Object.keys(devDB).filter(k=>k.endsWith("_"+kul.id)).map(k=>k.split("_")[0]).filter(t=>t>=altSinirStr)
           ];
           if(personelTumTarihlerEksik.length === 0) return null;
-          const enErken = parseInt(personelTumTarihlerEksik.sort()[0].split("-")[2]);
+          const enErkenStr = personelTumTarihlerEksik.sort()[0];
+          const enErkenD = new Date(enErkenStr+"T12:00:00");
           const gunler = [];
-          for(let g=enErken; g<=bugunEksik.getDate(); g++){
-            const d = new Date(yilEksik, ayEksik, g);
+          for(let d=new Date(enErkenD); d<=bugunEksik; d.setDate(d.getDate()+1)){
             const ds = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
             if(ds === bugunStrEksik) continue;
             if(!records.some(r=>r.staffId===kul.id && r.tarih===ds) && !devDB[ds+"_"+kul.id]) gunler.push(ds);
