@@ -2425,7 +2425,14 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
       u.satisF = dbU?.sp||0;
       u.ml = dbU?.ml||"";
       if(dbU){ u.urunAd=dbU.a||u.urunAd; u.marka=dbU.m||u.marka; } // ürün silinmişse partideki eski önbellek değerine düş
-      u.birimF = u.partiler.length ? u.partiler[u.partiler.length-1].alisF||0 : 0;
+      // Referans "Birim F." için en son ÜCRETLİ (bedelsiz olmayan) partiyi kullan — sadece en son eklenen
+      // parti tesadüfen bedelsiz (promosyon/numune) olduğu diye tüm ürün "0 ₺" gibi yanıltıcı görünmesin.
+      u.birimF = (()=>{
+        for(let i=u.partiler.length-1;i>=0;i--){
+          if((u.partiler[i].alisF||0)>0) return u.partiler[i].alisF;
+        }
+        return 0; // gerçekten elde sadece bedelsiz parti(ler) varsa 0 doğru göstergedir
+      })();
     });
     return oz;
   },[stokPartiler]);
