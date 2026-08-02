@@ -11665,6 +11665,9 @@ function App() {
     return m;
   },[stokPartiler]);
   const [muhSek, setMuhSek]           = useState("");
+  const [ozetAy, setOzetAy] = useState(new Date().getMonth()); // 0-11, Genel Özet için seçilen ay
+  const [ozetYil, setOzetYil] = useState(new Date().getFullYear());
+  const [ozetYillik, setOzetYillik] = useState(false); // true: seçilen yılın tamamı gösterilir
   const [muhAlt, setMuhAlt]           = useState("");
   const [muhAltAcik, setMuhAltAcik]   = useState("");
   const [vergiFull, setVergiFull]     = useState(false);
@@ -15572,7 +15575,24 @@ if(DB) dbUpsertAyar("tema",tema);
           // Müşteri ve tarih bilgisi
           div({style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.07)",borderRadius:16,padding:14,marginBottom:12}},
             div({style:{fontSize:17,color:"var(--t)",fontWeight:600}},detay.musteri),
-            detay.tel&&div({style:{fontSize:13,color:"var(--di)",marginTop:3}},"📞 "+detay.tel),
+            (()=>{
+              // Gizlilik: personel ekranında, kaydı görüntüleyen kişi bu müşterinin asıl sahibi
+              // (musteriDB.sahipId) değilse telefon numarası gösterilmez — sadece kendi müşterisinin
+              // iletişim bilgisini görebilir. Yönetici panelinde bu kısıtlama uygulanmaz.
+              const kisitlamaGecerli = kul && kul.rol==="personel";
+              let telGosterilsin = true;
+              if(kisitlamaGecerli && detay.tel){
+                const m = (musteriDB||[]).find(x=>
+                  (detay.musteri && normText(x.ad)===normText(detay.musteri)) ||
+                  (detay.tel && String(x.tel||"").replace(/\D/g,"")===String(detay.tel||"").replace(/\D/g,""))
+                );
+                if(m) telGosterilsin = String(m.sahipId||"")===String(kul.id||"");
+              }
+              if(!detay.tel) return null;
+              return telGosterilsin
+                ? div({style:{fontSize:13,color:"var(--di)",marginTop:3}},"📞 "+detay.tel)
+                : null;
+            })(),
             div({style:{fontSize:12,color:"var(--di)",marginTop:5}},fmtT(detay.tarih)+" · "+(detay.saat||"")+" · "+detay.staffAd),
             !detay.gonderildi&&!detay._saltOkunur&&h("span",{style:{fontSize:11,color:"#B45309",marginTop:6,display:"inline-block",padding:"2px 9px",background:"rgba(255,159,10,.1)",borderRadius:20,fontWeight:600}},"Gönderilmedi")
           ),
@@ -20766,21 +20786,22 @@ if(DB) dbUpsertAyar("tema",tema);
     ),
 
             muhSek==="ozet"&&(()=>{
-              // ── Yardımcı: tarih bilgisi ──
-              const bugun = new Date();
-              const buAy  = bugun.getMonth();
-              const buYil = bugun.getFullYear();
+              // ── Yardımcı: seçilen dönem bilgisi (varsayılan: içinde bulunulan ay, ama Ay/Yıl/Yıllık seçilebilir) ──
+              const buAy  = ozetAy;
+              const buYil = ozetYil;
               const gecenAy  = buAy === 0 ? 11 : buAy - 1;
-              const gecenYil = buAy === 0 ? buYil - 1 : buYil;
+              const gecenYil = ozetYillik ? (buYil - 1) : (buAy === 0 ? buYil - 1 : buYil);
+              // Yıllık modda sadece yıl eşleşmesi yeterli; aylık modda hem ay hem yıl eşleşmeli.
+              const donemEslesir = (d, ay, yil) => ozetYillik ? (d.getFullYear()===yil) : (d.getMonth()===ay && d.getFullYear()===yil);
 
               // ── Kayıtlardan gelir ──
               const kayitlarBA = (tumK||[]).filter(r=>{
                 const d=new Date(r.tarih||r.ts||0);
-                return d.getMonth()===buAy && d.getFullYear()===buYil;
+                return donemEslesir(d, buAy, buYil);
               });
               const kayitlarGA = (tumK||[]).filter(r=>{
                 const d=new Date(r.tarih||r.ts||0);
-                return d.getMonth()===gecenAy && d.getFullYear()===gecenYil;
+                return donemEslesir(d, gecenAy, gecenYil);
               });
               const sumGelir = arr => (arr||[]).reduce((s,r)=>s+(parseFloat(r.toplam||r.tutar||r.ucret||r.fiyat||0)||0),0);
               const gelirBA = sumGelir(kayitlarBA);
@@ -20790,11 +20811,11 @@ if(DB) dbUpsertAyar("tema",tema);
               // ── Giderler ──
               const giderBA = (giderler||[]).filter(g=>{
                 const d=new Date(g.tarih||0);
-                return d.getMonth()===buAy && d.getFullYear()===buYil;
+                return donemEslesir(d, buAy, buYil);
               }).reduce((s,g)=>s+(parseFloat(g.tutar||0)),0);
               const giderGA = (giderler||[]).filter(g=>{
                 const d=new Date(g.tarih||0);
-                return d.getMonth()===gecenAy && d.getFullYear()===gecenYil;
+                return donemEslesir(d, gecenAy, gecenYil);
               }).reduce((s,g)=>s+(parseFloat(g.tutar||0)),0);
               const giderDelta = giderGA > 0 ? Math.round((giderBA - giderGA)/giderGA*100) : null;
 
@@ -20832,18 +20853,18 @@ if(DB) dbUpsertAyar("tema",tema);
               if(stokAlarm.length > 0)
                 oneriler.push({icon:"📦",renk:"#FF6B35",msg:`${stokAlarm.length} üründe kritik stok seviyesi (≤3 adet). Sipariş vermeyi düşünün.`});
               if(gelirDelta !== null && gelirDelta < -10)
-                oneriler.push({icon:"📉",renk:"#E53E3E",msg:`Bu ayki gelir geçen aya göre %${Math.abs(gelirDelta)} geriledi. Kampanya veya promosyon değerlendirin.`});
+                oneriler.push({icon:"📉",renk:"#E53E3E",msg:`${ozetYillik?"Bu yılki":"Bu ayki"} gelir ${ozetYillik?"geçen yıla":"geçen aya"} göre %${Math.abs(gelirDelta)} geriledi. Kampanya veya promosyon değerlendirin.`});
               if(gelirDelta !== null && gelirDelta > 15)
-                oneriler.push({icon:"🚀",renk:"#38A169",msg:`Harika! Bu ayki gelir geçen aya göre %${gelirDelta} arttı. Bu trendi koruyun.`});
+                oneriler.push({icon:"🚀",renk:"#38A169",msg:`Harika! ${ozetYillik?"Bu yılki":"Bu ayki"} gelir ${ozetYillik?"geçen yıla":"geçen aya"} göre %${gelirDelta} arttı. Bu trendi koruyun.`});
               if(giderDelta !== null && giderDelta > 20)
-                oneriler.push({icon:"💸",renk:"#D69E2E",msg:`Giderler geçen aya göre %${giderDelta} arttı. Maliyet kalemlerini gözden geçirin.`});
+                oneriler.push({icon:"💸",renk:"#D69E2E",msg:`Giderler ${ozetYillik?"geçen yıla":"geçen aya"} göre %${giderDelta} arttı. Maliyet kalemlerini gözden geçirin.`});
               const bostaPersonel = perPerf.filter(p=>p.islemSayisi===0);
               if(bostaPersonel.length > 0)
-                oneriler.push({icon:"👤",renk:"#805AD5",msg:`Bu ay hiç işlem kaydedilmeyen ${bostaPersonel.length} personel var: ${bostaPersonel.map(p=>p.ad).join(", ")}.`});
+                oneriler.push({icon:"👤",renk:"#805AD5",msg:`${ozetYillik?"Bu yıl":"Bu ay"} hiç işlem kaydedilmeyen ${bostaPersonel.length} personel var: ${bostaPersonel.map(p=>p.ad).join(", ")}.`});
               if(kar < 0)
-                oneriler.push({icon:"⚠️",renk:"#E53E3E",msg:`Bu ay zarar söz konusu. Giderleri kısmak veya geliri artırmak için aksiyon alın.`});
+                oneriler.push({icon:"⚠️",renk:"#E53E3E",msg:`${ozetYillik?"Bu yıl":"Bu ay"} zarar söz konusu. Giderleri kısmak veya geliri artırmak için aksiyon alın.`});
               if(oneriler.length === 0)
-                oneriler.push({icon:"✅",renk:"#38A169",msg:"İşletmeniz bu ay dengeli görünüyor. Tüm göstergeleri takip etmeye devam edin."});
+                oneriler.push({icon:"✅",renk:"#38A169",msg:`İşletmeniz ${ozetYillik?"bu yıl":"bu ay"} dengeli görünüyor. Tüm göstergeleri takip etmeye devam edin.`});
 
               // ── Format yardımcıları ──
               const fmt = n => n.toLocaleString("tr-TR",{minimumFractionDigits:0,maximumFractionDigits:0});
@@ -20871,33 +20892,58 @@ if(DB) dbUpsertAyar("tema",tema);
 
               return div({style:{padding:"8px 2px 40px"}},
 
-                // Başlık
-                div({style:{marginBottom:18,paddingBottom:10,borderBottom:"1px solid rgba(0,0,0,.06)"}},
+                // Başlık + Dönem Seçici
+                div({style:{marginBottom:18,paddingBottom:14,borderBottom:"1px solid rgba(0,0,0,.06)"}},
                   div({style:{fontSize:17,fontWeight:700,letterSpacing:"-.3px",color:"var(--fg,#111)"}},
-                    `📈 Genel Özet — ${ayAd(buAy)} ${buYil}`),
-                  div({style:{fontSize:12,color:"var(--mu,#888)",marginTop:3}},
-                    "Bu ayki işletme performansı ve stratejik göstergeler")
+                    ozetYillik ? `📈 Genel Özet — ${buYil} (Yıllık)` : `📈 Genel Özet — ${ayAd(buAy)} ${buYil}`),
+                  div({style:{fontSize:12,color:"var(--mu,#888)",marginTop:3,marginBottom:12}},
+                    ozetYillik ? "Seçilen yılın tamamı için işletme performansı" : "Seçilen ayki işletme performansı ve stratejik göstergeler"),
+                  div({style:{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}},
+                    !ozetYillik&&h("select",{value:buAy,
+                      onChange:e=>setOzetAy(parseInt(e.target.value)),
+                      style:{padding:"8px 12px",borderRadius:9,border:"1px solid rgba(0,0,0,.12)",
+                        background:"#fff",fontSize:13,color:"var(--fg,#111)",cursor:"pointer"}},
+                      [0,1,2,3,4,5,6,7,8,9,10,11].map(a=>h("option",{key:a,value:a},ayAd(a)))
+                    ),
+                    h("select",{value:buYil,
+                      onChange:e=>setOzetYil(parseInt(e.target.value)),
+                      style:{padding:"8px 12px",borderRadius:9,border:"1px solid rgba(0,0,0,.12)",
+                        background:"#fff",fontSize:13,color:"var(--fg,#111)",cursor:"pointer"}},
+                      (()=>{ const suAn=new Date().getFullYear(); const yillar=[]; for(let y=suAn;y>=suAn-4;y--) yillar.push(y); return yillar; })()
+                        .map(y=>h("option",{key:y,value:y},String(y)))
+                    ),
+                    btn({style:{padding:"8px 14px",borderRadius:9,border:"1px solid "+(ozetYillik?"#00AA82":"rgba(0,0,0,.12)"),
+                      background:ozetYillik?"rgba(0,170,130,.1)":"#fff",
+                      color:ozetYillik?"#00AA82":"var(--fg,#111)",fontSize:13,fontWeight:600,cursor:"pointer"},
+                      onClick:()=>setOzetYillik(y=>!y)},
+                      ozetYillik?"✓ Yıllık Genel":"📅 Yıllık Genel"),
+                    (buAy!==new Date().getMonth()||buYil!==new Date().getFullYear()||ozetYillik)&&
+                      btn({style:{padding:"8px 12px",borderRadius:9,border:"1px solid rgba(0,0,0,.1)",
+                        background:"transparent",color:"var(--mu,#888)",fontSize:12.5,cursor:"pointer"},
+                        onClick:()=>{setOzetAy(new Date().getMonth());setOzetYil(new Date().getFullYear());setOzetYillik(false);}},
+                        "Bu Aya Dön")
+                  )
                 ),
 
                 // Ana kartlar — 2 sütun grid
                 div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}},
                   KartSatir({
-                    emoji:"💚",baslik:"Bu Ay Gelir",
+                    emoji:"💚",baslik:(ozetYillik?"Yıllık":"Bu Ay")+" Gelir",
                     deger:`${fmt(gelirBA)} ₺`,
                     altyazi: gelirDelta !== null
-                      ? `Geçen ay: ${fmt(gelirGA)} ₺  (${gelirDelta >= 0 ? "+" : ""}${gelirDelta}%)`
-                      : `Geçen ay: ${fmt(gelirGA)} ₺`,
+                      ? `${ozetYillik?"Geçen yıl":"Geçen ay"}: ${fmt(gelirGA)} ₺  (${gelirDelta >= 0 ? "+" : ""}${gelirDelta}%)`
+                      : `${ozetYillik?"Geçen yıl":"Geçen ay"}: ${fmt(gelirGA)} ₺`,
                     vurgu: gelirBA >= gelirGA ? "#22863a" : "#E53E3E"
                   }),
                   KartSatir({
-                    emoji:"🔴",baslik:"Bu Ay Gider",
+                    emoji:"🔴",baslik:(ozetYillik?"Yıllık":"Bu Ay")+" Gider",
                     deger:`${fmt(toplamGiderBA)} ₺`,
                     altyazi:`Personel ${fmt(maasBA)} ₺ + İşletme ${fmt(giderBA)} ₺`,
                     vurgu: toplamGiderBA <= toplamGiderGA ? "#22863a" : "#E53E3E"
                   }),
                   KartSatir({
                     emoji: kar >= 0 ? "🏆" : "📉",
-                    baslik:"Bu Ay Net Kar/Zarar",
+                    baslik:(ozetYillik?"Yıllık":"Bu Ay")+" Net Kar/Zarar",
                     deger:`${kar >= 0 ? "+" : ""}${fmt(kar)} ₺`,
                     altyazi:"Gelir − (personel maaşı + işletme gideri)",
                     vurgu: kar >= 0 ? "#22863a" : "#E53E3E"
