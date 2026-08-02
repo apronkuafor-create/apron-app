@@ -2135,7 +2135,7 @@ function UrunMuhasebe({
   tedarikciler,setTedarikciler,faturalar,setFaturalar,
   odemeler,setOdemeler,hareketler,setHareketler,
   umDetay,setUmDetay,tumK,showToast,personeller,stokPartilerYuklendi,aktifSekme,onSekmeChange,onAnaPanel,isletme,
-  onSiparisler,onSiparisKarsila,triggerUrunRender,kul
+  onSiparisler,onSiparisKarsila,onSiparisKarsilamalariGeriAl,triggerUrunRender,kul
 }) {
 const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [showMenu, setShowMenu] = React.useState(!aktifSekme);
@@ -3394,12 +3394,52 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   !arsivDuzMod&&btn({style:{padding:"6px 14px",borderRadius:8,border:"1px solid #3a1010",
                     background:"rgba(160,40,40,.06)",color:"#c05050",fontSize:12,cursor:"pointer"},
                     onClick:()=>{
+                      // 1) Bu faturayla otomatik karşılanmış ön siparişleri (varsa) önce geri al — "bekliyor"a döner.
+                      const gerialinanMap = ar.tip==="sarf" ? {} : onSiparisKarsilamalariGeriAl(ar.faturaN, ar.tarih);
+                      const toplamGerialinan = Object.values(gerialinanMap).reduce((s,v)=>s+v,0);
+
+                      // 2) Bu faturayla eklenen stok partilerini bul (Sarf malzeme stokPartiler'e hiç dokunmadığı için muaf)
+                      const ilgiliPartiler = ar.tip==="sarf" ? [] :
+                        (stokPartiler||[]).filter(p=>p.faturaN===ar.faturaN && p.tarih===ar.tarih);
+
+                      // 3) Geri alınan ön sipariş adetlerini ilgili barkodun partilerine dağıtıp GERÇEK satış
+                      //    miktarını netleştir — ön sipariş kaynaklı düşüş artık "satış" sayılmaz.
+                      const dagitim = {...gerialinanMap};
+                      const efektifKalanMap = {};
+                      ilgiliPartiler.forEach(p=>{
+                        const bosluk = Math.max(0, toN(p.adet)-toN(p.kalan));
+                        let ekle = 0;
+                        if(dagitim[p.barkod]>0 && bosluk>0){ ekle = Math.min(dagitim[p.barkod], bosluk); dagitim[p.barkod] -= ekle; }
+                        efektifKalanMap[p.id] = toN(p.kalan)+ekle;
+                      });
+                      const kismenSatilmis = ilgiliPartiler.filter(p=>efektifKalanMap[p.id]<toN(p.adet));
+
+                      if(kismenSatilmis.length>0){
+                        const satilanToplam = kismenSatilmis.reduce((s,p)=>s+(toN(p.adet)-efektifKalanMap[p.id]),0);
+                        const kalanToplam = ilgiliPartiler.reduce((s,p)=>s+toN(p.kalan),0);
+                        const onSiparisNotu = toplamGerialinan>0
+                          ? ("\n\n(Bu faturadan otomatik karşılanmış "+toplamGerialinan+" adetlik ön sipariş, tekrar \"bekliyor\" durumuna alındı.)")
+                          : "";
+                        const onayMsg = "Bu faturadan gelen ürünlerin "+satilanToplam+" adedi zaten (gerçek müşteri satışıyla) satılmış.\n\n"+
+                          "Fatura silinecek, satılmamış "+kalanToplam+" adet stoktan düşülecek — ama satılmış ürünlerin geçmiş maliyet kaydı korunacak."+onSiparisNotu+"\n\nDevam edilsin mi?";
+                        if(!confirm(onayMsg)) return;
+                      } else if(toplamGerialinan>0){
+                        showToast(toplamGerialinan+" adetlik ön sipariş tekrar \"bekliyor\" durumuna alındı","uy");
+                      }
+
                       mkArsivKirliRef.current=true;
+                      if(ilgiliPartiler.length>0){
+                        setStokPartiler(p=>p
+                          .filter(part=>!(part.faturaN===ar.faturaN && part.tarih===ar.tarih && efektifKalanMap[part.id]>=toN(part.adet))) // ön sipariş geri alındıktan sonra hâlâ hiç satılmamışsa tamamen kaldır
+                          .map(part=>(part.faturaN===ar.faturaN && part.tarih===ar.tarih) ? {...part, kalan:0} : part) // gerçek satışı olanların sadece kalanını sıfırla, geçmişi korunsun
+                        );
+                      }
                       // id ile sil (id yoksa referansa düş); index'e güvenme → her zaman doğru kaydı siler
                       const yeni=mkArsiv.filter(x => ar.id ? x.id!==ar.id : x!==ar);
                       setMkArsiv(yeni);try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeni));}catch(e){}
                       if(DB) dbUpsertAyar("mkArsiv", yeni); // otoriter, ANINDA bulut yazımı (guard/remount yarışına takılmaz)
-                      setArsivAc(null);setArsivDuzMod(false);showToast("Kayıt silindi","uy");
+                      setArsivAc(null);setArsivDuzMod(false);
+                      showToast(ilgiliPartiler.length>0?"Kayıt ve ilgili stok silindi":"Kayıt silindi","uy");
                     }},"Sil")
                 )
               ),
@@ -4233,7 +4273,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                             bekleyenSiparisler.forEach(o=>{
                               if(kullanilabilir<=0) return;
                               const dus=Math.min(kullanilabilir, toN(o.kalan_adet));
-                              onSiparisKarsila && onSiparisKarsila(o.id, dus);
+                              onSiparisKarsila && onSiparisKarsila(o.id, dus, {faturaNo:mkFatura, tarih:mkTarih});
                               kullanilabilir-=dus;
                             });
                           });
@@ -13968,7 +14008,7 @@ if(DB) dbUpsertAyar("tema",tema);
     }
   };
 
-  const onSiparisKarsila = (id, gelenAdet) => {
+  const onSiparisKarsila = (id, gelenAdet, kaynakFatura) => {
     if(!DB) return;
     const sip = onSiparisler.find(o=>o.id===id);
     if(!sip) return;
@@ -13981,9 +14021,42 @@ if(DB) dbUpsertAyar("tema",tema);
     setStokDB(p=>({...p,[sip.barkod]:Math.max(0,toN(p[sip.barkod])-dus)}));
     const yeniKalan = kalan - dus;
     const yeniDurum = yeniKalan<=0 ? "karsilandi" : "bekliyor";
-    const upd = {kalan_adet:yeniKalan, durum:yeniDurum, karsilanma_tarihi: yeniDurum==="karsilandi"? TODAY() : (sip.karsilanma_tarihi||null)};
+    // Bu karşılama bir faturanın stoğa eklenmesiyle (otomatik) tetiklendiyse, hangi faturadan geldiğini
+    // kaydediyoruz — o fatura ileride silinirse, bu karşılamayı bulup geri alabilmemiz için.
+    const yeniKarsilamalar = kaynakFatura
+      ? [...(sip.karsilamalar||[]), {faturaNo:kaynakFatura.faturaNo, tarih:kaynakFatura.tarih, adet:dus}]
+      : (sip.karsilamalar||[]);
+    const upd = {kalan_adet:yeniKalan, durum:yeniDurum, karsilanma_tarihi: yeniDurum==="karsilandi"? TODAY() : (sip.karsilanma_tarihi||null), karsilamalar:yeniKarsilamalar};
     DB.from("on_siparisler").update(upd).eq("id",id).then(()=>{}).catch(()=>{});
     setOnSiparisler(p=>p.map(o=>o.id===id?{...o,...upd}:o));
+  };
+
+  // Belirli bir fatura numarası/tarihi tarafından karşılanmış (fatura girişiyle otomatik tetiklenmiş) ön
+  // sipariş karşılamalarını geri alır — o fatura Arşiv'den silindiğinde çağrılır. Geri alınan miktarları
+  // barkoda göre toplayıp döner ki, silme işlemi bu miktarı ilgili faturanın kendi stok partisine geri yazsın.
+  const onSiparisKarsilamalariGeriAl = (faturaNo, tarih) => {
+    const geriMap = {}; // {barkod: toplam geri alınan adet}
+    const guncellenecekler = [];
+    (onSiparisler||[]).forEach(o=>{
+      const eslesenler = (o.karsilamalar||[]).filter(k=>k.faturaNo===faturaNo && k.tarih===tarih);
+      if(eslesenler.length===0) return;
+      const toplamGeriAdet = eslesenler.reduce((s,k)=>s+toN(k.adet),0);
+      const kalanKarsilamalar = (o.karsilamalar||[]).filter(k=>!(k.faturaNo===faturaNo && k.tarih===tarih));
+      const yeniKalanAdet = toN(o.kalan_adet) + toplamGeriAdet;
+      guncellenecekler.push({id:o.id, kalan_adet:yeniKalanAdet, durum:"bekliyor", karsilamalar:kalanKarsilamalar, karsilanma_tarihi:null});
+      geriMap[o.barkod] = (geriMap[o.barkod]||0) + toplamGeriAdet;
+    });
+    if(guncellenecekler.length>0){
+      setOnSiparisler(p=>p.map(o=>{
+        const g=guncellenecekler.find(x=>x.id===o.id);
+        return g ? {...o, ...g} : o;
+      }));
+      if(DB) guncellenecekler.forEach(g=>{
+        const {id,...upd}=g;
+        DB.from("on_siparisler").update(upd).eq("id",id).then(()=>{}).catch(()=>{});
+      });
+    }
+    return geriMap;
   };
 
   const yonBildirimEkle = (tip, baslik, mesaj, ekstra) => {
@@ -20626,7 +20699,7 @@ if(DB) dbUpsertAyar("tema",tema);
 
             muhSek==="urunMuhasebe"&&h(UrunMuhasebe,{
               stokPartiler,setStokPartiler,stokDB,setStokDB,
-              onSiparisler,onSiparisKarsila,
+              onSiparisler,onSiparisKarsila,onSiparisKarsilamalariGeriAl,
               triggerUrunRender,
               stokGirisForm,setStokGirisForm,
               stokGirisUrun,setStokGirisUrun,
