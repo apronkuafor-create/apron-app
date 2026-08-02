@@ -2292,7 +2292,6 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           const yeniSatirlar = [];
           const eslesmeyenler = [];
           gecerliKalemler.forEach(k=>{
-            const eklenenBarkodlar = new Set([...mkUrunler, ...yeniSatirlar].map(x=>x.barkod));
             // 1) Barkod eşleşmesi (faturada barkod sütunu varsa ve tam eşleşiyorsa en güvenilir yol)
             let eslesen = null;
             const faturaBarkod = (k.barkod||"").trim();
@@ -2307,13 +2306,15 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               // Kelimelerin en az %60'ı örtüşmeli VE en az 2 anlamlı kelime ortak olmalı (kısa/genel isimlerde yanlış eşleşmeyi önler)
               if(enIyi && enIyiSkor>=0.6 && enIyiOrtak>=2) eslesen = enIyi;
             }
-            if(eslesen && !eklenenBarkodlar.has(eslesen.b)){
+            // Not: aynı ürün faturada birden fazla satırda geçebilir (örn. biri bedelli, biri bedelsiz/promosyon) —
+            // bu yüzden aynı barkod daha önce eklenmiş olsa bile satır ATLANMAZ, ayrı satır olarak eklenir.
+            if(eslesen){
               yeniSatirlar.push({barkod:eslesen.b, urunAd:eslesen.a, marka:eslesen.m, ml:eslesen.ml,
                 adet:k.adet!=null?String(k.adet):"",
                 birimF:k.birimFiyat!=null?String(k.birimFiyat):String(eslesen.bp||""),
                 iskontoOran:k.iskontoOrani!=null?String(k.iskontoOrani):"0",
                 kdvOran:k.kdvOrani!=null?String(k.kdvOrani):"20"});
-            } else if(!eslesen){
+            } else {
               eslesmeyenler.push({urunAdi:(k.urunAdi||"").trim(), adet:k.adet, birimFiyat:k.birimFiyat});
             }
           });
