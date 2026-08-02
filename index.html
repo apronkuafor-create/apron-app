@@ -3320,6 +3320,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       // 1) Listeden çıkarılan ürün → stok partisini sil (stok azalır)
                       // 2) Listeye eklenen yeni ürün → yeni stok partisi oluştur
                       // 3) Adet değişen mevcut ürün → fark kadar stok güncelle
+                      // Stok güncellemesi — sadece satılabilen (satilabilen/malKabul) kayıtları için yapılır.
+                      // Sarf Malzeme kayıtları hiçbir zaman stokPartiler'e dokunmaz (sadece harcama/istatistik amaçlıdır).
+                      if(ar.tip!=="sarf"){
                       const eskiBarkodlar = new Set(ar.urunler.map(u=>u.barkod));
                       const yeniBarkodlar = new Set(yeniUrunler.map(u=>u.barkod));
 
@@ -3369,6 +3372,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         if(DB) dbUpsertAyar("stokPartiler", yeniPartiler);
                         return yeniPartiler;
                       });
+                      } // if(ar.tip!=="sarf")
 
                       setArsivDuzMod(false);
                       setArsivFarkAcikIdx({});
@@ -4173,20 +4177,43 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         setMkForm(false);setMkTipSecim(false);setMkTip("");setMkUrunler([]);setMkFarkAcikIdx({});setMkMukerrerGecildi(false);setMkMukerrerUyari(null);mkKaydediliyorRef.current=false;setMkKaydediliyor(false);setMkFatura("");setMkFaturaTarih("");setMkIrsaliye("");setMkTarih(TODAY());setMkFaturaImg("");setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());
                         return;
                       }
-                      mkUrunler.forEach(u=>{
-                        const ad=toN(u.adet),bf=toN(u.birimF);
-                        const kabul=(u.kabulAdet!==undefined&&u.kabulAdet!=="")?toN(u.kabulAdet):ad;
-                        const bekleyen=Math.max(0,ad-kabul);
-                        const isk=bf*(toN(u.iskontoOran||"0")/100);
-                        const _iskO8=toN(u.iskontoOran||"0"),_nf8=Math.round(bf*(1-_iskO8/100)*100)/100,_bed8=bf>0&&_nf8<1;
-                        setStokPartiler(p=>[...p,{id:uid(),barkod:u.barkod,urunAd:u.urunAd,marka:u.marka,
-                          adet:ad,kalan:Math.max(0,kabul),beklenenAdet:bekleyen,
-                          farkSebep:bekleyen>0?(u.farkSebep||""):"",farkNot:bekleyen>0?(u.farkNot||""):"",
-                          alisF:_bed8?0:(bf-isk),kdvOran:_bed8?0:toN(u.kdvOran||"20"),
-                          tarih:mkTarih,faturaN:mkFatura,tip:"malKabul",bedelsiz:_bed8}]);
-                        setHareketler(p=>[...p,{id:uid(),barkod:u.barkod,urun_ad:u.urunAd,
-                          tip:"giris",adet:Math.max(0,kabul),tarih:mkTarih,faturaN:mkFatura,staff_id:"yonetici",staff_name:"Yönetici"}]);
-                      });
+                      // Sarf Malzeme: sadece harcama/istatistik amaçlı — Satılabilen Ürünler stoğuna (stokPartiler)
+                      // KESİNLİKLE eklenmez. Stok partisi ve hareket kaydı SADECE satılabilen ürünler için oluşturulur.
+                      if(mkTip!=="sarf"){
+                        mkUrunler.forEach(u=>{
+                          const ad=toN(u.adet),bf=toN(u.birimF);
+                          const kabul=(u.kabulAdet!==undefined&&u.kabulAdet!=="")?toN(u.kabulAdet):ad;
+                          const bekleyen=Math.max(0,ad-kabul);
+                          const isk=bf*(toN(u.iskontoOran||"0")/100);
+                          const _iskO8=toN(u.iskontoOran||"0"),_nf8=Math.round(bf*(1-_iskO8/100)*100)/100,_bed8=bf>0&&_nf8<1;
+                          setStokPartiler(p=>[...p,{id:uid(),barkod:u.barkod,urunAd:u.urunAd,marka:u.marka,
+                            adet:ad,kalan:Math.max(0,kabul),beklenenAdet:bekleyen,
+                            farkSebep:bekleyen>0?(u.farkSebep||""):"",farkNot:bekleyen>0?(u.farkNot||""):"",
+                            alisF:_bed8?0:(bf-isk),kdvOran:_bed8?0:toN(u.kdvOran||"20"),
+                            tarih:mkTarih,faturaN:mkFatura,tip:"malKabul",bedelsiz:_bed8}]);
+                          setHareketler(p=>[...p,{id:uid(),barkod:u.barkod,urun_ad:u.urunAd,
+                            tip:"giris",adet:Math.max(0,kabul),tarih:mkTarih,faturaN:mkFatura,staff_id:"yonetici",staff_name:"Yönetici"}]);
+                        });
+                        // Otomatik Ön Sipariş Karşılama — yeni gelen satılabilen stoktan, bekleyen müşteri ön
+                        // siparişlerini (peşin alınmış) elle "Karşıla" tıklamaya gerek kalmadan otomatik düşer.
+                        // En eski sipariş önce karşılanır (FIFO), stok yetmezse kalanı bekliyor durumunda kalır.
+                        if(mkTip==="satilabilen"){
+                          mkUrunler.forEach(u=>{
+                            const kabul=(u.kabulAdet!==undefined&&u.kabulAdet!=="")?toN(u.kabulAdet):toN(u.adet);
+                            let kullanilabilir=kabul;
+                            if(kullanilabilir<=0) return;
+                            const bekleyenSiparisler=(onSiparisler||[])
+                              .filter(o=>o.barkod===u.barkod && o.durum!=="karsilandi" && toN(o.kalan_adet)>0)
+                              .sort((a,b)=>new Date(a.tarih||0)-new Date(b.tarih||0));
+                            bekleyenSiparisler.forEach(o=>{
+                              if(kullanilabilir<=0) return;
+                              const dus=Math.min(kullanilabilir, toN(o.kalan_adet));
+                              onSiparisKarsila && onSiparisKarsila(o.id, dus);
+                              kullanilabilir-=dus;
+                            });
+                          });
+                        }
+                      }
                       stokPartilerYuklendi.current=true;
                       const arsivKayit={id:uid(),tarih:mkTarih,faturaTarih:mkFaturaTarih,faturaN:mkFatura,irsaliyeN:mkIrsaliye,tedarikci:mkTedarikci,vade:mkVade,malKabulTarihi:mkMalKabulTarihi,tip:mkTip,
                         faturaImg:(Array.isArray(mkFaturaImg)?mkFaturaImg:[mkFaturaImg]).filter(Boolean),
