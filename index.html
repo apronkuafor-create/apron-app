@@ -10459,16 +10459,25 @@ function hesaplaMaas(personel, kayitlar, opts={}) {
 // ── MAAŞ FORMÜL EDİTÖRÜ BİLEŞENİ ──────────────────────────────────────────
 function MaasFormulEditoru({formul, onChange, tumPersoneller}) {
   const [bilesenForm, setBilesenForm] = React.useState(null); // {tip, ad, tutar, oran, ...}
+  const [acikBilgi, setAcikBilgi] = React.useState(null); // hangi bileşenin detay açıklaması açık (tip)
 
   const bilesenTipleri = [
-    {tip:"sabit", lb:"💰 Sabit Maaş", desc:"Her ay aynı tutar (ör: 15.000₺)"},
-    {tip:"hizmetYuzde", lb:"✂ Hizmet Cirosu Yüzdesi", desc:"Hizmetlerden gelen cironun yüzdesi"},
-    {tip:"urunYuzde", lb:"📦 Ürün Satışı Yüzdesi", desc:"Ürün satışlarından gelen cironun yüzdesi"},
-    {tip:"toplamYuzde", lb:"💵 Toplam Ciro Yüzdesi", desc:"Hizmet+Ürün toplam cirosunun yüzdesi"},
-    {tip:"musteriBasi", lb:"👥 Müşteri Başı", desc:"Her tekil müşteri için sabit tutar"},
-    {tip:"esikPrimi", lb:"🎯 Eşik Primi", desc:"Belirli ciroyu aşarsa sabit bonus"},
-    {tip:"kademeli", lb:"📊 Kademeli Yüzde", desc:"Ciro dilimine göre farklı oran"},
-    {tip:"ortakPayi", lb:"🤝 Ortak Payı (Kâr/Zarar)", desc:"İşyeri ortakları için: gelir-gider÷ortak sayısı"}
+    {tip:"sabit", lb:"💰 Sabit Maaş", desc:"Her ay aynı tutar (ör: 15.000₺)",
+      detay:"Personelin performansından bağımsız olarak her ay aynı tutarı alır. Ciro, müşteri sayısı ya da başka hiçbir veriye bağlı değildir. Genelde resepsiyon, temizlik gibi hizmet üretmeyen pozisyonlarda, ya da diğer bileşenlerle birlikte 'garanti taban maaş' olarak kullanılır.\n\nÖrnek: Sabit Maaş = 15.000₺ → personel o ay 0₺ de kazandırsa, 50.000₺ de kazandırsa her zaman 15.000₺ alır."},
+    {tip:"hizmetYuzde", lb:"✂ Hizmet Cirosu Yüzdesi", desc:"Hizmetlerden gelen cironun yüzdesi",
+      detay:"Sadece o personelin verdiği hizmetlerden (saç kesimi, boya, bakım vb.) gelen cironun belirlediğiniz yüzdesi kadar ödeme yapılır. Ürün satışları bu hesaba hiç dahil edilmez. Kuaför/berber gibi doğrudan hizmet üreten personel için en sık kullanılan bileşendir.\n\nÖrnek: %30 oran seçtiniz, personel o ay 40.000₺'lik hizmet yaptı → 40.000 × %30 = 12.000₺ komisyon.\n\nİpucu: Bir ortak/işyeri sahibi kendisi de çalışıyorsa, kendi cirosunun tamamını almak için bu bileşeni %100 oranla ekleyip 'Ortak Payı' ile birlikte kullanabilirsiniz."},
+    {tip:"urunYuzde", lb:"📦 Ürün Satışı Yüzdesi", desc:"Ürün satışlarından gelen cironun yüzdesi",
+      detay:"Personelin sattığı ürünlerden (şampuan, bakım kremi vb.) gelen cironun belirlediğiniz yüzdesi kadar ödeme yapılır. Hizmet cirosu bu hesaba dahil edilmez. Ürün satışını ayrıca teşvik etmek isteyen işletmeler, hizmet komisyonundan bağımsız ve genelde daha düşük bir oranla bu bileşeni kullanır.\n\nÖrnek: %15 oran, personel o ay 5.000₺'lik ürün sattı → 5.000 × %15 = 750₺."},
+    {tip:"toplamYuzde", lb:"💵 Toplam Ciro Yüzdesi", desc:"Hizmet+Ürün toplam cirosunun yüzdesi",
+      detay:"Hizmet ve ürün cirosunun toplamı üzerinden tek bir yüzde uygulanır. Hizmeti ve ürünü ayrı ayrı farklı oranla değil, ikisini birlikte tek oranla ödüllendirmek isterseniz kullanılır — 'Hizmet Yüzdesi' ile 'Ürün Yüzdesi'ni ayrı ayrı eklemek yerine tek bileşenle aynı işi yapmanın kısayoludur.\n\nÖrnek: %20 oran, 30.000₺ hizmet + 5.000₺ ürün = 35.000₺ toplam ciro → 35.000 × %20 = 7.000₺."},
+    {tip:"musteriBasi", lb:"👥 Müşteri Başı", desc:"Her tekil müşteri için sabit tutar",
+      detay:"O dönem içinde personelin hizmet verdiği HER FARKLI müşteri için sabit bir tutar öder (aynı müşteri birden fazla kez gelse bile bir kez sayılır). Müşteri sayısını ve düzenli müşteri kazanmayı teşvik etmek için genelde ciro bazlı komisyonların yanına eklenir.\n\nÖrnek: 80₺ / müşteri, o ay 45 farklı müşteriye hizmet verildi → 45 × 80 = 3.600₺."},
+    {tip:"esikPrimi", lb:"🎯 Eşik Primi", desc:"Belirli ciroyu aşarsa sabit bonus",
+      detay:"Belirlediğiniz bir eşik değeri (hizmet cirosu, ürün cirosu, toplam ciro, müşteri sayısı, kayıt sayısı ya da ürün adedi) aşılırsa TEK SEFERLİK sabit bir bonus öder. Eşik aşılmazsa bu bileşenden hiçbir ödeme yapılmaz — kademeli değildir, ya hep ya hiç mantığıyla çalışır. Hedef bazlı motivasyon için kullanılır.\n\nÖrnek: Eşik = Hizmet Cirosu 50.000₺, Prim = 2.000₺ → personel 49.999₺ yaparsa 0₺, 50.000₺ veya üzerini yaparsa +2.000₺ alır."},
+    {tip:"kademeli", lb:"📊 Kademeli Yüzde", desc:"Ciro dilimine göre farklı oran",
+      detay:"Seçtiğiniz veriyi (genelde ciro) dilimlere bölüp her dilime FARKLI bir yüzde uygularsınız — gelir vergisi dilimleri gibi çalışır, her dilim kendi oranı üzerinden ayrı ayrı hesaplanır. Yüksek performansı kademe kademe daha cazip hale getirmek için kullanılır.\n\nÖrnek dilimler: 0-30.000₺ arası %30, 30.000-50.000₺ arası %35, 50.000₺ üzeri %40. Personel 60.000₺ hizmet cirosu yaptıysa:\n(30.000×%30) + (20.000×%35) + (10.000×%40) = 9.000 + 7.000 + 4.000 = 20.000₺."},
+    {tip:"ortakPayi", lb:"🤝 Ortak Payı (Kâr/Zarar)", desc:"İşyeri ortakları için: gelir-gider÷ortak sayısı",
+      detay:"Sadece işletme ortakları için kullanılır. Ortak OLMAYAN personelin hizmet cirosu + TÜM personelin (ortaklar dahil) ürün satışı 'gelir havuzunu' oluşturur; ortak olmayan personelin maaşları + elle girilen giderler 'gider havuzunu' oluşturur. Gelir − Gider farkı ortak sayısına bölünüp her ortağın payına eklenir (fazla varsa) veya payından düşülür (açık varsa).\n\nÖNEMLİ: Bu bileşen ortağın KENDİ hizmet cirosunu hesaba katmaz. Ortak aynı zamanda çalışıyorsa (usta/kuaför olarak), kendi cirosunu almak için ayrıca 'Hizmet Cirosu Yüzdesi: %100' bileşenini de eklemeniz gerekir.\n\nAçık, ortağın kendi kazancından karşılanamıyorsa toplam maaş NEGATİF çıkabilir — bu durum işyerine borç anlamına gelir."}
   ];
 
   const esikTipSecenekleri = [
@@ -10548,13 +10557,30 @@ function MaasFormulEditoru({formul, onChange, tumPersoneller}) {
 
     // Yeni bileşen seç butonları
     !bilesenForm&&div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}},
-      bilesenTipleri.map(t=>
-        btn({key:t.tip,style:{padding:"9px 10px",borderRadius:9,border:"1px solid rgba(0,113,227,.25)",
-          background:"rgba(0,113,227,.04)",color:"#0071E3",fontSize:12,fontWeight:600,cursor:"pointer",
-          textAlign:"left",lineHeight:1.4},
-          onClick:()=>yeniBilesen(t.tip),title:t.desc},
-          "+ "+t.lb)
-      )
+      bilesenTipleri.map(t=>[
+        div({key:t.tip,style:{position:"relative"}},
+          div({style:{padding:"9px 34px 9px 10px",borderRadius:9,border:"1px solid rgba(0,113,227,.25)",
+            background:"rgba(0,113,227,.04)",color:"#0071E3",fontSize:12,fontWeight:600,cursor:"pointer",
+            textAlign:"left",lineHeight:1.4},
+            onClick:()=>yeniBilesen(t.tip),title:t.desc},
+            "+ "+t.lb),
+          btn({style:{position:"absolute",top:5,right:5,width:22,height:22,borderRadius:"50%",
+            border:"1px solid rgba(0,113,227,.35)",background:"#fff",color:"#0071E3",
+            fontSize:12,fontWeight:700,cursor:"pointer",padding:0,lineHeight:"20px",
+            display:"flex",alignItems:"center",justifyContent:"center"},
+            title:"Detaylı açıklama",
+            onClick:e=>{e.stopPropagation();setAcikBilgi(p=>p===t.tip?null:t.tip);}},
+            "ⓘ")
+        ),
+        acikBilgi===t.tip&&div({key:t.tip+"-detay",style:{gridColumn:"1/-1",
+          padding:"11px 13px",background:"#FFF8EC",border:"1px solid rgba(184,121,10,.25)",
+          borderRadius:9,marginTop:-2,marginBottom:2}},
+          div({style:{fontSize:11.5,color:"#5C4813",lineHeight:1.6,whiteSpace:"pre-line"}},t.detay),
+          btn({style:{marginTop:8,background:"transparent",border:"none",color:"#B8790A",
+            fontSize:11,fontWeight:600,cursor:"pointer",padding:0},
+            onClick:()=>setAcikBilgi(null)},"✕ Kapat")
+        )
+      ])
     ),
 
     // Bileşen düzenleme formu
