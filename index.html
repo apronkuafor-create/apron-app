@@ -131,6 +131,8 @@ const DB = (window.supabase && window.supabase.createClient)
   : null;
 
 const TODAY = () => new Date().toISOString().split("T")[0];
+// Yerel tarih bileşenlerinden (saat dilimi kaymasına karşı güvenli) ISO tarih string'i üretir.
+const isoTarih = (d) => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
 const SAAT  = () => new Date().toTimeString().slice(0,5);
 const fmtT  = d => { if(!d) return ""; const p=(d+"").split("-"); return p.length===3 ? p[2]+"."+p[1]+"."+p[0] : d; };
 const fmt   = n => Number(n||0).toLocaleString("tr-TR") + " \u20ba";
@@ -10314,29 +10316,58 @@ function IndirimZamModul({zamGecmisi, setZamGecmisi, triggerUrunRender, hizListe
 // ]
 
 function maasFormuluVarMi(personel) {
-  return Array.isArray(personel?.maasFormulu) && personel.maasFormulu.length > 0;
+  return formulDonemleri(personel).length > 0;
 }
 
 function personelYuzdelimi(personel) {
-  // Sadece "sabit" bileşen varsa maaşlı, yüzdesel varsa yüzdeli
-  if(!maasFormuluVarMi(personel)) return false;
-  return personel.maasFormulu.some(b => b.tip !== "sabit");
+  // Sadece "sabit" bileşen varsa maaşlı, yüzdesel varsa yüzdeli — BUGÜN geçerli döneme bakılır
+  const donem = formulSec(personel, TODAY());
+  if(!donem) return false;
+  return (donem.formul||[]).some(b => b.tip !== "sabit");
 }
 
-function hesaplaMaas(personel, kayitlar, opts={}) {
-  // kayitlar: filtrelenmiş kayıt listesi (zaten dönem süzgeçten geçmiş)
-  // dön: {toplam, detay:[{ad, tutar, aciklama}]}
-  if(!maasFormuluVarMi(personel)) return {toplam:0, detay:[], formulYok:true};
+// ── Maaş Formülü Dönemleri (versiyonlama) ───────────────────────────────
+// Bir personelin maaş formülü, işe başladığından beri değişmiş olabilir. Bunu desteklemek için
+// personel.maasFormulGecmisi = [{id, baslangic:"YYYY-MM-DD", formul:[...bileşenler]}, ...] tutulur.
+// Geriye dönük uyumluluk: maasFormulGecmisi hiç yoksa, eski tekil personel.maasFormulu
+// "2000-01-01"den itibaren geçerli tek dönem gibi sarılıp döndürülür — hiçbir veri kaybolmaz.
+function formulDonemleri(personel) {
+  if(Array.isArray(personel?.maasFormulGecmisi) && personel.maasFormulGecmisi.length>0) {
+    return personel.maasFormulGecmisi.slice().sort((a,b)=>(a.baslangic||"").localeCompare(b.baslangic||""));
+  }
+  if(Array.isArray(personel?.maasFormulu) && personel.maasFormulu.length>0) {
+    return [{id:"legacy", baslangic:"2000-01-01", formul:personel.maasFormulu}];
+  }
+  return [];
+}
+// Belirli bir tarihte geçerli olan dönemi döndürür (o tarihten önceki/eşit en son başlangıçlı dönem)
+function formulSec(personel, tarih) {
+  const donemler = formulDonemleri(personel);
+  if(donemler.length===0) return null;
+  let secilen = donemler[0];
+  donemler.forEach(d=>{ if((d.baslangic||"")<=tarih) secilen = d; });
+  return secilen;
+}
+// İki ISO tarih arasındaki gün farkını hesaplar (bit − bas, gün cinsinden)
+function gunFarki(basISO, bitISO) {
+  const b = new Date(basISO+"T00:00:00"), s = new Date(bitISO+"T00:00:00");
+  return Math.round((s-b)/86400000);
+}
+// ISO tarihe n gün ekler/çıkarır
+function gunEkle(iso, n) {
+  const d = new Date(iso+"T00:00:00");
+  d.setDate(d.getDate()+n);
+  return isoTarih(d);
+}
 
-  // Personelin kayıtları
-  const pKayit = kayitlar.filter(r => String(r.staffId)===String(personel.id) && r.gonderildi!==false);
-
-  // Temel veriler
+// Tek bir dönem (tek formül) için hesaplama — asıl bileşen mantığı burada.
+// gunOrani: bu dönemin, hesaplanan toplam periyot içindeki gün oranı (0-1). Sadece "Sabit Maaş" buna göre ölçeklenir
+// (yüzde/kademeli/eşik bileşenleri zaten sadece bu dönemin gerçek kayıtlarından hesaplandığı için otomatik doğru orantılıdır).
+function hesaplaMaasTekDonem(personel, formul, pKayit, opts, gunOrani) {
   const hizmetCiro = pKayit.reduce((s,r) => s + toN(r.hizKK||0) + toN(r.hizIB||0) + toN(r.hizNK||0), 0);
   const urunCiro   = pKayit.reduce((s,r) => s + toN(r.uKK||0) + toN(r.uIB||0) + toN(r.uNK||0), 0);
   const toplamCiro = hizmetCiro + urunCiro;
 
-  // Tekil müşteri sayısı
   const musteriSet = new Set();
   pKayit.forEach(r => {
     const key = (r.musteri||"").trim().toLowerCase()+"|"+String(r.tel||"").replace(/\D/g,"");
@@ -10351,13 +10382,15 @@ function hesaplaMaas(personel, kayitlar, opts={}) {
   const detay = [];
   let toplam = 0;
 
-  personel.maasFormulu.forEach(b => {
+  (formul||[]).forEach(b => {
     let tutar = 0;
     let aciklama = "";
 
     if(b.tip==="sabit") {
-      tutar = toN(b.tutar);
-      aciklama = "Sabit tutar";
+      tutar = toN(b.tutar) * gunOrani;
+      aciklama = gunOrani<1
+        ? ("Sabit "+fmt(toN(b.tutar))+" × dönem oranı %"+Math.round(gunOrani*1000)/10)
+        : "Sabit tutar";
     }
     else if(b.tip==="hizmetYuzde") {
       tutar = hizmetCiro * (toN(b.oran)/100);
@@ -10431,17 +10464,18 @@ function hesaplaMaas(personel, kayitlar, opts={}) {
 
       // GİDER HESABI
       // 1) Ortak OLMAYAN personellerin maaşları (uygulamadan hesaplanır)
-      // 2) Elle girilmiş masraflar (opts.toplamGider)
+      // 2) Elle girilmiş masraflar (opts.toplamGider) — bu dönemin gün oranına göre ölçeklenir
       let digerMaaslar = 0;
       tumPers.forEach(p=>{
         if(ortakIdler.includes(String(p.id))) return; // ortakları atla
         if(!maasFormuluVarMi(p)) return;
-        // Sonsuz döngüyü önlemek için: ortakPayi içeren formülleri atla (zaten ortak olmayanları aldık ama emniyet)
-        if(p.maasFormulu.some(bi=>bi.tip==="ortakPayi")) return;
+        // Sonsuz döngüyü önlemek için: geçmişinde herhangi bir dönemde ortakPayi bileşeni olan
+        // personelleri atla (emniyet kontrolü)
+        if(formulDonemleri(p).some(d=>(d.formul||[]).some(bi=>bi.tip==="ortakPayi"))) return;
         const sonucP = hesaplaMaas(p, tumKy, {...opts, _icPas:true});
         digerMaaslar += sonucP.toplam;
       });
-      const elleMasraf = toN(opts.toplamGider||0);
+      const elleMasraf = toN(opts.toplamGider||0) * gunOrani;
       const havuzGider = digerMaaslar + elleMasraf;
 
       const net = havuzGelir - havuzGider;
@@ -10451,6 +10485,69 @@ function hesaplaMaas(personel, kayitlar, opts={}) {
 
     detay.push({ad: b.ad || b.tip, tip:b.tip, tutar, aciklama});
     toplam += tutar;
+  });
+
+  return {toplam, detay, veriler};
+}
+
+function hesaplaMaas(personel, kayitlar, opts={}) {
+  // kayitlar: filtrelenmiş kayıt listesi (zaten dönem süzgeçten geçmiş)
+  // opts.periyotBas / opts.periyotBit: (opsiyonel) "YYYY-MM-DD" — hesaplanan periyodun sınırları.
+  //   Formül dönem değişikliklerinde "Sabit Maaş"ı gün oranına bölmek için kullanılır.
+  //   Verilmezse, personelin bu periyottaki kayıtlarının en erken/en geç tarihinden yaklaşık çıkarılır.
+  // dön: {toplam, detay:[{ad, tutar, aciklama}], veriler}
+  const donemler = formulDonemleri(personel);
+  if(donemler.length===0) return {toplam:0, detay:[], formulYok:true};
+
+  const pKayitTum = kayitlar.filter(r => String(r.staffId)===String(personel.id) && r.gonderildi!==false);
+
+  if(donemler.length===1) {
+    // Tek dönem: eskisiyle birebir aynı davranış, gün oranı her zaman tam (1).
+    return hesaplaMaasTekDonem(personel, donemler[0].formul, pKayitTum, opts, 1);
+  }
+
+  // Birden fazla dönem var — periyot sınırlarını belirle
+  let periyotBas = opts.periyotBas, periyotBit = opts.periyotBit;
+  if(!periyotBas || !periyotBit) {
+    const tarihler = pKayitTum.map(r=>r.tarih).filter(Boolean).sort();
+    periyotBas = tarihler[0] || TODAY();
+    periyotBit = tarihler[tarihler.length-1] || TODAY();
+  }
+  const toplamGun = Math.max(1, gunFarki(periyotBas, periyotBit) + 1); // dahil-dahil gün sayısı
+
+  let toplam = 0;
+  const detay = [];
+  const veriler = {hizmetCiro:0, urunCiro:0, toplamCiro:0, musteriSay:0, kayitSay:0, urunAdet:0};
+
+  donemler.forEach((d,i)=>{
+    const donemBas = d.baslangic || "0000-01-01";
+    const sonrakiBas = donemler[i+1]?.baslangic || null;
+    const donemSonGun = sonrakiBas ? gunEkle(sonrakiBas,-1) : "9999-12-31";
+
+    // Bu dönemin, hesaplanan periyot ile kesişimi
+    const kesisimBas = donemBas > periyotBas ? donemBas : periyotBas;
+    const kesisimBit = donemSonGun < periyotBit ? donemSonGun : periyotBit;
+    if(kesisimBas > kesisimBit) return; // kesişim yok, bu dönem hesaplanan periyodun dışında
+
+    const gunSayisi = gunFarki(kesisimBas, kesisimBit) + 1; // dahil-dahil
+    const gunOrani = Math.min(1, gunSayisi / toplamGun);
+
+    const altKayit = pKayitTum.filter(r => (r.tarih||"")>=kesisimBas && (r.tarih||"")<=kesisimBit);
+    const subOpts = {...opts,
+      periyotBas: kesisimBas, periyotBit: kesisimBit,
+      tumKayitlar: (opts.tumKayitlar||[]).filter(r=>(r.tarih||"")>=kesisimBas && (r.tarih||"")<=kesisimBit)
+    };
+    const sonucD = hesaplaMaasTekDonem(personel, d.formul, altKayit, subOpts, gunOrani);
+
+    const etiket = kesisimBas===kesisimBit ? fmtT(kesisimBas) : (fmtT(kesisimBas)+" – "+fmtT(kesisimBit));
+    sonucD.detay.forEach(x=>detay.push({...x, ad:"["+etiket+"] "+x.ad}));
+    toplam += sonucD.toplam;
+    veriler.hizmetCiro += sonucD.veriler.hizmetCiro;
+    veriler.urunCiro += sonucD.veriler.urunCiro;
+    veriler.toplamCiro += sonucD.veriler.toplamCiro;
+    veriler.musteriSay += sonucD.veriler.musteriSay;
+    veriler.kayitSay += sonucD.veriler.kayitSay;
+    veriler.urunAdet += sonucD.veriler.urunAdet;
   });
 
   return {toplam, detay, veriler};
@@ -10721,6 +10818,115 @@ function MaasFormulEditoru({formul, onChange, tumPersoneller}) {
   );
 }
 
+// ── MAAŞ FORMÜLÜ DÖNEM YÖNETİCİSİ ──────────────────────────────────────────
+// Bir personelin çalışma şekli zamanla değişebilir (ör. önce sadece maaşlı,
+// sonra maaş+komisyon). Bu bileşen dönem geçmişini gösterir; yeni bir dönem
+// (belirli bir başlangıç tarihinden itibaren geçerli farklı bir formül)
+// başlatmayı ve geçmiş dönemleri düzenlemeyi/silmeyi sağlar. Geçmiş dönemlerin
+// hesaplaması bozulmaz — hesaplaMaas her kaydı, o kaydın tarihinde geçerli olan
+// formülle hesaplar.
+function MaasFormulYoneticisi({personel, onChange, tumPersoneller}) {
+  const [yeniForm, setYeniForm] = React.useState(null); // {baslangic, formul}
+  const [duzenle, setDuzenle] = React.useState(null); // düzenlenen dönemin id'si (kart açık/kapalı)
+
+  const siraliArtan = formulDonemleri(personel); // baslangic'e göre küçükten büyüğe
+  const siraliAzalan = siraliArtan.slice().reverse(); // en yeni üstte gösterilsin
+
+  const kaydetListe = (yeniListe) => onChange({maasFormulGecmisi: yeniListe});
+  const bilesenOzet = (formul) => (formul||[]).map(b=>b.ad||b.tip).join(" + ") || "—";
+
+  return div(null,
+    // Dönem listesi (en yeni üstte)
+    siraliAzalan.length>0 && div({style:{marginBottom:12}},
+      siraliAzalan.map(d=>{
+        const idx = siraliArtan.indexOf(d);
+        const sonraki = siraliArtan[idx+1];
+        const guncelMi = !sonraki;
+        const bitEtiket = guncelMi ? "devam ediyor" : fmtT(gunEkle(sonraki.baslangic,-1));
+        const duzenleniyor = duzenle===(d.id||"legacy");
+        return div({key:d.id||d.baslangic, style:{padding:"10px 12px",
+          background:guncelMi?"#F0FAF1":"#FBFBFD",
+          border:"1px solid "+(guncelMi?"rgba(52,199,89,.3)":"rgba(0,0,0,.08)"),borderRadius:10,marginBottom:6}},
+          div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,flexWrap:"wrap"}},
+            div({style:{flex:1,minWidth:140}},
+              div({style:{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}},
+                guncelMi&&span({style:{fontSize:9,fontWeight:700,color:"#34C759",background:"rgba(52,199,89,.14)",
+                  borderRadius:5,padding:"1px 6px"}},"GÜNCEL"),
+                span({style:{fontSize:12.5,fontWeight:600,color:"#1D1D1F"}},
+                  fmtT(d.baslangic)+" – "+bitEtiket)
+              ),
+              div({style:{fontSize:11.5,color:"#86868B"}},bilesenOzet(d.formul))
+            ),
+            div({style:{display:"flex",gap:6,flexShrink:0}},
+              btn({style:{background:"transparent",border:"1px solid rgba(0,113,227,.3)",borderRadius:7,
+                color:"#0071E3",fontSize:11.5,fontWeight:600,padding:"5px 10px",cursor:"pointer"},
+                onClick:()=>setDuzenle(duzenleniyor?null:(d.id||"legacy"))},
+                duzenleniyor?"Kapat":"Düzenle"),
+              siraliArtan.length>1&&btn({style:{background:"transparent",border:"1px solid rgba(255,59,48,.3)",borderRadius:7,
+                color:"#FF3B30",fontSize:11.5,fontWeight:600,padding:"5px 10px",cursor:"pointer"},
+                onClick:()=>{
+                  if(!confirm("Bu dönem silinsin mi? Bu tarih aralığındaki geçmiş hesaplamalar etkilenebilir.")) return;
+                  kaydetListe(siraliArtan.filter(x=>x!==d));
+                  if(duzenleniyor) setDuzenle(null);
+                }},"Sil")
+            )
+          ),
+          duzenleniyor&&div({style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(0,0,0,.06)"}},
+            div({style:{marginBottom:10,maxWidth:220}},
+              lbl({className:"fl"},"Başlangıç Tarihi"),
+              h("input",{type:"date",className:"fi",value:d.baslangic||"",
+                onChange:e=>{
+                  const yeniTarih=e.target.value;
+                  kaydetListe(siraliArtan.map(x=>x===d?{...x,baslangic:yeniTarih}:x));
+                }})
+            ),
+            h(MaasFormulEditoru,{formul:d.formul||[], tumPersoneller,
+              onChange:(yeniFormul)=>{
+                kaydetListe(siraliArtan.map(x=>x===d?{...x,formul:yeniFormul}:x));
+              }})
+          )
+        );
+      })
+    ),
+    siraliAzalan.length===0 && div({style:{padding:"16px",textAlign:"center",background:"#FBFBFD",
+      border:"1px dashed rgba(0,0,0,.15)",borderRadius:10,marginBottom:12,color:"#86868B",fontSize:13}},
+      "Henüz maaş formülü tanımlanmadı."),
+
+    // Yeni dönem başlat
+    !yeniForm && btn({style:{width:"100%",padding:"10px 0",borderRadius:10,border:"1px dashed #0071E3",
+      background:"rgba(0,113,227,.04)",color:"#0071E3",fontSize:13,fontWeight:600,cursor:"pointer"},
+      onClick:()=>setYeniForm({baslangic:TODAY(), formul: siraliAzalan[0] ? siraliAzalan[0].formul.map(b=>({...b})) : []})},
+      "+ Yeni Dönem Başlat (Çalışma Şekli Değişti)"),
+
+    yeniForm && div({style:{padding:14,background:"#FFF8EC",border:"1.5px solid rgba(184,121,10,.3)",borderRadius:11,marginTop:8}},
+      div({style:{fontSize:13,fontWeight:700,color:"#B8790A",marginBottom:4}},"🗓️ Yeni Dönem"),
+      div({style:{fontSize:11.5,color:"#86868B",marginBottom:10,lineHeight:1.5}},
+        "Bu tarihten itibaren geçerli olacak yeni bir formül tanımlayın. Önceki dönemin geçmiş hesaplamaları etkilenmez. Başlangıç tarihi geçmişte de olabilir (unutulan bir değişikliği düzeltmek için)."),
+      div({style:{marginBottom:10,maxWidth:220}},
+        lbl({className:"fl"},"Başlangıç Tarihi"),
+        h("input",{type:"date",className:"fi",value:yeniForm.baslangic||"",
+          onChange:e=>setYeniForm(p=>({...p,baslangic:e.target.value}))})
+      ),
+      h(MaasFormulEditoru,{formul:yeniForm.formul||[], tumPersoneller,
+        onChange:(yeniFormul)=>setYeniForm(p=>({...p,formul:yeniFormul}))}),
+      div({style:{display:"flex",gap:8,marginTop:12}},
+        btn({style:{flex:1,padding:"9px 0",borderRadius:9,border:"1px solid var(--br)",background:"#FFFFFF",
+          color:"#1D1D1F",fontSize:13,fontWeight:500,cursor:"pointer"},
+          onClick:()=>setYeniForm(null)},"İptal"),
+        btn({style:{flex:2,padding:"9px 0",borderRadius:9,border:"none",background:"#0071E3",
+          color:"#FFFFFF",fontSize:13,fontWeight:700,cursor:"pointer"},
+          onClick:()=>{
+            if(!yeniForm.baslangic){alert("Başlangıç tarihi seçin");return;}
+            if(!(yeniForm.formul||[]).length){alert("En az bir bileşen ekleyin");return;}
+            const eklenecek = {id:"d"+Date.now(), baslangic:yeniForm.baslangic, formul:yeniForm.formul};
+            kaydetListe([...siraliArtan, eklenecek]);
+            setYeniForm(null);
+          }},"Dönemi Kaydet")
+      )
+    )
+  );
+}
+
 // ── HAKEDİŞ DETAY MODAL (Personel için) ────────────────────────────────────
 // Tam ekran modal - Brüt - Kesintiler = Net tablosu + alt detay sayfaları
 function HakedisDetayModal({kul, tumK, giderler, avanslar, personeller,
@@ -10759,7 +10965,9 @@ function HakedisDetayModal({kul, tumK, giderler, avanslar, personeller,
   const sonuc = hesaplaMaas(kul, tumKayit, {
     tumPersoneller:personeller,
     tumKayitlar:tumKayit,
-    toplamGider:toplamGider
+    toplamGider:toplamGider,
+    periyotBas: isoTarih(pBas),
+    periyotBit: isoTarih(pBitis)
   });
   const brutHak = toN(sonuc.toplam);
 
@@ -11119,7 +11327,7 @@ function HakedisDetayModal({kul, tumK, giderler, avanslar, personeller,
 }
 
 // ── PERSONEL MAAŞ HESAP GÖRÜNÜMÜ (Yönetici için) ──────────────────────────
-function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast, tumPersoneller, giderler, avanslar, setAvanslar}) {
+function PersonelMaasGorunum({personel, tumK, onChange, showToast, tumPersoneller, giderler, avanslar, setAvanslar}) {
   const [periyot, setPeriyot] = React.useState("buAy");
   const [yeniAvansForm, setYeniAvansForm] = React.useState({tarih:TODAY(), tutar:"", not:""});
   const periyotBaslangic = React.useMemo(()=>{
@@ -11151,25 +11359,28 @@ function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast, tumPe
   });
   const toplamGider = filtreliGider.reduce((s,g)=>s+toN(g.tutar),0);
 
-  const sonuc = hesaplaMaas({...personel, maasFormulu:formul}, filtreliK, {
+  const sonuc = hesaplaMaas(personel, filtreliK, {
     tumPersoneller: tumPersoneller||[],
     tumKayitlar: filtreliK,
-    toplamGider
+    toplamGider,
+    periyotBas: isoTarih(periyotBaslangic),
+    periyotBit: isoTarih(periyotBitis)
   });
   const periyotEt = {buHafta:"Bu Hafta",buAy:"Bu Ay",gecenAy:"Geçen Ay",buYil:"Bu Yıl"}[periyot];
+  const toplamNegatif = sonuc.toplam < 0;
 
   return div({style:{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(360px, 1fr))",gap:14,alignItems:"start"}},
-    // Maaş formülü editörü
+    // Maaş formülü editörü (dönem geçmişi destekli)
     div({style:{background:"#FFFFFF",border:"1px solid rgba(0,0,0,.07)",borderTop:"3px solid #FFB020",borderRadius:12,padding:14,boxShadow:"0 1px 3px rgba(0,0,0,.04), 0 6px 16px rgba(0,0,0,.03)"}},
       div({style:{fontSize:12,fontWeight:700,color:"#B8790A",letterSpacing:1.2,textTransform:"uppercase",marginBottom:10}},
         "💰 MAAŞ/KOMİSYON FORMÜLÜ"),
       div({style:{fontSize:12,color:"#86868B",marginBottom:12,lineHeight:1.5}},
-        "Bu personelin maaşı, aşağıdaki bileşenlerin toplamı olarak hesaplanır. Bileşenleri ekleyip kaldırabilirsiniz."),
-      h(MaasFormulEditoru,{formul:formul||[], onChange, tumPersoneller})
+        "Bu personelin maaşı, aşağıdaki bileşenlerin toplamı olarak hesaplanır. Çalışma şekli zaman içinde değiştiyse, yeni bir dönem başlatarak eskisini bozmadan güncelleyebilirsiniz."),
+      h(MaasFormulYoneticisi,{personel, onChange, tumPersoneller})
     ),
 
     // Hesaplama önizlemesi
-    (formul||[]).length>0&&div({style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.07)",borderTop:"3px solid #34C759",borderRadius:12,padding:14,boxShadow:"0 1px 3px rgba(0,0,0,.04), 0 6px 16px rgba(0,0,0,.03)"}},
+    maasFormuluVarMi(personel)&&div({style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.07)",borderTop:"3px solid #34C759",borderRadius:12,padding:14,boxShadow:"0 1px 3px rgba(0,0,0,.04), 0 6px 16px rgba(0,0,0,.03)"}},
       div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8,flexWrap:"wrap"}},
         div({style:{fontSize:12,fontWeight:700,color:"#0071E3",letterSpacing:1.2,textTransform:"uppercase"}},
           "💵 HESAPLAMA"),
@@ -11209,7 +11420,7 @@ function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast, tumPe
               div({style:{fontSize:12.5,fontWeight:600,color:"#1D1D1F"}},d.ad),
               div({style:{fontSize:11,color:"#86868B",marginTop:2}},d.aciklama)
             ),
-            div({style:{fontSize:14,fontWeight:700,color:d.tutar>0?"#34C759":"#86868B",flexShrink:0}},fmt(d.tutar))
+            div({style:{fontSize:14,fontWeight:700,color:d.tutar>0?"#34C759":(d.tutar<0?"#FF3B30":"#86868B"),flexShrink:0}},fmt(d.tutar))
           )
         )
       ),
@@ -11303,13 +11514,18 @@ function PersonelMaasGorunum({personel, tumK, formul, onChange, showToast, tumPe
         );
       })(),
       // Toplam
-      div({style:{padding:"12px 14px",background:"linear-gradient(135deg,#0071E3,#0058B0)",borderRadius:11,
+      div({style:{padding:"12px 14px",
+        background:toplamNegatif?"linear-gradient(135deg,#FF3B30,#C0392B)":"linear-gradient(135deg,#0071E3,#0058B0)",
+        borderRadius:11,
         display:"flex",justifyContent:"space-between",alignItems:"center",
-        boxShadow:"0 4px 14px rgba(0,113,227,.28)"}},
+        boxShadow:toplamNegatif?"0 4px 14px rgba(255,59,48,.28)":"0 4px 14px rgba(0,113,227,.28)"}},
         div(null,
-          div({style:{fontSize:11,color:"rgba(255,255,255,.85)",letterSpacing:1.5,textTransform:"uppercase",fontWeight:600,marginBottom:2}},periyotEt+" HAK EDİŞ"),
+          div({style:{fontSize:11,color:"rgba(255,255,255,.85)",letterSpacing:1.5,textTransform:"uppercase",fontWeight:600,marginBottom:2}},
+            toplamNegatif?(periyotEt+" İŞYERİNE BORÇ"):(periyotEt+" HAK EDİŞ")),
           div({style:{fontSize:11,color:"rgba(255,255,255,.7)"}},
-            personelYuzdelimi({maasFormulu:formul}) ? "Personel kendi panelinde görebilir" : "Maaşlı — personel paneli göstermez")
+            toplamNegatif
+              ? "Ortak payı açığı kendi kazancını aştı"
+              : (personelYuzdelimi(personel) ? "Personel kendi panelinde görebilir" : "Maaşlı — personel paneli göstermez"))
         ),
         div({style:{fontSize:22,fontWeight:700,color:"#fff",letterSpacing:-0.5}},fmt(sonuc.toplam))
       )
@@ -17805,7 +18021,9 @@ if(DB) dbUpsertAyar("tema",tema);
           const sonuc=hesaplaMaas(kul,ayTumKayit,{
             tumPersoneller:personeller,
             tumKayitlar:ayTumKayit,
-            toplamGider:ayToplamGider
+            toplamGider:ayToplamGider,
+            periyotBas: isoTarih(ayBas),
+            periyotBit: isoTarih(aySon)
           });
           const brutHak = toN(sonuc.toplam);
 
@@ -20979,10 +21197,9 @@ if(DB) dbUpsertAyar("tema",tema);
     h(PersonelMaasGorunum,{
     personel:pDetay,
     tumK,
-    formul:pDetay.maasFormulu||[],
-    onChange:(yeniFormul)=>{
-      setPersoneller(prev=>prev.map(x=>x.id===pDetay.id?{...x,maasFormulu:yeniFormul}:x));
-      setPDetay(prev=>({...prev,maasFormulu:yeniFormul}));
+    onChange:(patch)=>{
+      setPersoneller(prev=>prev.map(x=>x.id===pDetay.id?{...x,...patch}:x));
+      setPDetay(prev=>({...prev,...patch}));
       showToast("Formül güncellendi");
     },
     showToast,
@@ -21034,14 +21251,19 @@ if(DB) dbUpsertAyar("tema",tema);
 
               // ── Personel maaşları (çalışanlar — ortak payı alanlar hariç) ──
               const _calisanlar = (personeller||[]).filter(p=>p.aktif && p.rol==="personel"
-                && !(Array.isArray(p.maasFormulu) && p.maasFormulu.some(b=>b.tip==="ortakPayi")));
-              const _maasDonem = (kyt,gd) => _calisanlar.reduce((s,p)=>{
-                if(!(Array.isArray(p.maasFormulu) && p.maasFormulu.length>0)) return s;
-                try { return s + (parseFloat(hesaplaMaas(p, kyt, {tumPersoneller:personeller, tumKayitlar:tumK, toplamGider:gd}).toplam)||0); }
-                catch(e){ return s; }
-              }, 0);
-              const maasBA = _maasDonem(kayitlarBA, giderBA);
-              const maasGA = _maasDonem(kayitlarGA, giderGA);
+                && !formulDonemleri(p).some(d=>(d.formul||[]).some(b=>b.tip==="ortakPayi")));
+              const _maasDonem = (kyt,gd,ay,yil) => {
+                const _ayBas = ozetYillik ? new Date(yil,0,1) : new Date(yil,ay,1);
+                const _ayBit = ozetYillik ? new Date(yil,11,31) : new Date(yil,ay+1,0);
+                return _calisanlar.reduce((s,p)=>{
+                  if(!maasFormuluVarMi(p)) return s;
+                  try { return s + (parseFloat(hesaplaMaas(p, kyt, {tumPersoneller:personeller, tumKayitlar:tumK, toplamGider:gd,
+                    periyotBas:isoTarih(_ayBas), periyotBit:isoTarih(_ayBit)}).toplam)||0); }
+                  catch(e){ return s; }
+                }, 0);
+              };
+              const maasBA = _maasDonem(kayitlarBA, giderBA, buAy, buYil);
+              const maasGA = _maasDonem(kayitlarGA, giderGA, gecenAy, gecenYil);
               const toplamGiderBA = giderBA + maasBA;
               const toplamGiderGA = giderGA + maasGA;
 
