@@ -7979,6 +7979,24 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
     setGirisNakitAy(String(m.nakit||""));
   },[ayAnahtar]);
 
+  // Elle girilen ay sonu tutarları yazıldıkça otomatik taslak olarak kaydedilir — "Kaydet"e
+  // basmadan sekme/sayfa değiştirilse, yenilense bile kaybolmasın. Günlük sekmedeki aynı mantık.
+  // NOT: Bu sadece taslağı (kk/iban/nakit) saklar; komisyon dağıtımı SADECE "Kaydet" butonunda çalışır.
+  React.useEffect(()=>{
+    const girisBosMu = Object.keys(girisBankalarAy).length===0 && !girisIbanAy && !girisNakitAy;
+    const mevcut = hesapSaglamaAylik[ayAnahtar];
+    if(girisBosMu && !mevcut) return; // hiç kayıt yok, hiçbir şey de girilmemiş — boşuna taslak oluşturma
+    const ayniMi = mevcut
+      && JSON.stringify(mevcut.kk||{})===JSON.stringify(girisBankalarAy)
+      && String(mevcut.iban||"")===String(girisIbanAy)
+      && String(mevcut.nakit||"")===String(girisNakitAy);
+    if(ayniMi) return;
+    setHesapSaglamaAylik(p=>({...p, [ayAnahtar]: {
+      ...(p[ayAnahtar]||{}), ay:ayAnahtar,
+      kk:{...girisBankalarAy}, iban:girisIbanAy, nakit:girisNakitAy
+    }}));
+  },[girisBankalarAy, girisIbanAy, girisNakitAy]);
+
   const manuelKK = Object.values(girisBankalarAy).reduce((s,v)=>s+toN(v),0);
   const manuelIban = toN(girisIbanAy);
   const manuelNakit = toN(girisNakitAy);
