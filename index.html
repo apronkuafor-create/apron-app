@@ -11954,34 +11954,53 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
   }, [filtreliGiderler]);
 
   var giderKaydet = function(){
-    if(!yeniGider||!yeniGider.tarih||!yeniGider.kategori||!yeniGider.tutar){
-      showToast("Tarih, kategori ve tutar zorunlu","uy"); return;
-    }
-    var t=toN(yeniGider.tutar);
-    if(t<=0){showToast("Tutar 0'dan büyük olmalı","uy"); return;}
-    // Çoklu ödeme: odemeler dizisini normalleştir
-    var odmArr = (yeniGider.odemeler||[]).filter(function(o){return o.tip&&toN(o.tutar)>0;})
-      .map(function(o){return {tip:o.tip,tutar:toN(o.tutar),banka:o.banka||""};});
-    // Geriye dönük uyumluluk için odemeTipi alanı
-    var legacyTip = odmArr.length===1 ? odmArr[0].tip : odmArr.length>1 ? "Karma" : "";
-    var kayit = {
-      id: yeniGider._editId || uid(),
-      tarih: yeniGider.tarih,
-      kategori: yeniGider.kategori,
-      tutar: t,
-      aciklama: yeniGider.aciklama||"",
-      odemeTipi: legacyTip,
-      odemeler: odmArr,
-      olusturulma: new Date().toISOString()
-    };
+    if(!yeniGider||!yeniGider.tarih){ showToast("Tarih zorunlu","uy"); return; }
+
     if(yeniGider._editId){
+      // ── Tekil düzenleme (mevcut bir gideri güncelleme) ──
+      if(!yeniGider.kategori||!yeniGider.tutar){ showToast("Kategori ve tutar zorunlu","uy"); return; }
+      var t=toN(yeniGider.tutar);
+      if(t<=0){showToast("Tutar 0'dan büyük olmalı","uy"); return;}
+      var odmArr = (yeniGider.odemeler||[]).filter(function(o){return o.tip&&toN(o.tutar)>0;})
+        .map(function(o){return {tip:o.tip,tutar:toN(o.tutar),banka:o.banka||""};});
+      var legacyTip = odmArr.length===1 ? odmArr[0].tip : odmArr.length>1 ? "Karma" : "";
+      var kayit = {
+        id: yeniGider._editId,
+        tarih: yeniGider.tarih,
+        kategori: yeniGider.kategori,
+        tutar: t,
+        aciklama: yeniGider.aciklama||"",
+        odemeTipi: legacyTip,
+        odemeler: odmArr,
+        olusturulma: new Date().toISOString()
+      };
       setGiderler(function(p){return p.map(function(g){return g.id===yeniGider._editId?kayit:g;});});
-      // Supabase sync: [giderler] bağımlı useEffect kalıcılığı zaten halleder.
       showToast("Gider güncellendi","ba");
-    } else {
-      setGiderler(function(p){return [kayit].concat(p||[]);});
-      showToast("Gider eklendi","ba");
+      setYeniGider(null);
+      return;
     }
+
+    // ── Yeni gider(ler) — bir günün birden fazla kalemi tek seferde ──
+    var kalemler = yeniGider.kalemler||[];
+    var gecerliKalemler = kalemler.filter(function(k){return k.kategori && toN(k.tutar)>0;});
+    if(gecerliKalemler.length===0){ showToast("En az bir kalem için kategori ve tutar girin","uy"); return; }
+    var yeniKayitlar = gecerliKalemler.map(function(k){
+      var odmArr2 = (k.odemeler||[]).filter(function(o){return o.tip&&toN(o.tutar)>0;})
+        .map(function(o){return {tip:o.tip,tutar:toN(o.tutar),banka:o.banka||""};});
+      var legacyTip2 = odmArr2.length===1 ? odmArr2[0].tip : odmArr2.length>1 ? "Karma" : "";
+      return {
+        id: uid(),
+        tarih: yeniGider.tarih,
+        kategori: k.kategori,
+        tutar: toN(k.tutar),
+        aciklama: k.aciklama||"",
+        odemeTipi: legacyTip2,
+        odemeler: odmArr2,
+        olusturulma: new Date().toISOString()
+      };
+    });
+    setGiderler(function(p){return yeniKayitlar.concat(p||[]);});
+    showToast(yeniKayitlar.length>1 ? yeniKayitlar.length+" gider eklendi" : "Gider eklendi","ba");
     setYeniGider(null);
   };
 
@@ -12000,6 +12019,116 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
   };
 
   var katBos = tumKatlar.length===0;
+
+  // Ödeme yöntemleri alt-bloğu (hem düzenleme hem yeni-kalem formunda kullanılır)
+  var renderOdemeYontemleri = function(odmList, tutarStr, setOdm){
+    var toplamTutar = parseFloat(tutarStr)||0;
+    var odmToplam = odmList.reduce(function(s,o){return s+(parseFloat(o.tutar)||0);},0);
+    var fark = Math.round((toplamTutar - odmToplam)*100)/100;
+    return div({style:{marginBottom:12}},
+      div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}},
+        lbl({className:"fl",style:{fontFamily:FONT,margin:0}},"Ödeme Yöntemleri"),
+        h("button",{
+          style:{background:"rgba(37,99,168,.1)",border:"1px solid rgba(37,99,168,.25)",
+            borderRadius:8,color:"var(--g)",fontSize:12,fontWeight:600,cursor:"pointer",
+            padding:"3px 10px",fontFamily:FONT},
+          onClick:function(){setOdm(odmList.concat([{tip:"",tutar:"",banka:"",ibanNo:"",kaynak:""}]));}
+        },"+ Yöntem Ekle")
+      ),
+      odmList.length===0&&div({style:{fontSize:11,color:"var(--mu)",fontStyle:"italic",fontFamily:FONT,
+        padding:"8px 10px",background:"var(--bg2)",borderRadius:8,border:"1px solid var(--br)"}},
+        "Ödeme yöntemi eklenmedi (opsiyonel)"),
+      odmList.map(function(odm,i){
+        return div({key:i,style:{background:"var(--bg2)",borderRadius:10,
+          border:"1px solid var(--br)",padding:"10px",marginBottom:6}},
+          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,marginBottom:odm.tip==="IBAN"?8:0}},
+            sel({className:"fi",style:{fontFamily:FONT,fontSize:13},
+              value:odm.tip||"",
+              onChange:function(e){
+                var yeni=[].concat(odmList);
+                yeni[i]=Object.assign({},yeni[i],{tip:e.target.value,banka:"",ibanNo:"",kaynak:""});
+                setOdm(yeni);
+              }},
+              opt("","Yöntem seçin"),
+              ODEME_TIPLERI.map(function(k){return opt(k,k);})
+            ),
+            h("input",{className:"fi",type:"number",inputMode:"decimal",
+              placeholder:"Tutar (₺)",style:{fontFamily:FONT,fontSize:13},
+              value:odm.tutar||"",
+              onChange:function(e){
+                var yeni=[].concat(odmList);
+                yeni[i]=Object.assign({},yeni[i],{tutar:e.target.value});
+                setOdm(yeni);
+              }}),
+            h("button",{
+              style:{background:"transparent",border:"none",color:"#c05050",
+                fontSize:18,cursor:"pointer",padding:"0 4px",lineHeight:1,flexShrink:0},
+              onClick:function(){setOdm(odmList.filter(function(_,j){return j!==i;}));}
+            },"✕")
+          ),
+          odm.tip==="IBAN"&&div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:6}},
+            sel({className:"fi",style:{fontFamily:FONT,fontSize:13},
+              value:odm.banka||"",
+              onChange:function(e){
+                var yeni=[].concat(odmList);
+                yeni[i]=Object.assign({},yeni[i],{banka:e.target.value});
+                setOdm(yeni);
+              }},
+              opt("","Banka seçin"),
+              (bankalar||[]).map(function(b){var bn=(typeof b==="string"?b:(b&&b.ad)||"");return opt(bn,bn);})
+            ),
+            h("input",{className:"fi",placeholder:"IBAN no (opsiyonel)",
+              style:{fontFamily:FONT,fontSize:12},
+              value:odm.ibanNo||"",
+              onChange:function(e){
+                var yeni=[].concat(odmList);
+                yeni[i]=Object.assign({},yeni[i],{ibanNo:e.target.value});
+                setOdm(yeni);
+              }})
+          ),
+          div({style:{marginTop:8}},
+            h("input",{className:"fi",
+              placeholder:"Kaynak (opsiyonel) — örn: Ahmet'ten 15.06'ya kadar geri ödemek şartıyla aldım",
+              style:{fontFamily:FONT,fontSize:12,color:"var(--mu)",width:"100%",boxSizing:"border-box"},
+              value:odm.kaynak||"",
+              onChange:function(e){
+                var yeni=[].concat(odmList);
+                yeni[i]=Object.assign({},yeni[i],{kaynak:e.target.value});
+                setOdm(yeni);
+              }})
+          )
+        );
+      }),
+      odmList.length>0&&toplamTutar>0&&Math.abs(fark)>0.005&&div({
+        style:{fontSize:11,color:fark>0?"#FF9500":"#e06060",fontFamily:FONT,
+          marginTop:4,padding:"5px 9px",
+          background:fark>0?"rgba(255,149,0,.08)":"rgba(224,96,96,.08)",
+          borderRadius:7,border:"1px solid "+(fark>0?"rgba(255,149,0,.25)":"rgba(224,96,96,.25)")}},
+        fark>0
+          ? "⚠ "+fmt(Math.abs(fark))+"₺ henüz dağıtılmadı"
+          : "⚠ Ödeme toplamı gider tutarını "+fmt(Math.abs(fark))+"₺ aşıyor"
+      )
+    );
+  };
+
+  // Yeni (çoklu kalem) formundaki bir kalemi güncelle/sil/ekle
+  var kalemGuncelle = function(ki, patch){
+    setYeniGider(function(p){
+      var yeni=(p.kalemler||[]).slice();
+      yeni[ki]=Object.assign({},yeni[ki],patch);
+      return Object.assign({},p,{kalemler:yeni});
+    });
+  };
+  var kalemSil = function(ki){
+    setYeniGider(function(p){
+      return Object.assign({},p,{kalemler:(p.kalemler||[]).filter(function(_,j){return j!==ki;})});
+    });
+  };
+  var kalemEkle = function(){
+    setYeniGider(function(p){
+      return Object.assign({},p,{kalemler:(p.kalemler||[]).concat([{_kalemId:uid(),kategori:"",tutar:"",aciklama:"",odemeler:[]}])});
+    });
+  };
 
   return div({style:{padding:"4px 0",fontFamily:FONT}},
 
@@ -12021,8 +12150,10 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
         ),
         div({style:{overflowY:"auto",flex:1,padding:"16px 22px"}},
 
-        // Tarih + Tutar
-        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}},
+        (yeniGider._editId ? [
+
+        // ── DÜZENLEME: tekil gider ──
+        div({key:"e1",style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}},
           div(null,
             lbl({className:"fl",style:{fontFamily:FONT}},"Tarih *"),
             h("input",{className:"fi",type:"date",value:yeniGider.tarih||"",
@@ -12036,9 +12167,7 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
               onChange:function(e){setYeniGider(function(p){return Object.assign({},p,{tutar:e.target.value});}); }})
           )
         ),
-
-        // Kategori
-        div({style:{marginBottom:12}},
+        div({key:"e2",style:{marginBottom:12}},
           lbl({className:"fl",style:{fontFamily:FONT}},"Kategori *"),
           sel({className:"fi",value:yeniGider.kategori||"",
             style:{fontFamily:FONT},
@@ -12047,110 +12176,85 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
             tumKatlar.map(function(k){return opt(k,k);})
           )
         ),
-        katBos&&div({style:{fontSize:11,color:"#FF9500",marginBottom:8,fontFamily:FONT}},
+        katBos&&div({key:"e3",style:{fontSize:11,color:"#FF9500",marginBottom:8,fontFamily:FONT}},
           "⚠ Kategori listesi boş. Ayarlar → Listeler → Gider Listesi'nden ekleyin."),
-
-        // ── Ödeme Yöntemleri (çoklu) ──
-        (function(){
-          var odmList = yeniGider.odemeler||[];
-          var toplamTutar = parseFloat(yeniGider.tutar)||0;
-          var odmToplam = odmList.reduce(function(s,o){return s+(parseFloat(o.tutar)||0);},0);
-          var fark = Math.round((toplamTutar - odmToplam)*100)/100;
-          var setOdm = function(yeni){setYeniGider(function(p){return Object.assign({},p,{odemeler:yeni});});};
-          return div({style:{marginBottom:12}},
-            div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}},
-              lbl({className:"fl",style:{fontFamily:FONT,margin:0}},"Ödeme Yöntemleri"),
-              h("button",{
-                style:{background:"rgba(37,99,168,.1)",border:"1px solid rgba(37,99,168,.25)",
-                  borderRadius:8,color:"var(--g)",fontSize:12,fontWeight:600,cursor:"pointer",
-                  padding:"3px 10px",fontFamily:FONT},
-                onClick:function(){setOdm(odmList.concat([{tip:"",tutar:"",banka:"",ibanNo:"",kaynak:""}]));}
-              },"+ Yöntem Ekle")
-            ),
-            odmList.length===0&&div({style:{fontSize:11,color:"var(--mu)",fontStyle:"italic",fontFamily:FONT,
-              padding:"8px 10px",background:"var(--bg3)",borderRadius:8,border:"1px solid var(--br)"}},
-              "Ödeme yöntemi eklenmedi (opsiyonel)"),
-            odmList.map(function(odm,i){
-              return div({key:i,style:{background:"var(--bg3)",borderRadius:10,
-                border:"1px solid var(--br)",padding:"10px",marginBottom:6}},
-                div({style:{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,marginBottom:odm.tip==="IBAN"?8:0}},
-                  sel({className:"fi",style:{fontFamily:FONT,fontSize:13},
-                    value:odm.tip||"",
-                    onChange:function(e){
-                      var yeni=[].concat(odmList);
-                      yeni[i]=Object.assign({},yeni[i],{tip:e.target.value,banka:"",ibanNo:"",kaynak:""});
-                      setOdm(yeni);
-                    }},
-                    opt("","Yöntem seçin"),
-                    ODEME_TIPLERI.map(function(k){return opt(k,k);})
-                  ),
-                  h("input",{className:"fi",type:"number",inputMode:"decimal",
-                    placeholder:"Tutar (₺)",style:{fontFamily:FONT,fontSize:13},
-                    value:odm.tutar||"",
-                    onChange:function(e){
-                      var yeni=[].concat(odmList);
-                      yeni[i]=Object.assign({},yeni[i],{tutar:e.target.value});
-                      setOdm(yeni);
-                    }}),
-                  h("button",{
-                    style:{background:"transparent",border:"none",color:"#c05050",
-                      fontSize:18,cursor:"pointer",padding:"0 4px",lineHeight:1,flexShrink:0},
-                    onClick:function(){setOdm(odmList.filter(function(_,j){return j!==i;}));}
-                  },"✕")
-                ),
-                odm.tip==="IBAN"&&div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:6}},
-                  sel({className:"fi",style:{fontFamily:FONT,fontSize:13},
-                    value:odm.banka||"",
-                    onChange:function(e){
-                      var yeni=[].concat(odmList);
-                      yeni[i]=Object.assign({},yeni[i],{banka:e.target.value});
-                      setOdm(yeni);
-                    }},
-                    opt("","Banka seçin"),
-                    (bankalar||[]).map(function(b){var bn=(typeof b==="string"?b:(b&&b.ad)||"");return opt(bn,bn);})
-                  ),
-                  h("input",{className:"fi",placeholder:"IBAN no (opsiyonel)",
-                    style:{fontFamily:FONT,fontSize:12},
-                    value:odm.ibanNo||"",
-                    onChange:function(e){
-                      var yeni=[].concat(odmList);
-                      yeni[i]=Object.assign({},yeni[i],{ibanNo:e.target.value});
-                      setOdm(yeni);
-                    }})
-                ),
-                // Kaynak / Açıklama alanı
-                div({style:{marginTop:8}},
-                  h("input",{className:"fi",
-                    placeholder:"Kaynak (opsiyonel) — örn: Ahmet'ten 15.06'ya kadar geri ödemek şartıyla aldım",
-                    style:{fontFamily:FONT,fontSize:12,color:"var(--mu)",width:"100%",boxSizing:"border-box"},
-                    value:odm.kaynak||"",
-                    onChange:function(e){
-                      var yeni=[].concat(odmList);
-                      yeni[i]=Object.assign({},yeni[i],{kaynak:e.target.value});
-                      setOdm(yeni);
-                    }})
-                )
-              );
-            }),
-            odmList.length>0&&toplamTutar>0&&Math.abs(fark)>0.005&&div({
-              style:{fontSize:11,color:fark>0?"#FF9500":"#e06060",fontFamily:FONT,
-                marginTop:4,padding:"5px 9px",
-                background:fark>0?"rgba(255,149,0,.08)":"rgba(224,96,96,.08)",
-                borderRadius:7,border:"1px solid "+(fark>0?"rgba(255,149,0,.25)":"rgba(224,96,96,.25)")}},
-              fark>0
-                ? "⚠ "+fmt(Math.abs(fark))+"₺ henüz dağıtılmadı"
-                : "⚠ Ödeme toplamı gider tutarını "+fmt(Math.abs(fark))+"₺ aşıyor"
-            )
-          );
-        })(),
-
-        // Açıklama
-        div({style:{marginBottom:18}},
+        h(React.Fragment,{key:"e5"},renderOdemeYontemleri(yeniGider.odemeler||[], yeniGider.tutar,
+          function(yeni){setYeniGider(function(p){return Object.assign({},p,{odemeler:yeni});});})),
+        div({key:"e4",style:{marginBottom:18}},
           lbl({className:"fl",style:{fontFamily:FONT}},"Açıklama"),
           inp({className:"fi",placeholder:"Opsiyonel...",value:yeniGider.aciklama||"",
             style:{fontFamily:FONT},
             onChange:function(e){setYeniGider(function(p){return Object.assign({},p,{aciklama:e.target.value});}); }})
         )
+
+        ] : [
+
+        // ── YENİ: bir günün birden fazla kalemi tek kartta ──
+        div({key:"n1",style:{marginBottom:12}},
+          lbl({className:"fl",style:{fontFamily:FONT}},"Tarih *"),
+          h("input",{className:"fi",type:"date",value:yeniGider.tarih||"",
+            style:{fontFamily:FONT,width:"100%"},
+            onChange:function(e){setYeniGider(function(p){return Object.assign({},p,{tarih:e.target.value});});}})
+        ),
+        katBos&&div({key:"n2",style:{fontSize:11,color:"#FF9500",marginBottom:8,fontFamily:FONT}},
+          "⚠ Kategori listesi boş. Ayarlar → Listeler → Gider Listesi'nden ekleyin."),
+
+        (yeniGider.kalemler||[]).map(function(kalem,ki){
+          return div({key:kalem._kalemId||ki,style:{background:"var(--bg3)",border:"1px solid var(--br)",
+            borderRadius:12,padding:12,marginBottom:10}},
+            div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+              div({style:{fontSize:10.5,fontWeight:700,color:"var(--g)",letterSpacing:1,
+                textTransform:"uppercase",fontFamily:FONT}},"KALEM "+(ki+1)),
+              (yeniGider.kalemler.length>1)&&h("button",{
+                style:{background:"transparent",border:"none",color:"#c05050",fontSize:12,
+                  fontWeight:600,cursor:"pointer",fontFamily:FONT,padding:0},
+                onClick:function(){kalemSil(ki);}
+              },"🗑 Kaldır")
+            ),
+            div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+              div(null,
+                lbl({className:"fl",style:{fontFamily:FONT}},"Kategori *"),
+                sel({className:"fi",value:kalem.kategori||"",style:{fontFamily:FONT},
+                  onChange:function(e){kalemGuncelle(ki,{kategori:e.target.value});}},
+                  opt("","Kategori seçin"),
+                  tumKatlar.map(function(k){return opt(k,k);})
+                )
+              ),
+              div(null,
+                lbl({className:"fl",style:{fontFamily:FONT}},"Tutar (₺) *"),
+                inp({className:"fi",type:"number",inputMode:"decimal",placeholder:"0",value:kalem.tutar||"",
+                  style:{fontFamily:FONT},
+                  onChange:function(e){kalemGuncelle(ki,{tutar:e.target.value});}})
+              )
+            ),
+            renderOdemeYontemleri(kalem.odemeler||[], kalem.tutar,
+              function(yeni){kalemGuncelle(ki,{odemeler:yeni});}),
+            div(null,
+              lbl({className:"fl",style:{fontFamily:FONT}},"Açıklama"),
+              inp({className:"fi",placeholder:"Opsiyonel...",value:kalem.aciklama||"",
+                style:{fontFamily:FONT},
+                onChange:function(e){kalemGuncelle(ki,{aciklama:e.target.value});}})
+            )
+          );
+        }),
+
+        btn({key:"n3",style:{width:"100%",padding:"10px 0",borderRadius:10,border:"1px dashed var(--g)",
+          background:"rgba(37,99,168,.05)",color:"var(--g)",fontSize:13,fontWeight:600,cursor:"pointer",
+          fontFamily:FONT,marginBottom:10},
+          onClick:kalemEkle},"+ Kalem Ekle"),
+
+        (function(){
+          var toplam=(yeniGider.kalemler||[]).reduce(function(s,k){return s+(toN(k.tutar)||0);},0);
+          var gecerliSay=(yeniGider.kalemler||[]).filter(function(k){return k.kategori&&toN(k.tutar)>0;}).length;
+          return toplam>0 && div({key:"n4",style:{display:"flex",justifyContent:"space-between",
+            padding:"10px 12px",background:"rgba(37,99,168,.06)",borderRadius:9,
+            fontSize:14,fontWeight:700,color:"var(--g)",fontFamily:FONT}},
+            div(null,"Toplam ("+gecerliSay+" kalem)"),
+            div(null,fmt(toplam))
+          );
+        })()
+
+        ])
         ), // scroll div sonu
 
         // Sabit footer
@@ -12164,7 +12268,12 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
             btn({style:{flex:2,padding:"12px 0",borderRadius:10,border:"none",
               background:"var(--g)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:FONT},
               onClick:giderKaydet
-            },yeniGider._editId?"Güncelle":"Kaydet")
+            },yeniGider._editId
+              ? "Güncelle"
+              : (function(){
+                  var n=(yeniGider.kalemler||[]).filter(function(k){return k.kategori&&toN(k.tutar)>0;}).length;
+                  return n>1 ? n+" Gider Kaydet" : "Kaydet";
+                })())
           )
         )
       )
@@ -12234,7 +12343,7 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
     // ── EKLE BUTONU ──
     btn({style:{width:"100%",marginBottom:14,padding:"13px 0",borderRadius:11,border:"none",
       background:"var(--g)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:FONT},
-      onClick:function(){setYeniGider({tarih:bugun,kategori:"",tutar:"",aciklama:"",odemeTipi:"",odemeler:[]});}
+      onClick:function(){setYeniGider({tarih:bugun,kalemler:[{_kalemId:uid(),kategori:"",tutar:"",aciklama:"",odemeler:[]}]});}
     },"+ Yeni Gider Ekle"),
 
     // ── LİSTE (güne göre gruplu) ──
