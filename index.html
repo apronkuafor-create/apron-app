@@ -11327,7 +11327,7 @@ function HakedisDetayModal({kul, tumK, giderler, avanslar, personeller,
 }
 
 // ── PERSONEL MAAŞ HESAP GÖRÜNÜMÜ (Yönetici için) ──────────────────────────
-function PersonelMaasGorunum({personel, tumK, onChange, showToast, tumPersoneller, giderler, avanslar, setAvanslar}) {
+function PersonelMaasGorunum({personel, tumK, onChange, showToast, tumPersoneller, giderler, avanslar, setAvanslar, ibanBildirimler}) {
   const [periyot, setPeriyot] = React.useState("buAy");
   const [yeniAvansForm, setYeniAvansForm] = React.useState({tarih:TODAY(), tutar:"", not:""});
   const periyotBaslangic = React.useMemo(()=>{
@@ -11366,8 +11366,44 @@ function PersonelMaasGorunum({personel, tumK, onChange, showToast, tumPersonelle
     periyotBas: isoTarih(periyotBaslangic),
     periyotBit: isoTarih(periyotBitis)
   });
+  const brutHak = toN(sonuc.toplam);
   const periyotEt = {buHafta:"Bu Hafta",buAy:"Bu Ay",gecenAy:"Geçen Ay",buYil:"Bu Yıl"}[periyot];
-  const toplamNegatif = sonuc.toplam < 0;
+
+  // ── İbanına gelen tutarlar (kredi kartı ödemesi doğrudan personelin/ortağın kendi hesabına yatmışsa,
+  //    hakedişten düşülmesi gerekir — aksi halde hem cironun kendisi hem de ayrıca maaş/prim üzerinden ödenmiş olur) ──
+  const ibanBilMap = React.useMemo(()=>{
+    const m={};
+    (ibanBildirimler||[]).forEach(b=>{
+      if(!m[b.kayitId]) m[b.kayitId]={};
+      const isUrun = b.tip==="urun" || b.hizmetAd==="Ürün satışı";
+      if(isUrun) m[b.kayitId].urunIbanId=b.hedefId;
+      else m[b.kayitId].hizIbanId=b.hedefId;
+    });
+    return m;
+  },[ibanBildirimler]);
+  const filtreliKZengin = React.useMemo(()=>filtreliK.map(r=>{
+    const bil=ibanBilMap[r.id]||{};
+    return {...r, hizIbanId: r.hizIbanId||bil.hizIbanId||"", urunIbanId: r.urunIbanId||bil.urunIbanId||""};
+  }),[filtreliK,ibanBilMap]);
+  const ibanHizmetTop = filtreliKZengin
+    .filter(r=>String(r.hizIbanId)===String(personel.id) && toN(r.hizIB)>0)
+    .reduce((s,r)=>s+toN(r.hizIB),0);
+  const ibanUrunTop = filtreliKZengin
+    .filter(r=>String(r.urunIbanId)===String(personel.id) && toN(r.uIB)>0)
+    .reduce((s,r)=>s+toN(r.uIB),0);
+
+  // ── Avanslar ──
+  const periyotAvanslar = (avanslar||[]).filter(a=>{
+    if(String(a.staffId)!==String(personel.id)) return false;
+    if(a.durum && a.durum!=="onaylandi") return false;
+    if(!a.tarih) return false;
+    const ad = new Date(a.tarih+"T12:00:00");
+    return ad>=periyotBaslangic && ad<=periyotBitis;
+  }).sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
+  const toplamAvans = periyotAvanslar.reduce((s,a)=>s+toN(a.tutar),0);
+
+  const netHak = brutHak - ibanHizmetTop - ibanUrunTop - toplamAvans;
+  const toplamNegatif = netHak < 0;
 
   return div({style:{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(360px, 1fr))",gap:14,alignItems:"start"}},
     // Maaş formülü editörü (dönem geçmişi destekli)
@@ -11426,13 +11462,6 @@ function PersonelMaasGorunum({personel, tumK, onChange, showToast, tumPersonelle
       ),
       // ── AVANSLAR BÖLÜMÜ ──
       (()=>{
-        const periyotAvanslar = (avanslar||[]).filter(a=>{
-          if(String(a.staffId)!==String(personel.id)) return false;
-          if(!a.tarih) return false;
-          const ad = new Date(a.tarih+"T12:00:00");
-          return ad>=periyotBaslangic && ad<=periyotBitis;
-        }).sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
-        const toplamAvans = periyotAvanslar.reduce((s,a)=>s+toN(a.tutar),0);
         return div({style:{marginBottom:10,padding:14,background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:11}},
           div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8,flexWrap:"wrap"}},
             div({style:{fontSize:12,fontWeight:700,color:"#FF9F0A",letterSpacing:1.2,textTransform:"uppercase"}},
@@ -11513,6 +11542,29 @@ function PersonelMaasGorunum({personel, tumK, onChange, showToast, tumPersonelle
           )
         );
       })(),
+      // ── BRÜT → NET DÖKÜMÜ (İban'a gelen tutarlar ve avanslar burada düşülür) ──
+      (ibanHizmetTop>0 || ibanUrunTop>0 || toplamAvans>0) && div({style:{marginBottom:10,padding:"10px 12px",
+        background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:10}},
+        div({style:{fontSize:10.5,fontWeight:700,color:"#86868B",letterSpacing:1,textTransform:"uppercase",marginBottom:8}},
+          "Brüt → Net Dökümü"),
+        [
+          ["Brüt Hakediş", brutHak, "#1D1D1F", false],
+          ibanHizmetTop>0 && ["İbanına Gelen (Hizmet)", ibanHizmetTop, "#FF3B30", true],
+          ibanUrunTop>0 && ["İbanına Gelen (Ürün)", ibanUrunTop, "#FF3B30", true],
+          toplamAvans>0 && ["Çekilen Avans", toplamAvans, "#FF3B30", true]
+        ].filter(Boolean).map(([lb,v,c,eksi],i)=>
+          div({key:i,style:{display:"flex",justifyContent:"space-between",padding:"4px 0",
+            fontSize:12.5,color:c}},
+            span(null,lb),
+            span({style:{fontWeight:600}},(eksi?"− ":"")+fmt(v)))
+        ),
+        div({style:{display:"flex",justifyContent:"space-between",padding:"7px 0 0",marginTop:4,
+          borderTop:"1px solid rgba(0,0,0,.08)",fontSize:13.5,fontWeight:700,
+          color:toplamNegatif?"#FF3B30":"#34C759"}},
+          span(null,"Net"),
+          span(null,fmt(netHak))
+        )
+      ),
       // Toplam
       div({style:{padding:"12px 14px",
         background:toplamNegatif?"linear-gradient(135deg,#FF3B30,#C0392B)":"linear-gradient(135deg,#0071E3,#0058B0)",
@@ -11521,13 +11573,13 @@ function PersonelMaasGorunum({personel, tumK, onChange, showToast, tumPersonelle
         boxShadow:toplamNegatif?"0 4px 14px rgba(255,59,48,.28)":"0 4px 14px rgba(0,113,227,.28)"}},
         div(null,
           div({style:{fontSize:11,color:"rgba(255,255,255,.85)",letterSpacing:1.5,textTransform:"uppercase",fontWeight:600,marginBottom:2}},
-            toplamNegatif?(periyotEt+" İŞYERİNE BORÇ"):(periyotEt+" HAK EDİŞ")),
+            toplamNegatif?(periyotEt+" İŞYERİNE BORÇ"):(periyotEt+" NET HAK EDİŞ")),
           div({style:{fontSize:11,color:"rgba(255,255,255,.7)"}},
             toplamNegatif
-              ? "Ortak payı açığı kendi kazancını aştı"
+              ? (brutHak<0 ? "Brüt hakediş zaten negatif (ör. ortak açığı)" : "İban + avans, hakedişi aştı")
               : (personelYuzdelimi(personel) ? "Personel kendi panelinde görebilir" : "Maaşlı — personel paneli göstermez"))
         ),
-        div({style:{fontSize:22,fontWeight:700,color:"#fff",letterSpacing:-0.5}},fmt(sonuc.toplam))
+        div({style:{fontSize:22,fontWeight:700,color:"#fff",letterSpacing:-0.5}},fmt(netHak))
       )
     )
   );
@@ -21206,7 +21258,8 @@ if(DB) dbUpsertAyar("tema",tema);
     tumPersoneller:personeller,
     giderler,
     avanslar,
-    setAvanslar
+    setAvanslar,
+    ibanBildirimler
     }),
 
     div({className:"btn-r",style:{marginTop:14}},
