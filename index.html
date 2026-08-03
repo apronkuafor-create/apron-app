@@ -12237,7 +12237,7 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
       onClick:function(){setYeniGider({tarih:bugun,kategori:"",tutar:"",aciklama:"",odemeTipi:"",odemeler:[]});}
     },"+ Yeni Gider Ekle"),
 
-    // ── LİSTE ──
+    // ── LİSTE (güne göre gruplu) ──
     div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14}},
       div({style:{fontSize:11,fontWeight:700,color:"var(--g)",letterSpacing:1.5,
         textTransform:"uppercase",marginBottom:12,fontFamily:FONT}},
@@ -12245,49 +12245,79 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
       filtreliGiderler.length===0
         ? div({style:{textAlign:"center",padding:"30px 10px",color:"var(--mu)",fontSize:13,fontFamily:FONT}},
             "Seçilen kriterlere uygun gider bulunamadı.")
-        : filtreliGiderler.map(function(g){
-            var odemRenk = g.odemeTipi==="Nakit"?"#34C759":g.odemeTipi==="Kredi Kartı"?"#0071E3":g.odemeTipi==="IBAN"?"#5856D6":"var(--mu)";
-            return div({key:g.id,style:{padding:"12px",border:"1px solid var(--br)",
-              borderRadius:10,marginBottom:6,background:"var(--bg3)",
-              borderLeft:"3px solid #e06060"}},
-              div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}},
-                div({style:{flex:1,minWidth:0}},
-                  div({style:{display:"flex",alignItems:"center",gap:7,marginBottom:4,flexWrap:"wrap"}},
-                    h("span",{style:{fontSize:13,fontWeight:600,color:"var(--tx)",fontFamily:FONT}},g.kategori||"—"),
-                    h("span",{style:{fontSize:11,color:"var(--mu)",fontFamily:FONT}},
-                      new Date(g.tarih+"T12:00:00").toLocaleDateString("tr-TR",{day:"numeric",month:"short",year:"numeric"})),
-                    (function(){
-                      var odmlar = g.odemeler&&g.odemeler.length ? g.odemeler
-                        : g.odemeTipi ? [{tip:g.odemeTipi,banka:g.banka||""}] : [];
-                      return odmlar.map(function(o,oi){
-                        var rk = o.tip==="Nakit"?"#34C759":o.tip==="Kredi Kartı"?"#0071E3":o.tip==="IBAN"?"#5856D6":"var(--mu)";
-                        var lbl2 = o.tip+(o.banka?" / "+o.banka:"")+(o.tutar&&odmlar.length>1?" "+fmt(o.tutar):"");
-                        return div({key:oi,style:{display:"flex",flexDirection:"column",gap:2}},
-                          h("span",{style:{fontSize:10,padding:"1px 6px",borderRadius:5,fontWeight:600,
-                            background:"rgba(0,0,0,.06)",color:rk,fontFamily:FONT,whiteSpace:"nowrap",display:"inline-block"}},lbl2),
-                          o.kaynak&&h("span",{style:{fontSize:10,color:"var(--mu)",fontStyle:"italic",
-                            paddingLeft:6,fontFamily:FONT}},"↳ "+o.kaynak)
-                        );
-                      });
-                    })()
-                  ),
-                  g.aciklama&&div({style:{fontSize:12,color:"var(--di)",fontStyle:"italic",fontFamily:FONT}},g.aciklama)
+        : (function(){
+            // Aynı güne ait giderleri tek kart altında topla (filtreliGiderler zaten tarihe göre azalan sıralı)
+            var gunGruplari = [];
+            var harita = {};
+            filtreliGiderler.forEach(function(g){
+              var t = g.tarih||"—";
+              if(!harita[t]){ harita[t] = {tarih:t, giderler:[], toplam:0}; gunGruplari.push(harita[t]); }
+              harita[t].giderler.push(g);
+              harita[t].toplam += toN(g.tutar);
+            });
+            return gunGruplari.map(function(grp){
+              return div({key:grp.tarih,style:{border:"1px solid var(--br)",borderRadius:11,
+                marginBottom:8,overflow:"hidden",background:"var(--bg3)"}},
+                // Gün başlığı
+                div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+                  padding:"9px 12px",background:"var(--bg2)",borderBottom:"1px solid var(--br)",gap:8}},
+                  div({style:{fontSize:12.5,fontWeight:700,color:"var(--tx)",fontFamily:FONT,minWidth:0,
+                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},
+                    grp.tarih!=="—"
+                      ? new Date(grp.tarih+"T12:00:00").toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric",weekday:"long"})
+                      : "Tarihsiz"),
+                  div({style:{display:"flex",alignItems:"center",gap:8,flexShrink:0}},
+                    h("span",{style:{fontSize:10.5,color:"var(--mu)",fontFamily:FONT,whiteSpace:"nowrap"}},
+                      grp.giderler.length+" kayıt"),
+                    div({style:{fontSize:14,fontWeight:700,color:"#e06060",fontFamily:"'Inter',sans-serif"}},
+                      "-"+fmt(grp.toplam))
+                  )
                 ),
-                div({style:{fontSize:16,fontWeight:700,color:"#e06060",flexShrink:0,fontFamily:"'Inter',sans-serif"}},
-                  "-"+fmt(g.tutar))
-              ),
-              div({style:{display:"flex",gap:6,marginTop:8}},
-                btn({style:{padding:"5px 12px",borderRadius:7,border:"1px solid var(--br)",
-                  background:"var(--bg2)",color:"var(--mu)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:FONT},
-                  onClick:function(){giderDuzenle(g);}
-                },"✏ Düzenle"),
-                btn({style:{padding:"5px 12px",borderRadius:7,border:"1px solid rgba(255,59,48,.2)",
-                  background:"rgba(255,59,48,.06)",color:"#FF3B30",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:FONT},
-                  onClick:function(){var gid=g.id;giderSil(gid);}
-                },"Sil")
-              )
-            );
-          })
+                // O günün giderleri
+                div({style:{padding:"2px 12px"}},
+                  grp.giderler.map(function(g,gi){
+                    return div({key:g.id,style:{padding:"10px 0",
+                      borderBottom:gi<grp.giderler.length-1?"1px solid var(--br)":"none"}},
+                      div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}},
+                        div({style:{flex:1,minWidth:0}},
+                          div({style:{display:"flex",alignItems:"center",gap:7,marginBottom:4,flexWrap:"wrap"}},
+                            h("span",{style:{fontSize:13,fontWeight:600,color:"var(--tx)",fontFamily:FONT}},g.kategori||"—"),
+                            (function(){
+                              var odmlar = g.odemeler&&g.odemeler.length ? g.odemeler
+                                : g.odemeTipi ? [{tip:g.odemeTipi,banka:g.banka||""}] : [];
+                              return odmlar.map(function(o,oi){
+                                var rk = o.tip==="Nakit"?"#34C759":o.tip==="Kredi Kartı"?"#0071E3":o.tip==="IBAN"?"#5856D6":"var(--mu)";
+                                var lbl2 = o.tip+(o.banka?" / "+o.banka:"")+(o.tutar&&odmlar.length>1?" "+fmt(o.tutar):"");
+                                return div({key:oi,style:{display:"flex",flexDirection:"column",gap:2}},
+                                  h("span",{style:{fontSize:10,padding:"1px 6px",borderRadius:5,fontWeight:600,
+                                    background:"rgba(0,0,0,.06)",color:rk,fontFamily:FONT,whiteSpace:"nowrap",display:"inline-block"}},lbl2),
+                                  o.kaynak&&h("span",{style:{fontSize:10,color:"var(--mu)",fontStyle:"italic",
+                                    paddingLeft:6,fontFamily:FONT}},"↳ "+o.kaynak)
+                                );
+                              });
+                            })()
+                          ),
+                          g.aciklama&&div({style:{fontSize:12,color:"var(--di)",fontStyle:"italic",fontFamily:FONT}},g.aciklama)
+                        ),
+                        div({style:{fontSize:15,fontWeight:700,color:"#e06060",flexShrink:0,fontFamily:"'Inter',sans-serif"}},
+                          "-"+fmt(g.tutar))
+                      ),
+                      div({style:{display:"flex",gap:6,marginTop:8}},
+                        btn({style:{padding:"5px 12px",borderRadius:7,border:"1px solid var(--br)",
+                          background:"var(--bg2)",color:"var(--mu)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:FONT},
+                          onClick:function(){giderDuzenle(g);}
+                        },"✏ Düzenle"),
+                        btn({style:{padding:"5px 12px",borderRadius:7,border:"1px solid rgba(255,59,48,.2)",
+                          background:"rgba(255,59,48,.06)",color:"#FF3B30",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:FONT},
+                          onClick:function(){var gid=g.id;giderSil(gid);}
+                        },"Sil")
+                      )
+                    );
+                  })
+                )
+              );
+            });
+          })()
     )
   );
 }
