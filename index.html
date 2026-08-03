@@ -7617,6 +7617,7 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
     return div(null,
       TabSwitcher,
       h(AylikHesapOzeti,{tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHesapSaglamaAylik, showToast,
+        komisyonGiderYaz,
         gunlukGit:(tarih)=>{setSecTarih(tarih);setModTab("gunluk");}})
     );
   }
@@ -7925,7 +7926,7 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
 // toplamları, (2) o ay içindeki günlük sağlamaların otomatik toplamı (eksik
 // günler ayrıca uyarılır), (3) isteğe bağlı, ay sonu banka ekstresi ile tek
 // seferde girilen bağımsız bir karşılaştırma.
-function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHesapSaglamaAylik, showToast, gunlukGit}) {
+function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHesapSaglamaAylik, showToast, gunlukGit, komisyonGiderYaz}) {
   const simdi = new Date();
   const [ay, setAy] = React.useState(simdi.getMonth());
   const [yil, setYil] = React.useState(simdi.getFullYear());
@@ -7961,7 +7962,11 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
   const otoTamamMi = kayitliGunler.length>0 && eksikGunler.length===0;
   const otoEslesti = otoTamamMi && Math.abs(otoTop-sistemTop)<1;
 
-  // ── Ay sonu banka ekstresi (isteğe bağlı, bağımsız manuel giriş) ──
+  // ── Ay sonu banka ekstresi + otomatik POS komisyonu ──
+  // Oran girmeden: bankanın o ay boyunca günlük "Gerçek Veriler"e girilen tutarları
+  // (POS'un işlediği brüt tutar) toplanır, ay sonu ekstresinde hesaba GERÇEKTEN yatan
+  // net tutardan çıkarılır → aradaki fark o bankanın o ayki toplam komisyonudur.
+  // Bu komisyon, günlere o günkü banka girişi oranında (hacme göre) dağıtılıp gider yazılır.
   const manuelKayit = hesapSaglamaAylik[ayAnahtar] || {};
   const [girisBankalarAy, setGirisBankalarAy] = React.useState(manuelKayit.kk||{});
   const [girisIbanAy, setGirisIbanAy] = React.useState(String(manuelKayit.iban||""));
@@ -7981,6 +7986,17 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
   const manuelGirildiMi = manuelKK>0 || manuelIban>0 || manuelNakit>0;
   const manuelEslesti = manuelGirildiMi && Math.abs(manuelTop-sistemTop)<1;
 
+  // Banka bazında: o ay boyunca günlük girilen toplam + ekstre + komisyon (fark)
+  const bankaAdlari = (bankalar||[]).map(b=>typeof b==="string"?b:(b&&b.ad)).filter(Boolean);
+  const bankaOzet = bankaAdlari.map(bad=>{
+    const gunlukGirisler = yapilanlar.map(g=>({tarih:g.tarih, tutar:toN((g.kayit.kk||{})[bad])})).filter(x=>x.tutar>0);
+    const girisToplam = gunlukGirisler.reduce((s,x)=>s+x.tutar,0);
+    const ekstre = toN(girisBankalarAy[bad]);
+    const komisyon = (girisToplam>0 && ekstre>0) ? Math.max(0, girisToplam-ekstre) : 0;
+    return {bad, gunlukGirisler, girisToplam, ekstre, komisyon};
+  }).filter(x=>x.girisToplam>0 || x.ekstre>0);
+  const toplamKomisyon = bankaOzet.reduce((s,x)=>s+x.komisyon,0);
+
   const kaydetAylik = () => {
     if(!manuelGirildiMi){ showToast("Gerçek tutarları girin","uy"); return; }
     setHesapSaglamaAylik(p=>({...p,[ayAnahtar]:{
@@ -7988,7 +8004,19 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
       sistemKK, sistemIban, sistemNakit, tumEslesti:manuelEslesti,
       kayitTarihi:TODAY(), saat:new Date().toTimeString().slice(0,5)
     }}));
-    showToast(manuelEslesti ? "✓ Ay sonu hesap doğru — kaydedildi" : "⚠ Ay sonu kaydedildi (eşleşme yok)");
+    // Banka bazlı komisyonu, günlük giriş hacmine orantılı dağıtıp gider yaz
+    if(komisyonGiderYaz){
+      bankaOzet.forEach(({bad, gunlukGirisler, girisToplam, komisyon})=>{
+        if(komisyon<=0 || girisToplam<=0) return;
+        gunlukGirisler.forEach(({tarih, tutar})=>{
+          const pay = komisyon * (tutar/girisToplam);
+          komisyonGiderYaz(bad, tarih, pay);
+        });
+      });
+    }
+    showToast(manuelEslesti
+      ? "✓ Ay sonu hesap doğru — kaydedildi"
+      : (toplamKomisyon>0 ? "⚠ Kaydedildi — "+fmt(toplamKomisyon)+" komisyon gidere dağıtıldı" : "⚠ Ay sonu kaydedildi (eşleşme yok)"));
   };
 
   const satir = (lb,v) => div({style:{display:"flex",justifyContent:"space-between",padding:"5px 0",fontSize:13,color:"var(--tx)"}},
@@ -8058,12 +8086,12 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
           )
     ),
 
-    // Ay sonu banka ekstresi (isteğe bağlı, bağımsız)
+    // Ay sonu banka ekstresi + otomatik POS komisyonu
     div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:12}},
       div({style:{fontSize:12,color:"var(--g)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}},
-        "🏦 Ay Sonu Banka Ekstresi (İsteğe Bağlı)"),
+        "🏦 Ay Sonu Banka Ekstresi → Otomatik POS Komisyonu"),
       div({style:{fontSize:11.5,color:"var(--mu)",marginBottom:10,lineHeight:1.5}},
-        "Günlük girmediyseniz, ay sonunda banka ekstresi/kasa sayımından tek seferde girip sistemin ay toplamıyla karşılaştırabilirsiniz. Bu, günlük sağlamalardan bağımsız ayrı bir kontroldür."),
+        "Oran girmenize gerek yok. Banka ekstresinden, o bankanın bu ay hesabınıza yatırdığı NET tutarı girin. Sistem, o ay boyunca günlük 'Gerçek Veriler'e girdiğiniz banka tutarları toplamından bu neti çıkarıp aradaki farkı POS komisyonu olarak günlere hacim oranlı dağıtıp gidere yazar."),
       (bankalar||[]).map((b,i)=>
         div({key:i,style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"center",marginBottom:7}},
           div({style:{fontSize:14,color:"var(--mu)"}},b),
@@ -8090,6 +8118,30 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
         h("span",{style:{fontSize:12,fontWeight:600,color:manuelEslesti?"var(--gr)":"#e06060"}},
           manuelEslesti?"✓ Eşleşiyor":"✕ Fark: "+((manuelTop-sistemTop)>0?"+":"")+fmt(manuelTop-sistemTop))
       ),
+
+      // Banka bazlı komisyon önizlemesi
+      bankaOzet.length>0 && div({style:{marginBottom:10,padding:"10px 11px",background:"rgba(37,99,168,.05)",
+        border:"1px solid rgba(37,99,168,.18)",borderRadius:9}},
+        div({style:{fontSize:11,fontWeight:700,color:"var(--g)",letterSpacing:.8,textTransform:"uppercase",marginBottom:8}},
+          "💳 Hesaplanacak POS Komisyonu"),
+        bankaOzet.map(({bad,girisToplam,ekstre,komisyon})=>
+          div({key:bad,style:{marginBottom:8,paddingBottom:8,borderBottom:"1px solid rgba(0,0,0,.06)"}},
+            div({style:{fontSize:12.5,color:"var(--tx)",fontWeight:600,marginBottom:3}},bad),
+            div({style:{display:"flex",justifyContent:"space-between",fontSize:11.5,color:"var(--mu)"}},
+              div(null,"Günlük girişler toplamı: "+fmt(girisToplam)),
+              div(null,"Ekstre: "+(ekstre>0?fmt(ekstre):"—"))
+            ),
+            ekstre>0 && div({style:{display:"flex",justifyContent:"space-between",marginTop:2}},
+              div({style:{fontSize:12,color:"var(--tx)"}},"Komisyon"),
+              div({style:{fontSize:13,fontWeight:700,color:komisyon>0?"#e06060":"var(--mu)"}},fmt(komisyon))
+            )
+          )
+        ),
+        toplamKomisyon>0 && div({style:{display:"flex",justifyContent:"space-between",paddingTop:2,
+          fontSize:13.5,fontWeight:700,color:"#e06060"}},
+          div(null,"Toplam Komisyon (gidere yazılacak)"), div(null,fmt(toplamKomisyon)))
+      ),
+
       btn({className:"btn-k",style:{width:"100%"},onClick:kaydetAylik},
         hesapSaglamaAylik[ayAnahtar] ? "Ay Sonu Kaydını Güncelle" : "Ay Sonu Kaydını Kaydet")
     ),
