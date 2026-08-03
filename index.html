@@ -21333,7 +21333,9 @@ if(DB) dbUpsertAyar("tema",tema);
               const aktifPersoneller = (personeller||[]).filter(p=>p.aktif && p.rol==="personel" && (!gelirGrupId || p.grup===gelirGrupId));
               const perPerf = aktifPersoneller.map(p=>{
                 const perK = kayitlarBA.filter(r=>r.personelId===p.id||r.personel===p.id||r.staffId===p.id);
-                return {ad:p.ad, gelir:sumGelir(perK), islemSayisi:perK.length};
+                const hizmetCiro = perK.reduce((s,r)=>s+toN(r.hizKK||0)+toN(r.hizIB||0)+toN(r.hizNK||0),0);
+                const urunCiro = perK.reduce((s,r)=>s+toN(r.uKK||0)+toN(r.uIB||0)+toN(r.uNK||0),0);
+                return {ad:p.ad, gelir:hizmetCiro+urunCiro, hizmetCiro, urunCiro, islemSayisi:perK.length};
               }).sort((a,b)=>b.gelir-a.gelir);
 
               // ── Akıllı öneriler ──
@@ -21470,6 +21472,8 @@ if(DB) dbUpsertAyar("tema",tema);
                     perPerf.map((p,i)=>{
                       const maxGelir = perPerf[0].gelir || 1;
                       const oran = Math.round(p.gelir / maxGelir * 100);
+                      const hizYuzde = p.gelir>0 ? Math.round(p.hizmetCiro/p.gelir*100) : 0;
+                      const urunYuzde = 100 - hizYuzde;
                       return div({key:i,style:{
                         background:"var(--bg2,#fff)",border:"1px solid rgba(0,0,0,.07)",
                         borderRadius:12,padding:"10px 14px",
@@ -21485,6 +21489,20 @@ if(DB) dbUpsertAyar("tema",tema);
                           div({style:{height:"100%",borderRadius:99,width:`${oran}%`,
                             background:"linear-gradient(90deg,#0071E3,#30B6FF)",
                             transition:"width .5s ease"}})
+                        ),
+                        // ── Hizmet / Ürün ayrımı ──
+                        p.gelir>0 && div({style:{marginTop:7}},
+                          div({style:{height:5,borderRadius:99,background:"rgba(0,0,0,.07)",overflow:"hidden",
+                            display:"flex"}},
+                            hizYuzde>0&&div({style:{height:"100%",width:`${hizYuzde}%`,background:"#0071E3"}}),
+                            urunYuzde>0&&div({style:{height:"100%",width:`${urunYuzde}%`,background:"#FF9F0A"}})
+                          ),
+                          div({style:{display:"flex",justifyContent:"space-between",marginTop:4}},
+                            div({style:{fontSize:10.5,color:"#0071E3",fontWeight:600}},
+                              `✂ Hizmet: ${fmt(p.hizmetCiro)} ₺`),
+                            div({style:{fontSize:10.5,color:"#FF9F0A",fontWeight:600}},
+                              `📦 Ürün: ${fmt(p.urunCiro)} ₺`)
+                          )
                         ),
                         div({style:{fontSize:10,color:"var(--mu,#888)",marginTop:3}},
                           `${p.islemSayisi} işlem kaydı`)
