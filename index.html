@@ -7820,68 +7820,8 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
         )
       ),
 
-      // 💳 POS KOMİSYONU — günlük ciro girişi → otomatik gider
-      (function(){
-        const komBankalar = (bankalar||[]).map(b=>typeof b==="string"?b:(b&&b.ad)).filter(ba=>ba && (((bankaKom[ba]||{}).donemler)||[]).length>0);
-        if(komBankalar.length===0) return null;
-        const setKomT = (bankAd, ck, val) => setKomTutar(p=>({...p,[bankAd]:{...(p[bankAd]||{}),[ck]:val}}));
-        const bankKom = (bankAd) => bankaGunKomisyonFn(bankAd, ((bankaKom[bankAd]||{}).donemler)||[], secTarih, komTutar[bankAd]||{});
-        const toplamKom = komBankalar.reduce((s,ba)=>s+bankKom(ba),0);
-        return div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:12}},
-          div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"💳 POS Komisyonu"),
-          div({style:{fontSize:12,color:"var(--mu)",marginBottom:12,lineHeight:1.5}},"Bankanın POS gün sonu raporundaki kart türü tutarlarını girin. Sistem o tarihte geçerli orana göre komisyonu hesaplayıp ilgili tarihin giderine otomatik yazar."),
-          komBankalar.map(ba=>{
-            const donemler=((bankaKom[ba]||{}).donemler)||[];
-            const ed=komDonemBulFn(donemler, secTarih);
-            const ps=(ed&&ed.pesin)||{};
-            return div({key:ba,style:{marginBottom:14,border:"1px solid var(--br)",borderRadius:10,overflow:"hidden"}},
-              div({style:{padding:"9px 11px",background:"var(--bg3)",display:"flex",alignItems:"center",gap:8}},
-                div({style:{flex:1,fontSize:14,fontWeight:700,color:"var(--tx)"}},ba),
-                ed
-                  ? span({style:{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:6,whiteSpace:"nowrap",color:ed.tip==="kampanya"?"#c08040":"var(--g)",background:ed.tip==="kampanya"?"rgba(192,128,64,.12)":"rgba(37,99,168,.1)"}}, (ed.tip==="kampanya"?"🎯 Kampanya":"📋 Normal")+" • "+fmtT(ed.baslangic))
-                  : span({style:{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:6,color:"#e06060",background:"rgba(224,60,60,.1)"}},"⚠ Bu tarihte oran yok")
-              ),
-              div({style:{padding:"8px 11px"}},
-                PESIN_KARTLAR(ba).map(c=>{ const oran=toN(ps[c.k]&&ps[c.k].oran); const tutar=toN((komTutar[ba]||{})[c.k]); const kom=tutar*oran/100;
-                  return div({key:c.k,style:{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:"1px solid var(--bg3)"}},
-                    div({style:{flex:1,fontSize:12.5,color:"var(--tx)"}},c.ad, oran>0?span({style:{fontSize:11,color:"var(--mu)",marginLeft:5}},"(%"+oran+")"):null),
-                    inp({className:"fi",type:"number",inputMode:"decimal",style:{width:110,textAlign:"right",margin:0,padding:"7px 8px"},placeholder:"0",
-                      value:((komTutar[ba]||{})[c.k]!=null&&(komTutar[ba]||{})[c.k]!=="")?String((komTutar[ba])[c.k]):"",
-                      onChange:e=>setKomT(ba,c.k,e.target.value)}),
-                    div({style:{width:78,textAlign:"right",fontSize:12.5,fontFamily:"'Inter',sans-serif",color:kom>0?"#e06060":"var(--mu)"}},kom>0?fmt(kom):"–")
-                  );
-                }),
-                (ed && (ed.taksitli||[]).filter(r=>toN(r.oran)>0).length>0) ? div({style:{marginTop:6,paddingTop:6,borderTop:"1px dashed var(--br)"}},
-                  div({style:{fontSize:11,color:"var(--mu)",fontWeight:700,letterSpacing:1,marginBottom:4}},"TAKSİTLİ"),
-                  (ed.taksitli||[]).filter(r=>toN(r.oran)>0).map(r=>{ const key="tk_"+r.id; const tutar=toN((komTutar[ba]||{})[key]); const kom=tutar*toN(r.oran)/100;
-                    return div({key:r.id,style:{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:"1px solid var(--bg3)"}},
-                      div({style:{flex:1,fontSize:12.5,color:"var(--tx)"}},(r.kartTipi||"-")+" · "+(r.taksit||"?")+" taksit", span({style:{fontSize:11,color:"var(--mu)",marginLeft:5}},"(%"+(r.oran||0)+")")),
-                      inp({className:"fi",type:"number",inputMode:"decimal",style:{width:110,textAlign:"right",margin:0,padding:"7px 8px"},placeholder:"0",
-                        value:((komTutar[ba]||{})[key]!=null&&(komTutar[ba]||{})[key]!=="")?String((komTutar[ba])[key]):"",
-                        onChange:e=>setKomT(ba,key,e.target.value)}),
-                      div({style:{width:78,textAlign:"right",fontSize:12.5,fontFamily:"'Inter',sans-serif",color:kom>0?"#e06060":"var(--mu)"}},kom>0?fmt(kom):"–")
-                    );
-                  })
-                ) : null,
-                div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0 2px",marginTop:4,borderTop:"1px solid var(--br)"}},
-                  div({style:{fontSize:13,color:"var(--mu)"}},"Bu bankanın komisyonu:"),
-                  div({style:{fontSize:15,fontWeight:700,fontFamily:"'Inter',sans-serif",color:"#e06060"}},fmt(bankKom(ba)))
-                )
-              )
-            );
-          }),
-          div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:"var(--bg3)",borderRadius:8,marginBottom:10}},
-            div({style:{fontSize:13.5,fontWeight:600,color:"var(--tx)"}},"Toplam POS Komisyonu"),
-            div({style:{fontSize:17,fontWeight:700,fontFamily:"'Inter',sans-serif",color:"#e06060"}},fmt(toplamKom))
-          ),
-          btn({className:"btn-k",style:{width:"100%"},
-            onClick:()=>{
-              setHesapSaglama(p=>{ const gun={...(p[secTarih]||{tarih:secTarih})}; gun.komGiris={...(gun.komGiris||{}), ...komTutar}; return {...p,[secTarih]:gun}; });
-              komBankalar.forEach(ba=>komisyonGiderYaz(ba, secTarih, bankKom(ba)));
-              showToast("Komisyon kaydedildi ve gidere işlendi");
-            }},"Komisyonu Kaydet ve Gidere İşle")
-        );
-      })(),
+      // POS Komisyonu artık burada değil — Aylık sekmedeki "Ay Sonu Banka Ekstresi"
+      // ile otomatik hesaplanıyor (oran girmeye gerek yok).
 
       // Geçmiş sağlamalar
       Object.keys(hesapSaglama).length > 0 && div({style:{background:"var(--bg2)",
@@ -23032,8 +22972,9 @@ if(DB) dbUpsertAyar("tema",tema);
     })(),
 
     aySek==="listeler"&&ayListeSek==="banka"&&div({style:{marginTop:10}},
-    div({style:{fontSize:15,color:"var(--tx)",fontWeight:600,marginBottom:6}},"🏦 Bankalar ve Komisyon Oranları"),
-    div({style:{fontSize:12.5,color:"var(--mu)",marginBottom:12,lineHeight:1.5}},"Her banka için POS anlaşma tablonuzu girin. Tarih aralığı yalnızca Kampanyalı dönemdedir; kampanya tarihi bittiğinde sistem otomatik olarak Normal orandan devam eder. Kendi banka satırları banka adıyla isimlenir. Kullanmadığınız satırı boş bırakın."),
+    div({style:{fontSize:15,color:"var(--tx)",fontWeight:600,marginBottom:6}},"🏦 Bankalar"),
+    div({style:{fontSize:12.5,color:"var(--mu)",marginBottom:12,lineHeight:1.5}},
+      "Kredi kartı/POS işlemlerinizde kullandığınız bankaları buraya ekleyin. Bu liste; Gider ödeme yöntemi, Cari ve Günlük/Aylık Hesap Özeti ekranlarında banka seçimi için kullanılır. POS komisyonu artık oran girmenize gerek kalmadan Muhasebe → Günlük/Aylık Hesap Özeti → Aylık sekmesinden, banka ekstresi farkından otomatik hesaplanıyor."),
     div({style:{display:"flex",gap:8,marginBottom:12}},
     inp({className:"fi",style:{flex:1},placeholder:"Banka adı... (örn: Yapı Kredi POS)",
     value:yeniMarkaAdi||"",
@@ -23053,144 +22994,15 @@ if(DB) dbUpsertAyar("tema",tema);
     ),
     bankalar.map((b,i)=>{
       const bad = typeof b==="string"?b:(b&&b.ad)||"";
-      const acik = bankaKomAcik===bad;
-      const donemler = ((bankaKom[bad]||{}).donemler||[]).slice().sort((a,b2)=>(a.baslangic||"").localeCompare(b2.baslangic||""));
-      const taslakAcik = komTaslak && komTaslak.bankAd===bad;
-      const pesinTablo = ()=>{ const ps=(komTaslak&&komTaslak.pesin)||{};
-        return div({style:{marginTop:8}},
-          div({style:{display:"flex",alignItems:"center",gap:8,padding:"6px 4px",borderBottom:"1px solid var(--br)",fontSize:11,color:"var(--mu)",fontWeight:700}},
-            div({style:{flex:1}},"Kart Türü"),
-            div({style:{width:70,textAlign:"center"}},"Bloke (gün)"),
-            div({style:{width:70,textAlign:"center"}},"Oran %")
-          ),
-          PESIN_KARTLAR(bad).map(c=>{ const row=ps[c.k]||{};
-            return div({key:c.k,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 4px",borderBottom:"1px solid var(--bg3)"}},
-              div({style:{flex:1,fontSize:12.5,color:"var(--tx)"}},c.ad),
-              inp({className:"fi",type:"number",inputMode:"numeric",style:{width:70,textAlign:"center",padding:"7px 6px"},placeholder:"0",
-                value:(row.bloke!==undefined&&row.bloke!==null)?String(row.bloke):"",onChange:e=>setTaslakPesin(c.k,"bloke",e.target.value)}),
-              inp({className:"fi",type:"number",inputMode:"decimal",style:{width:70,textAlign:"center",padding:"7px 6px"},placeholder:"0",
-                value:(row.oran!==undefined&&row.oran!==null)?String(row.oran):"",onChange:e=>setTaslakPesin(c.k,"oran",e.target.value)})
-            );
-          })
-        );
-      };
-      const taksitliTablo = ()=>{ const list=(komTaslak&&komTaslak.taksitli)||[]; const opts=TAKSIT_KART_TIPLERI(bad);
-        return div({style:{marginTop:8}},
-          list.length===0 && div({style:{fontSize:12.5,color:"var(--mu)",padding:"12px 4px",textAlign:"center"}},"Henüz taksitli oran yok. Aşağıdan satır ekleyin."),
-          list.map(r=>
-            div({key:r.id,style:{background:"var(--bg3)",borderRadius:8,padding:"8px 9px",marginBottom:7}},
-              div({style:{display:"flex",alignItems:"center",gap:7,marginBottom:7}},
-                sel({className:"fi",style:{flex:1,padding:"7px 8px"},value:r.kartTipi||"",onChange:e=>taslakTaksitGuncelle(r.id,"kartTipi",e.target.value)},
-                  opt("","Kart tipi seç..."), opts.map(o=>opt(o,o))
-                ),
-                btn({style:{background:"none",border:"none",cursor:"pointer",fontSize:16,padding:"2px 4px"},onClick:()=>taslakTaksitSil(r.id)},"🗑️")
-              ),
-              div({style:{display:"flex",gap:7}},
-                div({style:{flex:1}}, div({style:{fontSize:10.5,color:"var(--mu)",marginBottom:2}},"Taksit Sayısı"),
-                  inp({className:"fi",type:"number",inputMode:"numeric",style:{width:"100%",textAlign:"center",padding:"7px 6px"},placeholder:"0",value:(r.taksit!=null&&r.taksit!=="")?String(r.taksit):"",onChange:e=>taslakTaksitGuncelle(r.id,"taksit",e.target.value)})),
-                div({style:{flex:1}}, div({style:{fontSize:10.5,color:"var(--mu)",marginBottom:2}},"Bloke gün"),
-                  inp({className:"fi",type:"number",inputMode:"numeric",style:{width:"100%",textAlign:"center",padding:"7px 6px"},placeholder:"0",value:(r.bloke!=null&&r.bloke!=="")?String(r.bloke):"",onChange:e=>taslakTaksitGuncelle(r.id,"bloke",e.target.value)})),
-                div({style:{flex:1}}, div({style:{fontSize:10.5,color:"var(--mu)",marginBottom:2}},"Oran %"),
-                  inp({className:"fi",type:"number",inputMode:"decimal",style:{width:"100%",textAlign:"center",padding:"7px 6px"},placeholder:"0",value:(r.oran!=null&&r.oran!=="")?String(r.oran):"",onChange:e=>taslakTaksitGuncelle(r.id,"oran",e.target.value)}))
-              )
-            )
-          ),
-          btn({style:{marginTop:4,background:"rgba(37,99,168,.1)",border:"1px dashed rgba(37,99,168,.4)",borderRadius:8,color:"var(--g)",fontSize:13,padding:"9px",cursor:"pointer",width:"100%"},
-            onClick:()=>taslakTaksitEkle()},"+ Taksitli Satır Ekle")
-        );
-      };
-      return div({key:i,style:{marginBottom:8,background:"var(--bg2)",borderRadius:10,border:"1px solid var(--br)",overflow:"hidden"}},
-        div({style:{display:"flex",alignItems:"center",gap:8,padding:"10px 12px"}},
-          div({style:{flex:1,fontSize:15,color:"var(--tx)",fontWeight:600}},bad),
-          donemler.length>0&&span({style:{fontSize:11.5,color:"var(--gr)",background:"rgba(52,199,89,.12)",borderRadius:7,padding:"2px 8px",whiteSpace:"nowrap"}},donemler.length+" dönem"),
-          btn({style:{background:"rgba(37,99,168,.1)",border:"1px solid rgba(37,99,168,.3)",borderRadius:7,color:"var(--g)",fontSize:12.5,padding:"5px 11px",cursor:"pointer",whiteSpace:"nowrap"},
-            onClick:()=>{ setBankaKomAcik(acik?null:bad); setKomTaslak(null); }}, acik?"Kapat":"Komisyon Oranları"),
-          btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",borderRadius:6,color:"#c05050",fontSize:13,padding:"5px 11px",cursor:"pointer"},
-            onClick:()=>{ if(window.confirm("\""+bad+"\" bankası silinsin mi? (Komisyon dönemleri de silinir; geçmiş giderler ve kategori kalır)")){ setBankalar(p=>p.filter((_,j)=>j!==i)); setBankaKom(p=>{const y={...p}; delete y[bad]; return y;}); if(acik) setBankaKomAcik(null); setKomTaslak(t=>(t&&t.bankAd===bad)?null:t); } }},"Sil")
-        ),
-        acik&&div({style:{padding:"8px 12px 12px",borderTop:"1px solid var(--br)"}},
-          div({style:{fontSize:12,color:"var(--mu)",fontWeight:700,marginBottom:6}},"KOMİSYON DÖNEMLERİ"),
-          donemler.length===0
-            ? div({style:{fontSize:12.5,color:"var(--mu)",padding:"8px 2px"}},"Henüz dönem eklenmedi. Banka oranlarını girmek için aşağıdan dönem ekleyin.")
-            : div({style:{marginBottom:8}}, donemler.map((d,di)=>{ const son=donemler[di+1];
-                return div({key:d.id,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",marginBottom:6,background:"var(--bg3)",borderRadius:8}},
-                  span({style:{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:6,whiteSpace:"nowrap",color:d.tip==="kampanya"?"#c08040":"var(--g)",background:d.tip==="kampanya"?"rgba(192,128,64,.12)":"rgba(37,99,168,.1)"}}, d.tip==="kampanya"?"🎯 Kampanya":"📋 Normal"),
-                  div({style:{flex:1,fontSize:12.5,color:"var(--tx)"}}, (d.baslangic?fmtT(d.baslangic):"—")+" → "+(son?fmtT(son.baslangic):"süresiz")),
-                  btn({style:{background:"none",border:"1px solid var(--br)",borderRadius:6,color:"var(--g)",fontSize:12,padding:"4px 9px",cursor:"pointer"},onClick:()=>{ setKomSekme("pesin"); donemDuzenle(bad,d); }},"Düzenle"),
-                  btn({style:{background:"none",border:"none",cursor:"pointer",fontSize:15,padding:"2px 4px"},onClick:()=>donemSil(bad,d.id)},"🗑️")
-                );
-              })),
-          // 📅 Geçmiş oran görüntüleme (salt-okunur; hiçbir şey kaydedilmez)
-          (function(){
-            const acikBak = oranBak && oranBak.bankAd===bad;
-            if(!acikBak) return taslakAcik ? null : btn({style:{width:"100%",marginBottom:8,background:"none",border:"1px solid var(--br)",borderRadius:8,color:"var(--mu)",fontSize:13,padding:"9px",cursor:"pointer"},onClick:()=>setOranBak({bankAd:bad,bas:"",bit:""})},"📅 Tarihe Göre Oran Görüntüle");
-            const bas=oranBak.bas, bit=oranBak.bit||oranBak.bas;
-            const sonuc = bas ? donemler.filter((d,di)=>{ const es=d.baslangic||""; const ee=donemler[di+1]?(donemler[di+1].baslangic||"9999-12-31"):"9999-12-31"; return es<=bit && ee>bas; }) : [];
-            return div({style:{marginBottom:10,border:"1px solid var(--g)",borderRadius:10,padding:"10px",background:"rgba(37,99,168,.04)"}},
-              div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
-                div({style:{flex:1,fontSize:13,fontWeight:700,color:"var(--g)"}},"📅 Tarihe Göre Oran (salt-okunur)"),
-                btn({style:{background:"none",border:"none",color:"var(--mu)",fontSize:13,cursor:"pointer"},onClick:()=>setOranBak(null)},"✕ Kapat")
-              ),
-              div({style:{display:"flex",alignItems:"center",gap:6,marginBottom:6}},
-                inp({className:"fi",type:"date",style:{flex:1,minWidth:0},value:oranBak.bas||"",onChange:e=>setOranBak({...oranBak,bas:e.target.value})}),
-                span({style:{color:"var(--mu)"}},"–"),
-                inp({className:"fi",type:"date",style:{flex:1,minWidth:0},value:oranBak.bit||"",onChange:e=>setOranBak({...oranBak,bit:e.target.value})})
-              ),
-              div({style:{fontSize:11,color:"var(--mu)",marginBottom:8}},"Tek tarih için yalnızca başlangıcı girin. Bu alan sadece görüntülemedir; kaydedilmez."),
-              !bas ? div({style:{fontSize:12.5,color:"var(--mu)",textAlign:"center",padding:"6px"}},"Tarih girin")
-              : sonuc.length===0 ? div({style:{fontSize:12.5,color:"#e06060",textAlign:"center",padding:"6px"}},"Bu tarih(ler)de tanımlı oran yok.")
-              : sonuc.map((d)=>{ const ni=donemler.indexOf(d)+1; const ee=donemler[ni]?donemler[ni].baslangic:null;
-                  return div({key:d.id,style:{marginBottom:8,border:"1px solid var(--br)",borderRadius:8,overflow:"hidden",background:"var(--bg2)"}},
-                    div({style:{padding:"7px 10px",background:"var(--bg3)",display:"flex",alignItems:"center",gap:8}},
-                      span({style:{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:6,whiteSpace:"nowrap",color:d.tip==="kampanya"?"#c08040":"var(--g)",background:d.tip==="kampanya"?"rgba(192,128,64,.12)":"rgba(37,99,168,.1)"}}, d.tip==="kampanya"?"🎯 Kampanya":"📋 Normal"),
-                      div({style:{fontSize:12,color:"var(--tx)"}}, fmtT(d.baslangic)+" → "+(ee?fmtT(ee):"süresiz"))
-                    ),
-                    div({style:{padding:"6px 10px"}},
-                      PESIN_KARTLAR(bad).map(c=>{ const r=(d.pesin||{})[c.k]||{}; if(toN(r.oran)<=0&&toN(r.bloke)<=0) return null;
-                        return div({key:c.k,style:{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"3px 0",color:"var(--tx)"}},
-                          div({style:{flex:1}},c.ad),
-                          div({style:{color:"var(--mu)",whiteSpace:"nowrap"}}, (toN(r.bloke)>0?(r.bloke+" gün · "):"")+"%"+(r.oran||0))
-                        );
-                      }),
-                      (d.taksitli||[]).filter(r=>toN(r.oran)>0).map(r=>
-                        div({key:r.id,style:{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"3px 0",color:"var(--tx)"}},
-                          div({style:{flex:1}},(r.kartTipi||"-")+" · "+(r.taksit||"?")+" taksit"),
-                          div({style:{color:"var(--mu)",whiteSpace:"nowrap"}},"%"+(r.oran||0))
-                        )
-                      )
-                    )
-                  );
-                })
-            );
-          })(),
-          !taslakAcik && btn({style:{width:"100%",background:"rgba(37,99,168,.1)",border:"1px dashed rgba(37,99,168,.4)",borderRadius:8,color:"var(--g)",fontSize:13.5,fontWeight:600,padding:"10px",cursor:"pointer"},
-            onClick:()=>{ setKomSekme("pesin"); yeniDonemAc(bad); }},"+ Komisyon Dönemi Ekle"),
-          taslakAcik && div({style:{marginTop:6,border:"1px solid var(--g)",borderRadius:10,padding:"10px",background:"var(--bg)"}},
-            div({style:{fontSize:13,fontWeight:700,color:"var(--tx)",marginBottom:8}},"Dönem Bilgileri"),
-            div({style:{display:"flex",gap:6,marginBottom:8}},
-              [["kampanya","🎯 Kampanyalı"],["normal","📋 Normal"]].map(function(o){var k=o[0],l=o[1];return btn({key:k,style:{flex:1,padding:"8px",borderRadius:8,border:"1px solid "+(komTaslak.tip===k?"var(--g)":"var(--br)"),background:komTaslak.tip===k?"rgba(37,99,168,.1)":"var(--bg2)",color:komTaslak.tip===k?"var(--g)":"var(--mu)",fontWeight:komTaslak.tip===k?700:500,fontSize:13,cursor:"pointer"},onClick:()=>setTaslakAlan("tip",k)},l);})
-            ),
-            div({style:{marginBottom:10}},
-              div({style:{fontSize:12,color:"var(--mu)",marginBottom:4}}, komTaslak.tip==="kampanya"?"Kampanya Başlangıç Tarihi (kampanya bitince sonraki dönem başlar)":"Bu oranların geçerli olduğu başlangıç tarihi"),
-              inp({className:"fi",type:"date",style:{width:"100%",boxSizing:"border-box"},value:komTaslak.baslangic||"",onChange:e=>setTaslakAlan("baslangic",e.target.value)})
-            ),
-            div({style:{display:"flex",gap:6,marginBottom:6}},
-              [["pesin","Peşin"],["taksitli","Taksitli"]].map(function(o){var k=o[0],l=o[1];return btn({key:k,style:{flex:1,padding:"8px",borderRadius:8,border:"1px solid "+(komSekme===k?"var(--g)":"var(--br)"),background:komSekme===k?"rgba(37,99,168,.1)":"var(--bg2)",color:komSekme===k?"var(--g)":"var(--mu)",fontWeight:komSekme===k?700:500,fontSize:13.5,cursor:"pointer"},onClick:()=>setKomSekme(k)},l);})
-            ),
-            komSekme==="pesin"?pesinTablo():taksitliTablo(),
-            div({style:{display:"flex",gap:8,marginTop:12}},
-              btn({style:{flex:1,background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,color:"var(--di)",fontSize:14,fontWeight:600,padding:"11px",cursor:"pointer"},onClick:()=>setKomTaslak(null)},"İptal"),
-              btn({style:{flex:2,background:"linear-gradient(135deg,#2196F3,#0071E3)",border:"none",borderRadius:9,color:"#fff",fontSize:14.5,fontWeight:700,padding:"11px",cursor:"pointer"},onClick:()=>donemKaydet()},"Kaydet")
-            )
-          )
-        )
+      return div({key:i,style:{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",
+        marginBottom:8,background:"var(--bg2)",borderRadius:10,border:"1px solid var(--br)"}},
+        div({style:{flex:1,fontSize:15,color:"var(--tx)",fontWeight:600}},bad),
+        btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",borderRadius:6,
+          color:"#c05050",fontSize:13,padding:"5px 11px",cursor:"pointer"},
+          onClick:()=>{ if(window.confirm("\""+bad+"\" bankası silinsin mi?")){ setBankalar(p=>p.filter((_,j)=>j!==i)); } }},"Sil")
       );
     }),
-    bankalar.length>0 && div({style:{marginTop:14,paddingTop:12,borderTop:"1px solid var(--br)"}},
-      btn({style:{width:"100%",background:"none",border:"1px solid var(--br)",borderRadius:8,color:"var(--di)",fontSize:13.5,fontWeight:600,padding:"11px",cursor:"pointer"},
-        onClick:()=>{ komisyonHepsiniHesapla(); showToast("Komisyonlar yeniden hesaplandı"); }},"🔄 Komisyonları Yeniden Hesapla"),
-      div({style:{fontSize:11,color:"var(--mu)",marginTop:6,textAlign:"center",lineHeight:1.4}},"Oran kaydedince otomatik çalışır; bu buton tüm geçmişi elle tazeler.")
-    ),
+    bankalar.length===0 && div({style:{fontSize:13,color:"var(--mu)",textAlign:"center",padding:"16px 0"}},"Henüz banka eklenmedi.")
     ),
 
     aySek==="listeler"&&ayListeSek==="musteriler"&&div({style:{marginTop:10}},
