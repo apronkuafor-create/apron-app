@@ -149,6 +149,52 @@ const fmtBuyuk = (n, boyut) => {
 };
 const toN   = v => { const x=parseFloat(String(v||0).replace(",",".")); return isNaN(x)?0:x; };
 const uid   = () => ""+(Date.now()+Math.floor(Math.random()*9999));
+
+// ── ÜRÜN RESMİ: küçültme + Supabase Storage'a yükleme + görüntüleme ──────────
+// Not: "urun-resimleri" adında PUBLIC bir Supabase Storage bucket'ı önceden
+// oluşturulmuş olmalı (Supabase panelinden — bu, kod tarafından yapılamaz).
+function resimKucult(file, maxBoyut=900, kalite=0.82) {
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    const url = URL.createObjectURL(file);
+    im.onload = () => {
+      let w = im.width, h = im.height;
+      if (w > maxBoyut || h > maxBoyut) {
+        if (w > h) { h = Math.round(h*maxBoyut/w); w = maxBoyut; }
+        else { w = Math.round(w*maxBoyut/h); h = maxBoyut; }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(im, 0, 0, w, h);
+      canvas.toBlob(blob => {
+        URL.revokeObjectURL(url);
+        blob ? resolve(blob) : reject(new Error("Resim sıkıştırılamadı"));
+      }, "image/jpeg", kalite);
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Resim okunamadı")); };
+    im.src = url;
+  });
+}
+async function urunResmiYukle(barkod, file) {
+  if (!DB) throw new Error("Bulut bağlantısı yok");
+  const kucuk = await resimKucult(file);
+  const dosyaAdi = (barkod||"urun").replace(/[^a-zA-Z0-9]/g,"_") + "_" + Date.now() + ".jpg";
+  const { error } = await DB.storage.from("urun-resimleri").upload(dosyaAdi, kucuk, {upsert:true, contentType:"image/jpeg"});
+  if (error) throw error;
+  const { data: urlData } = DB.storage.from("urun-resimleri").getPublicUrl(dosyaAdi);
+  return urlData?.publicUrl || "";
+}
+// Ürünün resmini gösterir; resim yoksa küçük bir simge kutusu gösterir.
+function UrunResmi({barkod, boyut=40, radius=8}) {
+  const u = (typeof URUN_DB!=="undefined" ? URUN_DB : []).find(x=>x.b===barkod);
+  const src = u && u.img;
+  return src
+    ? img({src, style:{width:boyut,height:boyut,objectFit:"cover",borderRadius:radius,
+        border:"1px solid var(--br)",flexShrink:0}})
+    : div({style:{width:boyut,height:boyut,borderRadius:radius,background:"var(--bg3)",
+        border:"1px solid var(--br)",display:"flex",alignItems:"center",justifyContent:"center",
+        fontSize:Math.round(boyut*0.45),flexShrink:0}},"🛍️");
+}
 try{
   window.addEventListener("error", e=>{ try{ window.__apronSonHata=((e.error&&e.error.stack)||e.message||"bilinmeyen hata"); }catch(_){} });
   window.addEventListener("unhandledrejection", e=>{ try{ window.__apronSonHata="Promise: "+((e.reason&&e.reason.stack)||(e.reason&&e.reason.message)||String(e.reason)); }catch(_){} });
@@ -12583,6 +12629,7 @@ function App() {
   const [yeniHizAd, setYeniHizAd]     = useState("");
   const [yeniHizFiyat, setYeniHizFiyat] = useState("");
   const [urunDuzId, setUrunDuzId]     = useState(null);
+  const [urunResimYukleniyor, setUrunResimYukleniyor] = useState(false);
   const [urunDuzData, setUrunDuzData] = useState(null);
   const [adOneriGizli, setAdOneriGizli] = useState(false); // Ürün Adı öneri kutusu manuel kapatıldı mı
   const [ekMarkalar, setEkMarkalar]   = useState([]);
@@ -22585,10 +22632,12 @@ if(DB) dbUpsertAyar("tema",tema);
               },90);
               setTimeout(()=>setUrunListeHighlight(null),3400);
             }},
-            div({style:{width:28,height:28,borderRadius:7,flexShrink:0,
-              background:isSarf?"rgba(255,149,0,.15)":"rgba(52,199,89,.12)",
-              display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}},
-              isSarf?"🧪":"🛍️"),
+            u.img
+              ? img({src:u.img,style:{width:28,height:28,borderRadius:7,flexShrink:0,objectFit:"cover"}})
+              : div({style:{width:28,height:28,borderRadius:7,flexShrink:0,
+                  background:isSarf?"rgba(255,149,0,.15)":"rgba(52,199,89,.12)",
+                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}},
+                  isSarf?"🧪":"🛍️"),
             div({style:{flex:1,minWidth:0}},
               div({style:{fontSize:13,fontWeight:600,color:"var(--tx)",
                 overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},u.a),
@@ -22634,6 +22683,46 @@ if(DB) dbUpsertAyar("tema",tema);
               ? URUN_DB.filter(u=>normText(u.a).includes(normText(aVal))||u.b.includes(aVal)).slice(0,5)
               : [];
             return h(React.Fragment,null,
+              // ── Ürün Resmi ──
+              div({style:{marginBottom:16,display:"flex",alignItems:"center",gap:14}},
+                urunDuzData.img
+                  ? img({src:urunDuzData.img,style:{width:84,height:84,objectFit:"cover",
+                      borderRadius:12,border:"1px solid var(--br)",flexShrink:0}})
+                  : div({style:{width:84,height:84,borderRadius:12,background:"var(--bg3)",
+                      border:"1px dashed var(--br)",display:"flex",alignItems:"center",
+                      justifyContent:"center",fontSize:32,flexShrink:0}},"🛍️"),
+                div({style:{flex:1,minWidth:0}},
+                  div({style:{fontSize:11,color:"var(--mu)",marginBottom:6,lineHeight:1.5}},
+                    "Tedarikçiden aldığınız orijinal ürün görselini yükleyin."),
+                  div({style:{display:"flex",gap:8}},
+                    h("label",{style:{background:"rgba(37,99,168,.1)",border:"1px solid rgba(37,99,168,.3)",
+                      borderRadius:9,color:"var(--g)",fontSize:12.5,fontWeight:600,padding:"8px 12px",
+                      cursor:urunResimYukleniyor?"default":"pointer",opacity:urunResimYukleniyor?0.6:1}},
+                      urunResimYukleniyor ? "Yükleniyor..." : (urunDuzData.img?"📷 Değiştir":"📷 Resim Yükle"),
+                      h("input",{type:"file",accept:"image/*",style:{display:"none"},
+                        disabled:urunResimYukleniyor,
+                        onChange: async e=>{
+                          const f = e.target.files && e.target.files[0];
+                          e.target.value = "";
+                          if(!f) return;
+                          setUrunResimYukleniyor(true);
+                          try{
+                            const url = await urunResmiYukle(urunDuzData.b||urunDuzId, f);
+                            setUrunDuzData(p=>({...p,img:url}));
+                            showToast("Resim yüklendi");
+                          } catch(err){
+                            showToast("Resim yüklenemedi — Supabase'de 'urun-resimleri' adlı public bucket var mı kontrol edin","uy");
+                          }
+                          setUrunResimYukleniyor(false);
+                        }})
+                    ),
+                    urunDuzData.img && !urunResimYukleniyor && btn({style:{background:"rgba(255,59,48,.08)",
+                      border:"1px solid rgba(255,59,48,.25)",borderRadius:9,color:"#FF3B30",
+                      fontSize:12.5,fontWeight:600,padding:"8px 12px",cursor:"pointer"},
+                      onClick:()=>setUrunDuzData(p=>({...p,img:""}))},"Kaldır")
+                  )
+                )
+              ),
               div({style:{marginBottom:10,position:"relative"}},
                 lbl({className:"fl"},"Barkod No *"),
                 inp({className:"fi",placeholder:"EAN-13 barkod...",
@@ -22728,7 +22817,8 @@ if(DB) dbUpsertAyar("tema",tema);
                     m:urunDuzData.m||"Diğer", ml:urunDuzData.ml||"",
                     bp:parseFloat(urunDuzData.bp||urunDuzData.ap)||0,
                     ap:parseFloat(urunDuzData.bp||urunDuzData.ap)||0,
-                    sp:parseFloat(urunDuzData.sp)||0
+                    sp:parseFloat(urunDuzData.sp)||0,
+                    img:urunDuzData.img||""
                   });
                 } else {
                   const idx2=URUN_DB.findIndex(u=>u.b===urunDuzId);
@@ -22809,6 +22899,7 @@ if(DB) dbUpsertAyar("tema",tema);
             border:"1px solid "+(urunListeHighlight===u.b?"#34C759":urunDuzId===u.b?"#6a5010":"var(--bg3)"),
             transition:"background .4s,border-color .4s"},
             onClick:()=>{setUrunDuzId(u.b);setUrunDuzData({...u});}},
+            h(UrunResmi,{barkod:u.b,boyut:38,radius:8}),
             div({style:{flex:1,minWidth:0}},
               div({style:{fontSize:14,color:"var(--tx)"}},u.a),
               div({style:{fontSize:12,color:"var(--di)",marginTop:1}},
