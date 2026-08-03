@@ -5447,7 +5447,26 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           return d.toISOString().split("T")[0];
         };
         const bugun=TODAY();
-        const sorted=mkArsiv.slice().sort((a,b)=>(b.faturaTarih||b.tarih||"").localeCompare(a.faturaTarih||a.tarih||""));
+        // Aynı tedarikçi + aynı fatura no olan kayıtları (Satılabilen + Sarf) tek satırda birleştir.
+        // Devir/Açılış kayıtları asla birleştirilmez (faturaN hep "DEVİR" olduğu için yanlış eşleşmeyi önler).
+        const gruplar=[];
+        const gKeyIdx=new Map();
+        mkArsiv.forEach((ar,idx)=>{
+          const acilisMi=ar.kayitTuru==="acilis";
+          const fN=(ar.faturaN||"").trim().toLowerCase();
+          const tD=(ar.tedarikci||"").trim().toLowerCase();
+          const gKey=(!acilisMi&&fN&&tD)?(tD+"||"+fN):("__tek__"+idx);
+          if(gKeyIdx.has(gKey)){
+            gruplar[gKeyIdx.get(gKey)].kayitlar.push(ar);
+            gruplar[gKeyIdx.get(gKey)].idxs.push(idx);
+          } else {
+            gKeyIdx.set(gKey,gruplar.length);
+            gruplar.push({key:gKey,kayitlar:[ar],idxs:[idx]});
+          }
+        });
+        const enSonTarih=g=>g.kayitlar.reduce((m,x)=>{const d=x.faturaTarih||x.tarih||"";return d>m?d:m;},"");
+        const sortedGruplar=gruplar.slice().sort((a,b)=>enSonTarih(b).localeCompare(enSonTarih(a)));
+        const toplamBorc=mkArsiv.reduce((s,ar)=>s+ar.urunler.reduce((ss,u)=>ss+(u.toplamF||0),0),0);
         return div({style:{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}},
           // + Devir / Açılış Borcu (tek seferlik, kuruma geçiş için)
           div({style:{padding:"10px 14px 4px",flexShrink:0}},
@@ -5457,15 +5476,15 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               "+ Devir / Açılış Borcu")
           ),
           // Özet
-          sorted.length>0&&div({style:{background:"var(--bg3)",borderBottom:"1px solid var(--br)",
+          sortedGruplar.length>0&&div({style:{background:"var(--bg3)",borderBottom:"1px solid var(--br)",
             padding:"8px 14px",fontSize:12,color:"var(--mu)",flexShrink:0}},
-            sorted.length+" fatura · Toplam borç: ",
+            sortedGruplar.length+" fatura · Toplam borç: ",
             h("span",{style:{color:"var(--g)",fontWeight:700,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
-              fmtBuyuk(sorted.reduce((s,ar)=>s+ar.urunler.reduce((ss,u)=>ss+(u.toplamF||0),0),0),14))
+              fmtBuyuk(toplamBorc,14))
           ),
           // Tablo
           div({style:{flex:1,overflowY:"auto",overflowX:"auto"}},
-            sorted.length===0
+            sortedGruplar.length===0
               ?div({style:{textAlign:"center",padding:50,color:"var(--mu)"}},
                   div({style:{fontSize:40,marginBottom:12}},"📋"),
                   div({style:{fontSize:13,letterSpacing:2,textTransform:"uppercase"}},"Henüz mal kabul kaydı yok"))
@@ -5479,15 +5498,32 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       borderRight:ci<6?"1px solid var(--br)":"none"}},lb2)
                   )
                 ),
-                sorted.map((ar,i)=>{
-                  const odenecek=ar.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
+                sortedGruplar.map((g,i)=>{
+                  const ar=g.kayitlar[0];
+                  const birlesikMi=g.kayitlar.length>1;
+                  const odenecek=g.kayitlar.reduce((s,k)=>s+k.urunler.reduce((ss,u)=>ss+(u.toplamF||0),0),0);
                   const vadeSon=sonOdeme(ar.faturaTarih||ar.tarih,ar.vade);
                   const gecikti=vadeSon&&vadeSon<bugun;
                   const yakinda=vadeSon&&!gecikti&&vadeSon<=new Date(new Date().setDate(new Date().getDate()+7)).toISOString().split("T")[0];
-                  const origIdx=mkArsiv.indexOf(ar);
                   const cel={borderRight:"1px solid var(--br)",display:"flex",alignItems:"center",
                     justifyContent:"center",minHeight:46,padding:"6px 6px"};
-                  const imgs=(Array.isArray(ar.faturaImg)?ar.faturaImg:[ar.faturaImg]).filter(Boolean);
+                  const imgs=[];
+                  g.kayitlar.forEach(k=>{
+                    (Array.isArray(k.faturaImg)?k.faturaImg:[k.faturaImg]).filter(Boolean).forEach(im=>{
+                      if(imgs.indexOf(im)===-1) imgs.push(im);
+                    });
+                  });
+                  // Birleşik satırlarda tür bazlı dökümü hesapla (🛍️ x ₺ + 🧪 y ₺)
+                  let dokum="";
+                  if(birlesikMi){
+                    const tipToplam={};
+                    g.kayitlar.forEach(k=>{
+                      const t=k.tip||"satilabilen";
+                      const tut=(k.urunler||[]).reduce((s,u)=>s+(u.toplamF||0),0);
+                      tipToplam[t]=(tipToplam[t]||0)+tut;
+                    });
+                    dokum=Object.keys(tipToplam).map(t=>(t==="sarf"?"🧪 ":"🛍️ ")+fmt(tipToplam[t])).join("  +  ");
+                  }
                   return div({key:i,style:{display:"grid",
                     gridTemplateColumns:"1fr 100px 150px 130px 70px 110px 56px",
                     borderBottom:"1px solid var(--br)",
@@ -5496,11 +5532,17 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       div({style:{display:"flex",flexDirection:"column",gap:2}},
                         div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},
                           ar.tedarikci||h("span",{style:{color:"var(--di)",fontSize:11}},"—")),
-                        ar.tip==="sarf"
-                          ?div({style:{fontSize:9,fontWeight:700,color:"#FF9500",background:"rgba(255,149,0,.12)",
-                              borderRadius:5,padding:"1px 6px",width:"fit-content"}},"🧪 SARF")
-                          :div({style:{fontSize:9,fontWeight:700,color:"#34C759",background:"rgba(52,199,89,.12)",
-                              borderRadius:5,padding:"1px 6px",width:"fit-content"}},"🛍️ SATILABİLEN")
+                        birlesikMi
+                          ?div({style:{display:"flex",flexDirection:"column",gap:3}},
+                              div({style:{fontSize:9,fontWeight:700,color:"#8E5FE0",background:"rgba(142,95,224,.13)",
+                                borderRadius:5,padding:"1px 6px",width:"fit-content"}},"🔗 BİRLEŞİK FATURA"),
+                              div({style:{fontSize:10,color:"var(--mu)"}},dokum)
+                            )
+                          :(ar.tip==="sarf"
+                              ?div({style:{fontSize:9,fontWeight:700,color:"#FF9500",background:"rgba(255,149,0,.12)",
+                                  borderRadius:5,padding:"1px 6px",width:"fit-content"}},"🧪 SARF")
+                              :div({style:{fontSize:9,fontWeight:700,color:"#34C759",background:"rgba(52,199,89,.12)",
+                                  borderRadius:5,padding:"1px 6px",width:"fit-content"}},"🛍️ SATILABİLEN"))
                       )
                     ),
                     div({style:{...cel,position:"relative",padding:0}},
@@ -5509,7 +5551,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",width:"100%",height:"100%",boxSizing:"border-box",cursor:"pointer"},
                         type:"date",value:ar.faturaTarih||ar.tarih||"",
                         onChange:e=>{
-                          const yeni=mkArsiv.map((x,j)=>j===origIdx?{...x,faturaTarih:e.target.value}:x);
+                          const yeni=mkArsiv.map((x,j)=>g.idxs.indexOf(j)!==-1?{...x,faturaTarih:e.target.value}:x);
                           setMkArsiv(yeni);
                           try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeni));}catch(err){}
                         }})
@@ -5522,7 +5564,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",width:"100%",height:"100%",boxSizing:"border-box",cursor:"text"},
                         type:"number",inputMode:"numeric",placeholder:"—",value:ar.vade||"",
                         onChange:e=>{
-                          const yeni=mkArsiv.map((x,j)=>j===origIdx?{...x,vade:e.target.value}:x);
+                          const yeni=mkArsiv.map((x,j)=>g.idxs.indexOf(j)!==-1?{...x,vade:e.target.value}:x);
                           setMkArsiv(yeni);
                           try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeni));}catch(err){}
                         }})
