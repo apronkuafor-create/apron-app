@@ -7983,31 +7983,78 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
     }}));
   },[girisBankalarAy, girisIbanAy, girisNakitAy]);
 
+  // ── HESAP FARKI (bağımsız) ──────────────────────────────────────────────
+  // Bu bölüm, sekmedeki diğer alanlardan (Ay Sonu Banka Ekstresi girişlerinden) veri
+  // ALMAZ — kendi bağımsız giriş alanları vardır. Amaç: toplam cironun nereye
+  // dağıldığını kanıtlamak. Genel Masraf otomatik (Giderler modülünden), banka/İban/Nakit
+  // elle, Personel Ödemeleri ise kişi kişi elle girilir (isimler otomatik listelenir,
+  // ama "cebine geçen" tutarı sistem bilemez — o yüzden elle girilir).
+  const hfKayit = manuelKayit.hesapFarki || {};
+  const [hfNakit, setHfNakit] = React.useState(String(hfKayit.nakit||""));
+  const [hfBankalar, setHfBankalar] = React.useState(hfKayit.bankalar||{});
+  const [hfIban, setHfIban] = React.useState(String(hfKayit.iban||""));
+  const [hfPersonel, setHfPersonel] = React.useState(hfKayit.personel||{});
+
+  React.useEffect(()=>{
+    const m = (hesapSaglamaAylik[ayAnahtar]||{}).hesapFarki || {};
+    setHfNakit(String(m.nakit||""));
+    setHfBankalar(m.bankalar||{});
+    setHfIban(String(m.iban||""));
+    setHfPersonel(m.personel||{});
+  },[ayAnahtar]);
+
+  // Yazdıkça otomatik taslak kaydı (diğer alanlardaki aynı davranış)
+  React.useEffect(()=>{
+    const bosMu = !hfNakit && Object.keys(hfBankalar).length===0 && !hfIban && Object.keys(hfPersonel).length===0;
+    const mevcutHf = (hesapSaglamaAylik[ayAnahtar]||{}).hesapFarki;
+    if(bosMu && !mevcutHf) return;
+    const ayniMi = mevcutHf
+      && String(mevcutHf.nakit||"")===String(hfNakit)
+      && JSON.stringify(mevcutHf.bankalar||{})===JSON.stringify(hfBankalar)
+      && String(mevcutHf.iban||"")===String(hfIban)
+      && JSON.stringify(mevcutHf.personel||{})===JSON.stringify(hfPersonel);
+    if(ayniMi) return;
+    setHesapSaglamaAylik(p=>({...p, [ayAnahtar]: {
+      ...(p[ayAnahtar]||{}), ay:ayAnahtar,
+      hesapFarki: {nakit:hfNakit, bankalar:{...hfBankalar}, iban:hfIban, personel:{...hfPersonel}}
+    }}));
+  },[hfNakit, hfBankalar, hfIban, hfPersonel]);
+
+  // Genel Masraf: bu ay içindeki tüm gider kayıtları (POS komisyonu dahil — ciro oradan da erimiş sayılır) — otomatik
+  const ayGiderleri = (giderler||[]).filter(g => g.tarih>=ayBasIso && g.tarih<=ayBitIso);
+  const genelMasrafOtomatik = ayGiderleri.reduce((s,g)=>s+toN(g.tutar),0);
+
+  // Personel listesi: isimler otomatik (formülü olan herkes), tutar elle. Bilgi amaçlı
+  // olarak o kişinin hesaplanan hakedişi de gösterilir ama toplama katılmaz.
+  const hfPersonelListesi = (personeller||[]).filter(p=>maasFormuluVarMi(p)).map(p=>{
+    let hesaplananHakedis = 0;
+    try {
+      hesaplananHakedis = toN(hesaplaMaas(p, ayKayitlar, {
+        tumPersoneller: personeller||[], tumKayitlar: ayKayitlar, toplamGider: genelMasrafOtomatik,
+        periyotBas: ayBasIso, periyotBit: ayBitIso
+      }).toplam) || 0;
+    } catch(e){}
+    return {id:p.id, ad:p.ad, hesaplananHakedis, cebineGecen: toN(hfPersonel[p.id])};
+  });
+  const hfPersonelToplam = hfPersonelListesi.reduce((s,p)=>s+p.cebineGecen,0);
+
+  const hfNakitN = toN(hfNakit);
+  const hfBankaToplam = Object.values(hfBankalar).reduce((s,v)=>s+toN(v),0);
+  const hfIbanN = toN(hfIban);
+  const hfGirildiMi = hfNakitN>0 || hfBankaToplam>0 || hfIbanN>0 || hfPersonelToplam>0;
+
+  // Tam mutabakat: Nakit + Bankalar + İban + Genel Masraf + Personel Ödemeleri = Sistemin hesapladığı ciro mu?
+  const tamMutabakatToplam = hfNakitN + hfBankaToplam + hfIbanN + genelMasrafOtomatik + hfPersonelToplam;
+  const tamMutabakatFark = tamMutabakatToplam - sistemTop;
+  const tamMutabakatEslesti = hfGirildiMi && Math.abs(tamMutabakatFark) < 1;
+
+  // ── Ay sonu banka ekstresi + otomatik POS komisyonu (bağımsız, kendi giriş alanları) ──
   const manuelKK = Object.values(girisBankalarAy).reduce((s,v)=>s+toN(v),0);
   const manuelIban = toN(girisIbanAy);
   const manuelNakit = toN(girisNakitAy);
   const manuelTop = manuelKK+manuelIban+manuelNakit;
   const manuelGirildiMi = manuelKK>0 || manuelIban>0 || manuelNakit>0;
   const manuelEslesti = manuelGirildiMi && Math.abs(manuelTop-sistemTop)<1;
-
-  // ── Hesabın tam ispatı için otomatik doldurulan iki kalem ──
-  // Genel Masraf: bu ay içindeki tüm gider kayıtları (POS komisyonu dahil — ciro oradan da erimiş sayılır)
-  const ayGiderleri = (giderler||[]).filter(g => g.tarih>=ayBasIso && g.tarih<=ayBitIso);
-  const genelMasrafOtomatik = ayGiderleri.reduce((s,g)=>s+toN(g.tutar),0);
-  // Personel Ödemeleri: bu ay için hesaplanan toplam personel/ortak maaşı (formülü olan herkes)
-  const personelOdemeleriOtomatik = (personeller||[]).filter(p=>maasFormuluVarMi(p)).reduce((s,p)=>{
-    try {
-      const sonucP = hesaplaMaas(p, ayKayitlar, {
-        tumPersoneller: personeller||[], tumKayitlar: ayKayitlar, toplamGider: genelMasrafOtomatik,
-        periyotBas: ayBasIso, periyotBit: ayBitIso
-      });
-      return s + (toN(sonucP.toplam)||0);
-    } catch(e){ return s; }
-  }, 0);
-  // Tam mutabakat: Nakit + Bankalar + İban + Genel Masraf + Personel Ödemeleri = Sistemin hesapladığı ciro mu?
-  const tamMutabakatToplam = manuelTop + genelMasrafOtomatik + personelOdemeleriOtomatik;
-  const tamMutabakatFark = tamMutabakatToplam - sistemTop;
-  const tamMutabakatEslesti = manuelGirildiMi && Math.abs(tamMutabakatFark) < 1;
 
   // Banka bazında: o ay boyunca günlük girilen toplam + ekstre + komisyon (fark)
   const bankaAdlari = (bankalar||[]).map(b=>typeof b==="string"?b:(b&&b.ad)).filter(Boolean);
@@ -8092,51 +8139,97 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
         div(null,"Toplam"), div(null,fmt(sistemTop)))
     ),
 
-    // Hesap Farkı — toplam cironun nereye dağıldığının ispatı
-    manuelGirildiMi && div({style:{
-      background:tamMutabakatEslesti?"rgba(50,140,100,.08)":"rgba(224,60,60,.08)",
-      border:"1.5px solid "+(tamMutabakatEslesti?"rgba(50,140,100,.35)":"rgba(224,60,60,.35)"),
+    // Hesap Farkı — toplam cironun nereye dağıldığının ispatı (bağımsız giriş alanları)
+    div({style:{
+      background:tamMutabakatEslesti?"rgba(50,140,100,.08)":(hfGirildiMi?"rgba(224,60,60,.08)":"var(--bg2)"),
+      border:"1.5px solid "+(tamMutabakatEslesti?"rgba(50,140,100,.35)":(hfGirildiMi?"rgba(224,60,60,.35)":"var(--br)")),
       borderRadius:12,padding:16,marginBottom:12}},
       div({style:{fontSize:12,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:4,
-        color:tamMutabakatEslesti?"var(--gr)":"#e06060"}},
+        color:tamMutabakatEslesti?"var(--gr)":(hfGirildiMi?"#e06060":"var(--g)")}},
         "📊 Hesap Farkı — "+ayEt+" "+yil),
       div({style:{fontSize:11,color:"var(--mu)",marginBottom:10,lineHeight:1.5}},
-        "Toplam ciro, aşağıdaki kalemlerin toplamına eşitse hesap denk demektir. 🏦/💵 satırlarını siz giriyorsunuz (aşağıdaki bölümlerden), 📋/👥 satırlarını sistem otomatik dolduruyor."),
+        "Bu bölüm bağımsızdır, aşağıdaki diğer alanlardan veri almaz. Aşağıdaki kalemleri elle girin; toplamları TOPLAM CİRO'ya eşitse hesap denk demektir."),
+
+      // Toplam Ciro — referans hedef rakam, en üstte
+      div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+        padding:"10px 12px",background:"var(--bg2)",borderRadius:9,marginBottom:12,
+        border:"1px solid var(--br)"}},
+        div({style:{fontSize:12.5,fontWeight:700,color:"var(--tx)"}},"🎯 TOPLAM CİRO (sistemin hesapladığı)"),
+        div({style:{fontSize:16,fontWeight:700,color:"var(--g)"}},fmt(sistemTop))
+      ),
 
       div({style:{background:"var(--bg2)",borderRadius:9,padding:"9px 11px",marginBottom:10}},
-        div({style:{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12.5,color:"var(--tx)"}},
-          div(null,"💵 Eldeki Nakit"), div({style:{fontWeight:600}},fmt(manuelNakit))),
-        bankaAdlari.map(bad=>
-          div({key:bad,style:{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12.5,color:"var(--tx)"}},
-            div(null,"🏦 "+bad), div({style:{fontWeight:600}},fmt(toN(girisBankalarAy[bad]))))
+
+        // Eldeki Nakit — elle
+        div({style:{display:"grid",gridTemplateColumns:"1fr 130px",gap:8,alignItems:"center",padding:"5px 0"}},
+          div({style:{fontSize:12.5,color:"var(--tx)"}},"💵 Eldeki Nakit"),
+          inp({className:"fi",style:{margin:0,textAlign:"right"},type:"number",inputMode:"decimal",placeholder:"0",
+            value:hfNakit, onChange:e=>setHfNakit(e.target.value)})
         ),
-        div({style:{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12.5,color:"var(--tx)"}},
-          div(null,"🏦 İban/Havale"), div({style:{fontWeight:600}},fmt(manuelIban))),
-        div({style:{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12.5,color:"var(--tx)"}},
+
+        // Bankalar — isim otomatik, tutar elle
+        bankaAdlari.map(bad=>
+          div({key:bad,style:{display:"grid",gridTemplateColumns:"1fr 130px",gap:8,alignItems:"center",padding:"5px 0"}},
+            div({style:{fontSize:12.5,color:"var(--tx)"}},"🏦 "+bad),
+            inp({className:"fi",style:{margin:0,textAlign:"right"},type:"number",inputMode:"decimal",placeholder:"0",
+              value:hfBankalar[bad]||"", onChange:e=>setHfBankalar(p=>({...p,[bad]:e.target.value}))})
+          )
+        ),
+
+        // İban/Havale — elle
+        div({style:{display:"grid",gridTemplateColumns:"1fr 130px",gap:8,alignItems:"center",padding:"5px 0"}},
+          div({style:{fontSize:12.5,color:"var(--tx)"}},"🏦 İban/Havale"),
+          inp({className:"fi",style:{margin:0,textAlign:"right"},type:"number",inputMode:"decimal",placeholder:"0",
+            value:hfIban, onChange:e=>setHfIban(e.target.value)})
+        ),
+
+        // Genel Masraf — otomatik, salt okunur
+        div({style:{display:"flex",justifyContent:"space-between",padding:"5px 0",marginTop:2,fontSize:12.5,color:"var(--tx)"}},
           div({style:{display:"flex",alignItems:"center",gap:5}},"📋 Genel Masraf",
             h("span",{style:{fontSize:9,color:"var(--g)",background:"rgba(37,99,168,.1)",borderRadius:5,padding:"1px 5px"}},"otomatik")),
-          div({style:{fontWeight:600}},fmt(genelMasrafOtomatik))),
-        div({style:{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12.5,color:"var(--tx)"}},
-          div({style:{display:"flex",alignItems:"center",gap:5}},"👥 Personel Ödemeleri",
-            h("span",{style:{fontSize:9,color:"var(--g)",background:"rgba(37,99,168,.1)",borderRadius:5,padding:"1px 5px"}},"otomatik")),
-          div({style:{fontWeight:600}},fmt(personelOdemeleriOtomatik)))
+          div({style:{fontWeight:600}},fmt(genelMasrafOtomatik))
+        ),
+
+        // Personel Ödemeleri — isim otomatik, tutar elle (kişi kişi)
+        div({style:{marginTop:6,paddingTop:8,borderTop:"1px dashed var(--br)"}},
+          div({style:{display:"flex",alignItems:"center",gap:5,marginBottom:6}},
+            h("span",{style:{fontSize:12.5,color:"var(--tx)",fontWeight:600}},"👥 Personel Ödemeleri"),
+            h("span",{style:{fontSize:9,color:"var(--g)",background:"rgba(37,99,168,.1)",borderRadius:5,padding:"1px 5px"}},"isimler otomatik")
+          ),
+          hfPersonelListesi.length===0
+            ? div({style:{fontSize:11.5,color:"var(--mu)",fontStyle:"italic"}},"Maaş formülü tanımlı personel yok.")
+            : hfPersonelListesi.map(p=>
+                div({key:p.id,style:{marginBottom:6}},
+                  div({style:{display:"grid",gridTemplateColumns:"1fr 130px",gap:8,alignItems:"center"}},
+                    div({style:{fontSize:12.5,color:"var(--tx)"}},p.ad),
+                    inp({className:"fi",style:{margin:0,textAlign:"right"},type:"number",inputMode:"decimal",placeholder:"0",
+                      value:hfPersonel[p.id]||"", onChange:e=>setHfPersonel(prev=>({...prev,[p.id]:e.target.value}))})
+                  ),
+                  div({style:{fontSize:10,color:"var(--di)",marginTop:1}},
+                    "Hesaplanan hakediş: "+fmt(p.hesaplananHakedis)+
+                    (p.hesaplananHakedis-p.cebineGecen>0.5 ? " · Kalan alacağı: "+fmt(p.hesaplananHakedis-p.cebineGecen)
+                      : (p.cebineGecen-p.hesaplananHakedis>0.5 ? " · Fazla ödenen: "+fmt(p.cebineGecen-p.hesaplananHakedis) : ""))
+                  )
+                )
+              )
+        )
       ),
 
       div({style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:13,color:"var(--tx)"}},
         div(null,"Toplam (yukarıdakiler)"), div({style:{fontWeight:600}},fmt(tamMutabakatToplam))),
       div({style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:13,color:"var(--tx)"}},
-        div(null,"Sistemin hesapladığı toplam ciro"), div({style:{fontWeight:600}},fmt(sistemTop))),
+        div(null,"Toplam Ciro (hedef)"), div({style:{fontWeight:600}},fmt(sistemTop))),
 
-      div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0 0",marginTop:6,
+      hfGirildiMi && div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0 0",marginTop:6,
         borderTop:"1px solid "+(tamMutabakatEslesti?"rgba(50,140,100,.25)":"rgba(224,60,60,.25)")}},
         div({style:{fontSize:14,fontWeight:700,color:tamMutabakatEslesti?"var(--gr)":"#e06060"}},
           tamMutabakatEslesti ? "✓ Hesap Denk" : (tamMutabakatFark<0 ? "⚠ AÇIK VAR" : "⚠ FAZLA VAR")),
         !tamMutabakatEslesti && div({style:{fontSize:18,fontWeight:700,color:"#e06060"}},
           (tamMutabakatFark>0?"+":"")+fmt(tamMutabakatFark))
       ),
-      !tamMutabakatEslesti && div({style:{fontSize:11,color:"var(--mu)",marginTop:8,lineHeight:1.5}},
+      hfGirildiMi && !tamMutabakatEslesti && div({style:{fontSize:11,color:"var(--mu)",marginTop:8,lineHeight:1.5}},
         tamMutabakatFark<0
-          ? "Toplam ciro, girdiğiniz nakit+banka+giderler+maaşların toplamından fazla — kasada/hesapta veya kayıtlarda bir eksik olabilir."
+          ? "Toplam ciro, girdiğiniz nakit+banka+giderler+personel ödemelerinin toplamından fazla — kasada/hesapta veya kayıtlarda bir eksik olabilir."
           : "Girdiğiniz kalemlerin toplamı, sistemin hesapladığı cirodan fazla — bir yerde fazla/yanlış girilmiş bir tutar olabilir, kontrol edin.")
     ),
 
