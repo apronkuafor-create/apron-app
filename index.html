@@ -8139,6 +8139,18 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
   const tamMutabakatFark = tamMutabakatToplam - sistemTop;
   const tamMutabakatEslesti = hfGirildiMi && Math.abs(tamMutabakatFark) < 1;
 
+  // 🏦 Elimizdeki Nakit kutusu toplamı: Bankalar + Nakit + Brüt Hakedişinden Fazla Alanlar (İban/Havale hariç)
+  const hfFazlaOdenenToplam = Object.values(hfFazlaOdenen).reduce((s,v)=>s+toN(v),0);
+  const elimizdekiNakitToplam = hfBankaToplam + hfNakitN + hfFazlaOdenenToplam;
+
+  // 💰 Yapılan ve Kalan Ödemeler kutusu toplamı (çalışan + ortak)
+  const toplamKalanOdemeler = hfCalisanListesi.reduce((s,p)=>s+(p.kalanOdenecek||0),0)
+    + ortaklarDetay.reduce((s,o)=>s+o.kalanOdenecek,0);
+
+  // 🧾 Hesap Sağlaması Sonucu: Elimizdeki Nakit − Yapılan ve Kalan Ödemeler
+  const hesapSaglamasiSonucu = elimizdekiNakitToplam - toplamKalanOdemeler;
+  const hsDurum = Math.abs(hesapSaglamasiSonucu)<1 ? "denk" : (hesapSaglamasiSonucu<0 ? "acik" : "fazla");
+
   // ── Ay sonu banka ekstresi + otomatik POS komisyonu (bağımsız, kendi giriş alanları) ──
   const manuelKK = Object.values(girisBankalarAy).reduce((s,v)=>s+toN(v),0);
   const manuelIban = toN(girisIbanAy);
@@ -8380,11 +8392,6 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
             )
           ),
           div({style:{display:"grid",gridTemplateColumns:"1fr 100px",gap:6,alignItems:"center",padding:"3px 0"}},
-            div({style:{fontSize:12,color:"var(--tx)"}},"İban/Havale"),
-            inp({className:"fi",style:{margin:0,padding:"5px 6px",textAlign:"right"},type:"number",inputMode:"decimal",placeholder:"0",
-              value:hfIban, onChange:e=>setHfIban(e.target.value)})
-          ),
-          div({style:{display:"grid",gridTemplateColumns:"1fr 100px",gap:6,alignItems:"center",padding:"3px 0"}},
             div({style:{fontSize:12,color:"var(--tx)"}},"💵 Nakit"),
             inp({className:"fi",style:{margin:0,padding:"5px 6px",textAlign:"right"},type:"number",inputMode:"decimal",placeholder:"0",
               value:hfNakit, onChange:e=>setHfNakit(e.target.value)})
@@ -8402,7 +8409,33 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
                 div({style:{fontSize:9.5,color:"var(--di)"}},"Hesaplanan fazla: "+fmt(p.hesaplananFazla))
               )
             )
+          ),
+          div({style:{display:"flex",justifyContent:"space-between",padding:"8px 0 0",marginTop:8,
+            borderTop:"1px solid var(--br)",fontSize:13.5,fontWeight:700,color:"var(--tx)"}},
+            div(null,"Toplam"),
+            div(null,fmt(elimizdekiNakitToplam))
           )
+        )
+      ),
+
+      // Üç kutunun altında, üçünü kapsayacak şekilde: Hesap Sağlaması Sonucu
+      div({style:{
+        background:hsDurum==="denk"?"rgba(50,140,100,.08)":(hsDurum==="acik"?"rgba(224,60,60,.08)":"rgba(255,149,0,.08)"),
+        border:"1.5px solid "+(hsDurum==="denk"?"rgba(50,140,100,.35)":(hsDurum==="acik"?"rgba(224,60,60,.35)":"rgba(255,149,0,.35)")),
+        borderRadius:12,padding:16,marginBottom:12}},
+        div({style:{fontSize:12,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:10,
+          color:hsDurum==="denk"?"var(--gr)":(hsDurum==="acik"?"#e06060":"#FF9500")}},
+          "🧾 Hesap Sağlaması Sonucu"),
+        div({style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:13,color:"var(--tx)"}},
+          div(null,"🏦 Elimizdeki Nakit Toplamı"), div({style:{fontWeight:600}},fmt(elimizdekiNakitToplam))),
+        div({style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:13,color:"var(--tx)"}},
+          div(null,"💰 Yapılan ve Kalan Ödemeler Toplamı"), div({style:{fontWeight:600}},fmt(toplamKalanOdemeler))),
+        div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0 0",marginTop:6,
+          borderTop:"1px solid "+(hsDurum==="denk"?"rgba(50,140,100,.25)":(hsDurum==="acik"?"rgba(224,60,60,.25)":"rgba(255,149,0,.25)"))}},
+          div({style:{fontSize:14,fontWeight:700,color:hsDurum==="denk"?"var(--gr)":(hsDurum==="acik"?"#e06060":"#FF9500")}},
+            hsDurum==="denk"?"✓ Hesap Denk":(hsDurum==="acik"?"⚠ Hesapta Açık Var":"⚠ Hesapta Fazla Var")),
+          div({style:{fontSize:18,fontWeight:700,color:hsDurum==="denk"?"var(--gr)":(hsDurum==="acik"?"#e06060":"#FF9500")}},
+            (hesapSaglamasiSonucu>0?"+":"")+fmt(hesapSaglamasiSonucu))
         )
       ),
 
