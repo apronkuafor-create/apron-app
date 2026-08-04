@@ -8095,10 +8095,6 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
   const hfPersonelToplam = hfPersonelListesi.reduce((s,p)=>s+p.cebineGecen,0);
   // Masraflar ve Ödeme Yapılacaklar kutuları için: ortaklar (Ortak Payı bileşeni olanlar) hariç tutulur
   const hfCalisanListesi = hfPersonelListesi.filter(p=>!p.ortakMi);
-  // Brüt hakedişinden fazla para almış (avans+İban toplamı hakedişini aşan) — çalışan+ortak, herkes
-  const hfFazlaOdenenListesi = hfPersonelListesi
-    .filter(p=>p.hesaplanabildi && (p.cebineGecen - p.hesaplananHakedis) > 0.5)
-    .map(p=>({...p, hesaplananFazla: p.cebineGecen - p.hesaplananHakedis}));
   // Masraflar kutusu toplamı: Genel Masraf + hesaplanabilen çalışan hakedişleri (ortaklar hariç)
   const toplamMasrafTutari = genelMasrafOtomatik + hfCalisanListesi.reduce((s,p)=>s+(p.hesaplanabildi?p.hesaplananHakedis:0),0);
 
@@ -8129,6 +8125,12 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
   const ortaklarNetGelirToplami = ortaklarDetay.reduce((s,o)=>s+o.gercekGelir,0);
   const nihaiKalan = sistemTop - toplamMasrafTutari - ortaklarNetGelirToplami;
 
+  // Brüt Hakedişinden Fazla Alanlar (Elimizdeki Nakit kutusu): "💰 Yapılan ve Kalan Ödemeler" (çalışan+ortak,
+  // düzeltilmiş kalanOdenecek) tutarından beslenir — kalanOdenecek negatifse fazla ödenmiş demektir.
+  const hfFazlaOdenenListesi = [...hfCalisanListesi, ...ortaklarDetay]
+    .filter(p=>p.kalanOdenecek!==null && p.kalanOdenecek<-0.5)
+    .map(p=>({id:p.id, ad:p.ad, hesaplananFazla:Math.abs(p.kalanOdenecek)}));
+
   const hfNakitN = toN(hfNakit);
   const hfBankaToplam = Object.values(hfBankalar).reduce((s,v)=>s+toN(v),0);
   const hfIbanN = toN(hfIban);
@@ -8140,7 +8142,7 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
   const tamMutabakatEslesti = hfGirildiMi && Math.abs(tamMutabakatFark) < 1;
 
   // 🏦 Elimizdeki Nakit kutusu toplamı: Bankalar + Nakit + Brüt Hakedişinden Fazla Alanlar (İban/Havale hariç)
-  const hfFazlaOdenenToplam = Object.values(hfFazlaOdenen).reduce((s,v)=>s+toN(v),0);
+  const hfFazlaOdenenToplam = hfFazlaOdenenListesi.reduce((s,p)=>s+toN(hfFazlaOdenen[p.id]),0);
   const elimizdekiNakitToplam = hfBankaToplam + hfNakitN + hfFazlaOdenenToplam;
 
   // 💰 Yapılan ve Kalan Ödemeler kutusu toplamı (çalışan + ortak)
