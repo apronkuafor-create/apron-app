@@ -8054,13 +8054,20 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
     return {...r, hizIbanId: r.hizIbanId||bil.hizIbanId||"", urunIbanId: r.urunIbanId||bil.urunIbanId||""};
   });
   const hfPersonelListesi = (personeller||[]).filter(p=>maasFormuluVarMi(p)).map(p=>{
+    // "Hesaplanan hakediş" SADECE bilgi amaçlıdır — ana denklikte (toplamda) hiç kullanılmaz.
+    // Bir formülde hata olsa (Ortak Payı vb.) veya sonuç mantıksız derecede büyük/küçük çıksa bile,
+    // bu sadece o kişinin bilgi satırını etkiler; genel hesap sağlaması asla bozulmaz.
     let hesaplananHakedis = 0;
+    let hesaplanabildi = true;
     try {
-      hesaplananHakedis = toN(hesaplaMaas(p, ayKayitlar, {
+      const ham = toN(hesaplaMaas(p, ayKayitlar, {
         tumPersoneller: personeller||[], tumKayitlar: ayKayitlar, toplamGider: genelMasrafOtomatik,
         periyotBas: ayBasIso, periyotBit: ayBitIso
-      }).toplam) || 0;
-    } catch(e){}
+      }).toplam);
+      const makulSinir = Math.abs(sistemTop)*3 + 5000000; // bu ölçeğin çok üstü mantıksız sayılır
+      if(!isFinite(ham) || Math.abs(ham) > makulSinir) hesaplanabildi = false;
+      else hesaplananHakedis = ham || 0;
+    } catch(e){ hesaplanabildi = false; }
     const ibanHizmetTop = ayKayitlarZengin
       .filter(r=>String(r.hizIbanId)===String(p.id) && toN(r.hizIB)>0)
       .reduce((s,r)=>s+toN(r.hizIB),0);
@@ -8074,7 +8081,7 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
       return a.tarih>=ayBasIso && a.tarih<=ayBitIso;
     }).reduce((s,a)=>s+toN(a.tutar),0);
     const cebineGecen = ibanHizmetTop + ibanUrunTop + avansToplam;
-    return {id:p.id, ad:p.ad, hesaplananHakedis, cebineGecen};
+    return {id:p.id, ad:p.ad, hesaplananHakedis, hesaplanabildi, cebineGecen};
   });
   const hfPersonelToplam = hfPersonelListesi.reduce((s,p)=>s+p.cebineGecen,0);
 
@@ -8244,9 +8251,12 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
                     div(null,p.ad), div({style:{fontWeight:600}},fmt(p.cebineGecen))
                   ),
                   div({style:{fontSize:10,color:"var(--di)",marginTop:1}},
-                    "İban'a gelen + avans toplamı · Hesaplanan hakediş: "+fmt(p.hesaplananHakedis)+
-                    (p.hesaplananHakedis-p.cebineGecen>0.5 ? " · Kalan alacağı: "+fmt(p.hesaplananHakedis-p.cebineGecen)
-                      : (p.cebineGecen-p.hesaplananHakedis>0.5 ? " · Fazla ödenen: "+fmt(p.cebineGecen-p.hesaplananHakedis) : ""))
+                    "İban'a gelen + avans toplamı"+
+                    (p.hesaplanabildi
+                      ? " · Hesaplanan hakediş: "+fmt(p.hesaplananHakedis)+
+                        (p.hesaplananHakedis-p.cebineGecen>0.5 ? " · Kalan alacağı: "+fmt(p.hesaplananHakedis-p.cebineGecen)
+                          : (p.cebineGecen-p.hesaplananHakedis>0.5 ? " · Fazla ödenen: "+fmt(p.cebineGecen-p.hesaplananHakedis) : ""))
+                      : " · Hesaplanan hakediş: — (formül hesaplanamadı, kontrol edin)")
                   )
                 )
               )
