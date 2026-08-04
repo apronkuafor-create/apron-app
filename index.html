@@ -12033,7 +12033,57 @@ function PersonelMaasGorunum({personel, tumK, onChange, showToast, tumPersonelle
     periyotBas: isoTarih(periyotBaslangic),
     periyotBit: isoTarih(periyotBitis)
   });
-  const brutHak = toN(sonuc.toplam);
+
+  // ── Ortaklar için sağlam/doğrudan hesap (hesaplaMaas motorundaki "Ortak Payı" bileşeninde
+  //    bilinen bir hesap hatası var — büyük rakamlarda yanlış sonuç üretebiliyor). Bu yüzden
+  //    ortağın brüt hakedişini burada, Aylık Hesap Özeti'nde doğrulanmış aynı yöntemle
+  //    (kendi hizmet cirosu + havuz payı) doğrudan hesaplıyoruz, motorun ürettiği rakama güvenmiyoruz.
+  const guncelDonemBu = formulSec(personel, isoTarih(periyotBitis));
+  const opBileseniBu = guncelDonemBu ? (guncelDonemBu.formul||[]).find(b=>b.tip==="ortakPayi") : null;
+  let ortakDuzeltmesi = null;
+  if(opBileseniBu){
+    const ortakIdlerBu = (opBileseniBu.ortakIdler||[]).map(String);
+    const ortakSayiBu = ortakIdlerBu.length || 1;
+    const kendiHizmetCirosuBu = filtreliK
+      .filter(r=>r.gonderildi!==false && String(r.staffId)===String(personel.id))
+      .reduce((s,r)=>s+toN(r.hizKK)+toN(r.hizIB)+toN(r.hizNK),0);
+    let digerHizmetCiroBu = 0, tumUrunCiroBu = 0;
+    filtreliK.forEach(r=>{
+      if(r.gonderildi===false) return;
+      const isOrtakBu = ortakIdlerBu.includes(String(r.staffId));
+      const hC = toN(r.hizKK)+toN(r.hizIB)+toN(r.hizNK);
+      const uC = toN(r.uKK)+toN(r.uIB)+toN(r.uNK);
+      if(!isOrtakBu) digerHizmetCiroBu += hC;
+      tumUrunCiroBu += uC;
+    });
+    const havuzGelirBu = digerHizmetCiroBu + tumUrunCiroBu;
+    let digerMaaslarBu = 0;
+    (tumPersoneller||[]).forEach(p=>{
+      if(ortakIdlerBu.includes(String(p.id))) return;
+      if(!maasFormuluVarMi(p)) return;
+      if(formulDonemleri(p).some(d=>(d.formul||[]).some(bi=>bi.tip==="ortakPayi"))) return;
+      try {
+        const sp = hesaplaMaas(p, filtreliK, {
+          tumPersoneller: tumPersoneller||[], tumKayitlar: filtreliK, toplamGider,
+          periyotBas: isoTarih(periyotBaslangic), periyotBit: isoTarih(periyotBitis)
+        });
+        digerMaaslarBu += toN(sp.toplam)||0;
+      } catch(e){}
+    });
+    const havuzGiderBu = digerMaaslarBu + toplamGider;
+    const netBu = havuzGelirBu - havuzGiderBu;
+    const ortakPayBu = netBu / ortakSayiBu;
+    ortakDuzeltmesi = {
+      kendiHizmetCirosu: kendiHizmetCirosuBu, ortakPay: ortakPayBu,
+      brutHak: kendiHizmetCirosuBu + ortakPayBu,
+      aciklama: "Gelir: "+fmt(havuzGelirBu)+" − Gider: "+fmt(havuzGiderBu)+" = "+fmt(netBu)+" ÷ "+ortakSayiBu
+    };
+    // sonuc.detay'daki (hesaplaMaas'ın ham/bozuk) Ortak Payı satırını, doğru rakamla değiştir
+    sonuc.detay = (sonuc.detay||[]).map(d=>
+      d.tip==="ortakPayi" ? {...d, tutar:ortakDuzeltmesi.ortakPay, aciklama:ortakDuzeltmesi.aciklama} : d
+    );
+  }
+  const brutHak = ortakDuzeltmesi ? ortakDuzeltmesi.brutHak : toN(sonuc.toplam);
   const periyotEt = {buHafta:"Bu Hafta",buAy:"Bu Ay",gecenAy:"Geçen Ay",buYil:"Bu Yıl"}[periyot];
 
   // ── İbanına gelen tutarlar (kredi kartı ödemesi doğrudan personelin/ortağın kendi hesabına yatmışsa,
