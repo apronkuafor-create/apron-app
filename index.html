@@ -7543,7 +7543,7 @@ function bankaGunKomisyonFn(bankAd, donemler, tarih, komGirisBank){
 }
 
 // ── HESAP ÖZETİ MODÜLÜ ─────────────────────────────────────────────────────
-function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToast, bankaKom, komisyonGiderYaz, onIncele, defaultTarih, hesapSaglamaAylik, setHesapSaglamaAylik}) {
+function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToast, bankaKom, komisyonGiderYaz, onIncele, defaultTarih, hesapSaglamaAylik, setHesapSaglamaAylik, giderler, personeller}) {
   const genelToplamBolumStili = {};
   const [modTab, setModTab] = React.useState("gunluk"); // "gunluk" | "aylik"
   const [secTarih, setSecTarih] = React.useState(defaultTarih||TODAY());
@@ -7663,7 +7663,7 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
     return div(null,
       TabSwitcher,
       h(AylikHesapOzeti,{tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHesapSaglamaAylik, showToast,
-        komisyonGiderYaz,
+        komisyonGiderYaz, giderler, personeller,
         gunlukGit:(tarih)=>{setSecTarih(tarih);setModTab("gunluk");}})
     );
   }
@@ -7912,7 +7912,7 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
 // toplamları, (2) o ay içindeki günlük sağlamaların otomatik toplamı (eksik
 // günler ayrıca uyarılır), (3) isteğe bağlı, ay sonu banka ekstresi ile tek
 // seferde girilen bağımsız bir karşılaştırma.
-function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHesapSaglamaAylik, showToast, gunlukGit, komisyonGiderYaz}) {
+function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHesapSaglamaAylik, showToast, gunlukGit, komisyonGiderYaz, giderler, personeller}) {
   const simdi = new Date();
   const [ay, setAy] = React.useState(simdi.getMonth());
   const [yil, setYil] = React.useState(simdi.getFullYear());
@@ -7989,6 +7989,25 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
   const manuelTop = manuelKK+manuelIban+manuelNakit;
   const manuelGirildiMi = manuelKK>0 || manuelIban>0 || manuelNakit>0;
   const manuelEslesti = manuelGirildiMi && Math.abs(manuelTop-sistemTop)<1;
+
+  // ── Hesabın tam ispatı için otomatik doldurulan iki kalem ──
+  // Genel Masraf: bu ay içindeki tüm gider kayıtları (POS komisyonu dahil — ciro oradan da erimiş sayılır)
+  const ayGiderleri = (giderler||[]).filter(g => g.tarih>=ayBasIso && g.tarih<=ayBitIso);
+  const genelMasrafOtomatik = ayGiderleri.reduce((s,g)=>s+toN(g.tutar),0);
+  // Personel Ödemeleri: bu ay için hesaplanan toplam personel/ortak maaşı (formülü olan herkes)
+  const personelOdemeleriOtomatik = (personeller||[]).filter(p=>maasFormuluVarMi(p)).reduce((s,p)=>{
+    try {
+      const sonucP = hesaplaMaas(p, ayKayitlar, {
+        tumPersoneller: personeller||[], tumKayitlar: ayKayitlar, toplamGider: genelMasrafOtomatik,
+        periyotBas: ayBasIso, periyotBit: ayBitIso
+      });
+      return s + (toN(sonucP.toplam)||0);
+    } catch(e){ return s; }
+  }, 0);
+  // Tam mutabakat: Nakit + Bankalar + İban + Genel Masraf + Personel Ödemeleri = Sistemin hesapladığı ciro mu?
+  const tamMutabakatToplam = manuelTop + genelMasrafOtomatik + personelOdemeleriOtomatik;
+  const tamMutabakatFark = tamMutabakatToplam - sistemTop;
+  const tamMutabakatEslesti = manuelGirildiMi && Math.abs(tamMutabakatFark) < 1;
 
   // Banka bazında: o ay boyunca günlük girilen toplam + ekstre + komisyon (fark)
   const bankaAdlari = (bankalar||[]).map(b=>typeof b==="string"?b:(b&&b.ad)).filter(Boolean);
@@ -8073,29 +8092,52 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
         div(null,"Toplam"), div(null,fmt(sistemTop)))
     ),
 
-    // Hesap Farkı — sistemin hesapladığı ile elde girilen gerçek tutarın karşılaştırması
+    // Hesap Farkı — toplam cironun nereye dağıldığının ispatı
     manuelGirildiMi && div({style:{
-      background:manuelEslesti?"rgba(50,140,100,.08)":"rgba(224,60,60,.08)",
-      border:"1.5px solid "+(manuelEslesti?"rgba(50,140,100,.35)":"rgba(224,60,60,.35)"),
+      background:tamMutabakatEslesti?"rgba(50,140,100,.08)":"rgba(224,60,60,.08)",
+      border:"1.5px solid "+(tamMutabakatEslesti?"rgba(50,140,100,.35)":"rgba(224,60,60,.35)"),
       borderRadius:12,padding:16,marginBottom:12}},
-      div({style:{fontSize:12,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:10,
-        color:manuelEslesti?"var(--gr)":"#e06060"}},
+      div({style:{fontSize:12,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:4,
+        color:tamMutabakatEslesti?"var(--gr)":"#e06060"}},
         "📊 Hesap Farkı — "+ayEt+" "+yil),
-      div({style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:13,color:"var(--tx)"}},
-        div(null,"Sistemin hesapladığı (kayıtlardan)"), div({style:{fontWeight:600}},fmt(sistemTop))),
-      div({style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:13,color:"var(--tx)"}},
-        div(null,"Elinizdeki gerçek tutar (girdiğiniz)"), div({style:{fontWeight:600}},fmt(manuelTop))),
-      div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0 0",marginTop:6,
-        borderTop:"1px solid "+(manuelEslesti?"rgba(50,140,100,.25)":"rgba(224,60,60,.25)")}},
-        div({style:{fontSize:14,fontWeight:700,color:manuelEslesti?"var(--gr)":"#e06060"}},
-          manuelEslesti ? "✓ Tam Eşleşiyor" : (manuelTop<sistemTop ? "⚠ AÇIK VAR" : "⚠ FAZLA VAR")),
-        !manuelEslesti && div({style:{fontSize:18,fontWeight:700,color:"#e06060"}},
-          (manuelTop-sistemTop>0?"+":"")+fmt(manuelTop-sistemTop))
+      div({style:{fontSize:11,color:"var(--mu)",marginBottom:10,lineHeight:1.5}},
+        "Toplam ciro, aşağıdaki kalemlerin toplamına eşitse hesap denk demektir. 🏦/💵 satırlarını siz giriyorsunuz (aşağıdaki bölümlerden), 📋/👥 satırlarını sistem otomatik dolduruyor."),
+
+      div({style:{background:"var(--bg2)",borderRadius:9,padding:"9px 11px",marginBottom:10}},
+        div({style:{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12.5,color:"var(--tx)"}},
+          div(null,"💵 Eldeki Nakit"), div({style:{fontWeight:600}},fmt(manuelNakit))),
+        bankaAdlari.map(bad=>
+          div({key:bad,style:{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12.5,color:"var(--tx)"}},
+            div(null,"🏦 "+bad), div({style:{fontWeight:600}},fmt(toN(girisBankalarAy[bad]))))
+        ),
+        div({style:{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12.5,color:"var(--tx)"}},
+          div(null,"🏦 İban/Havale"), div({style:{fontWeight:600}},fmt(manuelIban))),
+        div({style:{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12.5,color:"var(--tx)"}},
+          div({style:{display:"flex",alignItems:"center",gap:5}},"📋 Genel Masraf",
+            h("span",{style:{fontSize:9,color:"var(--g)",background:"rgba(37,99,168,.1)",borderRadius:5,padding:"1px 5px"}},"otomatik")),
+          div({style:{fontWeight:600}},fmt(genelMasrafOtomatik))),
+        div({style:{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12.5,color:"var(--tx)"}},
+          div({style:{display:"flex",alignItems:"center",gap:5}},"👥 Personel Ödemeleri",
+            h("span",{style:{fontSize:9,color:"var(--g)",background:"rgba(37,99,168,.1)",borderRadius:5,padding:"1px 5px"}},"otomatik")),
+          div({style:{fontWeight:600}},fmt(personelOdemeleriOtomatik)))
       ),
-      !manuelEslesti && div({style:{fontSize:11,color:"var(--mu)",marginTop:8,lineHeight:1.5}},
-        manuelTop<sistemTop
-          ? "Sisteme göre olması gereken tutardan daha az girdiniz — kasada/hesapta bir eksik olabilir, ya da bu fark POS komisyonu gibi bilinen bir kesintiden kaynaklanıyor olabilir (aşağıdaki komisyon dökümüne bakın)."
-          : "Girdiğiniz tutar sistemin hesapladığından fazla — kayıt dışı bir tahsilat ya da fazladan bir gelir olabilir, kontrol edin.")
+
+      div({style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:13,color:"var(--tx)"}},
+        div(null,"Toplam (yukarıdakiler)"), div({style:{fontWeight:600}},fmt(tamMutabakatToplam))),
+      div({style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:13,color:"var(--tx)"}},
+        div(null,"Sistemin hesapladığı toplam ciro"), div({style:{fontWeight:600}},fmt(sistemTop))),
+
+      div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0 0",marginTop:6,
+        borderTop:"1px solid "+(tamMutabakatEslesti?"rgba(50,140,100,.25)":"rgba(224,60,60,.25)")}},
+        div({style:{fontSize:14,fontWeight:700,color:tamMutabakatEslesti?"var(--gr)":"#e06060"}},
+          tamMutabakatEslesti ? "✓ Hesap Denk" : (tamMutabakatFark<0 ? "⚠ AÇIK VAR" : "⚠ FAZLA VAR")),
+        !tamMutabakatEslesti && div({style:{fontSize:18,fontWeight:700,color:"#e06060"}},
+          (tamMutabakatFark>0?"+":"")+fmt(tamMutabakatFark))
+      ),
+      !tamMutabakatEslesti && div({style:{fontSize:11,color:"var(--mu)",marginTop:8,lineHeight:1.5}},
+        tamMutabakatFark<0
+          ? "Toplam ciro, girdiğiniz nakit+banka+giderler+maaşların toplamından fazla — kasada/hesapta veya kayıtlarda bir eksik olabilir."
+          : "Girdiğiniz kalemlerin toplamı, sistemin hesapladığı cirodan fazla — bir yerde fazla/yanlış girilmiş bir tutar olabilir, kontrol edin.")
     ),
 
     // Günlük sağlamaların otomatik toplamı
@@ -23709,7 +23751,7 @@ if(DB) dbUpsertAyar("tema",tema);
     hesapFull&&div({style:{background:"var(--bg)",paddingTop:16}},
       div({style:{padding:"0 14px 80px"}},
         h(HesapOzetiModul,{tumK, bankalar, hesapSaglama, setHesapSaglama, showToast, bankaKom, komisyonGiderYaz,
-          hesapSaglamaAylik, setHesapSaglamaAylik,
+          hesapSaglamaAylik, setHesapSaglamaAylik, giderler, personeller,
           defaultTarih: hesapFullTarih||"",
           onIncele: ({ad, tarih, id}) => {
             // Kayıtlar paneli filtrelerini doldur
