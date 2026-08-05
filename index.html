@@ -185,15 +185,39 @@ async function urunResmiYukle(barkod, file) {
   return urlData?.publicUrl || "";
 }
 // Ürünün resmini gösterir; resim yoksa küçük bir simge kutusu gösterir.
+// Resme tıklanınca orjinal boyutlu büyük önizleme modalı açılır (uygulama genelinde tutarlı — tek yerden yönetilir).
 function UrunResmi({barkod, boyut=40, radius=8}) {
+  const [buyukAcik, setBuyukAcik] = useState(false);
   const u = (typeof URUN_DB!=="undefined" ? URUN_DB : []).find(x=>x.b===barkod);
   const src = u && u.img;
-  return src
-    ? img({src, style:{width:boyut,height:boyut,objectFit:"cover",borderRadius:radius,
-        border:"1px solid var(--br)",flexShrink:0}})
-    : div({style:{width:boyut,height:boyut,borderRadius:radius,background:"var(--bg3)",
+  const ad = (u && u.a) || "";
+  if (!src) {
+    return div({style:{width:boyut,height:boyut,borderRadius:radius,background:"var(--bg3)",
         border:"1px solid var(--br)",display:"flex",alignItems:"center",justifyContent:"center",
         fontSize:Math.round(boyut*0.45),flexShrink:0}},"🛍️");
+  }
+  return h(Fragment, null,
+    img({src, style:{width:boyut,height:boyut,objectFit:"cover",borderRadius:radius,
+        border:"1px solid var(--br)",flexShrink:0,cursor:"pointer"},
+        onClick:(e)=>{ e.stopPropagation(); setBuyukAcik(true); }}),
+    buyukAcik && ReactDOM.createPortal(
+      div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.72)",zIndex:99999,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:20},
+          onClick:()=>setBuyukAcik(false)},
+        div({style:{background:"var(--bg2)",borderRadius:16,padding:16,maxWidth:"92vw",
+            maxHeight:"92vh",boxShadow:"0 24px 60px rgba(0,0,0,.4)",display:"flex",
+            flexDirection:"column",gap:12,alignItems:"center"},
+            onClick:(e)=>e.stopPropagation()},
+          ad && div({style:{fontSize:14,fontWeight:700,color:"var(--tx)",textAlign:"center"}},ad),
+          img({src, style:{maxWidth:"85vw",maxHeight:"70vh",objectFit:"contain",borderRadius:10}}),
+          btn({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:10,
+              padding:"10px 28px",fontSize:14,fontWeight:600,cursor:"pointer",color:"var(--tx)"},
+              onClick:()=>setBuyukAcik(false)},"İptal")
+        )
+      ),
+      document.body
+    )
+  );
 }
 try{
   window.addEventListener("error", e=>{ try{ window.__apronSonHata=((e.error&&e.error.stack)||e.message||"bilinmeyen hata"); }catch(_){} });
@@ -1010,6 +1034,7 @@ function UrunAramaBilesen({aramaVal,setAramaVal,onEkle,placeholder,stokDB,gotoMo
           onMouseEnter:e=>{ if(!tamEslesmis) e.currentTarget.style.background="var(--bg3)"; },
           onMouseLeave:e=>{ if(!tamEslesmis) e.currentTarget.style.background="transparent"; },
           onClick:()=>{ onEkle(u); if(!gotoMod) setAramaVal(""); }},
+          h(UrunResmi,{barkod:u.b, boyut:38, radius:8}),
           div({style:{flex:1,minWidth:0}},
             div({style:{fontSize:14,fontWeight:tamEslesmis?600:400,color:"var(--tx)",
               fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},u.a),
@@ -1183,6 +1208,7 @@ function OzetDashboard({stokPartiler,mkArsiv,tumK,personeller}){
         enCokSatan.map((u,i)=>
           h("div",{key:u.barkod,style:{display:"flex",alignItems:"center",gap:10,padding:8,background:"var(--bg3)",borderRadius:7,border:"1px solid var(--br)"}},
             h("div",{style:{width:24,height:24,borderRadius:6,background:i<3?"rgba(218,179,128,.15)":"var(--bg2)",color:i<3?"var(--g)":"var(--mu)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}},i+1),
+            h(UrunResmi,{barkod:u.barkod, boyut:30, radius:6}),
             h("div",{style:{flex:1,minWidth:0}},
               h("div",{style:{fontSize:12,color:"var(--g)",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},u.ad),
               h("div",{style:{fontSize:10,color:"var(--mu)",marginTop:1}},u.marka+" · "+u.adet+" adet")
@@ -1218,7 +1244,8 @@ function OzetDashboard({stokPartiler,mkArsiv,tumK,personeller}){
       h("div",{style:{fontSize:12,color:"#c05050",letterSpacing:2,textTransform:"uppercase",fontWeight:600,marginBottom:10}},"⚠️ Az Kalan Ürünler"),
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:7}},
         azStokta.map(u=>
-          h("div",{key:u.barkod,style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:7,padding:8,display:"flex",justifyContent:"space-between",alignItems:"center"}},
+          h("div",{key:u.barkod,style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:7,padding:8,display:"flex",gap:8,justifyContent:"space-between",alignItems:"center"}},
+            h(UrunResmi,{barkod:u.barkod, boyut:28, radius:6}),
             h("div",{style:{flex:1,minWidth:0}},
               h("div",{style:{fontSize:12,color:"var(--g)",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},u.urunAd),
               h("div",{style:{fontSize:10,color:"var(--mu)",marginTop:1}},u.marka+(u.ml?" · "+u.ml:""))
@@ -4971,7 +4998,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   onClick:()=>{ if(sdSilMod){ setSdSecimSil(prev=>({...prev,[u.barkod]:!prev[u.barkod]})); } else { setUmSek("stokDetay");setSdSecili(u);setSdArama(u.urunAd); } }},
                   div({style:{...cel,fontSize:12,color:"var(--di)"}}, sdSilMod?span({style:{fontSize:18,fontWeight:700,color:_secili?"#d11":"var(--di)"}}, _secili?"☑":"☐"):(i+1)),
                   div({style:{...cel,fontSize:10,color:"var(--mu)",wordBreak:"break-all",lineHeight:1.3}},(u.barkod||"—")),
-                  div({style:{...cel,justifyContent:"flex-start",padding:"6px 8px",borderRight:"1px solid var(--br)"}},
+                  div({style:{...cel,justifyContent:"flex-start",padding:"6px 8px",borderRight:"1px solid var(--br)",gap:8}},
+                    h(UrunResmi,{barkod:u.barkod, boyut:30, radius:6}),
                     div(null,
                       div({style:{fontSize:12,color:"var(--tx)",fontWeight:500}},u.urunAd),
                       div({style:{fontSize:10,color:"var(--di)"}},u.marka+(u.ml?" · "+u.ml:""))
@@ -6360,6 +6388,7 @@ function OduncModul({oduncler,setOduncler,komsular,setKomsular,stokPartiler,setS
                     });
                     setOduncArama(""); setOduncAramaSon([]);
                   }},
+                  h(UrunResmi,{barkod:u.b, boyut:32, radius:7}),
                   div({style:{flex:1}},
                     div({style:{fontSize:14,color:"var(--tx)"}},u.a+(u.ml?" ("+u.ml+")":"")),
                     div({style:{fontSize:12,color:"var(--mu)",marginTop:1}},u.m+" · Stok: "+stok+" adet")
@@ -6467,10 +6496,14 @@ function OduncModul({oduncler,setOduncler,komsular,setKomsular,stokPartiler,setS
                 background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:9,zIndex:10,maxHeight:200,overflowY:"auto",marginTop:4}},
                 kapatAramaSon.map(u=>{
                   const st=stokKalanHesap(u.b);
-                  return div({key:u.b,style:{padding:"9px 12px",cursor:"pointer",borderBottom:"1px solid var(--br)"},
+                  return div({key:u.b,style:{padding:"9px 12px",cursor:"pointer",borderBottom:"1px solid var(--br)",
+                    display:"flex",gap:9,alignItems:"center"},
                     onClick:()=>{ setKapatSec({barkod:u.b,urunAd:u.a,marka:u.m,ml:u.ml||"",miktar:1,deger:toN(u.bp)}); setKapatArama(""); setKapatAramaSon([]); }},
-                    div({style:{fontSize:14,color:"var(--tx)"}},u.a+(u.ml?" ("+u.ml+")":"")),
-                    div({style:{fontSize:12,color:"var(--mu)",marginTop:1}},u.m+" · Stok: "+st+" adet")
+                    h(UrunResmi,{barkod:u.b, boyut:32, radius:7}),
+                    div(null,
+                      div({style:{fontSize:14,color:"var(--tx)"}},u.a+(u.ml?" ("+u.ml+")":"")),
+                      div({style:{fontSize:12,color:"var(--mu)",marginTop:1}},u.m+" · Stok: "+st+" adet")
+                    )
                   );
                 })
               )
@@ -6740,6 +6773,7 @@ function KullanimModul({kullanimlar,setKullanimlar,stokPartiler,setStokPartiler,
             div({style:{fontSize:12,color:"var(--mu)",marginBottom:6,fontWeight:600}},fmtT(t)),
             gruplar[t].map(k=>
               div({key:k.id,style:{display:"flex",alignItems:"center",gap:8,background:"var(--bg2)",border:"1px solid var(--br)",borderLeft:"3px solid "+(k.tip==="hediye"?"#D946A8":"var(--g)"),borderRadius:10,padding:"10px 12px",marginBottom:7}},
+                h(UrunResmi,{barkod:k.barkod, boyut:30, radius:7}),
                 div({style:{flex:1}},
                   div({style:{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}},
                     div({style:{fontSize:14,color:"var(--tx)"}},(k.urunAd)),
@@ -6795,10 +6829,14 @@ function KullanimModul({kullanimlar,setKullanimlar,stokPartiler,setStokPartiler,
             aramaSon.length>0&&div({style:{position:"absolute",top:"100%",left:0,right:0,background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:9,zIndex:10,maxHeight:200,overflowY:"auto",marginTop:4}},
               aramaSon.map(u=>{
                 const st=stokKalan(u.b);
-                return div({key:u.b,style:{padding:"9px 12px",cursor:st>0?"pointer":"not-allowed",borderBottom:"1px solid var(--br)",opacity:st>0?1:.5},
+                return div({key:u.b,style:{padding:"9px 12px",cursor:st>0?"pointer":"not-allowed",borderBottom:"1px solid var(--br)",opacity:st>0?1:.5,
+                  display:"flex",gap:9,alignItems:"center"},
                   onClick:()=>{ if(st<=0){ showToast("Bu ürün stokta yok","uy"); return; } setUrunler(p=>{ const v=p.find(x=>x.barkod===u.b); if(v) return p.map(x=>x.barkod===u.b?{...x,miktar:x.miktar+1}:x); return [...p,{barkod:u.b,urunAd:u.a,marka:u.m,ml:u.ml||"",miktar:1}]; }); setArama(""); setAramaSon([]); }},
-                  div({style:{fontSize:14,color:"var(--tx)"}},u.a+(u.ml?" ("+u.ml+")":"")),
-                  div({style:{fontSize:12,color:st>0?"var(--mu)":"#c05050",marginTop:1}},u.m+" · Stok: "+st+" adet")
+                  h(UrunResmi,{barkod:u.b, boyut:32, radius:7}),
+                  div(null,
+                    div({style:{fontSize:14,color:"var(--tx)"}},u.a+(u.ml?" ("+u.ml+")":"")),
+                    div({style:{fontSize:12,color:st>0?"var(--mu)":"#c05050",marginTop:1}},u.m+" · Stok: "+st+" adet")
+                  )
                 );
               })
             )
@@ -6809,6 +6847,7 @@ function KullanimModul({kullanimlar,setKullanimlar,stokPartiler,setStokPartiler,
               const st=stokKalan(u.barkod);
               const hata=u.miktar>st;
               return div({key:u.barkod,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid var(--br)"}},
+                h(UrunResmi,{barkod:u.barkod, boyut:32, radius:7}),
                 div({style:{flex:1}},
                   div({style:{fontSize:14,color:"var(--tx)"}},urunAdCanli(u.barkod,u.urunAd)+(urunMlCanli(u.barkod,u.ml)?" ("+urunMlCanli(u.barkod,u.ml)+")":"")),
                   div({style:{fontSize:12,color:"var(--mu)",marginTop:1}},urunMarkaCanli(u.barkod,u.marka)+" · Stokta: "+st+" adet")
@@ -17012,9 +17051,12 @@ if(DB) dbUpsertAyar("tema",tema);
             ),
             (detay.urunler||[]).map((u,i)=>
               div({key:i,style:{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:i<(detay.urunler||[]).length-1?"1px solid rgba(0,0,0,.05)":"none"}},
-                div(null,
-                  div({style:{fontSize:14,color:"var(--t)"}},u.a),
-                  div({style:{fontSize:11,color:"var(--di)",marginTop:2}},(u.m||"")+" · "+(u.ml||"")+" · x"+(u.qty||1))
+                div({style:{display:"flex",alignItems:"center",gap:8}},
+                  h(UrunResmi,{barkod:u.b, boyut:30, radius:7}),
+                  div(null,
+                    div({style:{fontSize:14,color:"var(--t)"}},u.a),
+                    div({style:{fontSize:11,color:"var(--di)",marginTop:2}},(u.m||"")+" · "+(u.ml||"")+" · x"+(u.qty||1))
+                  )
                 ),
                 span({style:{fontFamily:"Inter,-apple-system,sans-serif",fontSize:15,color:"var(--g)",fontWeight:700,letterSpacing:-.3}},fmt(toN(u.sf||u.sp||0)*toN(u.qty||1)))
               )
@@ -23093,12 +23135,7 @@ if(DB) dbUpsertAyar("tema",tema);
               },90);
               setTimeout(()=>setUrunListeHighlight(null),3400);
             }},
-            u.img
-              ? img({src:u.img,style:{width:28,height:28,borderRadius:7,flexShrink:0,objectFit:"cover"}})
-              : div({style:{width:28,height:28,borderRadius:7,flexShrink:0,
-                  background:isSarf?"rgba(255,149,0,.15)":"rgba(52,199,89,.12)",
-                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}},
-                  isSarf?"🧪":"🛍️"),
+            h(UrunResmi,{barkod:u.b, boyut:28, radius:7}),
             div({style:{flex:1,minWidth:0}},
               div({style:{fontSize:13,fontWeight:600,color:"var(--tx)",
                 overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},u.a),
