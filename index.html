@@ -8106,31 +8106,17 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
   const tumUrunCiroToplam = ayKayitlar
     .filter(r=>r.gonderildi!==false)
     .reduce((s,r)=>s+toN(r.uKK)+toN(r.uIB)+toN(r.uNK),0);
+  const digerPersonelCiroToplam = digerHizmetCiroToplam + tumUrunCiroToplam;
+  const ikinciKalan = digerPersonelCiroToplam - toplamMasrafTutari;
 
-  // Ortaklara bölüşüm: kalan tutar ortak sayısına (ya da girilen ağırlıklara) bölünür
+  // Ortaklara bölüşüm: kalan tutar ortak sayısına bölünür, her ortağın kendi hizmet cirosuna eklenir/çıkarılır
   const ortaklarListesi = hfPersonelListesi.filter(p=>p.ortakMi);
   const ortakSayisi = ortaklarListesi.length;
-  // Havuz/zarar ayarları: ilk ortağın "Ortak Payı" bileşen ayarları temsilci olarak kullanılır
-  const ilkOrtakBilesen = ortaklarListesi.length>0
-    ? ((formulSec(ortaklarListesi[0], ayBitIso)?.formul)||[]).find(b=>b.tip==="ortakPayi")
-    : null;
-  const havuzHizmetAcikMi = !ilkOrtakBilesen || ilkOrtakBilesen.havuzHizmet !== false;
-  const havuzUrunAcikMi = !ilkOrtakBilesen || ilkOrtakBilesen.havuzUrun !== false;
-  const digerPersonelCiroToplam = (havuzHizmetAcikMi?digerHizmetCiroToplam:0) + (havuzUrunAcikMi?tumUrunCiroToplam:0);
-  let ikinciKalan = digerPersonelCiroToplam - toplamMasrafTutari;
-  if(ikinciKalan<0 && ilkOrtakBilesen && ilkOrtakBilesen.zararDurumu==="sadeceKar") ikinciKalan = 0;
-
   const ortakBasinaPay = ortakSayisi>0 ? ikinciKalan/ortakSayisi : 0;
-  // Ağırlıklı paylaşım için: tüm ortakların kendi bileşenlerindeki ağırlık toplamı
-  const toplamAgirlikTum = ortaklarListesi.reduce((s,pp)=>{
-    const opb = ((formulSec(pp, ayBitIso)?.formul)||[]).find(b=>b.tip==="ortakPayi");
-    return s + (toN((opb?.agirliklar||{})[String(pp.id)])||0);
-  },0) || ortakSayisi;
-
   const ortaklarDetay = ortaklarListesi.map(p=>{
     // Formüldeki Ortak Payı DIŞINDAKİ diğer bileşenler (yüzde ne olursa olsun, sabit maaş,
     // kademeli, müşteri başı vs.) motora hesaplatılır — bu kısımlar doğru çalışıyor. Sadece
-    // Ortak Payı, burada bağımsız/doğrudan hesaplanan pay ile eklenir.
+    // Ortak Payı, yukarıda bağımsız/doğrudan hesaplanan ortakBasinaPay ile eklenir.
     const guncelDonemP = formulSec(p, ayBitIso);
     const digerBilesenlerP = guncelDonemP ? (guncelDonemP.formul||[]).filter(b=>b.tip!=="ortakPayi") : [];
     const kendiKayitlarP = ayKayitlar.filter(r=>r.gonderildi!==false && String(r.staffId)===String(p.id));
@@ -8141,15 +8127,7 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
         periyotBas: ayBasIso, periyotBit: ayBitIso
       }, 1).toplam) || 0;
     } catch(e){}
-    const opBilesenP = guncelDonemP ? (guncelDonemP.formul||[]).find(b=>b.tip==="ortakPayi") : null;
-    let ortakPayP;
-    if(opBilesenP && opBilesenP.paylasimTipi==="agirlikli"){
-      const kendiAgirlikP = toN((opBilesenP.agirliklar||{})[String(p.id)])||0;
-      ortakPayP = ikinciKalan * (kendiAgirlikP/toplamAgirlikTum);
-    } else {
-      ortakPayP = ortakBasinaPay;
-    }
-    const gercekGelir = digerBilesenlerToplamiP + ortakPayP;
+    const gercekGelir = digerBilesenlerToplamiP + ortakBasinaPay;
     return {id:p.id, ad:p.ad, kendiHizmetCirosu:digerBilesenlerToplamiP, gercekGelir, cebineGecen:p.cebineGecen,
       kalanOdenecek: gercekGelir - p.cebineGecen};
   });
@@ -11145,12 +11123,10 @@ function hesaplaMaasTekDonem(personel, formul, pKayit, opts, gunOrani) {
       const tumKy = opts.tumKayitlar || [];
       const ortakIdler = (b.ortakIdler||[]).map(String);
       const ortakSayi = ortakIdler.length || 2;
-      const havuzHizmetAcik = b.havuzHizmet !== false;
-      const havuzUrunAcik = b.havuzUrun !== false;
 
-      // GELİR HESABI (seçilen gelir kalemlerine göre)
-      // 1) Ortak OLMAYAN personellerin hizmet ciroları (seçiliyse)
-      // 2) TÜM personellerin ürün satışları (seçiliyse)
+      // GELİR HESABI
+      // 1) Ortak OLMAYAN personellerin hizmet ciroları
+      // 2) TÜM personellerin ürün satışları
       let digerHizmetCiro = 0;
       let tumUrunCiro = 0;
       tumKy.forEach(r=>{
@@ -11161,7 +11137,7 @@ function hesaplaMaasTekDonem(personel, formul, pKayit, opts, gunOrani) {
         if(!isOrtak) digerHizmetCiro += hC;
         tumUrunCiro += uC;
       });
-      const havuzGelir = (havuzHizmetAcik?digerHizmetCiro:0) + (havuzUrunAcik?tumUrunCiro:0);
+      const havuzGelir = digerHizmetCiro + tumUrunCiro;
 
       // GİDER HESABI
       // 1) Ortak OLMAYAN personellerin maaşları (uygulamadan hesaplanır)
@@ -11179,20 +11155,9 @@ function hesaplaMaasTekDonem(personel, formul, pKayit, opts, gunOrani) {
       const elleMasraf = toN(opts.toplamGider||0) * gunOrani;
       const havuzGider = digerMaaslar + elleMasraf;
 
-      let net = havuzGelir - havuzGider;
-      // Zarar durumu: sadece kâr paylaşılsın seçiliyse, zararda pay 0 olur (işyerinde kalır)
-      if(net < 0 && b.zararDurumu === "sadeceKar") net = 0;
-
-      // Paylaşım şekli: eşit ya da ağırlıklı (hisse oranına göre)
-      if(b.paylasimTipi === "agirlikli") {
-        const kendiAgirlik = toN((b.agirliklar||{})[String(personel.id)]) || 0;
-        const toplamAgirlik = ortakIdler.reduce((s,id)=>s+(toN((b.agirliklar||{})[id])||0),0) || ortakSayi;
-        tutar = net * (kendiAgirlik/toplamAgirlik);
-        aciklama = "Gelir: "+fmt(havuzGelir)+" − Gider: "+fmt(havuzGider)+" = "+fmt(net)+" × %"+kendiAgirlik+"/"+toplamAgirlik;
-      } else {
-        tutar = net / ortakSayi;
-        aciklama = "Gelir: "+fmt(havuzGelir)+" − Gider: "+fmt(havuzGider)+" = "+fmt(net)+" ÷ "+ortakSayi;
-      }
+      const net = havuzGelir - havuzGider;
+      tutar = net / ortakSayi;
+      aciklama = "Gelir: "+fmt(havuzGelir)+" − Gider: "+fmt(havuzGider)+" = "+fmt(net)+" ÷ "+ortakSayi;
     }
 
     detay.push({ad: b.ad || b.tip, tip:b.tip, tutar, aciklama});
@@ -11325,7 +11290,7 @@ function MaasFormulEditoru({formul, onChange, tumPersoneller}) {
     else if(tip==="musteriBasi") base.tutar = 0;
     else if(tip==="esikPrimi") { base.esikTip="hizmetCiro"; base.esikTutar=0; base.primTutar=0; }
     else if(tip==="kademeli") { base.esikTip="hizmetCiro"; base.kademeler=[{baslangic:0,bitis:30000,oran:30}]; }
-    else if(tip==="ortakPayi") { base.ortakIdler=[]; base.paylasimTipi="esit"; base.agirliklar={}; base.havuzHizmet=true; base.havuzUrun=true; base.zararDurumu="borclandir"; }
+    else if(tip==="ortakPayi") { base.ortakIdler=[]; }
     setBilesenForm(base);
   };
 
@@ -11342,7 +11307,7 @@ function MaasFormulEditoru({formul, onChange, tumPersoneller}) {
             else if(b.tip==="musteriBasi") aciklama = "Müşteri başı: "+fmt(toN(b.tutar));
             else if(b.tip==="esikPrimi") aciklama = fmt(toN(b.esikTutar))+" "+(esikTipSecenekleri.find(e=>e.tip===b.esikTip)?.lb||"")+" aşılırsa +"+fmt(toN(b.primTutar));
             else if(b.tip==="kademeli") aciklama = "Kademeli ("+(b.kademeler||[]).length+" dilim)";
-            else if(b.tip==="ortakPayi") aciklama = "Ortak payı ("+(b.ortakIdler||[]).length+" ortak, "+(b.paylasimTipi==="agirlikli"?"ağırlıklı":"eşit")+")";
+            else if(b.tip==="ortakPayi") aciklama = "Ortak payı ("+(b.ortakIdler||[]).length+" ortak)";
             return div({key:i,style:{display:"flex",alignItems:"center",gap:8,
               padding:"10px 12px",background:"#FBFBFD",
               border:"1px solid rgba(0,0,0,.08)",borderRadius:10,marginBottom:6}},
@@ -11511,86 +11476,11 @@ function MaasFormulEditoru({formul, onChange, tumPersoneller}) {
                 })
           )
         ),
-
-        // Paylaşım Şekli
-        div({style:{marginBottom:10}},
-          lbl({className:"fl"},"Paylaşım Şekli"),
-          div({style:{display:"flex",gap:8}},
-            [["esit","Eşit Bölüşüm"],["agirlikli","Ağırlıklı / Hisse Oranına Göre"]].map(([v,lb2])=>
-              btn({key:v,style:{flex:1,padding:"9px 6px",borderRadius:8,fontSize:12.5,fontWeight:600,cursor:"pointer",
-                border:"1.5px solid "+((bilesenForm.paylasimTipi||"esit")===v?"#0071E3":"rgba(0,0,0,.12)"),
-                background:(bilesenForm.paylasimTipi||"esit")===v?"rgba(0,113,227,.08)":"#fff",
-                color:(bilesenForm.paylasimTipi||"esit")===v?"#0071E3":"#1D1D1F"},
-                onClick:()=>setBilesenForm(p=>({...p,paylasimTipi:v}))},lb2)
-            )
-          )
-        ),
-        bilesenForm.paylasimTipi==="agirlikli" && div({style:{marginBottom:10}},
-          lbl({className:"fl"},"Ortakların Pay Oranları (%)"),
-          (bilesenForm.ortakIdler||[]).length===0
-            ? div({style:{fontSize:11.5,color:"#86868B",fontStyle:"italic"}},"Önce yukarıdan ortakları seçin.")
-            : div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.10)",borderRadius:9,padding:8}},
-                (bilesenForm.ortakIdler||[]).map(oid=>{
-                  const p2 = (tumPersoneller||[]).find(x=>String(x.id)===String(oid));
-                  return div({key:oid,style:{display:"grid",gridTemplateColumns:"1fr 90px",gap:8,alignItems:"center",padding:"5px 0"}},
-                    div({style:{fontSize:12.5,color:"#1D1D1F"}},p2?p2.ad:oid),
-                    inp({className:"fi",style:{margin:0,padding:"6px 8px",textAlign:"right"},type:"number",inputMode:"decimal",placeholder:"0",
-                      value:(bilesenForm.agirliklar||{})[oid]||"",
-                      onChange:e=>setBilesenForm(p=>({...p,agirliklar:{...(p.agirliklar||{}),[oid]:e.target.value}}))})
-                  );
-                })
-              ),
-          div({style:{fontSize:10.5,color:"#86868B",marginTop:4}},"Toplamın 100 olması gerekmez — girdiğiniz oranlara göre orantılı bölünür.")
-        ),
-
-        // Havuza Dahil Edilecek Gelirler
-        div({style:{marginBottom:10}},
-          lbl({className:"fl"},"Havuza Dahil Edilecek Gelirler"),
-          div({style:{display:"flex",gap:8}},
-            [["havuzHizmet","Hizmet Cirosu"],["havuzUrun","Ürün Satışı"]].map(([k,lb2])=>{
-              const acik = bilesenForm[k]!==false;
-              return div({key:k,style:{flex:1,display:"flex",alignItems:"center",gap:7,padding:"9px 10px",
-                borderRadius:8,cursor:"pointer",border:"1.5px solid "+(acik?"#0071E3":"rgba(0,0,0,.12)"),
-                background:acik?"rgba(0,113,227,.08)":"#fff"},
-                onClick:()=>setBilesenForm(p=>({...p,[k]:!acik}))},
-                div({style:{width:16,height:16,borderRadius:4,border:"1.5px solid "+(acik?"#0071E3":"rgba(0,0,0,.18)"),
-                  background:acik?"#0071E3":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
-                  acik&&h("svg",{width:10,height:10,viewBox:"0 0 24 24",fill:"none",stroke:"#fff",strokeWidth:3.5,strokeLinecap:"round",strokeLinejoin:"round"},
-                    h("polyline",{points:"20 6 9 17 4 12"}))),
-                div({style:{fontSize:12.5,fontWeight:600,color:acik?"#0071E3":"#1D1D1F"}},lb2)
-              );
-            })
-          ),
-          div({style:{fontSize:10.5,color:"#86868B",marginTop:4}},"Not: Ortakların KENDİ hizmet cirosu havuza hiç girmez, sadece diğer personelinki girer.")
-        ),
-
-        // Zarar Durumunda
-        div({style:{marginBottom:10}},
-          lbl({className:"fl"},"Zarar (Net Negatif) Çıkarsa"),
-          div({style:{display:"flex",flexDirection:"column",gap:6}},
-            [["borclandir","Ortaklara eşit/orantılı borç yazılsın"],
-             ["sadeceKar","Sadece kâr paylaşılsın — zarar işyerinde kalsın (ortak borçlanmaz)"]].map(([v,lb2])=>
-              div({key:v,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:8,cursor:"pointer",
-                border:"1.5px solid "+((bilesenForm.zararDurumu||"borclandir")===v?"#0071E3":"rgba(0,0,0,.12)"),
-                background:(bilesenForm.zararDurumu||"borclandir")===v?"rgba(0,113,227,.08)":"#fff"},
-                onClick:()=>setBilesenForm(p=>({...p,zararDurumu:v}))},
-                div({style:{width:16,height:16,borderRadius:"50%",border:"1.5px solid "+((bilesenForm.zararDurumu||"borclandir")===v?"#0071E3":"rgba(0,0,0,.18)"),
-                  display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
-                  (bilesenForm.zararDurumu||"borclandir")===v&&div({style:{width:8,height:8,borderRadius:"50%",background:"#0071E3"}})),
-                div({style:{fontSize:12,color:"#1D1D1F"}},lb2)
-              )
-            )
-          )
-        ),
-
         div({style:{fontSize:11.5,color:"#86868B",padding:"10px 12px",background:"rgba(0,113,227,.04)",borderRadius:8,lineHeight:1.55}},
           "💡 ",h("b",null,"Mantık:"),
-          " (Ortak olmayanların "+
-          [bilesenForm.havuzHizmet!==false&&"hizmet cirosu",bilesenForm.havuzUrun!==false&&"ürün satışı"].filter(Boolean).join(" + ")+
-          ") − (Ortak olmayanların maaşları + Elle girilen masraflar) = NET. "+
-          (bilesenForm.paylasimTipi==="agirlikli" ? "NET, girdiğiniz pay oranlarına göre bölünür." : "NET ÷ ortak sayısı = bu kişinin payı."),
+          " (Ortak olmayanların hizmet ciroları + Tüm ürün satışları) − (Ortak olmayanların maaşları + Elle girilen masraflar) = NET. NET ÷ ortak sayısı = bu kişinin payı.",
           h("br"),h("br"),
-          "Bu bileşeni ",h("b",null,"her ortağın")," formülünde ayrı ayrı eklemen gerekir.")
+          "Bu bileşeni ",h("b",null,"her ortağın")," formülünde ayrı ayrı eklemen gerekir. NET zarar olursa pay negatif olur.")
       ),
       div({style:{display:"flex",gap:8,marginTop:12}},
         btn({style:{flex:1,padding:"9px 0",borderRadius:9,border:"1px solid var(--br)",background:"#FFFFFF",
@@ -12188,9 +12078,7 @@ function PersonelMaasGorunum({personel, tumK, onChange, showToast, tumPersonelle
       if(!isOrtakBu) digerHizmetCiroBu += hC;
       tumUrunCiroBu += uC;
     });
-    const havuzHizmetAcikBu = opBileseniBu.havuzHizmet !== false;
-    const havuzUrunAcikBu = opBileseniBu.havuzUrun !== false;
-    const havuzGelirBu = (havuzHizmetAcikBu?digerHizmetCiroBu:0) + (havuzUrunAcikBu?tumUrunCiroBu:0);
+    const havuzGelirBu = digerHizmetCiroBu + tumUrunCiroBu;
     let digerMaaslarBu = 0;
     (tumPersoneller||[]).forEach(p=>{
       if(ortakIdlerBu.includes(String(p.id))) return;
@@ -12205,24 +12093,12 @@ function PersonelMaasGorunum({personel, tumK, onChange, showToast, tumPersonelle
       } catch(e){}
     });
     const havuzGiderBu = digerMaaslarBu + toplamGider;
-    let netBu = havuzGelirBu - havuzGiderBu;
-    if(netBu<0 && opBileseniBu.zararDurumu==="sadeceKar") netBu = 0;
-    let ortakPayBu;
-    if(opBileseniBu.paylasimTipi==="agirlikli"){
-      const kendiAgirlikBu = toN((opBileseniBu.agirliklar||{})[String(personel.id)])||0;
-      const toplamAgirlikBu = ortakIdlerBu.reduce((s,id)=>s+(toN((opBileseniBu.agirliklar||{})[id])||0),0) || ortakSayiBu;
-      ortakPayBu = netBu * (kendiAgirlikBu/toplamAgirlikBu);
-      ortakDuzeltmesi = {
-        brutHak: digerBilesenlerToplamiBu + ortakPayBu,
-        aciklama: "Gelir: "+fmt(havuzGelirBu)+" − Gider: "+fmt(havuzGiderBu)+" = "+fmt(netBu)+" × %"+kendiAgirlikBu+"/"+toplamAgirlikBu
-      };
-    } else {
-      ortakPayBu = netBu / ortakSayiBu;
-      ortakDuzeltmesi = {
-        brutHak: digerBilesenlerToplamiBu + ortakPayBu,
-        aciklama: "Gelir: "+fmt(havuzGelirBu)+" − Gider: "+fmt(havuzGiderBu)+" = "+fmt(netBu)+" ÷ "+ortakSayiBu
-      };
-    }
+    const netBu = havuzGelirBu - havuzGiderBu;
+    const ortakPayBu = netBu / ortakSayiBu;
+    ortakDuzeltmesi = {
+      brutHak: digerBilesenlerToplamiBu + ortakPayBu,
+      aciklama: "Gelir: "+fmt(havuzGelirBu)+" − Gider: "+fmt(havuzGiderBu)+" = "+fmt(netBu)+" ÷ "+ortakSayiBu
+    };
     // Detay listesi: motorun doğru hesapladığı diğer bileşenler + bağımsız hesaplanan Ortak Payı
     sonuc.detay = [
       ...digerBilesenlerDetayBu,
