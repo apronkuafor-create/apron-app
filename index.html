@@ -2439,6 +2439,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [cariSek, setCariSek] = React.useState("borclarim");
   const [cariOdeSec, setCariOdeSec] = React.useState(null); // seçili fatura ödemesi için
   const [cariOdeTutar, setCariOdeTutar] = React.useState("");
+  const [cariOdeDuzenleId, setCariOdeDuzenleId] = React.useState(null); // düzenlenen ödemenin id'si (varsa)
   const [cariOdeTarih, setCariOdeTarih] = React.useState(TODAY());
   const [cariOdeTip, setCariOdeTip] = React.useState("Nakit");
   const [cariOdeNot, setCariOdeNot] = React.useState("");
@@ -5837,44 +5838,58 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
 
       // ── ÖDEMELERİM ──
       umSek==="cariOde"&&(()=>{
-        const secFatura=cariOdeSec;
-        const setSecFatura=setCariOdeSec;
-        const odenenFaturalar=(mkArsiv||[]).filter(ar=>ar.odemeler&&ar.odemeler.length>0);
-        const bekleyenFaturalar=(mkArsiv||[]).filter(ar=>{
-          const odenecek=ar.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
-          const odenen=(ar.odemeler||[]).reduce((s,o)=>s+toN(o.tutar),0);
-          return odenen<odenecek;
+        // Aynı tedarikçi + aynı fatura no olan kayıtları (Satılabilen + Sarf) tek fatura olarak ele al — Borçlarım ile aynı mantık.
+        const gruplar=[];
+        const gKeyIdx=new Map();
+        mkArsiv.forEach((ar,idx)=>{
+          const acilisMi=ar.kayitTuru==="acilis";
+          const fN=(ar.faturaN||"").trim().toLowerCase();
+          const tD=(ar.tedarikci||"").trim().toLowerCase();
+          const gKey=(!acilisMi&&fN&&tD)?(tD+"||"+fN):("__tek__"+idx);
+          if(gKeyIdx.has(gKey)){
+            gruplar[gKeyIdx.get(gKey)].kayitlar.push(ar);
+          } else {
+            gKeyIdx.set(gKey,gruplar.length);
+            gruplar.push({key:gKey,kayitlar:[ar]});
+          }
         });
+        const gOdenecek=g=>g.kayitlar.reduce((s,k)=>s+k.urunler.reduce((ss,u)=>ss+(u.toplamF||0),0),0);
+        const gOdenen=g=>g.kayitlar.reduce((s,k)=>s+(k.odemeler||[]).reduce((ss,o)=>ss+toN(o.tutar),0),0);
+        const secGrup=cariOdeSec?gruplar.find(g=>g.key===cariOdeSec):null;
+        const setSecFatura=g=>setCariOdeSec(g?g.key:null);
+        const odenenGruplar=gruplar.filter(g=>gOdenen(g)>0);
+        const bekleyenGruplar=gruplar.filter(g=>gOdenen(g)<gOdenecek(g));
 
         return div({style:{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}},
           div({style:{flex:1,overflowY:"auto",padding:"14px"}},
 
             // Fatura seçim kartları
-            !secFatura&&div(null,
+            !secGrup&&div(null,
               div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},
                 "Ödeme Yapmak İçin Fatura Seçin"),
-              bekleyenFaturalar.length===0
+              bekleyenGruplar.length===0
                 ?div({style:{textAlign:"center",padding:40,color:"var(--mu)"}},
                     div({style:{fontSize:40,marginBottom:12}},"💰"),
                     div({style:{fontSize:13}},"Bekleyen ödeme yok"))
-                :bekleyenFaturalar.slice().sort((a,b)=>(b.faturaTarih||"").localeCompare(a.faturaTarih||"")).map((ar,i)=>{
-                    const odenecek=ar.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
-                    const odenen=(ar.odemeler||[]).reduce((s,o)=>s+toN(o.tutar),0);
+                :bekleyenGruplar.slice().sort((a,b)=>(b.kayitlar[0].faturaTarih||"").localeCompare(a.kayitlar[0].faturaTarih||"")).map((g,i)=>{
+                    const ar=g.kayitlar[0];
+                    const odenecek=gOdenecek(g);
+                    const odenen=gOdenen(g);
                     const kalan=odenecek-odenen;
+                    const tipler=[...new Set(g.kayitlar.map(k=>k.tip))];
                     return div({key:i,style:{background:"var(--bg2)",border:"1px solid var(--br)",
                       borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",
                       transition:"border-color .2s"},
-                      onClick:()=>setSecFatura(ar)},
+                      onClick:()=>setSecFatura(g)},
                       div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}},
                         div(null,
                           ar.tedarikci&&div({style:{fontSize:14,color:"var(--g)",fontWeight:600,marginBottom:3}},ar.tedarikci),
                           div({style:{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}},
                             ar.faturaN&&div({style:{fontSize:12,color:"var(--mu)"}},"Fatura: "+ar.faturaN),
-                            ar.tip==="sarf"
-                              ?div({style:{fontSize:10,fontWeight:700,color:"#FF9500",background:"rgba(255,149,0,.12)",
-                                  borderRadius:6,padding:"1px 7px"}},"🧪 SARF")
-                              :div({style:{fontSize:10,fontWeight:700,color:"#34C759",background:"rgba(52,199,89,.12)",
-                                  borderRadius:6,padding:"1px 7px"}},"🛍️ SATILABİLEN")
+                            tipler.includes("satilabilen")&&div({style:{fontSize:10,fontWeight:700,color:"#34C759",background:"rgba(52,199,89,.12)",
+                                borderRadius:6,padding:"1px 7px"}},"🛍️ SATILABİLEN"),
+                            tipler.includes("sarf")&&div({style:{fontSize:10,fontWeight:700,color:"#FF9500",background:"rgba(255,149,0,.12)",
+                                borderRadius:6,padding:"1px 7px"}},"🧪 SARF")
                           ),
                           div({style:{fontSize:12,color:"var(--di)",marginTop:2}},fmtT(ar.faturaTarih||ar.tarih))
                         ),
@@ -5898,9 +5913,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             ),
 
             // Seçili fatura ödeme formu
-            secFatura&&(()=>{
-              const odenecek=secFatura.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
-              const gecmisOdemeler=(secFatura.odemeler||[]);
+            secGrup&&(()=>{
+              const secFatura=secGrup.kayitlar[0];
+              const odenecek=gOdenecek(secGrup);
+              const gecmisOdemeler=secGrup.kayitlar.flatMap(k=>(k.odemeler||[]).map(o=>({...o,_kayit:k})));
               const topOdenen=gecmisOdemeler.reduce((s,o)=>s+toN(o.tutar),0);
               const kalan=odenecek-topOdenen;
               return div(null,
@@ -5915,7 +5931,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     ),
                     btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:7,
                       color:"var(--mu)",fontSize:12,padding:"4px 10px",cursor:"pointer"},
-                      onClick:()=>setSecFatura(null)},"← Fatura Seç")
+                      onClick:()=>{setSecFatura(null);setCariOdeDuzenleId(null);}},"← Fatura Seç")
                   ),
                   div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}},
                     div({style:{background:"var(--bg3)",borderRadius:8,padding:"9px",textAlign:"center"}},
@@ -5939,7 +5955,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:10,marginTop:0}},
                     "Ödeme Geçmişi"),
                   gecmisOdemeler.map((od,oi)=>
-                    div({key:oi,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+                    div({key:od.id||oi,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
                       padding:"8px 0",borderBottom:oi<gecmisOdemeler.length-1?"1px solid var(--br)":"none"}},
                       div(null,
                         div({style:{fontSize:13,color:"var(--tx)"}},
@@ -5961,12 +5977,25 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       ),
                       div({style:{display:"flex",gap:8,alignItems:"center"}},
                         div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:"#50b880",fontWeight:600}},fmt(od.tutar)),
+                        btn({style:{background:"transparent",border:"none",color:"var(--g)",fontSize:13,cursor:"pointer"},
+                          onClick:()=>{
+                            setCariOdeDuzenleId(od.id);
+                            setCariOdeTarih(od.tarih||TODAY());
+                            setCariOdeTip(od.tip||"Nakit");
+                            setCariOdeTutar(String(od.tutar||""));
+                            setCariOdeNot(od.not||"");
+                            const d=od.detay||{};
+                            setCariOdeBanka(d.banka||""); setCariOdeRefNo(d.refNo||"");
+                            setCariOdeNo(d.no||""); setCariOdeVade(d.vade||""); setCariOdeKisi(d.kisi||"");
+                            setCariOdeKart(d.kart||""); setCariOdeTaksit(d.taksit||"");
+                            setCariOdeGorsel(Array.isArray(d.gorsel)?d.gorsel:[]);
+                          }},"✏"),
                         btn({style:{background:"transparent",border:"none",color:"#c05050",fontSize:13,cursor:"pointer"},
                           onClick:()=>{
-                            const yeniArsiv=mkArsiv.map(ar=>ar===secFatura
-                              ?{...ar,odemeler:(ar.odemeler||[]).filter((_,j)=>j!==oi)}:ar);
+                            const yeniArsiv=mkArsiv.map(ar=>ar===od._kayit
+                              ?{...ar,odemeler:(ar.odemeler||[]).filter(x=>x.id!==od.id)}:ar);
                             setMkArsiv(yeniArsiv);
-                            setSecFatura(yeniArsiv.find(ar=>ar.faturaN===secFatura.faturaN&&ar.tarih===secFatura.tarih)||null);
+                            if(cariOdeDuzenleId===od.id) setCariOdeDuzenleId(null);
                             try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
                           }},"✕")
                       )
@@ -5974,11 +6003,21 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   )
                 ),
 
-                // Yeni ödeme formu
-                kalan>0&&div({style:{background:"var(--bg2)",border:"1px solid var(--br)",
+                // Yeni ödeme formu / Ödeme düzenleme formu
+                (kalan>0||cariOdeDuzenleId)&&div({style:{background:"var(--bg2)",border:"1px solid var(--br)",
                   borderRadius:12,padding:14,marginBottom:14}},
-                  div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},
-                    "💳 Yeni Ödeme Ekle"),
+                  div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}},
+                    div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase"}},
+                      cariOdeDuzenleId?"✏️ Ödemeyi Düzenle":"💳 Yeni Ödeme Ekle"),
+                    cariOdeDuzenleId&&btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:7,
+                      color:"var(--mu)",fontSize:11,padding:"4px 10px",cursor:"pointer"},
+                      onClick:()=>{
+                        setCariOdeDuzenleId(null);
+                        setCariOdeTutar(""); setCariOdeNot("");
+                        setCariOdeBanka(""); setCariOdeRefNo(""); setCariOdeNo(""); setCariOdeVade(""); setCariOdeKisi(""); setCariOdeGorsel([]);
+                        setCariOdeKart(""); setCariOdeTaksit("");
+                      }},"İptal")
+                  ),
                   div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
                     div(null,lbl({className:"fl"},"Ödeme Tarihi"),
                       inp({className:"fi",type:"date",value:cariOdeTarih,
@@ -6066,23 +6105,34 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         if(cariOdeTaksit) detay.taksit=cariOdeTaksit;
                       }
                       if(cariOdeGorsel.length>0) detay.gorsel=cariOdeGorsel;
-                      const yeniOdeme={id:uid(),tarih:cariOdeTarih,tip:cariOdeTip,
-                        tutar:toN(cariOdeTutar),not:cariOdeNot,detay};
-                      const yeniArsiv=mkArsiv.map(ar=>ar===secFatura
-                        ?{...ar,odemeler:[...(ar.odemeler||[]),yeniOdeme]}:ar);
+                      let yeniArsiv;
+                      if(cariOdeDuzenleId){
+                        const duzenlenen = gecmisOdemeler.find(o=>o.id===cariOdeDuzenleId);
+                        if(!duzenlenen){ showToast("Ödeme bulunamadı","uy"); return; }
+                        const guncelOdeme={id:cariOdeDuzenleId,tarih:cariOdeTarih,tip:cariOdeTip,
+                          tutar:toN(cariOdeTutar),not:cariOdeNot,detay};
+                        yeniArsiv=mkArsiv.map(ar=>ar===duzenlenen._kayit
+                          ?{...ar,odemeler:(ar.odemeler||[]).map(o=>o.id===cariOdeDuzenleId?guncelOdeme:o)}:ar);
+                        setCariOdeDuzenleId(null);
+                      } else {
+                        const yeniOdeme={id:uid(),tarih:cariOdeTarih,tip:cariOdeTip,
+                          tutar:toN(cariOdeTutar),not:cariOdeNot,detay};
+                        // Ödeme, gruptaki ilk kayda (Satılabilen ve Sarf birleşikse ilk bulunan kayda) işlenir;
+                        // grup toplamı zaten tüm kayıtların ödemeler'i toplanarak hesaplandığı için sonuç doğru kalır.
+                        yeniArsiv=mkArsiv.map(ar=>ar===secFatura
+                          ?{...ar,odemeler:[...(ar.odemeler||[]),yeniOdeme]}:ar);
+                      }
                       setMkArsiv(yeniArsiv);
-                      const guncel=yeniArsiv.find(ar=>ar.faturaN===secFatura.faturaN&&ar.tarih===secFatura.tarih);
-                      setSecFatura(guncel||null);
                       setCariOdeTutar(""); setCariOdeNot("");
                       setCariOdeBanka(""); setCariOdeRefNo(""); setCariOdeNo(""); setCariOdeVade(""); setCariOdeKisi(""); setCariOdeGorsel([]);
                       setCariOdeKart(""); setCariOdeTaksit("");
                       try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
-                      showToast(fmt(toN(cariOdeTutar))+" ödeme kaydedildi");
-                    }},toN(cariOdeTutar)>0?"✅ Ödeme Kaydet":"Tutar Girin")
+                      showToast(cariOdeDuzenleId?"Ödeme güncellendi":(fmt(toN(cariOdeTutar))+" ödeme kaydedildi"));
+                    }},cariOdeDuzenleId?"💾 Değişiklikleri Kaydet":(toN(cariOdeTutar)>0?"✅ Ödeme Kaydet":"Tutar Girin"))
                 ),
 
                 // Tamamen ödendi ise
-                kalan<=0&&div({style:{textAlign:"center",padding:"20px 14px",
+                kalan<=0&&!cariOdeDuzenleId&&div({style:{textAlign:"center",padding:"20px 14px",
                   background:"rgba(50,140,100,.06)",border:"1px solid rgba(50,140,100,.2)",
                   borderRadius:12,marginBottom:14}},
                   div({style:{fontSize:30,marginBottom:8}},"✅"),
@@ -6094,28 +6144,24 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             })(),
 
             // Tamamlanmış ödemeler
-            odenenFaturalar.length>0&&!secFatura&&div({style:{marginTop:16}},
+            odenenGruplar.length>0&&!secGrup&&div({style:{marginTop:16}},
               div({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase",
                 marginBottom:10,paddingTop:10,borderTop:"1px solid var(--br)"}},"✅ Tamamlanan Ödemeler"),
-              odenenFaturalar.map((ar,i)=>{
-                const odenecek=ar.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
-                const odenen=(ar.odemeler||[]).reduce((s,o)=>s+toN(o.tutar),0);
+              odenenGruplar.map((g,i)=>{
+                const ar=g.kayitlar[0];
+                const odenecek=gOdenecek(g);
+                const odenen=gOdenen(g);
                 const kalan=odenecek-odenen;
                 if(kalan>0) return null;
+                const tipler=[...new Set(g.kayitlar.map(k=>k.tip))];
                 return div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
                   padding:"10px 12px",background:"var(--bg2)",borderRadius:10,marginBottom:7,
                   border:"1px solid rgba(50,140,100,.15)",opacity:.85,cursor:"pointer"},
-                  onClick:()=>{
-                    const sirali = mkArsiv.filter(a=>a.kayitTuru!=="acilis"&&a.tip!=="acilis")
-                      .slice().sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
-                    const idx = sirali.indexOf(ar);
-                    if(idx<0){ showToast("Fatura arşivde bulunamadı","uy"); return; }
-                    setMkAlt("arsiv");
-                    setArsivAc(idx);
-                  }},
+                  onClick:()=>setSecFatura(g)},
                   div(null,
                     ar.tedarikci&&div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},ar.tedarikci),
-                    div({style:{fontSize:12,color:"var(--mu)"}},(ar.tip==="sarf"?"🧪 ":"🛍️ ")+(ar.faturaN||"—")+" · "+fmtT(ar.faturaTarih||ar.tarih))
+                    div({style:{fontSize:12,color:"var(--mu)"}},
+                      (tipler.length>1?"🛍️🧪 ":tipler[0]==="sarf"?"🧪 ":"🛍️ ")+(ar.faturaN||"—")+" · "+fmtT(ar.faturaTarih||ar.tarih))
                   ),
                   div({style:{display:"flex",alignItems:"center",gap:8}},
                     div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:14,color:"#50b880",fontWeight:600}},
