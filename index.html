@@ -4040,12 +4040,25 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   )
               ),
             mkTip==="sarf"
-              ? div({style:{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"flex-end"}},
-                  div({style:{flex:"3 1 180px"}},
-                    lbl({className:"fl"},"Malzeme Adı"),
-                    inp({className:"fi",placeholder:"Sarf malzeme adı...",value:mkSarfAd,
-                      onChange:e=>setMkSarfAd(e.target.value)})
+              ? div({style:{display:"flex",flexDirection:"column",gap:8,marginBottom:10}},
+                  div(null,
+                    lbl({className:"fl"},"Malzeme Ara / Ekle"),
+                    h(UrunAramaBilesen,{
+                      aramaVal:mkSarfAd,
+                      setAramaVal:setMkSarfAd,
+                      onEkle:u=>{
+                        if(mkUrunler.find(x=>x.barkod===u.b)){showToast("Zaten eklendi","uy");return;}
+                        setMkUrunler(p=>[...p,{barkod:u.b, urunAd:u.a, marka:u.m, ml:u.ml,
+                          adet:"", birimF:String(u.bp||""), iskontoOran:"0", kdvOran:"20"}]);
+                        setMkSarfAd("");
+                      },
+                      tipFiltre:"sarf",
+                      placeholder:"Malzeme adı veya barkod ile ara (sistemde varsa listeden seçin)..."
+                    })
                   ),
+                  div({style:{fontSize:11,color:"var(--di)",marginTop:-4}},
+                    "Yukarıdaki kutudan sistemde kayıtlı bir malzeme seçerseniz gerçek adı/barkoduyla direkt tabloya eklenir. Sistemde yoksa, yazdığınız adla aşağıdaki alanları doldurup 'Ekle'ye basın — barkod otomatik oluşturulur."),
+                  div({style:{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}},
                   div({style:{flex:"1 1 70px"}},
                     lbl({className:"fl"},"Adet"),
                     inp({className:"fi",type:"number",placeholder:"0",value:mkSarfAdet,
@@ -4072,10 +4085,14 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     disabled:!mkSarfAd.trim(),
                     onClick:()=>{
                       if(!mkSarfAd.trim()) return;
+                      if(URUN_DB.find(u=>u.tip==="sarf" && normText(u.a)===normText(mkSarfAd.trim()))){
+                        showToast("Bu isim sistemde kayıtlı — lütfen yukarıdaki arama kutusundan seçin","uy"); return;
+                      }
                       setMkUrunler(p=>[...p,{barkod:"SARF-"+uid(),urunAd:mkSarfAd.trim(),marka:"",ml:"",
                         adet:mkSarfAdet||"",birimF:mkSarfFiyat||"",iskontoOran:mkSarfIskonto||"0",kdvOran:mkSarfKdv||"20"}]);
                       setMkSarfAd(""); setMkSarfFiyat(""); setMkSarfAdet(""); setMkSarfIskonto("0"); setMkSarfKdv("20");
                     }},"+ Ekle")
+                  )
                 )
               : h(UrunAramaBilesen,{aramaVal:mkIsimArama,setAramaVal:setMkIsimArama,
                   onEkle:u=>{
