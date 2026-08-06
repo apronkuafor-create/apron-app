@@ -5645,8 +5645,14 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           }
         });
         const enSonTarih=g=>g.kayitlar.reduce((m,x)=>{const d=x.faturaTarih||x.tarih||"";return d>m?d:m;},"");
-        const sortedGruplar=gruplar.slice().sort((a,b)=>enSonTarih(b).localeCompare(enSonTarih(a)));
-        const toplamBorc=mkArsiv.reduce((s,ar)=>s+ar.urunler.reduce((ss,u)=>ss+(u.toplamF||0),0),0);
+        const gKalanHesapla=g=>{
+          const odenecek=g.kayitlar.reduce((s,k)=>s+k.urunler.reduce((ss,u)=>ss+(u.toplamF||0),0),0);
+          const odenen=g.kayitlar.reduce((s,k)=>s+(k.odemeler||[]).reduce((ss,o)=>ss+toN(o.tutar),0),0);
+          return odenecek-odenen;
+        };
+        const acikGruplar=gruplar.filter(g=>gKalanHesapla(g)>0.009); // tamamen ödenmiş faturalar Borçlarım'da görünmez
+        const sortedGruplar=acikGruplar.slice().sort((a,b)=>enSonTarih(b).localeCompare(enSonTarih(a)));
+        const toplamBorc=acikGruplar.reduce((s,g)=>s+gKalanHesapla(g),0);
         return div({style:{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}},
           // + Devir / Açılış Borcu (tek seferlik, kuruma geçiş için)
           div({style:{padding:"10px 14px 4px",flexShrink:0}},
@@ -5666,8 +5672,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           div({style:{flex:1,overflowY:"auto",overflowX:"auto"}},
             sortedGruplar.length===0
               ?div({style:{textAlign:"center",padding:50,color:"var(--mu)"}},
-                  div({style:{fontSize:40,marginBottom:12}},"📋"),
-                  div({style:{fontSize:13,letterSpacing:2,textTransform:"uppercase"}},"Henüz mal kabul kaydı yok"))
+                  div({style:{fontSize:40,marginBottom:12}},mkArsiv.length>0?"✅":"📋"),
+                  div({style:{fontSize:13,letterSpacing:2,textTransform:"uppercase"}},
+                    mkArsiv.length>0?"Açık borcunuz yok — tüm faturalar ödendi":"Henüz mal kabul kaydı yok"))
               :div({style:{minWidth:940}},
                 div({style:{display:"grid",
                   gridTemplateColumns:"1fr 100px 150px 130px 70px 110px 56px",
@@ -5685,6 +5692,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   const vadeSon=sonOdeme(ar.faturaTarih||ar.tarih,ar.vade);
                   const gecikti=vadeSon&&vadeSon<bugun;
                   const yakinda=vadeSon&&!gecikti&&vadeSon<=new Date(new Date().setDate(new Date().getDate()+7)).toISOString().split("T")[0];
+                  const gunFarki=vadeSon?Math.round((new Date(vadeSon+"T00:00:00")-new Date(bugun+"T00:00:00"))/86400000):null;
                   const cel={borderRight:"1px solid var(--br)",display:"flex",alignItems:"center",
                     justifyContent:"center",minHeight:46,padding:"6px 6px"};
                   const imgs=[];
@@ -5755,8 +5763,12 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       vadeSon
                         ?div({style:{textAlign:"center"}},
                             fmtT(vadeSon),
-                            gecikti&&div({style:{fontSize:9,color:"#c05050",letterSpacing:.5}},"GECİKMİŞ"),
-                            yakinda&&div({style:{fontSize:9,color:"#e09030",letterSpacing:.5}},"YAKLAŞIYOR")
+                            gecikti&&div({style:{fontSize:9,color:"#c05050",letterSpacing:.5}},
+                              (gunFarki===-1?"1 GÜN GECİKTİ":Math.abs(gunFarki)+" GÜN GECİKTİ")),
+                            yakinda&&div({style:{fontSize:9,color:"#e09030",letterSpacing:.5}},
+                              (gunFarki===0?"BUGÜN SON GÜN":gunFarki===1?"YARIN SON GÜN":gunFarki+" GÜN KALDI")),
+                            (!gecikti&&!yakinda)&&div({style:{fontSize:9,color:"var(--di)",letterSpacing:.5}},
+                              gunFarki+" GÜN KALDI")
                           )
                         :h("span",{style:{color:"var(--di)"}},"—")
                     ),
@@ -6092,13 +6104,24 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 if(kalan>0) return null;
                 return div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
                   padding:"10px 12px",background:"var(--bg2)",borderRadius:10,marginBottom:7,
-                  border:"1px solid rgba(50,140,100,.15)",opacity:.7}},
+                  border:"1px solid rgba(50,140,100,.15)",opacity:.85,cursor:"pointer"},
+                  onClick:()=>{
+                    const sirali = mkArsiv.filter(a=>a.kayitTuru!=="acilis"&&a.tip!=="acilis")
+                      .slice().sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
+                    const idx = sirali.indexOf(ar);
+                    if(idx<0){ showToast("Fatura arşivde bulunamadı","uy"); return; }
+                    setMkAlt("arsiv");
+                    setArsivAc(idx);
+                  }},
                   div(null,
                     ar.tedarikci&&div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},ar.tedarikci),
                     div({style:{fontSize:12,color:"var(--mu)"}},(ar.tip==="sarf"?"🧪 ":"🛍️ ")+(ar.faturaN||"—")+" · "+fmtT(ar.faturaTarih||ar.tarih))
                   ),
-                  div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:14,color:"#50b880",fontWeight:600}},
-                    "✅ "+fmt(odenen))
+                  div({style:{display:"flex",alignItems:"center",gap:8}},
+                    div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:14,color:"#50b880",fontWeight:600}},
+                      "✅ "+fmt(odenen)),
+                    div({style:{fontSize:13,color:"var(--di)"}},"›")
+                  )
                 );
               })
             )
@@ -24427,4 +24450,3 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
 
 </body>
 </html>
-
