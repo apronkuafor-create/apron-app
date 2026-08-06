@@ -2418,6 +2418,13 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [mkAlt, setMkAlt] = React.useState("liste"); // liste | arsiv
   const [arsivAc, setArsivAc] = React.useState(null); // arşiv detay index
   const [arsivDuzMod, setArsivDuzMod] = React.useState(false); // inline düzenleme modu
+  const [arsivDuzTedarikci, setArsivDuzTedarikci] = React.useState("");
+  const [arsivDuzFaturaN, setArsivDuzFaturaN] = React.useState("");
+  const [arsivDuzFaturaTarih, setArsivDuzFaturaTarih] = React.useState("");
+  const [arsivDuzIrsaliye, setArsivDuzIrsaliye] = React.useState("");
+  const [arsivDuzTarih, setArsivDuzTarih] = React.useState(""); // İrsaliye Tarihi / Geliş (ar.tarih)
+  const [arsivDuzVade, setArsivDuzVade] = React.useState("");
+  const [arsivDuzMalKabulTarihi, setArsivDuzMalKabulTarihi] = React.useState("");
   const [arsivDuzUrunler, setArsivDuzUrunler] = React.useState([]); // düzenlenen ürün listesi
   const [arsivDuzArama, setArsivDuzArama] = React.useState(""); // düzenleme modunda yeni ürün ekleme arama kutusu
   const [arsivFarkAcikIdx, setArsivFarkAcikIdx] = React.useState({}); // {satirIndex:true} — Arşiv Detayı'nda fatura/kabul fark paneli açık mı
@@ -3371,6 +3378,13 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         _kabulAdet:String(u.kabulAdet!==undefined?u.kabulAdet:(u.adet||"")),
                         _farkSebep:u.farkSebep||"",
                         _farkNot:u.farkNot||""})));
+                      setArsivDuzTedarikci(ar.tedarikci||"");
+                      setArsivDuzFaturaN(ar.faturaN||"");
+                      setArsivDuzFaturaTarih(ar.faturaTarih||"");
+                      setArsivDuzIrsaliye(ar.irsaliyeN||"");
+                      setArsivDuzTarih(ar.tarih||"");
+                      setArsivDuzVade(ar.vade||"");
+                      setArsivDuzMalKabulTarihi(ar.malKabulTarihi||ar.tarih||"");
                       setArsivDuzArama("");
                       setArsivFarkAcikIdx({});
                       setArsivDuzMod(true);
@@ -3399,7 +3413,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       });
                       // mkArsiv güncelle
                       mkArsivKirliRef.current=true;
-                      const yeniArsiv=mkArsiv.map(x=>(ar.id?x.id===ar.id:x===ar)?{...x,urunler:yeniUrunler}:x);
+                      const yeniArsiv=mkArsiv.map(x=>(ar.id?x.id===ar.id:x===ar)?{...x,urunler:yeniUrunler,
+                        tedarikci:arsivDuzTedarikci.trim(),faturaN:arsivDuzFaturaN.trim(),faturaTarih:arsivDuzFaturaTarih,
+                        irsaliyeN:arsivDuzIrsaliye.trim(),tarih:arsivDuzTarih,vade:arsivDuzVade,malKabulTarihi:arsivDuzMalKabulTarihi}:x);
                       setMkArsiv(yeniArsiv);
                       try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
                       if(DB) dbUpsertAyar("mkArsiv", yeniArsiv);
@@ -3436,7 +3452,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                               adet:u.adet, kalan:Math.max(0,kabul2), beklenenAdet:bekleyen2,
                               farkSebep:bekleyen2>0?(u.farkSebep||""):"", farkNot:bekleyen2>0?(u.farkNot||""):"",
                               alisF:u.alisF||u.birimF,
-                              faturaN:ar.faturaN, tarih:ar.tarih, isletme_id:ar.isletme_id||""
+                              faturaN:arsivDuzFaturaN.trim(), tarih:arsivDuzTarih, isletme_id:ar.isletme_id||""
                             });
                           }
                         });
@@ -3456,6 +3472,16 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                           return {...part, adet:yeniU.adet, kalan:Math.max(0,part.kalan+kabulFark), alisF:yeniU.alisF,
                             beklenenAdet:bekleyen3, farkSebep:bekleyen3>0?(yeniU.farkSebep||""):"", farkNot:bekleyen3>0?(yeniU.farkNot||""):""};
                         });
+
+                        // 4) Fatura No / Tarih değiştiyse, bu faturaya ait tüm mevcut stok partilerini yeni değerlerle eşitle
+                        //    (aksi halde stok kayıtları eski fatura no/tarihte kalır, mükerrer kontrolü ve gruplamalar bozulur)
+                        if(arsivDuzFaturaN.trim()!==ar.faturaN || arsivDuzTarih!==ar.tarih){
+                          yeniPartiler = yeniPartiler.map(part=>
+                            (part.faturaN===ar.faturaN && part.tarih===ar.tarih)
+                              ? {...part, faturaN:arsivDuzFaturaN.trim(), tarih:arsivDuzTarih}
+                              : part
+                          );
+                        }
 
                         if(DB) dbUpsertAyar("stokPartiler", yeniPartiler);
                         return yeniPartiler;
@@ -3521,13 +3547,41 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     }},"Sil")
                 )
               ),
-              div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:12}},
-                ar.tedarikci&&div({style:{gridColumn:"1/-1",color:"var(--g)",fontWeight:600,fontSize:14}},ar.tedarikci),
-                div({style:{color:"var(--mu)"}},"Fatura No: ",h("span",{style:{color:"var(--tx)"}},ar.faturaN||"—")),
-                div({style:{color:"var(--mu)"}},"Fatura Tarihi: ",h("span",{style:{color:"var(--tx)"}},fmtT(ar.faturaTarih)||"—")),
-                div({style:{color:"var(--mu)"}},"İrsaliye: ",h("span",{style:{color:"var(--tx)"}},ar.irsaliyeN||"—")),
-                div({style:{color:"var(--mu)"}},"Geliş: ",h("span",{style:{color:"var(--tx)"}},fmtT(ar.tarih)||"—"))
-              )
+              arsivDuzMod
+                ? div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12}},
+                    div({style:{gridColumn:"1/-1"}},lbl({className:"fl"},"Tedarikçi"),
+                      tedarikciler&&tedarikciler.length>0
+                        ? h("select",{className:"fi",style:{fontSize:13,cursor:"pointer",color:arsivDuzTedarikci?"":"var(--mu)"},value:arsivDuzTedarikci,
+                            onChange:e=>setArsivDuzTedarikci(e.target.value)},
+                            h("option",{value:"",style:{color:"var(--mu)"}},"Tedarikçi seçin"),
+                            tedarikciler.map((t,i)=>{const ad=typeof t==="string"?t:(t.ad||""); return h("option",{key:i,value:ad},ad);}),
+                            arsivDuzTedarikci&&!tedarikciler.some(t=>(typeof t==="string"?t:(t.ad||""))===arsivDuzTedarikci)
+                              &&h("option",{value:arsivDuzTedarikci},arsivDuzTedarikci)
+                          )
+                        : inp({className:"fi",style:{fontSize:13},placeholder:"Tedarikçi adı...",value:arsivDuzTedarikci,onChange:e=>setArsivDuzTedarikci(e.target.value)})
+                    ),
+                    div(null,lbl({className:"fl"},"Fatura No"),
+                      inp({className:"fi",style:{fontSize:13},placeholder:"Fatura no...",value:arsivDuzFaturaN,onChange:e=>setArsivDuzFaturaN(e.target.value)})),
+                    div({style:{minWidth:0,overflow:"hidden"}},lbl({className:"fl"},"Fatura Tarihi"),
+                      inp({className:"fi",type:"date",style:{width:"100%",maxWidth:"100%",boxSizing:"border-box",display:"block",fontSize:13},value:arsivDuzFaturaTarih,onChange:e=>setArsivDuzFaturaTarih(e.target.value)})),
+                    div(null,lbl({className:"fl"},"İrsaliye No"),
+                      inp({className:"fi",style:{fontSize:13},placeholder:"İrsaliye no...",value:arsivDuzIrsaliye,onChange:e=>setArsivDuzIrsaliye(e.target.value)})),
+                    div({style:{minWidth:0,overflow:"hidden"}},lbl({className:"fl"},"İrsaliye Tarihi"),
+                      inp({className:"fi",type:"date",style:{width:"100%",maxWidth:"100%",boxSizing:"border-box",display:"block",fontSize:13},value:arsivDuzTarih,onChange:e=>setArsivDuzTarih(e.target.value)})),
+                    div(null,lbl({className:"fl"},"Vade (Gün)"),
+                      inp({className:"fi",style:{fontSize:13},type:"number",inputMode:"numeric",placeholder:"Örn: 30",value:arsivDuzVade,onChange:e=>setArsivDuzVade(e.target.value)})),
+                    div({style:{minWidth:0,overflow:"hidden"}},lbl({className:"fl"},"Mal Kabul Tarihi"),
+                      inp({className:"fi",type:"date",style:{width:"100%",maxWidth:"100%",boxSizing:"border-box",display:"block",fontSize:13},value:arsivDuzMalKabulTarihi,onChange:e=>setArsivDuzMalKabulTarihi(e.target.value)}))
+                  )
+                : div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:12}},
+                    ar.tedarikci&&div({style:{gridColumn:"1/-1",color:"var(--g)",fontWeight:600,fontSize:14}},ar.tedarikci),
+                    div({style:{color:"var(--mu)"}},"Fatura No: ",h("span",{style:{color:"var(--tx)"}},ar.faturaN||"—")),
+                    div({style:{color:"var(--mu)"}},"Fatura Tarihi: ",h("span",{style:{color:"var(--tx)"}},fmtT(ar.faturaTarih)||"—")),
+                    div({style:{color:"var(--mu)"}},"İrsaliye: ",h("span",{style:{color:"var(--tx)"}},ar.irsaliyeN||"—")),
+                    div({style:{color:"var(--mu)"}},"Geliş: ",h("span",{style:{color:"var(--tx)"}},fmtT(ar.tarih)||"—")),
+                    ar.vade&&div({style:{color:"var(--mu)"}},"Vade: ",h("span",{style:{color:"var(--tx)"}},ar.vade+" gün")),
+                    ar.malKabulTarihi&&div({style:{color:"var(--mu)"}},"Mal Kabul: ",h("span",{style:{color:"var(--tx)"}},fmtT(ar.malKabulTarihi)))
+                  )
             ),
             (()=>{
               if(!ar.faturaN || !ar.tedarikci) return null;
