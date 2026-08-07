@@ -8328,12 +8328,16 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
     // Formüldeki Ortak Payı DIŞINDAKİ diğer bileşenler (yüzde ne olursa olsun, sabit maaş,
     // kademeli, müşteri başı vs.) motora hesaplatılır — bu kısımlar doğru çalışıyor. Sadece
     // Ortak Payı, yukarıda bağımsız/doğrudan hesaplanan ortakBasinaPay ile eklenir.
-    const guncelDonemP = formulSec(p, ayBitIso);
+    // ÖNEMLİ: "p" burada hfPersonelListesi'nden gelen budanmış bir özet nesnesi — maasFormulGecmisi
+    // içermiyor. formulSec/hesaplaMaasTekDonem gerçek formülü görebilsin diye personeller listesinden
+    // orijinal (tam) personel kaydını buluyoruz; aksi halde formül hep "boş" sanılıp 0 ₺ çıkardı.
+    const pOrijinal = (personeller||[]).find(x=>String(x.id)===String(p.id)) || p;
+    const guncelDonemP = formulSec(pOrijinal, ayBitIso);
     const digerBilesenlerP = guncelDonemP ? (guncelDonemP.formul||[]).filter(b=>b.tip!=="ortakPayi") : [];
     const kendiKayitlarP = ayKayitlar.filter(r=>r.gonderildi!==false && String(r.staffId)===String(p.id));
     let digerBilesenlerToplamiP = 0;
     try {
-      digerBilesenlerToplamiP = toN(hesaplaMaasTekDonem(p, digerBilesenlerP, kendiKayitlarP, {
+      digerBilesenlerToplamiP = toN(hesaplaMaasTekDonem(pOrijinal, digerBilesenlerP, kendiKayitlarP, {
         tumPersoneller: personeller||[], tumKayitlar: ayKayitlar, toplamGider: genelMasrafOtomatik,
         periyotBas: ayBasIso, periyotBit: ayBitIso
       }, 1).toplam) || 0;
@@ -13653,6 +13657,7 @@ ayarlarRaw.forEach(a=>{ try {
   if(a.id==="silinenKayitlar" && Array.isArray(a.deger)) { try{ const s=new Set(); const cur=JSON.parse(localStorage.getItem("apron_silinen_kayitlar")||"[]"); if(Array.isArray(cur)) cur.forEach(x=>s.add(String(x))); a.deger.forEach(x=>s.add(String(x))); let arr=Array.from(s); if(arr.length>5000) arr=arr.slice(arr.length-5000); localStorage.setItem("apron_silinen_kayitlar", JSON.stringify(arr)); }catch(e){} }
   if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(prev=>birlestirListe(prev,a.deger));
   if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(prev=>birlestirListe(prev,a.deger));
+  if(a.id==="avanslar" && Array.isArray(a.deger)) setAvanslar(prev=>birlestirListe(prev,a.deger));
   if(a.id==="hesapSaglama" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglama(prev=>({...prev, ...a.deger})); // yerel + bulut (çakışmada bulut güncel)
   if(a.id==="hesapSaglamaAylik" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglamaAylik(prev=>({...prev, ...a.deger}));
   if(a.id==="bankaKom" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setBankaKom(prev=>({...prev, ...a.deger}));
@@ -13886,6 +13891,7 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; dbUpsertAyar("hizFiyatlar",HIZ_LISTE_FIYAT); },[urunDBVer]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("zamGecmisi",zamGecmisi); },[zamGecmisi]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("giderler",giderler); },[giderler]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("avanslar",avanslar); },[avanslar]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("giderKategoriler",giderKategoriler); },[giderKategoriler]);
   useEffect(()=>{ if(yukleniyor||!DB||!stokPartilerYuklendi.current) return; dbUpsertAyar("stokPartiler",stokPartiler); },[stokPartiler]);
   useEffect(()=>{ if(yukleniyor||!DB||!hareketler.length) return; dbUpsertAyar("hareketler",hareketler); },[hareketler]);
@@ -14060,6 +14066,7 @@ if(DB) dbUpsertAyar("tema",tema);
       if(a.id==="bolumStilleri") setBolumStilleri(prev=>_ay(prev,a.deger||{}));
       if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(prev=>_ay(prev,birlestirListe(prev,a.deger)));
       if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(prev=>_ay(prev,birlestirListe(prev,a.deger)));
+      if(a.id==="avanslar" && Array.isArray(a.deger)) setAvanslar(prev=>_ay(prev,birlestirListe(prev,a.deger)));
       if(a.id==="hesapSaglama" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglama(prev=>_ay(prev,{...prev,...a.deger}));
       if(a.id==="hesapSaglamaAylik" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglamaAylik(prev=>_ay(prev,{...prev,...a.deger}));
       if(a.id==="bankaKom" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setBankaKom(prev=>_ay(prev,{...prev,...a.deger}));
