@@ -2433,6 +2433,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const mkArsivYuklendiRef = React.useRef(false); // ilk yükleme bitti mi → boş diziyi buluta yazmayı güvenli kılar (silme-boş kalıcı olur, açılışta bulut silinmez)
   const mkArsivKirliRef = React.useRef(false);    // mount sonrası yerel silme/düzenleme oldu mu → geç gelen bulut çekimi bunu EZMESİN (diriltmeyi önler)
   const [sdAramaF, setSdAramaF] = React.useState(""); // stok durumu arama
+  const [sdSupheliFiltre, setSdSupheliFiltre] = React.useState(false); // sadece şüpheli (kataloğu olmayan/düşük fiyatlı) kayıtları göster
   const [sdSilMod, setSdSilMod] = React.useState(false); // stok durumu silme/seçim modu
   const [sdSecimSil, setSdSecimSil] = React.useState({}); // {barkod:true} silmek için seçilenler
   const [sdTopluSilOnay, setSdTopluSilOnay] = React.useState(null); // {barkodlar, adlar} — toplu silme onay modalı
@@ -4979,11 +4980,21 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
 
     // ═══════════════ STOK DURUMU ═══════════════
     umSek==="stokDurum"&&!showMenu&&(()=>{
-      const liste=Object.values(stokOzet).sort((a,b)=>a.urunAd.localeCompare(b.urunAd));
+      const liste=Object.values(stokOzet).sort((a,b)=>a.urunAd.localeCompare(b.urunAd)).map(u=>{
+        const _dbU = URUN_DB.find(d=>d.b===u.barkod);
+        // Şüpheli kayıt: (a) kataloğa hiç kayıtlı değil (sahipsiz stok) veya
+        // (b) birim fiyatı 1₺ altı (Sarf malzeme mal kabulünde "Satış Fiyatı zorunlu" engelini aşmak için
+        //     genelde 0,01 gibi göstermelik bir değer yazılır — gerçek satılabilen ürünlerde bu neredeyse hiç olmaz)
+        const supheli = !_dbU || (toN(u.birimF)>0 && toN(u.birimF)<1);
+        const supheliSebep = !_dbU ? "Kataloğa kayıtlı değil (sahipsiz stok)" : "Birim fiyat 1₺ altı — sarf/ekipman olabilir";
+        return {...u, _supheli:supheli, _supheliSebep:supheliSebep};
+      });
       const q=(sdAramaF||"").trim();
-      const filtred=q.length>1
+      const filtredHam=q.length>1
         ?liste.filter(u=>normText(u.urunAd).includes(normText(q))||u.barkod.includes(q)||normText(u.marka||"").includes(normText(q)))
         :liste;
+      const supheliSayisi = liste.filter(u=>u._supheli).length;
+      const filtred = sdSupheliFiltre ? filtredHam.filter(u=>u._supheli) : filtredHam;
       const topCesit=liste.length;
       const topAdet=liste.reduce((s,u)=>s+u.kalan,0);
       const topMaliyet=liste.reduce((s,u)=>s+u.toplamMaliyet,0);
@@ -5049,6 +5060,15 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               stokDB: stokOzet,
               gotoMod: true  // tam eşleşmede alan boşalmasın, sadece filtrelesin
             })
+          ),
+          supheliSayisi>0&&div({style:{marginTop:8}},
+            btn({onClick:()=>setSdSupheliFiltre(v=>!v),
+              style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:7,
+                padding:"9px 12px",borderRadius:9,cursor:"pointer",fontSize:12.5,fontWeight:700,
+                border:sdSupheliFiltre?"1px solid rgba(255,149,0,.5)":"1px solid rgba(255,149,0,.3)",
+                background:sdSupheliFiltre?"rgba(255,149,0,.18)":"rgba(255,149,0,.08)",
+                color:"#E08600"}},
+              sdSupheliFiltre?"✕ Şüpheli Filtreyi Kapat":"⚠️ "+supheliSayisi+" Şüpheli Kayıt Var — Göster")
           )
         ),
 
@@ -5097,7 +5117,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 return div({key:u.barkod, id:"stok-satir-"+u.barkod, style:{display:"grid",
                   gridTemplateColumns:"50px 100px 1fr 90px 60px 55px 80px 90px 95px",
                   borderBottom:"1px solid var(--br)",
-                  background:_secili?"rgba(209,17,17,.14)":u.kalan<=2?"rgba(192,80,80,.07)":i%2===0?"var(--bg)":"var(--bg2)",
+                  background:_secili?"rgba(209,17,17,.14)":u._supheli?"rgba(255,149,0,.09)":u.kalan<=2?"rgba(192,80,80,.07)":i%2===0?"var(--bg)":"var(--bg2)",
                   cursor:"pointer"},
                   onClick:()=>{ if(sdSilMod){ setSdSecimSil(prev=>({...prev,[u.barkod]:!prev[u.barkod]})); } else { setUmSek("stokDetay");setSdSecili(u);setSdArama(u.urunAd); } }},
                   div({style:{...cel,fontSize:12,color:"var(--di)"}}, sdSilMod?span({style:{fontSize:18,fontWeight:700,color:_secili?"#d11":"var(--di)"}}, _secili?"☑":"☐"):(i+1)),
@@ -5105,8 +5125,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   div({style:{...cel,justifyContent:"flex-start",padding:"6px 8px",borderRight:"1px solid var(--br)",gap:8}},
                     h(UrunResmi,{barkod:u.barkod, boyut:30, radius:6}),
                     div(null,
-                      div({style:{fontSize:12,color:"var(--tx)",fontWeight:500}},u.urunAd),
-                      div({style:{fontSize:10,color:"var(--di)"}},u.marka+(u.ml?" · "+u.ml:""))
+                      div({style:{fontSize:12,color:"var(--tx)",fontWeight:500,display:"flex",alignItems:"center",gap:5}},
+                        u._supheli&&span({title:u._supheliSebep,style:{fontSize:11}},"⚠️"),
+                        u.urunAd),
+                      div({style:{fontSize:10,color:"var(--di)"}},u.marka+(u.ml?" · "+u.ml:"")),
+                      u._supheli&&div({style:{fontSize:9,color:"#E08600",marginTop:1,fontWeight:600}},u._supheliSebep)
                     )
                   ),
                   div({style:{...cel,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:13,color:"var(--tx)"}},fmt(u.birimF||0)),
@@ -23495,7 +23518,11 @@ if(DB) dbUpsertAyar("tema",tema);
               borderRadius:10,color:"#c05050",fontSize:14,padding:"0 16px",height:44,
               cursor:"pointer",fontWeight:600},
               onClick:()=>{
-                if(!confirm("\""+urunDuzData.a+"\" silinecek. Emin misiniz?")) return;
+                const kalanStok = (stokPartiler||[]).filter(p=>p.barkod===urunDuzId).reduce((s,p)=>s+(p.kalan||0),0);
+                const uyari = kalanStok>0
+                  ? "\""+urunDuzData.a+"\" silinecek. ⚠️ DİKKAT: Bu üründe hâlâ "+kalanStok+" adet stok var — ürün kataloğu silinse bile bu stok kaydı SİLİNMEZ, \"sahipsiz\" kalır ve Stok Durumu'nda görünmeye devam eder. Stoğu da temizlemek için önce Stok Durumu → \"Stok Sil\" ile bu barkodu ayrıca silmen gerekir. Yine de kataloğu silmek istiyor musunuz?"
+                  : "\""+urunDuzData.a+"\" silinecek. Emin misiniz?";
+                if(!confirm(uyari)) return;
                 const idx3=URUN_DB.findIndex(u=>u.b===urunDuzId);
                 if(idx3>=0) URUN_DB.splice(idx3,1);
                 triggerUrunRender();
