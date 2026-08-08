@@ -4413,8 +4413,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         mkUrunler.forEach(u=>{
                           const ad=toN(u.adet),bf=toN(u.birimF);
                           const _iskO9=toN(u.iskontoOran||"0"),_nf9=Math.round(bf*(1-_iskO9/100)*100)/100,_bed9=bf>0&&_nf9<1;
+                          const _katalogUrun9 = _bed9 ? URUN_DB.find(d=>d.b===u.barkod) : null;
+                          const _bedelsizAlisF9 = _katalogUrun9 ? toN(_katalogUrun9.bp ?? _katalogUrun9.ap) : 0;
                           setStokPartiler(p=>[...p,{id:uid(),barkod:u.barkod,urunAd:u.urunAd,marka:u.marka,
-                            adet:ad,kalan:ad,alisF:_bed9?0:bf,kdvOran:0,tarih:mkTarih,faturaN:"AÇILIŞ",tip:"acilis",bedelsiz:_bed9}]);
+                            adet:ad,kalan:ad,alisF:_bed9?_bedelsizAlisF9:bf,kdvOran:0,tarih:mkTarih,faturaN:"AÇILIŞ",tip:"acilis",bedelsiz:_bed9}]);
                           setHareketler(p=>[...p,{id:uid(),barkod:u.barkod,urun_ad:u.urunAd,
                             tip:"giris",adet:ad,tarih:mkTarih,faturaN:"AÇILIŞ",staff_id:"yonetici",staff_name:"Yönetici"}]);
                         });
@@ -4432,10 +4434,16 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                           const bekleyen=Math.max(0,ad-kabul);
                           const isk=bf*(toN(u.iskontoOran||"0")/100);
                           const _iskO8=toN(u.iskontoOran||"0"),_nf8=Math.round(bf*(1-_iskO8/100)*100)/100,_bed8=bf>0&&_nf8<1;
+                          // Bedelsiz ürünler (faturada 0 veya 0,1 gibi göstermelik bir bedelle geçen ürünler — bu,
+                          // Cari/borç hesabına yansımaması için kullanılan bir işarettir, ürünün gerçek değeri değildir):
+                          // stok maliyeti/değeri olarak faturadaki 0'a yakın rakam DEĞİL, Ürünler listesindeki kayıtlı
+                          // gerçek alış fiyatı kullanılır — aksi halde bu ürünler stokta "değersiz" görünür.
+                          const _katalogUrun8 = _bed8 ? URUN_DB.find(d=>d.b===u.barkod) : null;
+                          const _bedelsizAlisF = _katalogUrun8 ? toN(_katalogUrun8.bp ?? _katalogUrun8.ap) : 0;
                           setStokPartiler(p=>[...p,{id:uid(),barkod:u.barkod,urunAd:u.urunAd,marka:u.marka,
                             adet:ad,kalan:Math.max(0,kabul),beklenenAdet:bekleyen,
                             farkSebep:bekleyen>0?(u.farkSebep||""):"",farkNot:bekleyen>0?(u.farkNot||""):"",
-                            alisF:_bed8?0:(bf-isk),kdvOran:_bed8?0:toN(u.kdvOran||"20"),
+                            alisF:_bed8?_bedelsizAlisF:(bf-isk),kdvOran:_bed8?0:toN(u.kdvOran||"20"),
                             tarih:mkTarih,faturaN:mkFatura,tip:"malKabul",bedelsiz:_bed8}]);
                           setHareketler(p=>[...p,{id:uid(),barkod:u.barkod,urun_ad:u.urunAd,
                             tip:"giris",adet:Math.max(0,kabul),tarih:mkTarih,faturaN:mkFatura,staff_id:"yonetici",staff_name:"Yönetici"}]);
