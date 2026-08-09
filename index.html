@@ -2434,6 +2434,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const mkArsivKirliRef = React.useRef(false);    // mount sonrası yerel silme/düzenleme oldu mu → geç gelen bulut çekimi bunu EZMESİN (diriltmeyi önler)
   const [sdAramaF, setSdAramaF] = React.useState(""); // stok durumu arama
   const [sdSupheliFiltre, setSdSupheliFiltre] = React.useState(false); // sadece şüpheli (kataloğu olmayan/düşük fiyatlı) kayıtları göster
+  const [sdSupheliYoksay, setSdSupheliYoksay] = React.useState(()=>{
+    try{ return JSON.parse(localStorage.getItem("apron_sd_supheli_yoksay")||"[]"); }catch(e){ return []; }
+  }); // "Bu doğru, şüpheli değil" denilip kalıcı olarak yoksayılan barkodlar
   const [sdSilMod, setSdSilMod] = React.useState(false); // stok durumu silme/seçim modu
   const [sdSecimSil, setSdSecimSil] = React.useState({}); // {barkod:true} silmek için seçilenler
   const [sdTopluSilOnay, setSdTopluSilOnay] = React.useState(null); // {barkodlar, adlar} — toplu silme onay modalı
@@ -4990,10 +4993,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     umSek==="stokDurum"&&!showMenu&&(()=>{
       const liste=Object.values(stokOzet).sort((a,b)=>a.urunAd.localeCompare(b.urunAd)).map(u=>{
         const _dbU = URUN_DB.find(d=>d.b===u.barkod);
-        // Şüpheli kayıt: (a) kataloğa hiç kayıtlı değil (sahipsiz stok) veya
-        // (b) birim fiyatı 1₺ altı (Sarf malzeme mal kabulünde "Satış Fiyatı zorunlu" engelini aşmak için
-        //     genelde 0,01 gibi göstermelik bir değer yazılır — gerçek satılabilen ürünlerde bu neredeyse hiç olmaz)
-        const supheli = !_dbU || (toN(u.birimF)>0 && toN(u.birimF)<1);
+        // Bir ürünün partilerinden en az biri "bedelsiz" işaretliyse, düşük/0 birim fiyat BEKLENEN bir durumdur
+        // (promosyon/numune/hediye ürün) — bu durumda düşük fiyat ŞÜPHELİ SAYILMAZ.
+        const _bedelsizAciklamaVar = (u.partiler||[]).some(p=>p.bedelsiz);
+        const _yoksayiliyor = (sdSupheliYoksay||[]).includes(u.barkod);
+        const supheli = !_yoksayiliyor && (!_dbU || (!_bedelsizAciklamaVar && toN(u.birimF)>0 && toN(u.birimF)<1));
         const supheliSebep = !_dbU ? "Kataloğa kayıtlı değil (sahipsiz stok)" : "Birim fiyat 1₺ altı — sarf/ekipman olabilir";
         return {...u, _supheli:supheli, _supheliSebep:supheliSebep};
       });
@@ -5077,6 +5081,15 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 background:sdSupheliFiltre?"rgba(255,149,0,.18)":"rgba(255,149,0,.08)",
                 color:"#E08600"}},
               sdSupheliFiltre?"✕ Şüpheli Filtreyi Kapat":"⚠️ "+supheliSayisi+" Şüpheli Kayıt Var — Göster")
+          ),
+          (sdSupheliYoksay||[]).length>0&&div({style:{marginTop:6,textAlign:"center"}},
+            h("span",{style:{fontSize:11,color:"var(--di)"}},
+              (sdSupheliYoksay.length)+" ürün \"doğru\" olarak işaretlenmiş — "),
+            btn({onClick:()=>{
+              if(!confirm((sdSupheliYoksay.length)+" ürünün yoksayma işaretini kaldırmak istediğine emin misin? Hepsi tekrar şüpheli görünmeye başlayacak.")) return;
+              setSdSupheliYoksay([]);
+              try{localStorage.removeItem("apron_sd_supheli_yoksay");}catch(e){}
+            },style:{fontSize:11,color:"var(--g)",background:"none",border:"none",textDecoration:"underline",cursor:"pointer",padding:0}},"listeyi sıfırla")
           )
         ),
 
@@ -5137,7 +5150,19 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         u._supheli&&span({title:u._supheliSebep,style:{fontSize:11}},"⚠️"),
                         u.urunAd),
                       div({style:{fontSize:10,color:"var(--di)"}},u.marka+(u.ml?" · "+u.ml:"")),
-                      u._supheli&&div({style:{fontSize:9,color:"#E08600",marginTop:1,fontWeight:600}},u._supheliSebep)
+                      u._supheli&&div({style:{display:"flex",alignItems:"center",gap:6,marginTop:2,flexWrap:"wrap"}},
+                        div({style:{fontSize:9,color:"#E08600",fontWeight:600}},u._supheliSebep),
+                        btn({onClick:(e)=>{
+                          e.stopPropagation();
+                          setSdSupheliYoksay(prev=>{
+                            const yeni=[...new Set([...prev,u.barkod])];
+                            try{localStorage.setItem("apron_sd_supheli_yoksay",JSON.stringify(yeni));}catch(err){}
+                            return yeni;
+                          });
+                          showToast("Bu ürün artık şüpheli olarak işaretlenmeyecek");
+                        },style:{fontSize:9,fontWeight:700,color:"#34C759",background:"rgba(52,199,89,.1)",
+                          border:"1px solid rgba(52,199,89,.3)",borderRadius:5,padding:"1px 6px",cursor:"pointer"}},"✕ Bu Doğru")
+                      )
                     )
                   ),
                   div({style:{...cel,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:13,color:"var(--tx)"}},fmt(u.birimF||0)),
