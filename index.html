@@ -454,6 +454,24 @@ const birlestirListe = (yerel, bulut) => {
   });
   return Object.values(m);
 };
+// Ürün kataloğu (URUN_DB) için özel birleştirme: barkoda (b) göre eşleştirir.
+// KRİTİK: buluttan gelen veri diğer alanlarda esas alınır (isim/fiyat vb. başka cihazda güncellenmiş olabilir),
+// AMA "img" (ürün resmi) alanı asla boş bir değerle EZİLMEZ — cihazlar arası "son yazan kazanır" wholesale-replace
+// senkronu, bir cihazda az önce yüklenen resmi, henüz o resmi görmemiş başka bir cihazın eski/bayat kopyasıyla
+// üzerine yazıp kaybettiriyordu. Ayrıca yerelde olup buluta henüz gitmemiş yeni ürünler de korunur.
+const urunlerBirlestir = (yerelArr, bulutArr) => {
+  const yerelMap = {};
+  (yerelArr||[]).forEach(u=>{ if(u&&u.b) yerelMap[u.b]=u; });
+  const bulutBarkodlar = new Set();
+  const sonuc = (bulutArr||[]).map(u=>{
+    if(!u||!u.b) return u;
+    bulutBarkodlar.add(u.b);
+    const yerelU = yerelMap[u.b];
+    return (yerelU && yerelU.img && !u.img) ? {...u, img:yerelU.img} : u;
+  });
+  (yerelArr||[]).forEach(u=>{ if(u&&u.b && !bulutBarkodlar.has(u.b)) sonuc.push(u); });
+  return sonuc;
+};
 // ── Ayarlar yazma + realtime yankı bastırma ───────────────────────────
 // Sorun: bir ayar (gider listesi, bildirimler vb.) değişince [state] bağımlı
 // useEffect onu Supabase'e yazar; realtime kanal bu yazıyı geri yankılar ve
@@ -13697,8 +13715,9 @@ ayarlarRaw.forEach(a=>{ try {
   if(a.id==="hizListeleri") setHizListeleri(a.deger);
   if(a.id==="giderKategoriler" && a.deger) setGiderKategoriler(a.deger);
   if(a.id==="urunler" && Array.isArray(a.deger)) {
+    const birlesik = urunlerBirlestir(URUN_DB, a.deger);
     URUN_DB.length = 0;
-    a.deger.forEach(u => URUN_DB.push(u));
+    birlesik.forEach(u => URUN_DB.push(u));
     triggerUrunRender();
   }
   if(a.id==="hizFiyatlar" && a.deger && typeof a.deger==="object") {
@@ -14114,8 +14133,9 @@ if(DB) dbUpsertAyar("tema",tema);
       if(a.id==="giderKategoriler" && a.deger) setGiderKategoriler(prev=>_ay(prev,a.deger));
       if(a.id==="urunler" && Array.isArray(a.deger)) {
         if(_ayarImza(URUN_DB)!==_ayarImza(a.deger)){
+          const birlesik = urunlerBirlestir(URUN_DB, a.deger);
           URUN_DB.length = 0;
-          a.deger.forEach(u => URUN_DB.push(u));
+          birlesik.forEach(u => URUN_DB.push(u));
           triggerUrunRender();
         }
       }
