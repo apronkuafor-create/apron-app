@@ -9621,6 +9621,13 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
       const gunSayisi = Math.max(1, parseInt(hatirlatmaGun)||20);
       const gonTarih = new Date();
       gonTarih.setDate(gonTarih.getDate()+gunSayisi);
+      // Mesajdaki "Üzerinden X gün geçti" ifadesi, hatırlatmanın kaç gün SONRA gönderileceği ayarıyla
+      // (gunSayisi) DEĞİL, hizmetin gerçek tarihi (formTarih) ile hatırlatmanın gerçekten gideceği tarih
+      // (gonTarih) arasındaki GERÇEK farkla hesaplanmalı. İkisi sadece randevu AYNI GÜN girilirse eşit olur;
+      // geçmiş bir tarihe (backdate) kayıt girilirse gunSayisi'ni doğrudan kullanmak mesajı yanıltıcı yapar
+      // (gerçekte çok daha fazla gün geçmiş olsa bile mesaj hep ayarlanan küçük sayıyı söyler).
+      const hizmetTarihi = new Date((formTarih||TODAY())+"T12:00:00");
+      const mesajGunSayisi = Math.max(1, Math.round((gonTarih - hizmetTarihi)/86400000));
       const hatId = uid();
       const yeniHat = {
         id:hatId,
@@ -9632,7 +9639,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
         gonderiTarih:gonTarih.toISOString().split("T")[0],
         gonderildi:false,
         tip:"sacKesimi",
-        mesaj:"Merhaba Sayın "+musteri+", son saç kesiminizi "+fmtT(formTarih||TODAY())+" tarihinde yapmıştık. Üzerinden "+gunSayisi+" gün geçti. Saçınızın uzama hızını ve kesim hassasiyetinizi göz önünde bulundurarak, saç kesimi zamanınızın geldiğini düşünüyoruz. Randevu için lütfen bizi arayın. 💈\n\n"+(isletme?.ad||"Apron"),
+        mesaj:"Merhaba Sayın "+musteri+", son saç kesiminizi "+fmtT(formTarih||TODAY())+" tarihinde yapmıştık. Üzerinden "+mesajGunSayisi+" gün geçti. Saçınızın uzama hızını ve kesim hassasiyetinizi göz önünde bulundurarak, saç kesimi zamanınızın geldiğini düşünüyoruz. Randevu için lütfen bizi arayın. 💈\n\n"+(isletme?.ad||"Apron"),
         olusturma:Date.now()
       };
       setHatirlatmalar(p=>{
@@ -13985,6 +13992,38 @@ if(DB) dbUpsertAyar("tema",tema);
     // ibanBildirimler de aynı şekilde hiç buluta yazılmıyordu — maaş hesaplarında ("İban'a gelen tutar")
     // kullanılan önemli bir veri, aynı taşıma mantığını burada da uyguluyoruz.
     if(Array.isArray(ibanBildirimler) && ibanBildirimler.length) dbUpsertAyar("ibanBildirimler", ibanBildirimler);
+  },[yukleniyor]);
+  // Henüz gönderilmemiş saç kesimi hatırlatmalarının mesaj metnini bir kerelik düzelt: eski hesaplama
+  // "kaç gün geçti" yerine yanlışlıkla "kaç gün sonra hatırlatılsın" ayarını yazıyordu — geçmişe dönük
+  // (backdate) girilen randevularda gerçek süreden az gösteriyordu. Burada mesajdaki tarihi geri okuyup
+  // (fmtT formatı DD.MM.YYYY) gönderim tarihine (gonderiTarih) göre doğru gün sayısını hesaplayıp yazıyoruz.
+  const hatirlatmaDuzeltRef = useRef(false);
+  useEffect(()=>{
+    if(yukleniyor||!DB||hatirlatmaDuzeltRef.current) return;
+    hatirlatmaDuzeltRef.current = true;
+    const bekleyenler = (hatirlatmalar||[]).filter(h=>h.tip==="sacKesimi" && !h.gonderildi && h.mesaj && h.gonderiTarih);
+    if(bekleyenler.length===0) return;
+    let degisenSayisi = 0;
+    const guncellenmis = (hatirlatmalar||[]).map(h=>{
+      if(!(h.tip==="sacKesimi" && !h.gonderildi && h.mesaj && h.gonderiTarih)) return h;
+      const eslesme = h.mesaj.match(/tarihinde yapmıştık\. Üzerinden (\d+) gün geçti/);
+      const tarihEslesme = h.mesaj.match(/(\d{2})\.(\d{2})\.(\d{4}) tarihinde yapmıştık/);
+      if(!eslesme || !tarihEslesme) return h;
+      const hizmetTarihiIso = tarihEslesme[3]+"-"+tarihEslesme[2]+"-"+tarihEslesme[1];
+      const hizmetTarihi = new Date(hizmetTarihiIso+"T12:00:00");
+      const gonderiTarihi = new Date(h.gonderiTarih+"T12:00:00");
+      const dogruGun = Math.max(1, Math.round((gonderiTarihi - hizmetTarihi)/86400000));
+      if(String(dogruGun)===eslesme[1]) return h; // zaten doğruysa dokunma
+      degisenSayisi++;
+      const yeniMesaj = h.mesaj.replace(/tarihinde yapmıştık\. Üzerinden \d+ gün geçti/, "tarihinde yapmıştık. Üzerinden "+dogruGun+" gün geçti");
+      const yeniH = {...h, mesaj:yeniMesaj};
+      dbUpsert("hatirlatmalar", yeniH, "isletme_id,id");
+      return yeniH;
+    });
+    if(degisenSayisi>0){
+      setHatirlatmalar(guncellenmis);
+      if(typeof showToast==="function") showToast(degisenSayisi+" bekleyen hatırlatma mesajı düzeltildi","ba");
+    }
   },[yukleniyor]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("devirBildirim",devirBildirim); },[devirBildirim]);
   useEffect(()=>{ if(yukleniyor||!DB||urunDBVer===0) return; dbUpsertAyar("urunler",URUN_DB); },[urunDBVer]);
