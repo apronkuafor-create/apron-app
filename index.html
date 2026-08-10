@@ -2490,6 +2490,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [mkArsiv, setMkArsiv] = React.useState([]);
   const [mkAlt, setMkAlt] = React.useState("liste"); // liste | arsiv
   const [arsivAc, setArsivAc] = React.useState(null); // arşiv detay index
+  const [arsivDonus, setArsivDonus] = React.useState(null); // Arşiv Detayı'na başka bir sekmeden (Cari, Ödemelerim vb.) girildiyse, "‹ Geri" hangi sekmeye dönsün — {umSek}. null ise varsayılan olarak Mal Kabul Arşiv listesine döner.
   const [arsivDuzMod, setArsivDuzMod] = React.useState(false); // inline düzenleme modu
   const [arsivDuzTedarikci, setArsivDuzTedarikci] = React.useState("");
   const [arsivDuzFaturaN, setArsivDuzFaturaN] = React.useState("");
@@ -3436,7 +3437,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             ),
             div({style:{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:"#1F3D2C",borderBottom:"1px solid #2D5440",width:"100%",boxSizing:"border-box",minHeight:40,flexShrink:0}},
               h("button",{style:{background:"rgba(127,184,232,.18)",border:"none",flexShrink:0,color:"#7FB8E8",fontSize:14,cursor:"pointer",padding:"0 14px",height:40,borderRadius:10,fontWeight:700,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4},
-                onClick:()=>{setArsivAc(null);setArsivDuzMod(false);}
+                onClick:()=>{
+                  if(arsivDonus&&arsivDonus.umSek){ setUmSek(arsivDonus.umSek); setArsivDonus(null); }
+                  setArsivAc(null);setArsivDuzMod(false);
+                }
               },"‹ Geri"),
               h("div",{style:{flex:1,fontSize:13,minWidth:0,overflow:"hidden",display:"flex",alignItems:"center",gap:4,flexWrap:"nowrap"}},
                 h("span",{style:{color:"#95B5A0",whiteSpace:"nowrap"}},"Yönetici / Muhasebe / Ürün Muhasebesi / Mal Kabul / "),
@@ -3621,6 +3625,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       const yeni=mkArsiv.filter(x => ar.id ? x.id!==ar.id : x!==ar);
                       setMkArsiv(yeni);try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeni));}catch(e){}
                       if(DB) dbUpsertAyar("mkArsiv", yeni); // otoriter, ANINDA bulut yazımı (guard/remount yarışına takılmaz)
+                      if(arsivDonus&&arsivDonus.umSek){ setUmSek(arsivDonus.umSek); setArsivDonus(null); }
                       setArsivAc(null);setArsivDuzMod(false);
                       showToast(ilgiliPartiler.length>0?"Kayıt ve ilgili stok silindi":"Kayıt silindi","uy");
                     }},"Sil")
@@ -3969,7 +3974,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             const globalIdx=sortedArsiv.indexOf(ar);
             return div({key:i,style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,
               padding:14,marginBottom:8,cursor:"pointer"},
-              onClick:()=>setArsivAc(globalIdx)},
+              onClick:()=>{setArsivDonus(null);setArsivAc(globalIdx);}},
               div({style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
                 div(null,
                   ar.tedarikci&&div({style:{fontSize:14,color:"var(--g)",fontWeight:600,marginBottom:2}},ar.tedarikci),
@@ -5714,7 +5719,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     onClick:()=>{
                       const sortedArsivLocal=mkArsiv.filter(a=>a.kayitTuru!=="acilis"&&a.tip!=="acilis").slice().sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
                       const idx=sortedArsivLocal.indexOf(ar);
-                      if(idx>=0){ setUmSek("malKabul"); setMkAlt("arsiv"); setArsivAc(idx); }
+                      if(idx>=0){ setArsivDonus({umSek:"sarfAnaliz"}); setUmSek("malKabul"); setMkAlt("arsiv"); setArsivAc(idx); }
                     }},
                     div({style:{flex:1,minWidth:0}},
                       div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},ar.tedarikci||"—"),
@@ -5925,17 +5930,17 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                                 .slice().sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
                               const idx = sirali.indexOf(ar);
                               if(idx<0){ showToast("Fatura arşivde bulunamadı","uy"); return; }
-                              setUmSek("malKabul"); setMkAlt("arsiv"); setArsivAc(idx);
+                              setArsivDonus({umSek:"cari"}); setUmSek("malKabul"); setMkAlt("arsiv"); setArsivAc(idx);
                             }},
                             div({style:{minWidth:0,flex:1}},
                               div({style:{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}},
-                                div({style:{fontSize:12,color:"var(--tx)",fontWeight:500}}, ar.faturaN||"Fatura No —"),
+                                div({style:{fontSize:12,color:"#B0562F",fontWeight:700}}, ar.faturaN||"Fatura No —"),
                                 birlesikMi && div({style:{fontSize:8,fontWeight:700,color:"#8E5FE0",
                                   background:"rgba(142,95,224,.13)",borderRadius:4,padding:"1px 5px"}},"🔗 BİRLEŞİK"),
-                                imgs.length>0 && div({style:{fontSize:8,fontWeight:700,color:"var(--g)",
-                                  background:"rgba(52,199,89,.1)",borderRadius:4,padding:"1px 5px"}},"📎 "+imgs.length)
+                                imgs.length>0 && div({style:{fontSize:8,fontWeight:700,color:"#C9873F",
+                                  background:"rgba(201,135,63,.14)",borderRadius:4,padding:"1px 5px"}},"📎 "+imgs.length)
                               ),
-                              div({style:{fontSize:10,color:"var(--mu)",marginTop:2}},
+                              div({style:{fontSize:10,color:"#8A9A94",marginTop:2}},
                                 fmtT(ar.faturaTarih||ar.tarih)+(ar.vade?" · "+ar.vade+" gün vade":""))
                             ),
                             div({style:{textAlign:"right",flexShrink:0}},
@@ -5944,9 +5949,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                               odenen>0.009 && div({style:{fontSize:9,color:"#50b880",marginTop:1}}, fmt(odenen)+" ödendi"),
                               vadeSon && div({style:{fontSize:9,marginTop:2,fontWeight:600,
                                 color:gecikti?"#c05050":yakinda?"#e09030":"var(--di)"}},
-                                gecikti ? (gunFarki===-1?"1 gün gecikti":Math.abs(gunFarki)+" gün gecikti")
+                                "Son Ödeme Tarihi: "+fmtT(vadeSon)+" · "+(gecikti ? (gunFarki===-1?"1 gün gecikti":Math.abs(gunFarki)+" gün gecikti")
                                   : yakinda ? (gunFarki===0?"bugün son gün":gunFarki===1?"yarın son gün":gunFarki+" gün kaldı")
-                                  : gunFarki+" gün kaldı")
+                                  : gunFarki+" gün kaldı"))
                             )
                           );
                         })
