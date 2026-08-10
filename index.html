@@ -4318,15 +4318,53 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   )
                 )
                 )
-              : h(UrunAramaBilesen,{aramaVal:mkIsimArama,setAramaVal:setMkIsimArama,
-                  onEkle:u=>{
-                    if(mkUrunler.find(x=>x.barkod===u.b)){showToast("Zaten eklendi","uy");return;}
-                    setMkUrunler(p=>[...p,{barkod:u.b,urunAd:u.a,marka:u.m,ml:u.ml,
-                      adet:"",birimF:String(u.bp||""),iskontoOran:"0",kdvOran:"20"}]);
-                  },
-                  onBarkodBulunamadi: kod=>setMkBarkodBulunamadi(kod),
-                  tipFiltre: "satilabilen",
-                  placeholder:"Ürün eklemek için barkod okut veya isim yaz..."})
+              : div({style:{display:"flex",flexDirection:"column",gap:8,marginBottom:10}},
+                  div({style:{display:"flex",alignItems:"center",gap:8,padding:"9px 11px",
+                    background:mkBasitBorcMod?"rgba(217,119,87,.09)":"var(--bg2)",
+                    border:"1px solid "+(mkBasitBorcMod?"rgba(217,119,87,.35)":"var(--br)"),
+                    borderRadius:10,cursor:"pointer"},
+                    onClick:()=>{
+                      setMkBasitBorcMod(v=>{
+                        const yeni=!v;
+                        mkBasitBorcBarkodRef.current = yeni ? ("BORC-"+uid()) : mkBasitBorcBarkodRef.current;
+                        setMkBasitBorcTutar("");
+                        setMkUrunler([]);
+                        return yeni;
+                      });
+                    }},
+                    h("input",{type:"checkbox",checked:mkBasitBorcMod,readOnly:true,style:{width:16,height:16,cursor:"pointer"}}),
+                    div({style:{fontSize:12,color:"var(--tx)"}},
+                      "📄 Sadece Borç Kaydı — ürün detayı girmeden, tek toplam tutar + fatura görseliyle ekle (stoğa hiç işlenmez)")
+                  ),
+                  mkBasitBorcMod
+                    ? div(null,
+                        div({style:{fontSize:11,color:"var(--di)",marginBottom:8,lineHeight:1.4}},
+                          "Bu tedarikçiye olan borcunuzu ve fatura görselini sisteme (Cari → Borçlarım) kaydeder. "+
+                          "Ürün ürün girmediğiniz için stoğa hiçbir şekilde işlenmez — mükerrer stok oluşmaz."),
+                        div(null,
+                          lbl({className:"fl"},"Toplam Tutar (₺, KDV dahil)"),
+                          inp({className:"fi",type:"number",placeholder:"0",value:mkBasitBorcTutar,
+                            onChange:e=>{
+                              const v=e.target.value;
+                              setMkBasitBorcTutar(v);
+                              setMkUrunler(toN(v)>0 ? [{
+                                barkod:mkBasitBorcBarkodRef.current,
+                                urunAd:"Fatura Tutarı (ürün detayı girilmedi)",
+                                marka:"", ml:"", adet:"1", birimF:v, iskontoOran:"0", kdvOran:"0"
+                              }] : []);
+                            }})
+                        )
+                      )
+                    : h(UrunAramaBilesen,{aramaVal:mkIsimArama,setAramaVal:setMkIsimArama,
+                        onEkle:u=>{
+                          if(mkUrunler.find(x=>x.barkod===u.b)){showToast("Zaten eklendi","uy");return;}
+                          setMkUrunler(p=>[...p,{barkod:u.b,urunAd:u.a,marka:u.m,ml:u.ml,
+                            adet:"",birimF:String(u.bp||""),iskontoOran:"0",kdvOran:"20"}]);
+                        },
+                        onBarkodBulunamadi: kod=>setMkBarkodBulunamadi(kod),
+                        tipFiltre: "satilabilen",
+                        placeholder:"Ürün eklemek için barkod okut veya isim yaz..."})
+                )
           ),
 
           // ── TABLO ──
@@ -4573,7 +4611,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       }
                       // Sarf Malzeme: sadece harcama/istatistik amaçlı — Satılabilen Ürünler stoğuna (stokPartiler)
                       // KESİNLİKLE eklenmez. Stok partisi ve hareket kaydı SADECE satılabilen ürünler için oluşturulur.
-                      if(mkTip!=="sarf"){
+                      // "Sadece Borç Kaydı" modunda ise (Sarf VEYA Satılabilen sekmesinde fark etmez) yine hiç
+                      // stoğa işlenmez — bu kayıt sadece tedarikçiye olan borcu/faturayı belgelemek içindir.
+                      if(mkTip!=="sarf" && !mkBasitBorcMod){
                         mkUrunler.forEach(u=>{
                           const ad=toN(u.adet),bf=toN(u.birimF);
                           const kabul=(u.kabulAdet!==undefined&&u.kabulAdet!=="")?toN(u.kabulAdet):ad;
