@@ -6074,7 +6074,23 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                                         kutu.onclick=ev=>ev.stopPropagation();
                                         kutu.innerHTML="<div style='font-size:38px;margin-bottom:8px'>📄</div><div style='color:#333;font-size:13px;margin-bottom:12px'>Bu fatura görseli PDF olarak yüklenmiş — tarayıcı önizlemesi burada gösterilemiyor.</div>";
                                         const ac=document.createElement("a");
-                                        ac.href=im; ac.target="_blank"; ac.textContent="PDF'i Aç / İndir";
+                                        try{
+                                          // Chrome, uzun "data:" bağlantılarını (özellikle PDF gibi indirilebilir
+                                          // dosyaları) doğrudan yeni sekmede açmayı güvenlik gereği engelliyor ve
+                                          // boş bir sayfa gösteriyor. Veriyi gerçek bir Blob'a çevirip, ondan
+                                          // oluşturulan geçici bir nesne URL'iyle açmak bu kısıtlamayı aşıyor.
+                                          const virgul = im.indexOf(",");
+                                          const mimeEslesme = im.slice(0,virgul).match(/:(.*?);/);
+                                          const mime = mimeEslesme ? mimeEslesme[1] : "application/pdf";
+                                          const ikili = atob(im.slice(virgul+1));
+                                          const dizi = new Uint8Array(ikili.length);
+                                          for(let bi=0; bi<ikili.length; bi++) dizi[bi]=ikili.charCodeAt(bi);
+                                          const blobUrl = URL.createObjectURL(new Blob([dizi],{type:mime}));
+                                          ac.href=blobUrl; ac.target="_blank";
+                                        } catch(err){
+                                          ac.href=im; ac.target="_blank"; // dönüştürme başarısız olursa eski yönteme düş
+                                        }
+                                        ac.textContent="PDF'i Aç / İndir";
                                         ac.style.cssText="display:inline-block;padding:9px 16px;background:#D97757;color:#fff;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px";
                                         kutu.appendChild(ac);
                                         ov.appendChild(kutu);
