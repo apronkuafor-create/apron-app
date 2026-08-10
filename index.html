@@ -9636,6 +9636,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
         staffId:aktifKullanici?.id||"",
         staffAd:aktifKullanici?.ad||"",
         olusturmaTarihi:TODAY(),
+        hizmetTarihi:formTarih||TODAY(), // saç kesiminin gerçek tarihi — gönderim anında doğru gün hesabı için
         gonderiTarih:gonTarih.toISOString().split("T")[0],
         gonderildi:false,
         tip:"sacKesimi",
@@ -18594,13 +18595,19 @@ if(DB) dbUpsertAyar("tema",tema);
                         onClick:()=>{
                           const raw=h2.tel.replace(/[^0-9]/g,"");
                           const fmt2=raw.startsWith("90")?raw:raw.startsWith("0")?"90"+raw.slice(1):"90"+raw;
-                          // Gönderim anında gerçek geçen günü hesapla ve mesajı güncelle
+                          // Gönderim anında gerçek geçen günü hesapla ve mesajı güncelle.
+                          // Referans, hatırlatmanın OLUŞTURULDUĞU tarih değil, mesaj içinde geçen SAÇ KESİM
+                          // tarihidir (h2.hizmetTarihi varsa o, yoksa mesaj metninden geri okunur) — aksi halde
+                          // yanlış (genelde daha kısa) bir süre hesaplanır. Ayrıca "Üzerinden" büyük Ü ile
+                          // yazıldığı için regex büyük/küçük harf duyarsız olmalı, yoksa eşleşme hiç olmaz.
                           let guncelMesaj = h2.mesaj;
-                          if(h2.olusturmaTarihi){
-                            const bas = new Date(h2.olusturmaTarihi);
-                            const bugunD = new Date(TODAY());
+                          const tarihEslesme = h2.mesaj.match(/(\d{2})\.(\d{2})\.(\d{4}) tarihinde yapmıştık/);
+                          const hizmetTarihiStr = h2.hizmetTarihi || (tarihEslesme ? tarihEslesme[3]+"-"+tarihEslesme[2]+"-"+tarihEslesme[1] : null);
+                          if(hizmetTarihiStr){
+                            const bas = new Date(hizmetTarihiStr+"T12:00:00");
+                            const bugunD = new Date(TODAY()+"T12:00:00");
                             const gercekGun = Math.max(1, Math.round((bugunD-bas)/(1000*60*60*24)));
-                            guncelMesaj = guncelMesaj.replace(/üzerinden \d+ gün/,"üzerinden "+gercekGun+" gün");
+                            guncelMesaj = guncelMesaj.replace(/üzerinden \d+ gün/i,"Üzerinden "+gercekGun+" gün");
                           }
                           window.open("https://wa.me/"+fmt2+"?text="+encodeURIComponent(guncelMesaj),"_blank");
                           setHatirlatmalar(p=>p.map(x=>x.id===h2.id?{...x,gonderildi:true,gonderildiTarih:TODAY()}:x));
