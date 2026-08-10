@@ -2356,12 +2356,15 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [mkMukerrerGecildi, setMkMukerrerGecildi] = React.useState(false); // kullanıcı "Yine de Ekle" dedi mi
   const [mkKaydediliyor, setMkKaydediliyor] = React.useState(false); // "Stoğa Ekle" işleniyor mu — art arda tıklamayı engeller
   const mkKaydediliyorRef = React.useRef(false); // anlık (senkron) koruma — state güncellemesi bir sonraki render'a kadar bekleyemez
+  const mkBasitBorcBarkodRef = React.useRef(null); // basit borç kaydı modunda sentetik satırın barkodu — her tuş vuruşunda değişmesin diye bir kez üretilir
   const [mkTeslimAlPrompt, setMkTeslimAlPrompt] = React.useState(null); // {parti, gelenAdet} — "Teslim Aldım" onay penceresi
   const [mkBarkodBulunamadi, setMkBarkodBulunamadi] = React.useState(null); // aranan barkod listede yoksa
   const [mkYeniUrunEkle, setMkYeniUrunEkle] = React.useState(null); // Mal Kabul içinden hızlı ürün ekleme formu
   const [mkBarkod, setMkBarkod] = React.useState("");
   const [mkIsimArama, setMkIsimArama] = React.useState("");
   const [mkSarfAd, setMkSarfAd] = React.useState(""); // Sarf malzeme serbest metin ekleme — katalog yok
+  const [mkBasitBorcMod, setMkBasitBorcMod] = React.useState(false); // Sarf'ta ürün detayı girmeden, tek toplam tutar + fatura görseliyle hızlı borç kaydı
+  const [mkBasitBorcTutar, setMkBasitBorcTutar] = React.useState("");
   const [mkSarfFiyat, setMkSarfFiyat] = React.useState("");
   const [mkSarfAdet, setMkSarfAdet] = React.useState("");
   const [mkSarfIskonto, setMkSarfIskonto] = React.useState("0");
@@ -4218,6 +4221,48 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               ),
             mkTip==="sarf"
               ? div({style:{display:"flex",flexDirection:"column",gap:8,marginBottom:10}},
+                  div({style:{display:"flex",alignItems:"center",gap:8,padding:"9px 11px",
+                    background:mkBasitBorcMod?"rgba(217,119,87,.09)":"var(--bg2)",
+                    border:"1px solid "+(mkBasitBorcMod?"rgba(217,119,87,.35)":"var(--br)"),
+                    borderRadius:10,cursor:"pointer"},
+                    onClick:()=>{
+                      setMkBasitBorcMod(v=>{
+                        const yeni=!v;
+                        if(yeni){
+                          mkBasitBorcBarkodRef.current = "BORC-"+uid();
+                          setMkBasitBorcTutar("");
+                          setMkUrunler([]);
+                        } else {
+                          setMkBasitBorcTutar("");
+                          setMkUrunler([]);
+                        }
+                        return yeni;
+                      });
+                    }},
+                    h("input",{type:"checkbox",checked:mkBasitBorcMod,readOnly:true,style:{width:16,height:16,cursor:"pointer"}}),
+                    div({style:{fontSize:12,color:"var(--tx)"}},
+                      "📄 Sadece Borç Kaydı — ürün detayı girmeden, tek toplam tutar + fatura görseliyle ekle (stoğa hiç işlenmez)")
+                  ),
+                  mkBasitBorcMod
+                    ? div(null,
+                        div({style:{fontSize:11,color:"var(--di)",marginBottom:8,lineHeight:1.4}},
+                          "Bu tedarikçiye olan borcunuzu ve fatura görselini sisteme (Cari → Borçlarım) kaydeder. "+
+                          "Ürün ürün girmediğiniz için stoğa hiçbir şekilde işlenmez — mükerrer stok oluşmaz."),
+                        div(null,
+                          lbl({className:"fl"},"Toplam Tutar (₺, KDV dahil)"),
+                          inp({className:"fi",type:"number",placeholder:"0",value:mkBasitBorcTutar,
+                            onChange:e=>{
+                              const v=e.target.value;
+                              setMkBasitBorcTutar(v);
+                              setMkUrunler(toN(v)>0 ? [{
+                                barkod:mkBasitBorcBarkodRef.current,
+                                urunAd:"Fatura Tutarı (ürün detayı girilmedi)",
+                                marka:"", ml:"", adet:"1", birimF:v, iskontoOran:"0", kdvOran:"0"
+                              }] : []);
+                            }})
+                        )
+                      )
+                    : div({style:{display:"flex",flexDirection:"column",gap:8}},
                   div(null,
                     lbl({className:"fl"},"Malzeme Ara / Ekle"),
                     h(UrunAramaBilesen,{
@@ -4234,7 +4279,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     })
                   ),
                   div({style:{fontSize:11,color:"var(--di)",marginTop:-4}},
-                    "Yukarıdaki kutudan sistemde kayıtlı bir malzeme seçerseniz gerçek adı/barkoduyla direkt tabloya eklenir. Sistemde yoksa, yazdığınız adla aşağıdaki alanları doldurup 'Ekle'ye basın — barkod otomatik oluşturulur."),
+                    "Yukarıdaki kutudan sistemde kayıtlı bir malzeme seçerseniz gerçek adı/barkoduyla direkt tabloya eklenir. Sistemde yoksa, yazdığınız adla aşağıdaki alanları doldurup 'Ekle'ye basın — barkod otomatik oluşturulur.")
+                  ,
                   div({style:{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}},
                   div({style:{flex:"1 1 70px"}},
                     lbl({className:"fl"},"Adet"),
@@ -4271,6 +4317,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     }},"+ Ekle")
                   )
                 )
+                )
               : h(UrunAramaBilesen,{aramaVal:mkIsimArama,setAramaVal:setMkIsimArama,
                   onEkle:u=>{
                     if(mkUrunler.find(x=>x.barkod===u.b)){showToast("Zaten eklendi","uy");return;}
@@ -4283,7 +4330,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           ),
 
           // ── TABLO ──
-          div({style:{overflowX:"auto"}},
+          !mkBasitBorcMod && div({style:{overflowX:"auto"}},
             mkUrunler.length===0
               ?div({style:{textAlign:"center",padding:50,color:"var(--mu)"}},
                   div({style:{fontSize:40,marginBottom:12}},"📦"),
@@ -5817,20 +5864,27 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           // ── Tedarikçi bazlı gruplama: her tedarikçi için toplam borç + fatura fatura döküm ──
           (()=>{
             const tedGruplar = {};
-            sortedGruplar.forEach(g=>{
+            // NOT: Burada sortedGruplar (sadece açık/ödenmemiş faturalar) değil, gruplar (TÜMÜ — ödenmiş dahil)
+            // kullanılıyor; böylece bir tedarikçinin kartını açtığında geçmişte tamamen ödediği faturaları da
+            // "✅ Ödendi" ibaresiyle görebiliyor, sadece açık faturalarla sınırlı kalmıyor. Kart listesine
+            // girme şartı yine "hâlâ borcu olması" (aşağıda toplam>0 filtresi) — tamamen kapanmış bir tedarikçi
+            // Borçlarım'da ayrı bir kart olarak görünmeye devam etmiyor.
+            gruplar.forEach(g=>{
               const ar0=g.kayitlar[0];
               const tAd = (ar0.tedarikci||"").trim() || "Tedarikçi Belirtilmemiş";
               if(!tedGruplar[tAd]) tedGruplar[tAd]={ad:tAd, gruplar:[], toplam:0, enYakinVade:null, gecikenSayisi:0};
               const kalan = gKalanHesapla(g);
               tedGruplar[tAd].gruplar.push(g);
               tedGruplar[tAd].toplam += kalan;
-              const vadeSon = sonOdeme(ar0.faturaTarih||ar0.tarih, ar0.vade);
-              if(vadeSon){
-                if(vadeSon<bugun) tedGruplar[tAd].gecikenSayisi++;
-                if(!tedGruplar[tAd].enYakinVade || vadeSon<tedGruplar[tAd].enYakinVade) tedGruplar[tAd].enYakinVade = vadeSon;
+              if(kalan>0.009){
+                const vadeSon = sonOdeme(ar0.faturaTarih||ar0.tarih, ar0.vade);
+                if(vadeSon){
+                  if(vadeSon<bugun) tedGruplar[tAd].gecikenSayisi++;
+                  if(!tedGruplar[tAd].enYakinVade || vadeSon<tedGruplar[tAd].enYakinVade) tedGruplar[tAd].enYakinVade = vadeSon;
+                }
               }
             });
-            const tedList = Object.values(tedGruplar).sort((a,b)=>{
+            const tedList = Object.values(tedGruplar).filter(t=>t.toplam>0.009).sort((a,b)=>{
               if(a.gecikenSayisi>0 && b.gecikenSayisi===0) return -1;
               if(b.gecikenSayisi>0 && a.gecikenSayisi===0) return 1;
               return b.toplam - a.toplam;
@@ -5909,9 +5963,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                           const ar=g.kayitlar[0];
                           const birlesikMi=g.kayitlar.length>1;
                           const kalan=gKalanHesapla(g);
+                          const odendiMi=kalan<=0.009;
                           const odenecek=g.kayitlar.reduce((s,k)=>s+k.urunler.reduce((ss,u)=>ss+(u.toplamF||0),0),0);
                           const odenen=odenecek-kalan;
-                          const vadeSon=sonOdeme(ar.faturaTarih||ar.tarih,ar.vade);
+                          const vadeSon=odendiMi?null:sonOdeme(ar.faturaTarih||ar.tarih,ar.vade);
                           const gecikti=vadeSon&&vadeSon<bugun;
                           const yakinda=vadeSon&&!gecikti&&vadeSon<=new Date(new Date().setDate(new Date().getDate()+7)).toISOString().split("T")[0];
                           const gunFarki=vadeSon?Math.round((new Date(vadeSon+"T00:00:00")-new Date(bugun+"T00:00:00"))/86400000):null;
@@ -5923,8 +5978,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                           });
                           return div({key:gi,style:{padding:"10px 14px",
                             borderTop:gi>0?"1px solid var(--br)":"none",
-                            background:gecikti?"rgba(192,80,80,.05)":"transparent",
-                            display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,cursor:"pointer"},
+                            background:gecikti?"rgba(192,80,80,.05)":odendiMi?"rgba(80,184,128,.04)":"transparent",
+                            display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,cursor:"pointer",
+                            opacity:odendiMi?.75:1},
                             onClick:()=>{
                               const sirali = mkArsiv.filter(a=>a.kayitTuru!=="acilis"&&a.tip!=="acilis")
                                 .slice().sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
@@ -5943,7 +5999,13 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                               div({style:{fontSize:10,color:"var(--mu)",marginTop:2}},
                                 fmtT(ar.faturaTarih||ar.tarih)+(ar.vade?" · "+ar.vade+" gün vade":""))
                             ),
-                            div({style:{textAlign:"right",flexShrink:0}},
+                            odendiMi
+                              ? div({style:{textAlign:"right",flexShrink:0}},
+                                  div({style:{fontSize:12,fontWeight:700,color:"#50b880"}},"✅ Ödendi"),
+                                  div({style:{fontSize:10,color:"var(--di)",marginTop:1,
+                                    fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}}, fmt(odenecek))
+                                )
+                              : div({style:{textAlign:"right",flexShrink:0}},
                               div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
                                 fontSize:13,fontWeight:700,color:"#C0563F"}}, fmt(kalan)),
                               odenen>0.009 && div({style:{fontSize:9,color:"#50b880",marginTop:1}}, fmt(odenen)+" ödendi"),
