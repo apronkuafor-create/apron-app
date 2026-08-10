@@ -2536,6 +2536,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   // ── Açılış / Devir borcu (kuruma geçişte mevcut tedarikçi borçları) ──
   const [acilisForm, setAcilisForm] = React.useState(false);
   const [cariAcikTedarikci, setCariAcikTedarikci] = React.useState(null); // Borçlarım'da açık olan tedarikçi kartı
+  const [cariOdeDonusCari, setCariOdeDonusCari] = React.useState(false); // Ödeme formuna Borçlarım'daki "💳 Ödeme Yap" ile girildiyse, "← Fatura Seç" Borçlarım'a dönsün
   const [acilisTedarikci, setAcilisTedarikci] = React.useState("");
   const [acilisTutar, setAcilisTutar] = React.useState("");
   const [acilisTarih, setAcilisTarih] = React.useState(TODAY());
@@ -6031,6 +6032,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                           const vadeSon=odendiMi?null:sonOdeme(ar.faturaTarih||ar.tarih,ar.vade);
                           const gecikti=vadeSon&&vadeSon<bugun;
                           const yakinda=vadeSon&&!gecikti&&vadeSon<=new Date(new Date().setDate(new Date().getDate()+7)).toISOString().split("T")[0];
+                          const odemeListesi=g.kayitlar.flatMap(k=>(k.odemeler||[])).sort((a,b)=>(a.tarih||"").localeCompare(b.tarih||""));
                           const gunFarki=vadeSon?Math.round((new Date(vadeSon+"T00:00:00")-new Date(bugun+"T00:00:00"))/86400000):null;
                           const imgs=[];
                           g.kayitlar.forEach(k=>{
@@ -6041,8 +6043,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                           return div({key:gi,style:{padding:"10px 14px",
                             borderTop:gi>0?"1px solid var(--br)":"none",
                             background:gecikti?"rgba(192,80,80,.05)":odendiMi?"rgba(80,184,128,.04)":"transparent",
-                            display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,cursor:"pointer",
-                            opacity:odendiMi?.75:1},
+                            opacity:odendiMi?.75:1}},
+                            div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,cursor:"pointer"},
                             onClick:()=>{
                               const sirali = mkArsiv.filter(a=>a.kayitTuru!=="acilis"&&a.tip!=="acilis")
                                 .slice().sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
@@ -6083,9 +6085,25 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                                 fontSize:10.5,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"},
                                 onClick:(e)=>{
                                   e.stopPropagation();
+                                  setCariOdeDonusCari(true);
                                   setUmSek("cariOde");
                                   setCariOdeSec(g.key);
                                 }},"💳 Ödeme Yap")
+                            )
+                            ),
+                            // ── Ödeme geçmişi dökümü — ödeme formunun özeti gibi: tarih, yöntem, tutar ──
+                            odemeListesi.length>0 && div({style:{marginTop:8,paddingTop:8,borderTop:"1px dashed var(--br)",
+                              display:"flex",flexDirection:"column",gap:4}},
+                              odemeListesi.map((od,oi)=>{
+                                const odTipEtiket = {Nakit:"💵 Nakit",Banka:"🏦 Banka Havalesi",EFT:"🏧 EFT",Çek:"📝 Çek",
+                                  Senet:"📋 Senet",KrediKarti:"💳 Kredi Kartı",Diğer:"Diğer"}[od.tip]||od.tip||"Nakit";
+                                return div({key:od.id||oi,style:{display:"flex",justifyContent:"space-between",
+                                  alignItems:"center",fontSize:10.5,color:"var(--mu)"}},
+                                  div(null,"✓ "+fmtT(od.tarih)+" · "+odTipEtiket),
+                                  h("span",{style:{fontWeight:700,color:"#50b880",
+                                    fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}}, fmt(toN(od.tutar)))
+                                );
+                              })
                             )
                           );
                         })
@@ -6186,7 +6204,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     return div({key:i,style:{background:"var(--bg2)",border:"1px solid var(--br)",
                       borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",
                       transition:"border-color .2s"},
-                      onClick:()=>setSecFatura(g)},
+                      onClick:()=>{setCariOdeDonusCari(false);setSecFatura(g);}},
                       div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}},
                         div(null,
                           ar.tedarikci&&div({style:{fontSize:14,color:"var(--g)",fontWeight:600,marginBottom:3}},ar.tedarikci),
@@ -6237,7 +6255,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     ),
                     btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:7,
                       color:"var(--mu)",fontSize:12,padding:"4px 10px",cursor:"pointer"},
-                      onClick:()=>{setSecFatura(null);setCariOdeDuzenleId(null);}},"← Fatura Seç")
+                      onClick:()=>{
+                        setSecFatura(null);setCariOdeDuzenleId(null);
+                        if(cariOdeDonusCari){ setCariOdeDonusCari(false); setUmSek("cari"); }
+                      }},cariOdeDonusCari?"← Borçlarım":"← Fatura Seç")
                   ),
                   div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}},
                     div({style:{background:"var(--bg3)",borderRadius:8,padding:"9px",textAlign:"center"}},
@@ -6463,7 +6484,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 return div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
                   padding:"10px 12px",background:"var(--bg2)",borderRadius:10,marginBottom:7,
                   border:"1px solid rgba(50,140,100,.15)",opacity:.85,cursor:"pointer"},
-                  onClick:()=>setSecFatura(g)},
+                  onClick:()=>{setCariOdeDonusCari(false);setSecFatura(g);}},
                   div(null,
                     ar.tedarikci&&div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},ar.tedarikci),
                     div({style:{fontSize:12,color:"var(--mu)"}},
