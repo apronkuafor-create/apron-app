@@ -10600,23 +10600,25 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
           ),
           h(UrunAramaBilesen,{aramaVal:urunArama,setAramaVal:setUrunArama,
             onEkle:sEkle,placeholder:"Barkod veya ürün adı ara...",stokDB}),
-          siparisSor && div({style:{position:"fixed",inset:0,zIndex:2000,background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",padding:18},onClick:()=>setSiparisSor(null)},
-            div({style:{background:"#fff",borderRadius:16,maxWidth:382,width:"100%",padding:"20px 18px",boxShadow:"0 20px 60px rgba(0,0,0,.3)"},onClick:e=>e.stopPropagation()},
-              div({style:{fontSize:34,textAlign:"center",marginBottom:4}},"📦"),
-              div({style:{fontSize:18,fontWeight:800,textAlign:"center",color:"#1D1D1F",marginBottom:8}},"Stokta Yeterli Ürün Yok"),
-              div({style:{fontSize:14,textAlign:"center",color:"#444",fontWeight:700,lineHeight:1.4,marginBottom:6}},(siparisSor.u.a||"")),
-              div({style:{fontSize:13.5,textAlign:"center",color:"#555",lineHeight:1.65,marginBottom:16}},
-                "Mevcut stok: ", span({style:{fontWeight:800,color:siparisSor.mevcut>0?"#1e8a50":"#d11"}},siparisSor.mevcut+" adet"),
-                ". Bu satışla ", span({style:{fontWeight:800}},siparisSor.istenen+" adet"), " olacak; eksik ",
-                span({style:{fontWeight:800,color:"#c25e00"}},Math.max(0,siparisSor.istenen-siparisSor.mevcut)+" adet"),
-                " için ne yapmak istersiniz?"),
-              div({style:{display:"flex",flexDirection:"column",gap:9}},
-                btn({type:"button",style:{background:"linear-gradient(135deg,#FF9500,#E0641E)",border:"none",borderRadius:11,color:"#fff",fontSize:15,fontWeight:800,padding:"12px",cursor:"pointer"},
-                  onClick:()=>{ urunEkleUygula(siparisSor.u, true); setSiparisSor(null); }},"📋 Peşin Al + Sipariş Ver"),
-                btn({type:"button",style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:11,color:"var(--mu)",fontSize:14,fontWeight:700,padding:"11px",cursor:"pointer"},
-                  onClick:()=>setSiparisSor(null)},"Vazgeç")
+          siparisSor && ReactDOM.createPortal(
+            div({style:{position:"fixed",inset:0,zIndex:2000,background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",padding:18},onClick:()=>setSiparisSor(null)},
+              div({style:{background:"#fff",borderRadius:16,maxWidth:382,width:"100%",padding:"20px 18px",boxShadow:"0 20px 60px rgba(0,0,0,.3)"},onClick:e=>e.stopPropagation()},
+                div({style:{fontSize:34,textAlign:"center",marginBottom:4}},"📦"),
+                div({style:{fontSize:18,fontWeight:800,textAlign:"center",color:"#1D1D1F",marginBottom:8}},"Stokta Yeterli Ürün Yok"),
+                div({style:{fontSize:14,textAlign:"center",color:"#444",fontWeight:700,lineHeight:1.4,marginBottom:6}},(siparisSor.u.a||"")),
+                div({style:{fontSize:13.5,textAlign:"center",color:"#555",lineHeight:1.65,marginBottom:16}},
+                  "Mevcut stok: ", span({style:{fontWeight:800,color:siparisSor.mevcut>0?"#1e8a50":"#d11"}},siparisSor.mevcut+" adet"),
+                  ". Bu satışla ", span({style:{fontWeight:800}},siparisSor.istenen+" adet"), " olacak; eksik ",
+                  span({style:{fontWeight:800,color:"#c25e00"}},Math.max(0,siparisSor.istenen-siparisSor.mevcut)+" adet"),
+                  " için ne yapmak istersiniz?"),
+                div({style:{display:"flex",flexDirection:"column",gap:9}},
+                  btn({type:"button",style:{background:"linear-gradient(135deg,#FF9500,#E0641E)",border:"none",borderRadius:11,color:"#fff",fontSize:15,fontWeight:800,padding:"12px",cursor:"pointer"},
+                    onClick:()=>{ urunEkleUygula(siparisSor.u, true); setSiparisSor(null); }},"📋 Peşin Al + Sipariş Ver"),
+                  btn({type:"button",style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:11,color:"var(--mu)",fontSize:14,fontWeight:700,padding:"11px",cursor:"pointer"},
+                    onClick:()=>setSiparisSor(null)},"Vazgeç")
+                )
               )
-            )
+            ), document.body
           ),
           urunler.map((u,i)=>div({key:u.id||i,style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 72px 116px",gap:7,
             alignItems:"stretch",background:"rgba(0,0,0,.03)",border:"none",borderRadius:10,padding:7,marginBottom:7}},
@@ -13959,7 +13961,12 @@ function App() {
 }
           if(local.devDB) setDevDB(local.devDB);
           if(local.gecmis && !_freshStart) setGecmis(kayitDedup(local.gecmis));
-    if(local.stokPartiler?.length) { stokPartilerYuklendi.current=true; setStokPartiler(local.stokPartiler); }
+    // ÖNEMLİ: burada stokPartilerYuklendi.current=true VERİLMİYOR — bu, cihazın kendi eski/yerel
+    // kopyasını "buluta göndermeye güvenli" sayıp, henüz bulut verisini hiç görmeden geri gönderip
+    // başka bir cihazda (örn. PC'de) yapılmış bir silme/güncellemeyi sessizce geri almasını önler.
+    // Bu izin, sadece GERÇEK bulut verisi geldiğinde (aşağıdaki realtime/ilk-yükleme handler'ında)
+    // veya kullanıcı gerçek bir stok işlemi yaptığında verilir.
+    if(local.stokPartiler?.length) { setStokPartiler(local.stokPartiler); }
     if(!local._bildirimTemizlendi){ setHatirlatmalar([]); } else if(local.hatirlatmalar?.length) setHatirlatmalar(local.hatirlatmalar);
     if(local.randevular?.length) setRandevular(local.randevular);
     if(local.tedarikciler?.length) setTedarikciler(local.tedarikciler);
