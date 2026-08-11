@@ -2416,63 +2416,55 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
       if(Array.isArray(veri.kalemler) && veri.kalemler.length>0){
         const gecerliKalemler = veri.kalemler.filter(k=>(k.urunAdi||"").trim());
 
-        if(mkTip==="sarf"){
-          const yeniSatirlar = gecerliKalemler.map(k=>({
-            barkod:"SARF-"+uid(), urunAd:(k.urunAdi||"").trim(), marka:"", ml:"",
-            adet:k.adet!=null?String(k.adet):"",
-            birimF:k.birimFiyat!=null?String(k.birimFiyat):"",
-            iskontoOran:k.iskontoOrani!=null?String(k.iskontoOrani):"0",
-            kdvOran:k.kdvOrani!=null?String(k.kdvOrani):"20"
-          }));
-          setMkUrunler(p=>[...p,...yeniSatirlar]);
-        } else {
-          // Satılabilen: kataloğa (URUN_DB) önce barkod, sonra kelime-bazlı esnek isim eşleştirmesi yapılır — sahte barkod uydurulmaz
-          const katalog = URUN_DB.filter(u=>u.tip!=="sarf");
-          // Metni kelime köklerine ayırıp karşılaştırmak için: noktalama/ölçü birimlerini temizler
-          const kelimelestir = s => normText(s)
-            .replace(/[\/\-_,.]/g," ")
-            .replace(/\b(ml|adet|lt|gr|kg)\b/g," ")
-            .replace(/[^a-z0-9\s]/g," ")
-            .split(/\s+/).filter(w=>w.length>1);
-          const benzerlikSkoru = (a,b) => {
-            const wa=kelimelestir(a), wb=kelimelestir(b);
-            if(wa.length===0||wb.length===0) return {skor:0,ortak:0};
-            const setB=new Set(wb);
-            const ortak = wa.filter(w=>setB.has(w)).length;
-            return {skor: ortak / Math.min(wa.length, wb.length), ortak};
-          };
-          const yeniSatirlar = [];
-          const eslesmeyenler = [];
-          gecerliKalemler.forEach(k=>{
-            // 1) Barkod eşleşmesi (faturada barkod sütunu varsa ve tam eşleşiyorsa en güvenilir yol)
-            let eslesen = null;
-            const faturaBarkod = (k.barkod||"").trim();
-            if(faturaBarkod) eslesen = katalog.find(u=>u.b && u.b.trim()===faturaBarkod);
-            // 2) İsim benzerliği (kelime bazlı, sıralama/ekstra kelime farkına toleranslı)
-            if(!eslesen){
-              let enIyi=null, enIyiSkor=0, enIyiOrtak=0;
-              katalog.forEach(u=>{
-                const {skor,ortak} = benzerlikSkoru(k.urunAdi||"", u.a||"");
-                if(skor>enIyiSkor){ enIyiSkor=skor; enIyiOrtak=ortak; enIyi=u; }
-              });
-              // Kelimelerin en az %60'ı örtüşmeli VE en az 2 anlamlı kelime ortak olmalı (kısa/genel isimlerde yanlış eşleşmeyi önler)
-              if(enIyi && enIyiSkor>=0.6 && enIyiOrtak>=2) eslesen = enIyi;
-            }
-            // Not: aynı ürün faturada birden fazla satırda geçebilir (örn. biri bedelli, biri bedelsiz/promosyon) —
-            // bu yüzden aynı barkod daha önce eklenmiş olsa bile satır ATLANMAZ, ayrı satır olarak eklenir.
-            if(eslesen){
-              yeniSatirlar.push({barkod:eslesen.b, urunAd:eslesen.a, marka:eslesen.m, ml:eslesen.ml,
-                adet:k.adet!=null?String(k.adet):"",
-                birimF:k.birimFiyat!=null?String(k.birimFiyat):String(eslesen.bp||""),
-                iskontoOran:k.iskontoOrani!=null?String(k.iskontoOrani):"0",
-                kdvOran:k.kdvOrani!=null?String(k.kdvOrani):"20"});
-            } else {
-              eslesmeyenler.push({urunAdi:(k.urunAdi||"").trim(), adet:k.adet, birimFiyat:k.birimFiyat});
-            }
-          });
-          if(yeniSatirlar.length>0) setMkUrunler(p=>[...p,...yeniSatirlar]);
-          setMkFaturaEslesmeyen(eslesmeyenler);
-        }
+        // Kataloğa (URUN_DB — hem Satılabilen hem Sarf) önce barkod, sonra kelime-bazlı esnek isim eşleştirmesi yapılır.
+        // Eşleşen ürünün "Sarf mı?" işareti, kataloğdaki kendi kayıtlı tipinden otomatik gelir (kullanıcı tabloda değiştirebilir).
+        // Eşleşmeyenler için sahte barkod uydurulup rastgele tip atanmaz — kontrol için ayrı listede gösterilir.
+        const katalog = URUN_DB;
+        // Metni kelime köklerine ayırıp karşılaştırmak için: noktalama/ölçü birimlerini temizler
+        const kelimelestir = s => normText(s)
+          .replace(/[\/\-_,.]/g," ")
+          .replace(/\b(ml|adet|lt|gr|kg)\b/g," ")
+          .replace(/[^a-z0-9\s]/g," ")
+          .split(/\s+/).filter(w=>w.length>1);
+        const benzerlikSkoru = (a,b) => {
+          const wa=kelimelestir(a), wb=kelimelestir(b);
+          if(wa.length===0||wb.length===0) return {skor:0,ortak:0};
+          const setB=new Set(wb);
+          const ortak = wa.filter(w=>setB.has(w)).length;
+          return {skor: ortak / Math.min(wa.length, wb.length), ortak};
+        };
+        const yeniSatirlar = [];
+        const eslesmeyenler = [];
+        gecerliKalemler.forEach(k=>{
+          // 1) Barkod eşleşmesi (faturada barkod sütunu varsa ve tam eşleşiyorsa en güvenilir yol)
+          let eslesen = null;
+          const faturaBarkod = (k.barkod||"").trim();
+          if(faturaBarkod) eslesen = katalog.find(u=>u.b && u.b.trim()===faturaBarkod);
+          // 2) İsim benzerliği (kelime bazlı, sıralama/ekstra kelime farkına toleranslı)
+          if(!eslesen){
+            let enIyi=null, enIyiSkor=0, enIyiOrtak=0;
+            katalog.forEach(u=>{
+              const {skor,ortak} = benzerlikSkoru(k.urunAdi||"", u.a||"");
+              if(skor>enIyiSkor){ enIyiSkor=skor; enIyiOrtak=ortak; enIyi=u; }
+            });
+            // Kelimelerin en az %60'ı örtüşmeli VE en az 2 anlamlı kelime ortak olmalı (kısa/genel isimlerde yanlış eşleşmeyi önler)
+            if(enIyi && enIyiSkor>=0.6 && enIyiOrtak>=2) eslesen = enIyi;
+          }
+          // Not: aynı ürün faturada birden fazla satırda geçebilir (örn. biri bedelli, biri bedelsiz/promosyon) —
+          // bu yüzden aynı barkod daha önce eklenmiş olsa bile satır ATLANMAZ, ayrı satır olarak eklenir.
+          if(eslesen){
+            yeniSatirlar.push({barkod:eslesen.b, urunAd:eslesen.a, marka:eslesen.m, ml:eslesen.ml,
+              adet:k.adet!=null?String(k.adet):"",
+              birimF:k.birimFiyat!=null?String(k.birimFiyat):String(eslesen.bp||""),
+              iskontoOran:k.iskontoOrani!=null?String(k.iskontoOrani):"0",
+              kdvOran:k.kdvOrani!=null?String(k.kdvOrani):"20",
+              sarfMi:eslesen.tip==="sarf"});
+          } else {
+            eslesmeyenler.push({urunAdi:(k.urunAdi||"").trim(), adet:k.adet, birimFiyat:k.birimFiyat});
+          }
+        });
+        if(yeniSatirlar.length>0) setMkUrunler(p=>[...p,...yeniSatirlar]);
+        setMkFaturaEslesmeyen(eslesmeyenler);
       }
       if(veri._kismi){
         setMkFaturaKismiBilgi({sayisi:veri._kismiSayisi||0, ipucu:veri._kismiIpucu||null});
@@ -3367,7 +3359,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         btn({style:{width:"100%",padding:"14px 0",borderRadius:11,border:"none",
           background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)",
           fontSize:14,fontWeight:700,cursor:"pointer"},
-          onClick:()=>{mkKaydediliyorRef.current=false;setMkKaydediliyor(false);setMkTipSecim(true);setMkTip("");setMkTarih(TODAY());setMkFatura("");setMkIrsaliye("");setMkFaturaTarih("");setMkFaturaImg("");setMkUrunler([]);setMkFarkAcikIdx({});setMkMukerrerGecildi(false);setMkMukerrerUyari(null);setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());}},
+          onClick:()=>{mkKaydediliyorRef.current=false;setMkKaydediliyor(false);setMkTip("normal");setMkForm(true);setMkTarih(TODAY());setMkFatura("");setMkIrsaliye("");setMkFaturaTarih("");setMkFaturaImg("");setMkUrunler([]);setMkFarkAcikIdx({});setMkMukerrerGecildi(false);setMkMukerrerUyari(null);setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());}},
           "+ Yeni Mal Kabul"),
         btn({style:{width:"100%",marginTop:10,padding:"11px 0",borderRadius:11,border:"1px dashed var(--g)",
           background:"transparent",color:"var(--g)",fontSize:13,fontWeight:600,cursor:"pointer"},
@@ -4036,43 +4028,6 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         );
       })(),
 
-      // ── YENİ MAL KABUL FORMU (TAM SAYFA TABLO) ──
-      mkTipSecim&&!mkForm&&div({style:{position:"fixed",inset:0,zIndex:902,background:"rgba(0,0,0,.6)",
-        display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
-        div({style:{background:"var(--bg)",borderRadius:20,padding:28,maxWidth:380,width:"100%",
-          boxShadow:"0 8px 40px rgba(0,0,0,.4)"}},
-          div({style:{fontSize:17,fontWeight:700,color:"var(--tx)",marginBottom:6,textAlign:"center"}},
-            "Mal Kabul Türü"),
-          div({style:{fontSize:13,color:"var(--mu)",marginBottom:22,textAlign:"center"}},
-            "Hangi tür için mal kabul yapıyorsunuz?"),
-          ["satilabilen","sarf"].map(tip=>
-            div({key:tip,
-              style:{display:"flex",alignItems:"center",gap:14,padding:"16px 18px",
-                borderRadius:14,border:"2px solid var(--br)",marginBottom:12,cursor:"pointer",
-                background:"var(--bg2)",transition:"all .15s"},
-              onClick:()=>{setMkTip(tip);setMkTipSecim(false);setMkForm(true);},
-              onMouseEnter:e=>e.currentTarget.style.borderColor="var(--g)",
-              onMouseLeave:e=>e.currentTarget.style.borderColor="var(--br)"},
-              div({style:{width:44,height:44,borderRadius:12,display:"flex",alignItems:"center",
-                justifyContent:"center",fontSize:24,flexShrink:0,
-                background:tip==="satilabilen"?"rgba(52,199,89,.15)":"rgba(255,149,0,.15)"}},
-                tip==="satilabilen"?"🛍️":"🧪"),
-              div(null,
-                div({style:{fontSize:15,fontWeight:700,color:"var(--tx)"}}),
-                  tip==="satilabilen"?"Satılabilen Ürünler":"Sarf Malzemeler",
-                div({style:{fontSize:12,color:"var(--mu)",marginTop:3}},
-                  tip==="satilabilen"
-                    ?"Stoğa eklenip müşteriye satılacak ürünler"
-                    :"İşletmede kullanılacak malzemeler")
-              )
-            )
-          ),
-          btn({style:{width:"100%",marginTop:4,padding:"12px 0",borderRadius:10,border:"1px solid var(--br)",
-            background:"transparent",color:"var(--mu)",fontSize:13,cursor:"pointer"},
-            onClick:()=>setMkTipSecim(false)},"İptal")
-        )
-      ),
-
       mkForm&&div({style:{position:"fixed",inset:0,zIndex:902,background:"var(--bg)",display:"flex",flexDirection:"column",overflow:"hidden"}},
 
           // ── HEADER (sticky) — Özet ile aynı yapı ──
@@ -4094,10 +4049,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               h("span",{style:{color:"#95B5A0",whiteSpace:"nowrap"}},"Yönetici / Muhasebe / Ürün Muhasebesi / Mal Kabul / "),
               h("span",{style:{color:"#FFE8C8",fontWeight:700,whiteSpace:"nowrap"}},
                 mkTip==="acilis"?"Açılış / Devir Stoğu":"Yeni Mal Kabul",
-                mkTip&&h("span",{style:{marginLeft:8,fontSize:11,padding:"2px 8px",borderRadius:8,
-                  background:mkTip==="satilabilen"?"rgba(52,199,89,.2)":mkTip==="sarf"?"rgba(255,149,0,.2)":"rgba(0,120,200,.2)",
-                  color:mkTip==="satilabilen"?"#34C759":mkTip==="sarf"?"#FF9500":"#3A9AD9",fontWeight:600,verticalAlign:"middle"}},
-                  mkTip==="satilabilen"?"🛍️ Satılabilen":mkTip==="sarf"?"🧪 Sarf":"🔄 Açılış")
+                mkTip==="acilis"&&h("span",{style:{marginLeft:8,fontSize:11,padding:"2px 8px",borderRadius:8,
+                  background:"rgba(0,120,200,.2)",color:"#3A9AD9",fontWeight:600,verticalAlign:"middle"}},
+                  "🔄 Açılış")
               )
             )
           ),
@@ -4144,7 +4098,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 (()=>{
                   const fn=(mkFatura||"").trim();
                   if(!fn||mkTip==="acilis") return null;
-                  const eslesen=(mkArsiv||[]).filter(ar=>(ar.faturaN||"").trim().toLowerCase()===fn.toLowerCase() && ar.tip===mkTip);
+                  const eslesen=(mkArsiv||[]).filter(ar=>(ar.faturaN||"").trim().toLowerCase()===fn.toLowerCase() && ar.kayitTuru!=="acilis");
                   if(eslesen.length===0) return null;
                   return div({style:{marginTop:5,padding:"6px 9px",background:"rgba(255,149,0,.1)",
                     border:"1px solid rgba(255,149,0,.35)",borderRadius:7,fontSize:11,color:"#c25e00",fontWeight:600}},
@@ -4218,7 +4172,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 );
               })
             ),
-            (mkTip==="sarf"||mkTip==="satilabilen")&&(Array.isArray(mkFaturaImg)?mkFaturaImg:[mkFaturaImg]).filter(Boolean).length>0&&
+            mkTip!=="acilis"&&(Array.isArray(mkFaturaImg)?mkFaturaImg:[mkFaturaImg]).filter(Boolean).length>0&&
               div({style:{marginBottom:10}},
                 btn({type:"button",disabled:mkFaturaOkuYukleniyor,
                   style:{width:"100%",padding:"11px 0",borderRadius:10,border:"1.5px solid rgba(155,89,255,.4)",
@@ -4239,7 +4193,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     btn({type:"button",style:{marginTop:6,fontSize:11,color:"#b8720a",background:"none",border:"none",cursor:"pointer",padding:0,textDecoration:"underline",display:"block"},
                       onClick:()=>setMkFaturaKismiBilgi(null)},"Kapat")
                   ),
-                mkTip==="satilabilen"&&mkFaturaEslesmeyen.length>0&&
+                mkTip!=="acilis"&&mkFaturaEslesmeyen.length>0&&
                   div({style:{marginTop:8,padding:"10px 12px",background:"rgba(255,159,10,.08)",border:"1px solid rgba(255,159,10,.3)",borderRadius:10}},
                     div({style:{fontSize:12,color:"#b8720a",fontWeight:700,marginBottom:6}},
                       "⚠️ "+mkFaturaEslesmeyen.length+" kalem ürün listenizde bulunamadı, elle eklemeniz gerekiyor:"),
@@ -4250,27 +4204,28 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       onClick:()=>setMkFaturaEslesmeyen([])},"Kapat")
                   )
               ),
-            mkTip==="sarf"
-              ? div({style:{display:"flex",flexDirection:"column",gap:8,marginBottom:10}},
-                  div(null,
-                    lbl({className:"fl"},"Malzeme Ara / Ekle"),
-                    h(UrunAramaBilesen,{
-                      aramaVal:mkSarfAd,
-                      setAramaVal:setMkSarfAd,
-                      onEkle:u=>{
-                        if(mkUrunler.find(x=>x.barkod===u.b)){showToast("Zaten eklendi","uy");return;}
-                        setMkUrunler(p=>[...p,{barkod:u.b, urunAd:u.a, marka:u.m, ml:u.ml,
-                          adet:"", birimF:String(u.bp||""), iskontoOran:"0", kdvOran:"20"}]);
-                        setMkSarfAd("");
-                      },
-                      tipFiltre:null,
-                      placeholder:"Malzeme adı veya barkod ile ara (sistemde varsa listeden seçin)..."
-                    })
+            div({style:{display:"flex",flexDirection:"column",gap:8,marginBottom:10}},
+              div(null,
+                lbl({className:"fl"},"Ürün Ara / Ekle (kayıtlı ürünler)"),
+                h(UrunAramaBilesen,{aramaVal:mkIsimArama,setAramaVal:setMkIsimArama,
+                    onEkle:u=>{
+                      if(mkUrunler.find(x=>x.barkod===u.b)){showToast("Zaten eklendi","uy");return;}
+                      setMkUrunler(p=>[...p,{barkod:u.b,urunAd:u.a,marka:u.m,ml:u.ml,
+                        adet:"",birimF:String(u.bp||""),iskontoOran:"0",kdvOran:"20",sarfMi:false}]);
+                    },
+                    onBarkodBulunamadi: kod=>setMkBarkodBulunamadi(kod),
+                    tipFiltre: null,
+                    placeholder:"Barkod okut veya ürün adı yaz..."})
+              ),
+              div({style:{fontSize:11,color:"var(--di)",marginTop:-4}},
+                "Eklenen her satırın sağındaki 🧪 düğmesiyle 'Sarf Malzeme' olarak işaretleyebilirsiniz — işaretlenenler stoğa değil, sadece Sarf Malzeme kaydına eklenir."),
+              div({style:{borderTop:"1px dashed var(--br)",marginTop:2,paddingTop:8}},
+                lbl({className:"fl"},"Kayıtlı Olmayan Sarf Malzeme (serbest metinle hızlı ekle)"),
+                div({style:{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}},
+                  div({style:{flex:"2 1 140px"}},
+                    inp({className:"fi",placeholder:"Malzeme adı...",value:mkSarfAd,
+                      onChange:e=>setMkSarfAd(e.target.value)})
                   ),
-                  div({style:{fontSize:11,color:"var(--di)",marginTop:-4}},
-                    "Yukarıdaki kutudan sistemde kayıtlı bir malzeme seçerseniz gerçek adı/barkoduyla direkt tabloya eklenir. Sistemde yoksa, yazdığınız adla aşağıdaki alanları doldurup 'Ekle'ye basın — barkod otomatik oluşturulur.")
-                  ,
-                  div({style:{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}},
                   div({style:{flex:"1 1 70px"}},
                     lbl({className:"fl"},"Adet"),
                     inp({className:"fi",type:"number",placeholder:"0",value:mkSarfAdet,
@@ -4301,22 +4256,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         showToast("Bu isim sistemde kayıtlı — lütfen yukarıdaki arama kutusundan seçin","uy"); return;
                       }
                       setMkUrunler(p=>[...p,{barkod:"SARF-"+uid(),urunAd:mkSarfAd.trim(),marka:"",ml:"",
-                        adet:mkSarfAdet||"",birimF:mkSarfFiyat||"",iskontoOran:mkSarfIskonto||"0",kdvOran:mkSarfKdv||"20"}]);
+                        adet:mkSarfAdet||"",birimF:mkSarfFiyat||"",iskontoOran:mkSarfIskonto||"0",kdvOran:mkSarfKdv||"20",sarfMi:true}]);
                       setMkSarfAd(""); setMkSarfFiyat(""); setMkSarfAdet(""); setMkSarfIskonto("0"); setMkSarfKdv("20");
                     }},"+ Ekle")
-                  )
                 )
-              : div({style:{display:"flex",flexDirection:"column",gap:8,marginBottom:10}},
-                  h(UrunAramaBilesen,{aramaVal:mkIsimArama,setAramaVal:setMkIsimArama,
-                      onEkle:u=>{
-                        if(mkUrunler.find(x=>x.barkod===u.b)){showToast("Zaten eklendi","uy");return;}
-                        setMkUrunler(p=>[...p,{barkod:u.b,urunAd:u.a,marka:u.m,ml:u.ml,
-                          adet:"",birimF:String(u.bp||""),iskontoOran:"0",kdvOran:"20"}]);
-                      },
-                      onBarkodBulunamadi: kod=>setMkBarkodBulunamadi(kod),
-                      tipFiltre: "satilabilen",
-                      placeholder:"Ürün eklemek için barkod okut veya isim yaz..."})
-                )
+              )
           ),
 
           // ── TABLO ──
@@ -4361,7 +4305,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     return div({key:i},
                     div({style:{display:"grid",
                       gridTemplateColumns:"38px 1fr 110px 82px 62px 62px 88px 58px 88px 92px 34px",
-                      borderBottom:(mkTip!=="acilis"&&mkFarkAcikIdx[i])?"none":"1px solid var(--br)",
+                      borderBottom:(mkTip!=="acilis"&&!u.sarfMi&&mkFarkAcikIdx[i])?"none":"1px solid var(--br)",
                       background:bedelsiz?"rgba(52,199,89,.07)":i%2===0?"var(--bg)":"var(--bg2)"}},
                       // Sıra
                       div({style:{...cel,fontSize:12,color:"var(--di)"}},(i+1)),
@@ -4369,7 +4313,13 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       div({style:{...cel,justifyContent:"flex-start",padding:"6px 7px"}},
                         div({style:{textAlign:"left"}},
                           div({style:{fontSize:12,color:"var(--tx)",fontWeight:500,lineHeight:1.3}},urunAdCanli(u.barkod,u.urunAd)+(urunMlCanli(u.barkod,u.ml)?" ("+urunMlCanli(u.barkod,u.ml)+")":"")),
-                          u.marka&&div({style:{fontSize:10,color:"var(--di)",marginTop:1}},urunMarkaCanli(u.barkod,u.marka))
+                          u.marka&&div({style:{fontSize:10,color:"var(--di)",marginTop:1}},urunMarkaCanli(u.barkod,u.marka)),
+                          btn({type:"button",style:{marginTop:3,fontSize:9,fontWeight:700,padding:"1px 6px",borderRadius:6,
+                            border:"1px solid "+(u.sarfMi?"rgba(255,149,0,.5)":"var(--br)"),cursor:"pointer",
+                            background:u.sarfMi?"rgba(255,149,0,.15)":"transparent",
+                            color:u.sarfMi?"#FF9500":"var(--di)"},
+                            onClick:()=>setMkUrunler(p=>p.map((x,j)=>j===i?{...x,sarfMi:!x.sarfMi}:x))},
+                            u.sarfMi?"🧪 Sarf":"🛍️ Satılabilen")
                         )
                       ),
                       // Barkod
@@ -4383,7 +4333,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       div({style:celInp},
                         inp({style:cinp,type:"number",inputMode:"numeric",placeholder:"0",value:u.adet,
                           onChange:e=>setMkUrunler(p=>p.map((x,j)=>j===i?{...x,adet:e.target.value}:x))}),
-                        mkTip!=="acilis"&&toN(u.adet)>0&&h("button",{type:"button",
+                        mkTip!=="acilis"&&!u.sarfMi&&toN(u.adet)>0&&h("button",{type:"button",
                           title:"Faturada yazandan farklı miktarda ürün geldiyse (eksik, hasarlı, kayıp vb.) burayı kullan",
                           style:{position:"absolute",top:2,right:2,width:15,height:15,padding:0,border:"none",
                             borderRadius:"50%",cursor:"pointer",fontSize:9,lineHeight:"15px",zIndex:2,
@@ -4426,7 +4376,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                           onClick:()=>setMkUrunler(p=>p.filter((_,j)=>j!==i))},"✕"))
                     ),
                     // ── Fatura/Kabul Farkı Bildirme Paneli (açılır) ──
-                    mkTip!=="acilis"&&mkFarkAcikIdx[i]&&div({style:{padding:"10px 12px",background:"rgba(255,149,0,.06)",
+                    mkTip!=="acilis"&&!u.sarfMi&&mkFarkAcikIdx[i]&&div({style:{padding:"10px 12px",background:"rgba(255,149,0,.06)",
                       borderBottom:"1px solid var(--br)",display:"flex",flexWrap:"wrap",gap:12,alignItems:"flex-end"}},
                       div(null,
                         div({style:{display:"flex",alignItems:"center",gap:4,marginBottom:3}},
@@ -4534,7 +4484,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       if(mkTip!=="acilis" && !mkMukerrerGecildi){
                         const fn=(mkFatura||"").trim();
                         if(fn){
-                          const eslesen=(mkArsiv||[]).filter(ar=>(ar.faturaN||"").trim().toLowerCase()===fn.toLowerCase() && ar.tip===mkTip);
+                          const eslesen=(mkArsiv||[]).filter(ar=>(ar.faturaN||"").trim().toLowerCase()===fn.toLowerCase() && ar.kayitTuru!=="acilis");
                           if(eslesen.length>0){
                             setMkMukerrerUyari({sayi:eslesen.length,tarihler:eslesen.map(a=>fmtT(a.malKabulTarihi||a.tarih))});
                             return;
@@ -4561,10 +4511,13 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         setMkForm(false);setMkTipSecim(false);setMkTip("");setMkUrunler([]);setMkFarkAcikIdx({});setMkMukerrerGecildi(false);setMkMukerrerUyari(null);mkKaydediliyorRef.current=false;setMkKaydediliyor(false);setMkFatura("");setMkFaturaTarih("");setMkIrsaliye("");setMkTarih(TODAY());setMkFaturaImg("");setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());
                         return;
                       }
-                      // Sarf Malzeme: sadece harcama/istatistik amaçlı — Satılabilen Ürünler stoğuna (stokPartiler)
-                      // KESİNLİKLE eklenmez. Stok partisi ve hareket kaydı SADECE satılabilen ürünler için oluşturulur.
-                      if(mkTip!=="sarf"){
-                        mkUrunler.forEach(u=>{
+                      // Satır bazlı ayrım: 🧪 Sarf işaretli satırlar Satılabilen Ürünler stoğuna (stokPartiler)
+                      // KESİNLİKLE eklenmez — sadece harcama/istatistik amaçlı Sarf Malzeme kaydına düşer.
+                      // Stok partisi, hareket kaydı ve ön sipariş karşılama SADECE işaretsiz (satılabilen) satırlar için oluşturulur.
+                      const stokKalemleri = mkUrunler.filter(u=>!u.sarfMi);
+                      const sarfKalemleri = mkUrunler.filter(u=>u.sarfMi);
+                      if(stokKalemleri.length>0){
+                        stokKalemleri.forEach(u=>{
                           const ad=toN(u.adet),bf=toN(u.birimF);
                           const kabul=(u.kabulAdet!==undefined&&u.kabulAdet!=="")?toN(u.kabulAdet):ad;
                           const bekleyen=Math.max(0,ad-kabul);
@@ -4587,46 +4540,54 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         // Otomatik Ön Sipariş Karşılama — yeni gelen satılabilen stoktan, bekleyen müşteri ön
                         // siparişlerini (peşin alınmış) elle "Karşıla" tıklamaya gerek kalmadan otomatik düşer.
                         // En eski sipariş önce karşılanır (FIFO), stok yetmezse kalanı bekliyor durumunda kalır.
-                        if(mkTip==="satilabilen"){
-                          mkUrunler.forEach(u=>{
-                            const kabul=(u.kabulAdet!==undefined&&u.kabulAdet!=="")?toN(u.kabulAdet):toN(u.adet);
-                            let kullanilabilir=kabul;
+                        stokKalemleri.forEach(u=>{
+                          const kabul=(u.kabulAdet!==undefined&&u.kabulAdet!=="")?toN(u.kabulAdet):toN(u.adet);
+                          let kullanilabilir=kabul;
+                          if(kullanilabilir<=0) return;
+                          const bekleyenSiparisler=(onSiparisler||[])
+                            .filter(o=>o.barkod===u.barkod && o.durum!=="karsilandi" && toN(o.kalan_adet)>0)
+                            .sort((a,b)=>new Date(a.tarih||0)-new Date(b.tarih||0));
+                          bekleyenSiparisler.forEach(o=>{
                             if(kullanilabilir<=0) return;
-                            const bekleyenSiparisler=(onSiparisler||[])
-                              .filter(o=>o.barkod===u.barkod && o.durum!=="karsilandi" && toN(o.kalan_adet)>0)
-                              .sort((a,b)=>new Date(a.tarih||0)-new Date(b.tarih||0));
-                            bekleyenSiparisler.forEach(o=>{
-                              if(kullanilabilir<=0) return;
-                              const dus=Math.min(kullanilabilir, toN(o.kalan_adet));
-                              onSiparisKarsila && onSiparisKarsila(o.id, dus, {faturaNo:mkFatura, tarih:mkTarih});
-                              kullanilabilir-=dus;
-                            });
+                            const dus=Math.min(kullanilabilir, toN(o.kalan_adet));
+                            onSiparisKarsila && onSiparisKarsila(o.id, dus, {faturaNo:mkFatura, tarih:mkTarih});
+                            kullanilabilir-=dus;
                           });
-                        }
+                        });
                       }
                       stokPartilerYuklendi.current=true;
-                      const arsivKayit={id:uid(),tarih:mkTarih,faturaTarih:mkFaturaTarih,faturaN:mkFatura,irsaliyeN:mkIrsaliye,tedarikci:mkTedarikci,vade:mkVade,malKabulTarihi:mkMalKabulTarihi,tip:mkTip,
-                        faturaImg:(Array.isArray(mkFaturaImg)?mkFaturaImg:[mkFaturaImg]).filter(Boolean),
-                        urunler:mkUrunler.map(u=>{
-                          const b=toN(u.adet)*toN(u.birimF);
-                          const isk=b*(toN(u.iskontoOran||"0")/100);
-                          const matrah=b-isk;
-                          const kdvT=matrah*(toN(u.kdvOran||"20")/100);
-                          const _iskO10=toN(u.iskontoOran||"0"),_nf10=Math.round(toN(u.birimF)*(1-_iskO10/100)*100)/100,_bed10=toN(u.birimF)>0&&_nf10<1;
-                          const _kabul10=(u.kabulAdet!==undefined&&u.kabulAdet!=="")?toN(u.kabulAdet):toN(u.adet);
-                          return {barkod:u.barkod,urunAd:u.urunAd,marka:u.marka,
-                            adet:toN(u.adet),birimF:toN(u.birimF),
-                            iskontoOran:_iskO10,iskontoTutar:_bed10?toN(u.birimF)*toN(u.adet):isk,
-                            kdvOran:_bed10?0:toN(u.kdvOran||"20"),kdvTutar:_bed10?0:kdvT,
-                            toplamF:_bed10?0:(matrah+kdvT),bedelsiz:_bed10,
-                            kabulAdet:_kabul10,farkSebep:u.farkSebep||"",farkNot:u.farkNot||""};
-                        })};
-                      const yeniArsiv=[arsivKayit,...mkArsiv];
+                      const urunlerHazirla = kalemler => kalemler.map(u=>{
+                        const b=toN(u.adet)*toN(u.birimF);
+                        const isk=b*(toN(u.iskontoOran||"0")/100);
+                        const matrah=b-isk;
+                        const kdvT=matrah*(toN(u.kdvOran||"20")/100);
+                        const _iskO10=toN(u.iskontoOran||"0"),_nf10=Math.round(toN(u.birimF)*(1-_iskO10/100)*100)/100,_bed10=toN(u.birimF)>0&&_nf10<1;
+                        const _kabul10=(u.kabulAdet!==undefined&&u.kabulAdet!=="")?toN(u.kabulAdet):toN(u.adet);
+                        return {barkod:u.barkod,urunAd:u.urunAd,marka:u.marka,
+                          adet:toN(u.adet),birimF:toN(u.birimF),
+                          iskontoOran:_iskO10,iskontoTutar:_bed10?toN(u.birimF)*toN(u.adet):isk,
+                          kdvOran:_bed10?0:toN(u.kdvOran||"20"),kdvTutar:_bed10?0:kdvT,
+                          toplamF:_bed10?0:(matrah+kdvT),bedelsiz:_bed10,
+                          kabulAdet:_kabul10,farkSebep:u.farkSebep||"",farkNot:u.farkNot||""};
+                      });
+                      const ortakFaturaAlanlari={tarih:mkTarih,faturaTarih:mkFaturaTarih,faturaN:mkFatura,irsaliyeN:mkIrsaliye,
+                        tedarikci:mkTedarikci,vade:mkVade,malKabulTarihi:mkMalKabulTarihi,
+                        faturaImg:(Array.isArray(mkFaturaImg)?mkFaturaImg:[mkFaturaImg]).filter(Boolean)};
+                      // Aynı fatura için hem satılabilen hem sarf kalemi varsa İKİ ayrı arşiv kaydı oluşturulur —
+                      // aynı tedarikçi+fatura no taşıdıkları için Cari/Borçlarım'da otomatik "🔗 BİRLEŞİK FATURA"
+                      // olarak tek kartta birleşirler, mevcut raporlar (Sarf Malzeme Analizi vb.) kayıt bazlı "tip"
+                      // filtresine göre çalışmaya devam eder.
+                      const yeniKayitlar=[];
+                      if(stokKalemleri.length>0) yeniKayitlar.push({id:uid(),...ortakFaturaAlanlari,tip:"satilabilen",urunler:urunlerHazirla(stokKalemleri)});
+                      if(sarfKalemleri.length>0) yeniKayitlar.push({id:uid(),...ortakFaturaAlanlari,tip:"sarf",urunler:urunlerHazirla(sarfKalemleri)});
+                      const yeniArsiv=[...yeniKayitlar,...mkArsiv];
                       mkArsivKirliRef.current=true;
                       setMkArsiv(yeniArsiv);
                       try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
                       if(DB) dbUpsertAyar("mkArsiv", yeniArsiv);
-                      showToast(mkUrunler.length+" ürün stoğa eklendi");
+                      showToast((stokKalemleri.length>0?stokKalemleri.length+" ürün stoğa eklendi":"")+
+                        (stokKalemleri.length>0&&sarfKalemleri.length>0?" · ":"")+
+                        (sarfKalemleri.length>0?sarfKalemleri.length+" sarf malzeme kaydedildi":""));
                       setMkForm(false);setMkTipSecim(false);setMkTip("");setMkUrunler([]);setMkFarkAcikIdx({});setMkMukerrerGecildi(false);setMkMukerrerUyari(null);mkKaydediliyorRef.current=false;setMkKaydediliyor(false);setMkFatura("");setMkFaturaTarih("");setMkIrsaliye("");setMkTarih(TODAY());setMkFaturaImg("");setMkTedarikci("");setMkVade("");setMkMalKabulTarihi(TODAY());
                     }},"✅ Stoğa Ekle")
                 );
@@ -4793,7 +4754,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 onClick:()=>{
                   const yeniUrun={b:bVal,a:aVal,m:mkYeniUrunEkle.m||"Diğer",ml:mkYeniUrunEkle.ml||"",
                     bp:parseFloat(mkYeniUrunEkle.bp)||0,ap:parseFloat(mkYeniUrunEkle.bp)||0,
-                    sp:parseFloat(mkYeniUrunEkle.sp)||0,tip:mkTip==="sarf"?"sarf":"satilabilen"};
+                    sp:parseFloat(mkYeniUrunEkle.sp)||0,tip:"satilabilen"};
                   URUN_DB.push(yeniUrun);
                   if(triggerUrunRender) triggerUrunRender();
                   if(!mkUrunler.find(x=>x.barkod===yeniUrun.b)){
