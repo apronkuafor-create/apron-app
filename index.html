@@ -2356,15 +2356,12 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [mkMukerrerGecildi, setMkMukerrerGecildi] = React.useState(false); // kullanıcı "Yine de Ekle" dedi mi
   const [mkKaydediliyor, setMkKaydediliyor] = React.useState(false); // "Stoğa Ekle" işleniyor mu — art arda tıklamayı engeller
   const mkKaydediliyorRef = React.useRef(false); // anlık (senkron) koruma — state güncellemesi bir sonraki render'a kadar bekleyemez
-  const mkBasitBorcBarkodRef = React.useRef(null); // basit borç kaydı modunda sentetik satırın barkodu — her tuş vuruşunda değişmesin diye bir kez üretilir
   const [mkTeslimAlPrompt, setMkTeslimAlPrompt] = React.useState(null); // {parti, gelenAdet} — "Teslim Aldım" onay penceresi
   const [mkBarkodBulunamadi, setMkBarkodBulunamadi] = React.useState(null); // aranan barkod listede yoksa
   const [mkYeniUrunEkle, setMkYeniUrunEkle] = React.useState(null); // Mal Kabul içinden hızlı ürün ekleme formu
   const [mkBarkod, setMkBarkod] = React.useState("");
   const [mkIsimArama, setMkIsimArama] = React.useState("");
   const [mkSarfAd, setMkSarfAd] = React.useState(""); // Sarf malzeme serbest metin ekleme — katalog yok
-  const [mkBasitBorcMod, setMkBasitBorcMod] = React.useState(false); // Sarf'ta ürün detayı girmeden, tek toplam tutar + fatura görseliyle hızlı borç kaydı
-  const [mkBasitBorcTutar, setMkBasitBorcTutar] = React.useState("");
   const [mkSarfFiyat, setMkSarfFiyat] = React.useState("");
   const [mkSarfAdet, setMkSarfAdet] = React.useState("");
   const [mkSarfIskonto, setMkSarfIskonto] = React.useState("0");
@@ -2541,6 +2538,15 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [acilisTutar, setAcilisTutar] = React.useState("");
   const [acilisTarih, setAcilisTarih] = React.useState(TODAY());
   const [acilisNot, setAcilisNot] = React.useState("");
+  // ── Sadece Borç Kaydı (Cari → Borçlarım, ürün detayı girmeden tek toplam tutar + fatura görseliyle) ──
+  const [borcKaydiForm, setBorcKaydiForm] = React.useState(false);
+  const [borcKaydiTedarikci, setBorcKaydiTedarikci] = React.useState("");
+  const [borcKaydiFaturaN, setBorcKaydiFaturaN] = React.useState("");
+  const [borcKaydiFaturaTarih, setBorcKaydiFaturaTarih] = React.useState(TODAY());
+  const [borcKaydiVade, setBorcKaydiVade] = React.useState("");
+  const [borcKaydiTutar, setBorcKaydiTutar] = React.useState("");
+  const [borcKaydiGorsel, setBorcKaydiGorsel] = React.useState([]);
+  const borcKaydiBarkodRef = React.useRef(null); // sentetik satırın barkodu — form açıldığında bir kez üretilir
 
   // Stok detay state
   const [sdArama, setSdArama] = React.useState("");
@@ -4246,48 +4252,6 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               ),
             mkTip==="sarf"
               ? div({style:{display:"flex",flexDirection:"column",gap:8,marginBottom:10}},
-                  div({style:{display:"flex",alignItems:"center",gap:8,padding:"9px 11px",
-                    background:mkBasitBorcMod?"rgba(217,119,87,.09)":"var(--bg2)",
-                    border:"1px solid "+(mkBasitBorcMod?"rgba(217,119,87,.35)":"var(--br)"),
-                    borderRadius:10,cursor:"pointer"},
-                    onClick:()=>{
-                      setMkBasitBorcMod(v=>{
-                        const yeni=!v;
-                        if(yeni){
-                          mkBasitBorcBarkodRef.current = "BORC-"+uid();
-                          setMkBasitBorcTutar("");
-                          setMkUrunler([]);
-                        } else {
-                          setMkBasitBorcTutar("");
-                          setMkUrunler([]);
-                        }
-                        return yeni;
-                      });
-                    }},
-                    h("input",{type:"checkbox",checked:mkBasitBorcMod,readOnly:true,style:{width:16,height:16,cursor:"pointer"}}),
-                    div({style:{fontSize:12,color:"var(--tx)"}},
-                      "📄 Sadece Borç Kaydı — ürün detayı girmeden, tek toplam tutar + fatura görseliyle ekle (stoğa hiç işlenmez)")
-                  ),
-                  mkBasitBorcMod
-                    ? div(null,
-                        div({style:{fontSize:11,color:"var(--di)",marginBottom:8,lineHeight:1.4}},
-                          "Bu tedarikçiye olan borcunuzu ve fatura görselini sisteme (Cari → Borçlarım) kaydeder. "+
-                          "Ürün ürün girmediğiniz için stoğa hiçbir şekilde işlenmez — mükerrer stok oluşmaz."),
-                        div(null,
-                          lbl({className:"fl"},"Toplam Tutar (₺, KDV dahil)"),
-                          inp({className:"fi",type:"number",placeholder:"0",value:mkBasitBorcTutar,
-                            onChange:e=>{
-                              const v=e.target.value;
-                              setMkBasitBorcTutar(v);
-                              setMkUrunler(toN(v)>0 ? [{
-                                barkod:mkBasitBorcBarkodRef.current,
-                                urunAd:"Fatura Tutarı (ürün detayı girilmedi)",
-                                marka:"", ml:"", adet:"1", birimF:v, iskontoOran:"0", kdvOran:"0"
-                              }] : []);
-                            }})
-                        )
-                      )
-                    : div({style:{display:"flex",flexDirection:"column",gap:8}},
                   div(null,
                     lbl({className:"fl"},"Malzeme Ara / Ekle"),
                     h(UrunAramaBilesen,{
@@ -4342,58 +4306,21 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     }},"+ Ekle")
                   )
                 )
-                )
               : div({style:{display:"flex",flexDirection:"column",gap:8,marginBottom:10}},
-                  div({style:{display:"flex",alignItems:"center",gap:8,padding:"9px 11px",
-                    background:mkBasitBorcMod?"rgba(217,119,87,.09)":"var(--bg2)",
-                    border:"1px solid "+(mkBasitBorcMod?"rgba(217,119,87,.35)":"var(--br)"),
-                    borderRadius:10,cursor:"pointer"},
-                    onClick:()=>{
-                      setMkBasitBorcMod(v=>{
-                        const yeni=!v;
-                        mkBasitBorcBarkodRef.current = yeni ? ("BORC-"+uid()) : mkBasitBorcBarkodRef.current;
-                        setMkBasitBorcTutar("");
-                        setMkUrunler([]);
-                        return yeni;
-                      });
-                    }},
-                    h("input",{type:"checkbox",checked:mkBasitBorcMod,readOnly:true,style:{width:16,height:16,cursor:"pointer"}}),
-                    div({style:{fontSize:12,color:"var(--tx)"}},
-                      "📄 Sadece Borç Kaydı — ürün detayı girmeden, tek toplam tutar + fatura görseliyle ekle (stoğa hiç işlenmez)")
-                  ),
-                  mkBasitBorcMod
-                    ? div(null,
-                        div({style:{fontSize:11,color:"var(--di)",marginBottom:8,lineHeight:1.4}},
-                          "Bu tedarikçiye olan borcunuzu ve fatura görselini sisteme (Cari → Borçlarım) kaydeder. "+
-                          "Ürün ürün girmediğiniz için stoğa hiçbir şekilde işlenmez — mükerrer stok oluşmaz."),
-                        div(null,
-                          lbl({className:"fl"},"Toplam Tutar (₺, KDV dahil)"),
-                          inp({className:"fi",type:"number",placeholder:"0",value:mkBasitBorcTutar,
-                            onChange:e=>{
-                              const v=e.target.value;
-                              setMkBasitBorcTutar(v);
-                              setMkUrunler(toN(v)>0 ? [{
-                                barkod:mkBasitBorcBarkodRef.current,
-                                urunAd:"Fatura Tutarı (ürün detayı girilmedi)",
-                                marka:"", ml:"", adet:"1", birimF:v, iskontoOran:"0", kdvOran:"0"
-                              }] : []);
-                            }})
-                        )
-                      )
-                    : h(UrunAramaBilesen,{aramaVal:mkIsimArama,setAramaVal:setMkIsimArama,
-                        onEkle:u=>{
-                          if(mkUrunler.find(x=>x.barkod===u.b)){showToast("Zaten eklendi","uy");return;}
-                          setMkUrunler(p=>[...p,{barkod:u.b,urunAd:u.a,marka:u.m,ml:u.ml,
-                            adet:"",birimF:String(u.bp||""),iskontoOran:"0",kdvOran:"20"}]);
-                        },
-                        onBarkodBulunamadi: kod=>setMkBarkodBulunamadi(kod),
-                        tipFiltre: "satilabilen",
-                        placeholder:"Ürün eklemek için barkod okut veya isim yaz..."})
+                  h(UrunAramaBilesen,{aramaVal:mkIsimArama,setAramaVal:setMkIsimArama,
+                      onEkle:u=>{
+                        if(mkUrunler.find(x=>x.barkod===u.b)){showToast("Zaten eklendi","uy");return;}
+                        setMkUrunler(p=>[...p,{barkod:u.b,urunAd:u.a,marka:u.m,ml:u.ml,
+                          adet:"",birimF:String(u.bp||""),iskontoOran:"0",kdvOran:"20"}]);
+                      },
+                      onBarkodBulunamadi: kod=>setMkBarkodBulunamadi(kod),
+                      tipFiltre: "satilabilen",
+                      placeholder:"Ürün eklemek için barkod okut veya isim yaz..."})
                 )
           ),
 
           // ── TABLO ──
-          !mkBasitBorcMod && div({style:{overflowX:"auto"}},
+          div({style:{overflowX:"auto"}},
             mkUrunler.length===0
               ?div({style:{textAlign:"center",padding:50,color:"var(--mu)"}},
                   div({style:{fontSize:40,marginBottom:12}},"📦"),
@@ -4636,9 +4563,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       }
                       // Sarf Malzeme: sadece harcama/istatistik amaçlı — Satılabilen Ürünler stoğuna (stokPartiler)
                       // KESİNLİKLE eklenmez. Stok partisi ve hareket kaydı SADECE satılabilen ürünler için oluşturulur.
-                      // "Sadece Borç Kaydı" modunda ise (Sarf VEYA Satılabilen sekmesinde fark etmez) yine hiç
-                      // stoğa işlenmez — bu kayıt sadece tedarikçiye olan borcu/faturayı belgelemek içindir.
-                      if(mkTip!=="sarf" && !mkBasitBorcMod){
+                      if(mkTip!=="sarf"){
                         mkUrunler.forEach(u=>{
                           const ad=toN(u.adet),bf=toN(u.birimF);
                           const kabul=(u.kabulAdet!==undefined&&u.kabulAdet!=="")?toN(u.kabulAdet):ad;
@@ -5919,12 +5844,20 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         const sortedGruplar=acikGruplar.slice().sort((a,b)=>enSonTarih(b).localeCompare(enSonTarih(a)));
         const toplamBorc=acikGruplar.reduce((s,g)=>s+gKalanHesapla(g),0);
         return div({style:{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}},
-          // + Devir / Açılış Borcu (tek seferlik, kuruma geçiş için)
-          div({style:{padding:"10px 14px 4px",flexShrink:0}},
-            btn({style:{width:"100%",padding:"10px 0",borderRadius:10,border:"1px dashed #D97757",
+          // + Devir / Açılış Borcu (tek seferlik, kuruma geçiş için)  +  + Sadece Borç Kaydı (fatura bazlı, tekrarlanabilir)
+          div({style:{padding:"10px 14px 4px",flexShrink:0,display:"flex",gap:8}},
+            btn({style:{flex:1,padding:"10px 0",borderRadius:10,border:"1px dashed #D97757",
               background:"rgba(217,119,87,.06)",color:"#D97757",fontSize:13,fontWeight:600,cursor:"pointer"},
               onClick:()=>{setAcilisForm(true);setAcilisTedarikci("");setAcilisTutar("");setAcilisTarih(TODAY());setAcilisNot("");}},
-              "+ Devir / Açılış Borcu")
+              "+ Devir / Açılış Borcu"),
+            btn({style:{flex:1,padding:"10px 0",borderRadius:10,border:"1px dashed #D97757",
+              background:"rgba(217,119,87,.06)",color:"#D97757",fontSize:13,fontWeight:600,cursor:"pointer"},
+              onClick:()=>{
+                borcKaydiBarkodRef.current="BORC-"+uid();
+                setBorcKaydiForm(true);setBorcKaydiTedarikci("");setBorcKaydiFaturaN("");
+                setBorcKaydiFaturaTarih(TODAY());setBorcKaydiVade("");setBorcKaydiTutar("");setBorcKaydiGorsel([]);
+              }},
+              "+ 📄 Sadece Borç Kaydı")
           ),
           // ── Tedarikçi bazlı gruplama: her tedarikçi için toplam borç + fatura fatura döküm ──
           (()=>{
@@ -6201,6 +6134,112 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               }},"Kaydet")
           )
         )
+      ),
+
+      // ── SADECE BORÇ KAYDI FORMU (fatura bazlı, ürün detayı girmeden — stoğa hiç işlenmez) ──
+      borcKaydiForm&&ReactDOM.createPortal(
+        div({style:{position:"fixed",inset:0,zIndex:905,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}},
+        div({style:{background:"var(--bg)",borderRadius:16,maxWidth:420,width:"100%",maxHeight:"90vh",overflowY:"auto",padding:20,boxSizing:"border-box"}},
+          div({style:{fontSize:17,fontWeight:700,color:"var(--tx)",marginBottom:4}},"📄 Sadece Borç Kaydı"),
+          div({style:{fontSize:12,color:"var(--mu)",marginBottom:16,lineHeight:1.5}},
+            "Ürün detayı girmeden, tek toplam tutar + fatura görseliyle tedarikçiye olan borcunuzu kaydeder. Stoğa hiçbir şekilde işlenmez — mükerrer stok oluşmaz."),
+          div({style:{marginBottom:12}},
+            lbl({className:"fl"},"Tedarikçi"),
+            tedarikciler&&tedarikciler.length>0
+              ? h("select",{className:"fi",style:{fontSize:13,cursor:"pointer",color:borcKaydiTedarikci?"":"var(--mu)"},value:borcKaydiTedarikci,onChange:e=>setBorcKaydiTedarikci(e.target.value)},
+                  h("option",{value:""},"Tedarikçi seçin"),
+                  tedarikciler.map((t,i)=>{const ad=typeof t==="string"?t:(t.ad||""); return h("option",{key:i,value:ad},ad);}))
+              : inp({className:"fi",style:{fontSize:13},placeholder:"Tedarikçi adı... (Ayarlar→Listeler'den ekleyin)",value:borcKaydiTedarikci,onChange:e=>setBorcKaydiTedarikci(e.target.value)})
+          ),
+          div({style:{display:"flex",gap:8,marginBottom:12}},
+            div({style:{flex:1}},
+              lbl({className:"fl"},"Fatura No (opsiyonel)"),
+              inp({className:"fi",style:{fontSize:13},placeholder:"—",value:borcKaydiFaturaN,onChange:e=>setBorcKaydiFaturaN(e.target.value)})
+            ),
+            div({style:{flex:1}},
+              lbl({className:"fl"},"Vade (gün, opsiyonel)"),
+              inp({className:"fi",type:"number",style:{fontSize:13},placeholder:"0",value:borcKaydiVade,onChange:e=>setBorcKaydiVade(e.target.value)})
+            )
+          ),
+          div({style:{marginBottom:12}},
+            lbl({className:"fl"},"Fatura Tarihi"),
+            inp({className:"fi",type:"date",style:{fontSize:13},value:borcKaydiFaturaTarih,onChange:e=>setBorcKaydiFaturaTarih(e.target.value)})
+          ),
+          div({style:{marginBottom:12}},
+            lbl({className:"fl"},"Toplam Tutar (₺, KDV dahil)"),
+            inp({className:"fi",type:"number",style:{fontSize:13},placeholder:"0",value:borcKaydiTutar,onChange:e=>setBorcKaydiTutar(e.target.value)})
+          ),
+          div({style:{marginBottom:16}},
+            lbl({className:"fl"},"Fatura Görseli (opsiyonel)"),
+            div({style:{display:"flex",alignItems:"center",gap:8,marginTop:6,flexWrap:"wrap"}},
+              btn({type:"button",style:{padding:"7px 12px",borderRadius:8,border:"1px dashed var(--br)",
+                background:"transparent",color:"var(--mu)",fontSize:12,cursor:"pointer",flexShrink:0},
+                onClick:()=>{
+                  const fi=document.createElement("input");
+                  fi.type="file";fi.accept="image/*,.pdf,application/pdf";fi.multiple=true;
+                  fi.onchange=ev=>{
+                    Array.from(ev.target.files||[]).forEach(f=>{
+                      if(f.size>5242880)return;
+                      const rd=new FileReader();
+                      rd.onload=e=>{
+                        let sonuc=e.target.result;
+                        const bilinenTipler=["image/jpeg","image/png","image/webp","image/gif","application/pdf"];
+                        const mevcutTip=(sonuc.match(/^data:([^;]+);/)||[])[1]||"";
+                        if(!bilinenTipler.includes(mevcutTip)){
+                          const adi=(f.name||"").toLowerCase();
+                          const dogruTip = adi.endsWith(".pdf")?"application/pdf"
+                            : adi.endsWith(".png")?"image/png"
+                            : adi.endsWith(".webp")?"image/webp"
+                            : adi.endsWith(".gif")?"image/gif"
+                            : (adi.endsWith(".jpg")||adi.endsWith(".jpeg"))?"image/jpeg" : "";
+                          if(dogruTip) sonuc=sonuc.replace(/^data:[^;]*;/, "data:"+dogruTip+";");
+                        }
+                        setBorcKaydiGorsel(p=>[...p,sonuc]);
+                      };
+                      rd.readAsDataURL(f);
+                    });
+                  };fi.click();
+                }},"📎 Fatura Ekle"),
+              borcKaydiGorsel.map((im,i)=>{
+                const pdfMi = /^data:application\/pdf/.test(im);
+                return div({key:i,style:{position:"relative",width:38,height:38,flexShrink:0}},
+                  pdfMi
+                    ? div({style:{width:38,height:38,borderRadius:6,border:"1px solid var(--br)",cursor:"pointer",
+                        background:"var(--bg2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16},
+                        onClick:e=>{e.stopPropagation();const w=window.open(); if(w){w.document.write('<iframe src="'+im+'" style="border:0;width:100%;height:100vh"></iframe>');}}},"📄")
+                    : img({src:im,style:{width:38,height:38,objectFit:"cover",borderRadius:6,border:"1px solid var(--br)",cursor:"pointer"},
+                        onClick:e=>{e.stopPropagation();const ov=document.createElement("div");ov.style.cssText="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.95);display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer";const im2=document.createElement("img");im2.src=im;im2.style.cssText="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px";ov.appendChild(im2);ov.onclick=()=>document.body.removeChild(ov);document.body.appendChild(ov);}}),
+                  btn({style:{position:"absolute",top:-4,right:-4,background:"rgba(0,0,0,.8)",border:"none",borderRadius:"50%",color:"#fff",fontSize:10,cursor:"pointer",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center"},
+                    onClick:e=>{e.stopPropagation();setBorcKaydiGorsel(p=>p.filter((_,j)=>j!==i));}},"✕")
+                );
+              })
+            )
+          ),
+          div({style:{display:"flex",gap:10}},
+            btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",background:"transparent",color:"var(--mu)",fontSize:14,fontWeight:600,cursor:"pointer"},
+              onClick:()=>setBorcKaydiForm(false)},"İptal"),
+            btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"none",background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)",fontSize:14,fontWeight:700,cursor:"pointer"},
+              onClick:()=>{
+                if(!borcKaydiTedarikci){showToast("Tedarikçi seçin","uy");return;}
+                if(!toN(borcKaydiTutar)){showToast("Toplam tutar girin","uy");return;}
+                const tutar=toN(borcKaydiTutar);
+                const kayit={id:uid(),tarih:borcKaydiFaturaTarih,faturaTarih:borcKaydiFaturaTarih,
+                  faturaN:borcKaydiFaturaN.trim(),irsaliyeN:"",tedarikci:borcKaydiTedarikci,vade:borcKaydiVade,
+                  malKabulTarihi:borcKaydiFaturaTarih,tip:"satilabilen",faturaImg:borcKaydiGorsel,
+                  urunler:[{barkod:borcKaydiBarkodRef.current,urunAd:"Fatura Tutarı (ürün detayı girilmedi)",
+                    marka:"",adet:1,birimF:tutar,iskontoOran:0,iskontoTutar:0,kdvOran:0,kdvTutar:0,
+                    toplamF:tutar,bedelsiz:false,kabulAdet:1,farkSebep:"",farkNot:""}]};
+                const yeniArsiv=[kayit,...mkArsiv];
+                mkArsivKirliRef.current=true;
+                setMkArsiv(yeniArsiv);
+                try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
+                if(DB) dbUpsertAyar("mkArsiv", yeniArsiv);
+                setBorcKaydiForm(false);
+                showToast("Borç kaydı eklendi");
+              }},"Kaydet")
+          )
+        )
+        ), document.body
       ),
 
       // ── ÖDEMELERİM ──
