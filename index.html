@@ -3406,20 +3406,6 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           div({style:{fontSize:40,marginBottom:12}},"📁"),
           div({style:{fontSize:13,letterSpacing:2,textTransform:"uppercase"}},"Arşiv boş")
         );
-        // Tip bazlı gruplar
-        const satArsiv=sortedArsiv.filter(a=>!a.tip||a.tip==="satilabilen");
-        const sarfArsiv=sortedArsiv.filter(a=>a.tip==="sarf");
-        const renderArsivGrup=(grupArsiv,baslik,renk,ikon)=>{
-          if(grupArsiv.length===0) return null;
-          return div(null,
-            div({style:{display:"flex",alignItems:"center",gap:8,padding:"10px 14px 6px",
-              background:"var(--bg2)",borderBottom:"1px solid var(--br)"}},
-              div({style:{fontSize:11,fontWeight:700,color:renk,letterSpacing:1.5,
-                textTransform:"uppercase"}},ikon+" "+baslik),
-              div({style:{fontSize:11,color:"var(--mu)",marginLeft:"auto"}},grupArsiv.length+" kayıt")
-            )
-          );
-        };
         if(arsivAc!==null){
           const ar=sortedArsiv[arsivAc];
           if(!ar){setArsivAc(null);return null;}
@@ -3510,17 +3496,19 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       // 1) Listeden çıkarılan ürün → stok partisini sil (stok azalır)
                       // 2) Listeye eklenen yeni ürün → yeni stok partisi oluştur
                       // 3) Adet değişen mevcut ürün → fark kadar stok güncelle
-                      // Stok güncellemesi — sadece satılabilen (satilabilen/malKabul) kayıtları için yapılır.
-                      // Sarf Malzeme kayıtları hiçbir zaman stokPartiler'e dokunmaz (sadece harcama/istatistik amaçlıdır).
-                      if(ar.tip!=="sarf"){
-                      const eskiBarkodlar = new Set(ar.urunler.map(u=>u.barkod));
-                      const yeniBarkodlar = new Set(yeniUrunler.map(u=>u.barkod));
+                      // Stok güncellemesi — SADECE "🧪 Sarf" işaretli OLMAYAN satırlar için yapılır (satır bazlı ayrım).
+                      // Sarf Malzeme işaretli satırlar hiçbir zaman stokPartiler'e dokunmaz (sadece harcama/istatistik amaçlıdır).
+                      {
+                      const eskiStokUrunler = ar.urunler.filter(u=>!u.sarfMi);
+                      const yeniStokUrunler = yeniUrunler.filter(u=>!u.sarfMi);
+                      const eskiBarkodlar = new Set(eskiStokUrunler.map(u=>u.barkod));
+                      const yeniBarkodlar = new Set(yeniStokUrunler.map(u=>u.barkod));
 
                       setStokPartiler(p=>{
                         let yeniPartiler = [...p];
 
                         // 1) Çıkarılan ürünleri sil
-                        ar.urunler.forEach(u=>{
+                        eskiStokUrunler.forEach(u=>{
                           if(!yeniBarkodlar.has(u.barkod)){
                             yeniPartiler = yeniPartiler.filter(part=>
                               !(part.barkod===u.barkod && part.faturaN===ar.faturaN && part.tarih===ar.tarih)
@@ -3529,7 +3517,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         });
 
                         // 2) Yeni eklenen ürünler → yeni parti
-                        yeniUrunler.forEach(u=>{
+                        yeniStokUrunler.forEach(u=>{
                           if(!eskiBarkodlar.has(u.barkod)){
                             const kabul2 = u.kabulAdet!==undefined?toN(u.kabulAdet):u.adet;
                             const bekleyen2 = Math.max(0,u.adet-kabul2);
@@ -3547,9 +3535,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         yeniPartiler = yeniPartiler.map(part=>{
                           if(part.faturaN!==ar.faturaN || part.tarih!==ar.tarih) return part;
                           if(!eskiBarkodlar.has(part.barkod)) return part; // yeni eklenen, zaten adım 2'de doğru oluşturuldu
-                          const yeniU = yeniUrunler.find(u=>u.barkod===part.barkod);
+                          const yeniU = yeniStokUrunler.find(u=>u.barkod===part.barkod);
                           if(!yeniU) return part;
-                          const eskiU = ar.urunler.find(u=>u.barkod===part.barkod);
+                          const eskiU = eskiStokUrunler.find(u=>u.barkod===part.barkod);
                           const eskiAdet = eskiU?.adet||0;
                           const eskiKabul = eskiU && eskiU.kabulAdet!==undefined ? toN(eskiU.kabulAdet) : eskiAdet;
                           const yeniKabul = yeniU.kabulAdet!==undefined ? toN(yeniU.kabulAdet) : yeniU.adet;
@@ -3572,7 +3560,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         if(DB) dbUpsertAyar("stokPartiler", yeniPartiler);
                         return yeniPartiler;
                       });
-                      } // if(ar.tip!=="sarf")
+                      } // stok güncelleme bloğu (sadece sarf-olmayan satırlar)
 
                       setArsivDuzMod(false);
                       setArsivFarkAcikIdx({});
@@ -3585,12 +3573,12 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     background:"rgba(160,40,40,.06)",color:"#c05050",fontSize:12,cursor:"pointer"},
                     onClick:()=>{
                       // 1) Bu faturayla otomatik karşılanmış ön siparişleri (varsa) önce geri al — "bekliyor"a döner.
-                      const gerialinanMap = ar.tip==="sarf" ? {} : onSiparisKarsilamalariGeriAl(ar.faturaN, ar.tarih);
+                      //    (Sarf işaretli satırlar zaten hiç ön sipariş karşılamadığı için burada etkilenmez.)
+                      const gerialinanMap = onSiparisKarsilamalariGeriAl(ar.faturaN, ar.tarih);
                       const toplamGerialinan = Object.values(gerialinanMap).reduce((s,v)=>s+v,0);
 
-                      // 2) Bu faturayla eklenen stok partilerini bul (Sarf malzeme stokPartiler'e hiç dokunmadığı için muaf)
-                      const ilgiliPartiler = ar.tip==="sarf" ? [] :
-                        (stokPartiler||[]).filter(p=>p.faturaN===ar.faturaN && p.tarih===ar.tarih);
+                      // 2) Bu faturayla eklenen stok partilerini bul (Sarf işaretli satırlar stokPartiler'e hiç dokunmadığı için zaten burada yer almaz)
+                      const ilgiliPartiler = (stokPartiler||[]).filter(p=>p.faturaN===ar.faturaN && p.tarih===ar.tarih);
 
                       // 3) Geri alınan ön sipariş adetlerini ilgili barkodun partilerine dağıtıp GERÇEK satış
                       //    miktarını netleştir — ön sipariş kaynaklı düşüş artık "satış" sayılmaz.
@@ -3681,23 +3669,6 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     ar.malKabulTarihi&&div({style:{color:"var(--mu)"}},"Mal Kabul: ",h("span",{style:{color:"var(--tx)"}},fmtT(ar.malKabulTarihi)))
                   )
             ),
-            (()=>{
-              if(!ar.faturaN || !ar.tedarikci) return null;
-              const kardes = mkArsiv.find(x=>x!==ar && x.tedarikci===ar.tedarikci
-                && (x.faturaN||"").trim().toLowerCase()===(ar.faturaN||"").trim().toLowerCase() && x.tip!==ar.tip);
-              if(!kardes) return null;
-              const kardesToplam = kardes.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
-              const kardesIdx = sortedArsiv.indexOf(kardes);
-              return div({style:{margin:"0 14px 10px",padding:"9px 12px",background:"rgba(0,113,227,.06)",
-                border:"1px solid rgba(0,113,227,.25)",borderRadius:9,fontSize:12,color:"#0071E3",
-                display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}},
-                div(null,"ℹ️ Bu fatura no ile ayrıca bir "+(kardes.tip==="sarf"?"🧪 Sarf Malzeme":"🛍️ Satılabilen")
-                  +" kaydı daha var: "+fmt(kardesToplam)),
-                kardesIdx>=0&&btn({style:{fontSize:11,padding:"4px 10px",borderRadius:7,border:"1px solid rgba(0,113,227,.4)",
-                  background:"var(--bg)",color:"#0071E3",fontWeight:700,cursor:"pointer",flexShrink:0},
-                  onClick:()=>{setArsivDuzMod(false);setArsivAc(kardesIdx);}},"Görüntüle →")
-              );
-            })(),
             arsivDuzMod&&div({style:{background:"rgba(0,113,227,.08)",borderBottom:"1px solid rgba(0,113,227,.2)",
               padding:"8px 14px",flexShrink:0,display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#0071E3"}},"✏️ Düzenleme modu — Birim Fiyat, Adet ve İskonto alanlarını değiştirebilirsiniz. Bitince Kaydet'e basın."),
             arsivDuzMod&&div({style:{padding:"10px 14px 0",flexShrink:0,display:"flex",gap:8,alignItems:"flex-start"}},
@@ -3749,7 +3720,18 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     div({style:{padding:"9px 5px",textAlign:"center",fontSize:12,color:"var(--di)",borderRight:"1px solid var(--br)"}},(j+1)),
                     div({style:{padding:"9px 7px",borderRight:"1px solid var(--br)"}},
                       div({style:{fontSize:12,color:"var(--tx)",fontWeight:500}},urunAdCanli(u.barkod,u.urunAd)+(urunMlCanli(u.barkod,u.ml)?" ("+urunMlCanli(u.barkod,u.ml)+")":"")),
-                      u.marka&&div({style:{fontSize:10,color:"var(--di)"}},urunMarkaCanli(u.barkod,u.marka))
+                      u.marka&&div({style:{fontSize:10,color:"var(--di)"}},urunMarkaCanli(u.barkod,u.marka)),
+                      arsivDuzMod
+                        ? btn({type:"button",style:{marginTop:3,fontSize:9,fontWeight:700,padding:"1px 6px",borderRadius:6,
+                            border:"1px solid "+(u.sarfMi?"rgba(255,149,0,.5)":"var(--br)"),cursor:"pointer",
+                            background:u.sarfMi?"rgba(255,149,0,.15)":"transparent",
+                            color:u.sarfMi?"#FF9500":"var(--di)"},
+                            onClick:()=>setArsivDuzUrunler(p=>p.map((x,k)=>k===j?{...x,sarfMi:!x.sarfMi}:x))},
+                            u.sarfMi?"🧪 Sarf":"🛍️ Satılabilen")
+                        : div({style:{marginTop:3,fontSize:9,fontWeight:700,display:"inline-block",padding:"1px 6px",borderRadius:6,
+                            background:u.sarfMi?"rgba(255,149,0,.13)":"rgba(52,199,89,.13)",
+                            color:u.sarfMi?"#FF9500":"#34C759"}},
+                            u.sarfMi?"🧪 Sarf":"🛍️ Satılabilen")
                     ),
                     div({style:{padding:"9px 5px",fontSize:10,color:"var(--mu)",textAlign:"center",wordBreak:"break-all",lineHeight:1.3,borderRight:"1px solid var(--br)"}},u.barkod||"—"),
                     // Birim Fiyat
@@ -3965,7 +3947,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                           if(kalici){
                             const yeniUrun={b:finalBarkod,a:aVal,m:arsivYeniUrunEkle.m||"Diğer",ml:arsivYeniUrunEkle.ml||"",
                               bp:parseFloat(arsivYeniUrunEkle.bp)||0,ap:parseFloat(arsivYeniUrunEkle.bp)||0,
-                              sp:parseFloat(arsivYeniUrunEkle.sp)||0,tip:ar.tip==="sarf"?"sarf":"satilabilen"};
+                              sp:parseFloat(arsivYeniUrunEkle.sp)||0,tip:"satilabilen"};
                             URUN_DB.push(yeniUrun);
                             if(triggerUrunRender) triggerUrunRender();
                           }
@@ -3987,12 +3969,23 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         const renderArsivKart=(ar,i)=>{
             const genelTop=ar.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
             const globalIdx=sortedArsiv.indexOf(ar);
+            const sarfSayisi=(ar.urunler||[]).filter(u=>u.sarfMi).length;
+            const satSayisi=(ar.urunler||[]).length-sarfSayisi;
+            const rozet = sarfSayisi>0&&satSayisi>0
+              ? {ikon:"🔀",metin:"Karma",renk:"#8E5FE0",bg:"rgba(142,95,224,.13)"}
+              : sarfSayisi>0
+                ? {ikon:"🧪",metin:"Sarf",renk:"#FF9500",bg:"rgba(255,149,0,.13)"}
+                : {ikon:"🛍️",metin:"Satılabilen",renk:"#34C759",bg:"rgba(52,199,89,.13)"};
             return div({key:i,style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,
               padding:14,marginBottom:8,cursor:"pointer"},
               onClick:()=>{setArsivDonus(null);setArsivAc(globalIdx);}},
               div({style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
                 div(null,
-                  ar.tedarikci&&div({style:{fontSize:14,color:"var(--g)",fontWeight:600,marginBottom:2}},ar.tedarikci),
+                  div({style:{display:"flex",alignItems:"center",gap:6,marginBottom:2}},
+                    ar.tedarikci&&div({style:{fontSize:14,color:"var(--g)",fontWeight:600}},ar.tedarikci),
+                    div({style:{fontSize:9,fontWeight:700,color:rozet.renk,background:rozet.bg,
+                      borderRadius:5,padding:"1px 6px",letterSpacing:.5}},rozet.ikon+" "+rozet.metin)
+                  ),
                   div({style:{fontSize:13,color:"var(--tx)"}},(ar.faturaN?"Fatura: "+ar.faturaN+" · ":"")+fmtT(ar.tarih)),
                   div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},ar.urunler.length+" ürün")
                 ),
@@ -4006,25 +3999,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         return div(null,
           div({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,marginBottom:10}},
             "📁 "+sortedArsiv.length+" kayıt"),
-          satArsiv.length>0&&div(null,
-            div({style:{display:"flex",alignItems:"center",gap:8,padding:"8px 2px 6px",
-              marginBottom:6,borderBottom:"2px solid rgba(52,199,89,.3)"}},
-              div({style:{fontSize:12,fontWeight:700,color:"#34C759",letterSpacing:1.5,
-                textTransform:"uppercase"}},"🛍️  Satılabilen Ürünler"),
-              div({style:{fontSize:11,color:"var(--mu)",marginLeft:"auto"}},satArsiv.length+" kayıt")
-            ),
-            satArsiv.map((ar,i)=>renderArsivKart(ar,i))
-          ),
-          sarfArsiv.length>0&&div(null,
-            div({style:{display:"flex",alignItems:"center",gap:8,padding:"8px 2px 6px",
-              marginTop:satArsiv.length>0?14:0,marginBottom:6,
-              borderBottom:"2px solid rgba(255,149,0,.3)"}},
-              div({style:{fontSize:12,fontWeight:700,color:"#FF9500",letterSpacing:1.5,
-                textTransform:"uppercase"}},"🧪  Sarf Malzemeler"),
-              div({style:{fontSize:11,color:"var(--mu)",marginLeft:"auto"}},sarfArsiv.length+" kayıt")
-            ),
-            sarfArsiv.map((ar,i)=>renderArsivKart(ar,i))
-          )
+          sortedArsiv.map((ar,i)=>renderArsivKart(ar,i))
         );
       })(),
 
@@ -4564,24 +4539,24 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         const kdvT=matrah*(toN(u.kdvOran||"20")/100);
                         const _iskO10=toN(u.iskontoOran||"0"),_nf10=Math.round(toN(u.birimF)*(1-_iskO10/100)*100)/100,_bed10=toN(u.birimF)>0&&_nf10<1;
                         const _kabul10=(u.kabulAdet!==undefined&&u.kabulAdet!=="")?toN(u.kabulAdet):toN(u.adet);
-                        return {barkod:u.barkod,urunAd:u.urunAd,marka:u.marka,
+                        return {barkod:u.barkod,urunAd:u.urunAd,marka:u.marka,sarfMi:!!u.sarfMi,
                           adet:toN(u.adet),birimF:toN(u.birimF),
                           iskontoOran:_iskO10,iskontoTutar:_bed10?toN(u.birimF)*toN(u.adet):isk,
                           kdvOran:_bed10?0:toN(u.kdvOran||"20"),kdvTutar:_bed10?0:kdvT,
                           toplamF:_bed10?0:(matrah+kdvT),bedelsiz:_bed10,
                           kabulAdet:_kabul10,farkSebep:u.farkSebep||"",farkNot:u.farkNot||""};
                       });
+                      // Fatura, ürün detayında sarf/satılabilen karışık olsa bile TEK arşiv kaydı olarak tutulur —
+                      // ayrım artık kayıt (fatura) seviyesinde değil, her ürün satırındaki "sarfMi" işaretinde.
+                      // "tip" alanı sadece geriye dönük uyumluluk/varsayılan gösterim içindir: kayıt tamamen sarf
+                      // ürünlerden oluşuyorsa "sarf", en az bir satılabilen ürün varsa "satilabilen" olarak işaretlenir.
                       const ortakFaturaAlanlari={tarih:mkTarih,faturaTarih:mkFaturaTarih,faturaN:mkFatura,irsaliyeN:mkIrsaliye,
                         tedarikci:mkTedarikci,vade:mkVade,malKabulTarihi:mkMalKabulTarihi,
                         faturaImg:(Array.isArray(mkFaturaImg)?mkFaturaImg:[mkFaturaImg]).filter(Boolean)};
-                      // Aynı fatura için hem satılabilen hem sarf kalemi varsa İKİ ayrı arşiv kaydı oluşturulur —
-                      // aynı tedarikçi+fatura no taşıdıkları için Cari/Borçlarım'da otomatik "🔗 BİRLEŞİK FATURA"
-                      // olarak tek kartta birleşirler, mevcut raporlar (Sarf Malzeme Analizi vb.) kayıt bazlı "tip"
-                      // filtresine göre çalışmaya devam eder.
-                      const yeniKayitlar=[];
-                      if(stokKalemleri.length>0) yeniKayitlar.push({id:uid(),...ortakFaturaAlanlari,tip:"satilabilen",urunler:urunlerHazirla(stokKalemleri)});
-                      if(sarfKalemleri.length>0) yeniKayitlar.push({id:uid(),...ortakFaturaAlanlari,tip:"sarf",urunler:urunlerHazirla(sarfKalemleri)});
-                      const yeniArsiv=[...yeniKayitlar,...mkArsiv];
+                      const kayit={id:uid(),...ortakFaturaAlanlari,
+                        tip:stokKalemleri.length>0?"satilabilen":"sarf",
+                        urunler:urunlerHazirla([...stokKalemleri,...sarfKalemleri])};
+                      const yeniArsiv=[kayit,...mkArsiv];
                       mkArsivKirliRef.current=true;
                       setMkArsiv(yeniArsiv);
                       try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
@@ -5607,7 +5582,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
 
     // ═══════════════ SARF MALZEME ANALİZİ ═══════════════
     umSek==="sarfAnaliz"&&!showMenu&&(()=>{
-      const sarfKayitlari = (mkArsiv||[]).filter(ar=>ar.tip==="sarf");
+      // Artık fatura tek kayıt olarak tutuluyor (karışık sarf+satılabilen olabilir) — bu ekran sadece
+      // her kaydın içindeki "🧪 Sarf" işaretli ürün satırlarını dikkate alır, kayıt bazında değil.
+      const sarfKayitlari = (mkArsiv||[]).filter(ar=>(ar.urunler||[]).some(u=>u.sarfMi));
       const filtreli = sarfKayitlari.filter(ar=>{
         const t = ar.malKabulTarihi||ar.tarih||"";
         if(sarfAnalizBas && t<sarfAnalizBas) return false;
@@ -5615,12 +5592,13 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         return true;
       }).sort((a,b)=>(b.malKabulTarihi||b.tarih||"").localeCompare(a.malKabulTarihi||a.tarih||""));
 
-      const toplamGider = filtreli.reduce((s,ar)=>s+(ar.urunler||[]).reduce((s2,u)=>s2+(u.toplamF||0),0),0);
-      const toplamKalem = filtreli.reduce((s,ar)=>s+(ar.urunler||[]).length,0);
+      const sarfSatirlari = ar => (ar.urunler||[]).filter(u=>u.sarfMi);
+      const toplamGider = filtreli.reduce((s,ar)=>s+sarfSatirlari(ar).reduce((s2,u)=>s2+(u.toplamF||0),0),0);
+      const toplamKalem = filtreli.reduce((s,ar)=>s+sarfSatirlari(ar).length,0);
 
       const urunMap={};
       filtreli.forEach(ar=>{
-        (ar.urunler||[]).forEach(u=>{
+        sarfSatirlari(ar).forEach(u=>{
           if(!urunMap[u.barkod]) urunMap[u.barkod]={barkod:u.barkod,urunAd:u.urunAd,marka:u.marka,toplam:0,adet:0};
           urunMap[u.barkod].toplam += (u.toplamF||0);
           urunMap[u.barkod].adet += (u.adet||0);
@@ -5633,7 +5611,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         const t=ar.malKabulTarihi||ar.tarih||"";
         const ay=t.slice(0,7);
         if(!ay) return;
-        const tutar=(ar.urunler||[]).reduce((s,u)=>s+(u.toplamF||0),0);
+        const tutar=sarfSatirlari(ar).reduce((s,u)=>s+(u.toplamF||0),0);
         ayMap[ay]=(ayMap[ay]||0)+tutar;
       });
       const aylikListe = Object.entries(ayMap).sort((a,b)=>b[0].localeCompare(a[0]));
@@ -5712,7 +5690,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             filtreli.length===0
               ? div({style:{fontSize:12,color:"var(--mu)",textAlign:"center",padding:"14px 0"}},"Bu aralıkta kayıt yok")
               : filtreli.map((ar,i)=>{
-                  const arToplam=(ar.urunler||[]).reduce((s,u)=>s+(u.toplamF||0),0);
+                  const sarfSat=sarfSatirlari(ar);
+                  const arToplam=sarfSat.reduce((s,u)=>s+(u.toplamF||0),0);
                   return div({key:ar.id||i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
                     padding:"10px 0",borderBottom:i<filtreli.length-1?"1px solid var(--br)":"none",cursor:"pointer"},
                     onClick:()=>{
@@ -5723,7 +5702,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     div({style:{flex:1,minWidth:0}},
                       div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},ar.tedarikci||"—"),
                       div({style:{fontSize:11,color:"var(--mu)",marginTop:1}},
-                        (ar.faturaN?ar.faturaN+" · ":"")+fmtT(ar.malKabulTarihi||ar.tarih)+" · "+(ar.urunler||[]).length+" kalem")
+                        (ar.faturaN?ar.faturaN+" · ":"")+fmtT(ar.malKabulTarihi||ar.tarih)+" · "+sarfSat.length+" kalem"+(sarfSat.length<(ar.urunler||[]).length?" (karma faturanın sarf kısmı)":""))
                     ),
                     div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:14,color:"#FF9500",fontWeight:700,flexShrink:0}},fmt(arToplam))
                   );
@@ -6244,7 +6223,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     const odenecek=gOdenecek(g);
                     const odenen=gOdenen(g);
                     const kalan=odenecek-odenen;
-                    const tipler=[...new Set(g.kayitlar.map(k=>k.tip))];
+                    const satilabilenVar=g.kayitlar.some(k=>(k.urunler||[]).some(u=>!u.sarfMi));
+                    const sarfVar=g.kayitlar.some(k=>(k.urunler||[]).some(u=>u.sarfMi));
                     return div({key:i,style:{background:"var(--bg2)",border:"1px solid var(--br)",
                       borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",
                       transition:"border-color .2s"},
@@ -6254,9 +6234,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                           ar.tedarikci&&div({style:{fontSize:14,color:"var(--g)",fontWeight:600,marginBottom:3}},ar.tedarikci),
                           div({style:{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}},
                             ar.faturaN&&div({style:{fontSize:12,color:"var(--mu)"}},"Fatura: "+ar.faturaN),
-                            tipler.includes("satilabilen")&&div({style:{fontSize:10,fontWeight:700,color:"#34C759",background:"rgba(52,199,89,.12)",
+                            satilabilenVar&&div({style:{fontSize:10,fontWeight:700,color:"#34C759",background:"rgba(52,199,89,.12)",
                                 borderRadius:6,padding:"1px 7px"}},"🛍️ SATILABİLEN"),
-                            tipler.includes("sarf")&&div({style:{fontSize:10,fontWeight:700,color:"#FF9500",background:"rgba(255,149,0,.12)",
+                            sarfVar&&div({style:{fontSize:10,fontWeight:700,color:"#FF9500",background:"rgba(255,149,0,.12)",
                                 borderRadius:6,padding:"1px 7px"}},"🧪 SARF")
                           ),
                           div({style:{fontSize:12,color:"var(--di)",marginTop:2}},fmtT(ar.faturaTarih||ar.tarih))
@@ -6524,7 +6504,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 const odenen=gOdenen(g);
                 const kalan=odenecek-odenen;
                 if(kalan>0) return null;
-                const tipler=[...new Set(g.kayitlar.map(k=>k.tip))];
+                const satilabilenVar=g.kayitlar.some(k=>(k.urunler||[]).some(u=>!u.sarfMi));
+                const sarfVar=g.kayitlar.some(k=>(k.urunler||[]).some(u=>u.sarfMi));
                 return div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
                   padding:"10px 12px",background:"var(--bg2)",borderRadius:10,marginBottom:7,
                   border:"1px solid rgba(50,140,100,.15)",opacity:.85,cursor:"pointer"},
@@ -6532,7 +6513,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   div(null,
                     ar.tedarikci&&div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},ar.tedarikci),
                     div({style:{fontSize:12,color:"var(--mu)"}},
-                      (tipler.length>1?"🛍️🧪 ":tipler[0]==="sarf"?"🧪 ":"🛍️ ")+(ar.faturaN||"—")+" · "+fmtT(ar.faturaTarih||ar.tarih))
+                      (satilabilenVar&&sarfVar?"🛍️🧪 ":sarfVar?"🧪 ":"🛍️ ")+(ar.faturaN||"—")+" · "+fmtT(ar.faturaTarih||ar.tarih))
                   ),
                   div({style:{display:"flex",alignItems:"center",gap:8}},
                     div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:14,color:"#50b880",fontWeight:600}},
@@ -8657,11 +8638,17 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
       if(!isFinite(ham) || Math.abs(ham) > makulSinir) hesaplanabildi = false;
       else hesaplananHakedis = ham || 0;
     } catch(e){ hesaplanabildi = false; }
-    const ibanHizmetTop = ayKayitlarZengin
-      .filter(r=>String(r.hizIbanId)===String(p.id) && toN(r.hizIB)>0)
+    // İban hizmet geliri ikiye ayrılır: kişinin KENDİ hizmetinden gelen (hizIbanId boşsa veya kendisiyse)
+    // ve BAŞKA bir personelin (örn. maniküristin) verdiği hizmetten, ödemesi bu kişinin ibanına yönlendirilen tutar.
+    const kendiHizIban = ayKayitlarZengin
+      .filter(r=>String(r.staffId)===String(p.id) && (!r.hizIbanId || String(r.hizIbanId)===String(p.id)))
       .reduce((s,r)=>s+toN(r.hizIB),0);
+    const manikurHizIban = ayKayitlarZengin
+      .filter(r=>String(r.hizIbanId)===String(p.id) && String(r.staffId)!==String(p.id))
+      .reduce((s,r)=>s+toN(r.hizIB),0);
+    const ibanHizmetTop = kendiHizIban + manikurHizIban;
     const ibanUrunTop = ayKayitlarZengin
-      .filter(r=>String(r.urunIbanId)===String(p.id) && toN(r.uIB)>0)
+      .filter(r=>String(r.urunIbanId||r.staffId)===String(p.id))
       .reduce((s,r)=>s+toN(r.uIB),0);
     const avansToplam = (avanslar||[]).filter(a=>{
       if(String(a.staffId)!==String(p.id)) return false;
@@ -8672,6 +8659,7 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
     const cebineGecen = ibanHizmetTop + ibanUrunTop + avansToplam;
     const ortakMi = formulDonemleri(p).some(d=>(d.formul||[]).some(b=>b.tip==="ortakPayi"));
     return {id:p.id, ad:p.ad, hesaplananHakedis, hesaplanabildi, cebineGecen, ortakMi, ortakPayiDetay,
+      kendiHizIban, manikurHizIban, ibanUrunTop, avansToplam,
       kalanOdenecek: hesaplanabildi ? (hesaplananHakedis - cebineGecen) : null};
   });
   const hfPersonelToplam = hfPersonelListesi.reduce((s,p)=>s+p.cebineGecen,0);
@@ -8717,9 +8705,27 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
     return {id:p.id, ad:p.ad, kendiHizmetCirosu:digerBilesenlerToplamiP, gercekGelir, cebineGecen:p.cebineGecen,
       kalanOdenecek: gercekGelir - p.cebineGecen};
   });
-  // Nihai kontrol: Toplam Ciro'dan Toplam Masraf ve ortakların netleşen hakedişi çıkarılınca 0 çıkmalı
-  const ortaklarNetGelirToplami = ortaklarDetay.reduce((s,o)=>s+o.gercekGelir,0);
-  const nihaiKalan = sistemTop - toplamMasrafTutari - ortaklarNetGelirToplami;
+  // ── Ciro Dağılım Özeti: personel bazında tek tek döküm + Toplam Ciro ile eşleşme kontrolü ──
+  // Ortaklar dahil TÜM personel — o ay yaptığı hizmet+ürün satışı, ödeme şekli kırılımıyla.
+  // Σ (tüm personel toplamı) sistemTop'a (TOPLAM CİRO) eşit çıkmalı; eşit çıkmıyorsa staffId'si
+  // olmayan/eşleşmeyen kayıtlar var demektir — "Atanmamış" satırı bunu görünür kılar.
+  const personelCiroListesi = (()=>{
+    const grup = {};
+    ayKayitlar.forEach(r=>{
+      const key = r.staffId || "__atanmamis__";
+      if(!grup[key]) grup[key] = {id:key, ad:r.staffAd||"⚠️ Atanmamış",
+        hizKK:0,hizIB:0,hizNK:0, uKK:0,uIB:0,uNK:0, hizCiro:0, urunCiro:0};
+      const g = grup[key];
+      g.hizKK += toN(r.hizKK); g.hizIB += toN(r.hizIB); g.hizNK += toN(r.hizNK);
+      g.uKK += toN(r.uKK); g.uIB += toN(r.uIB); g.uNK += toN(r.uNK);
+      g.hizCiro += toN(r.hizKK)+toN(r.hizIB)+toN(r.hizNK);
+      g.urunCiro += toN(r.uKK)+toN(r.uIB)+toN(r.uNK);
+    });
+    return Object.values(grup).map(g=>({...g, toplam:g.hizCiro+g.urunCiro}))
+      .sort((a,b)=>b.toplam-a.toplam);
+  })();
+  const personelCiroToplami = personelCiroListesi.reduce((s,p)=>s+p.toplam,0);
+  const personelCiroFark = sistemTop - personelCiroToplami;
 
   // Brüt Hakedişinden Fazla Alanlar (Elimizdeki Nakit kutusu): "💰 Yapılan ve Kalan Ödemeler" (çalışan+ortak,
   // düzeltilmiş kalanOdenecek) tutarından beslenir — kalanOdenecek negatifse fazla ödenmiş demektir.
@@ -8863,160 +8869,183 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
         div({style:{fontSize:16,fontWeight:700,color:"var(--g)"}},fmt(sistemTop))
       ),
 
-      // Masraflar + Ödeme Yapılacaklar + Elimizdeki Nakit — yan yana
-      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:12}},
+      // Ciro Dağılım Özeti (eski genişliği) + Ödeme Yapılacaklar (sağa doğru genişletilmiş) — yan yana
+      div({style:{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10,marginBottom:12}},
 
-        // Masraflar — Genel Masraf + kişi kişi çalışan hakedişleri (ortaklar hariç), en altta toplamı
+        // Ciro Dağılım Özeti — personel bazında tek tek döküm + Toplam Ciro ile eşleşme kontrolü
         div({style:{background:"var(--bg2)",borderRadius:9,padding:"9px 11px",border:"1px solid var(--br)"}},
           div({style:{fontSize:12,fontWeight:700,color:"var(--tx)",marginBottom:8}},"💸 Ciro Dağılım Özeti"),
-          div({style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:12.5,color:"var(--tx)"}},
-            div({style:{display:"flex",alignItems:"center",gap:5}},"📋 Genel Masraf",
-              h("span",{style:{fontSize:9,color:"var(--g)",background:"rgba(37,99,168,.1)",borderRadius:5,padding:"1px 5px"}},"otomatik")),
-            div({style:{fontWeight:600}},fmt(genelMasrafOtomatik))
-          ),
-          hfCalisanListesi.length===0
-            ? div({style:{fontSize:11.5,color:"var(--mu)",fontStyle:"italic",padding:"4px 0"}},"Maaş formülü tanımlı personel yok.")
-            : hfCalisanListesi.map(p=>
-                div({key:p.id,style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:12.5,color:"var(--tx)"}},
-                  div(null,"👤 "+p.ad),
-                  div({style:{fontWeight:600,color:p.hesaplanabildi?"var(--tx)":"#e06060"}},
-                    p.hesaplanabildi ? fmt(p.hesaplananHakedis) : "—")
+          div({style:{fontSize:10,color:"var(--mu)",marginBottom:10,lineHeight:1.4}},
+            "Seçilen aydaki toplam ciro, personel bazında hizmet+ürün satışı ve ödeme şekliyle dökülür."),
+
+          personelCiroListesi.length===0
+            ? div({style:{fontSize:11.5,color:"var(--mu)",fontStyle:"italic",padding:"4px 0"}},"Bu ayda kayıt yok.")
+            : personelCiroListesi.map(p=>
+                div({key:p.id,style:{marginBottom:9,paddingBottom:9,borderBottom:"1px solid var(--br)"}},
+                  div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,fontWeight:700,marginBottom:5,
+                    color:p.id==="__atanmamis__"?"#e06060":"var(--tx)"}},
+                    div(null,(p.id==="__atanmamis__"?"":"👤 ")+p.ad),
+                    div({style:{color:"var(--g)"}},fmt(p.toplam))
+                  ),
+                  div({style:{marginBottom:4}},
+                    div({style:{display:"flex",justifyContent:"space-between",fontSize:10.5,color:"var(--mu)"}},
+                      div(null,"Hizmet"), div({style:{fontWeight:600,color:"var(--tx)"}},fmt(p.hizCiro))),
+                    div({style:{display:"flex",flexWrap:"wrap",gap:"2px 7px",marginTop:1}},
+                      [["💳",p.hizKK],["🏦",p.hizIB],["💵",p.hizNK]].map(([ik,v],i)=>
+                        h("span",{key:i,style:{fontSize:10,color:v>0?"var(--tx)":"var(--di)"}}, ik+" "+fmt(v))
+                      )
+                    )
+                  ),
+                  div(null,
+                    div({style:{display:"flex",justifyContent:"space-between",fontSize:10.5,color:"var(--mu)"}},
+                      div(null,"Ürün"), div({style:{fontWeight:600,color:"var(--tx)"}},fmt(p.urunCiro))),
+                    div({style:{display:"flex",flexWrap:"wrap",gap:"2px 7px",marginTop:1}},
+                      [["💳",p.uKK],["🏦",p.uIB],["💵",p.uNK]].map(([ik,v],i)=>
+                        h("span",{key:i,style:{fontSize:10,color:v>0?"var(--tx)":"var(--di)"}}, ik+" "+fmt(v))
+                      )
+                    )
+                  )
                 )
               ),
-          div({style:{display:"flex",justifyContent:"space-between",padding:"8px 0 0",marginTop:6,
-            borderTop:"1px solid var(--br)",fontSize:13.5,fontWeight:700,color:"var(--tx)"}},
-            div(null,"Toplam Masraf Tutarı"),
-            div(null,fmt(toplamMasrafTutari))
-          ),
 
-          // Yeni ara hesap: (Ortaklar hariç diğer personelin hizmet cirosu + tüm ürün cirosu) − Toplam Masraf = Kalan
-          div({style:{marginTop:8,paddingTop:8,borderTop:"1px dashed var(--br)"}},
-            div({style:{fontSize:10.5,color:"var(--mu)",marginBottom:4}},"Diğer Personel Cirosu (Ortaklar Hariç) + Ürün Cirosu"),
-            div({style:{fontSize:11.5,color:"var(--tx)",marginBottom:6}},
-              "Hizmet "+fmt(digerHizmetCiroToplam)+" + Ürün "+fmt(tumUrunCiroToplam)+" = "+fmt(digerPersonelCiroToplam)),
-            div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12.5,
-              fontWeight:700,color:ikinciKalan<0?"#e06060":(ikinciKalan===0?"var(--mu)":"var(--gr)")}},
-              div(null,fmt(digerPersonelCiroToplam)+" − "+fmt(toplamMasrafTutari)+" ="),
-              div(null,fmt(ikinciKalan)+(ikinciKalan<0?" (Açık)":ikinciKalan===0?" (Nötr)":" (Fazla)"))
-            )
-          ),
-
-          // Kalan tutar, ortak sayısına bölünür
-          ortakSayisi>0 && div({style:{marginTop:8,paddingTop:8,borderTop:"1px dashed var(--br)"}},
-            div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12.5,
-              fontWeight:700,color:"var(--tx)"}},
-              div(null,fmt(ikinciKalan)+" ÷ "+ortakSayisi+" ortak ="),
-              div({style:{color:ortakBasinaPay<0?"#e06060":"var(--gr)"}},fmt(ortakBasinaPay)+" / ortak")
-            ),
-
-            div({style:{marginTop:10}},
-              div({style:{fontSize:10.5,color:"var(--mu)",marginBottom:6,fontWeight:700}},"🤝 ORTAKLAR"),
-              ortaklarDetay.map(o=>{
-                const isaret = ortakBasinaPay>=0 ? "+" : "−";
-                const payAbs = Math.abs(ortakBasinaPay);
-                return div({key:o.id,style:{marginBottom:8,paddingBottom:8,borderBottom:"1px solid var(--br)"}},
-                  div({style:{fontSize:12.5,fontWeight:600,color:"var(--tx)",marginBottom:3}},o.ad),
-                  div({style:{fontSize:11,color:"var(--mu)",marginBottom:2}},
-                    "Diğer Bileşenler (Ortak Payı Hariç): "+fmt(o.kendiHizmetCirosu)),
-                  div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,fontWeight:700}},
-                    div({style:{color:"var(--tx)"}},fmt(o.kendiHizmetCirosu)+" "+isaret+" "+fmt(payAbs)+" ="),
-                    div({style:{color:o.gercekGelir<0?"#e06060":"var(--gr)"}},fmt(o.gercekGelir))
-                  )
-                );
-              })
-            )
-          ),
-
-          // Nihai kontrol: Toplam Ciro − Toplam Masraf − Ortakların Netleşen Hakedişi = Kalan (0 çıkması beklenir)
           div({style:{marginTop:10,paddingTop:10,borderTop:"2px solid var(--br)"}},
-            div({style:{fontSize:10.5,color:"var(--mu)",marginBottom:4}},
-              "Toplam Ciro − Toplam Masraf − Ortakların Netleşen Hakedişi"),
-            div({style:{fontSize:11.5,color:"var(--tx)",marginBottom:6}},
-              fmt(sistemTop)+" − "+fmt(toplamMasrafTutari)+" − "+fmt(ortaklarNetGelirToplami)),
-            div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13.5,
-              fontWeight:700,color:Math.abs(nihaiKalan)<1?"var(--gr)":"#e06060"}},
-              div(null,"= Kalan"),
-              div(null,fmt(nihaiKalan)+(Math.abs(nihaiKalan)<1?" ✓ Denk":""))
+            div({style:{display:"flex",justifyContent:"space-between",fontSize:12.5,fontWeight:600,color:"var(--tx)"}},
+              div(null,"Σ Personel Toplamı"),
+              div(null,fmt(personelCiroToplami))
+            ),
+            div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6,paddingTop:6,
+              borderTop:"1px dashed var(--br)",fontSize:13,fontWeight:700,
+              color:Math.abs(personelCiroFark)<1?"var(--gr)":"#e06060"}},
+              div(null,"TOPLAM CİRO ile Fark"),
+              div(null, Math.abs(personelCiroFark)<1 ? "✓ Denk" : fmt(personelCiroFark))
             )
           )
         ),
 
-        // Yapılan ve Kalan Ödemeler — Ciro Dağılım Özeti'ndeki alacak tutarından İban+Avans düşülür (ortaklar dahil herkes)
+        // Yapılan ve Kalan Ödemeler — her personelin brüt hakedişi ve ibanına/eline geçen tutarlar tek tek
         div({style:{background:"var(--bg2)",borderRadius:9,padding:"9px 11px",border:"1px solid var(--br)"}},
           div({style:{fontSize:12,fontWeight:700,color:"var(--tx)",marginBottom:8}},"💰 Yapılan ve Kalan Ödemeler"),
-          (hfCalisanListesi.length===0 && ortaklarDetay.length===0)
+          hfPersonelListesi.length===0
             ? div({style:{fontSize:11.5,color:"var(--mu)",fontStyle:"italic",padding:"4px 0"}},"Maaş formülü tanımlı personel yok.")
-            : [
-                ...hfCalisanListesi.map(p=>
-                  div({key:"c"+p.id,style:{marginBottom:4}},
-                    div({style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:12.5,color:"var(--tx)"}},
-                      div(null,"👤 "+p.ad),
-                      div({style:{fontWeight:600,color:p.kalanOdenecek===null?"#e06060":(p.kalanOdenecek>0?"#e06060":(p.kalanOdenecek<0?"#FF9500":"var(--gr)"))}},
-                        p.kalanOdenecek===null ? "—" : fmt(p.kalanOdenecek))
+            : div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}},
+                hfPersonelListesi.map(p=>
+                (()=>{
+                  // A: Kesintisiz hak ettiği alacak — ortaklarda Ortak Payı hariç formül bileşenleri
+                  // (ortaklarDetay'de zaten güvenilir hesaplanmış), diğer personelde formülün tam çıktısı
+                  // (onlarda Ortak Payı bileşeni olmadığı için hesaplananHakedis zaten güvenilir).
+                  const od = p.ortakMi ? ortaklarDetay.find(o=>String(o.id)===String(p.id)) : null;
+                  const A = p.ortakMi ? (od ? od.kendiHizmetCirosu : null) : (p.hesaplanabildi ? p.hesaplananHakedis : null);
+                  const opNegatif = od && ortakBasinaPay<0;
+                  const opPozitif = od && ortakBasinaPay>0;
+                  // B: aldığı tüm ödemelerin toplamı (İban + Avans) — Ortak Payı NEGATİFSE bu düşülecek
+                  // kalemler havuzuna (Avans'ın altına) dahil edilir, Brüt Hakedişten böyle düşülmüş olur.
+                  const B = p.kendiHizIban+p.manikurHizIban+p.ibanUrunTop+p.avansToplam + (opNegatif?Math.abs(ortakBasinaPay):0);
+                  // C: A − B (Ortak Payı negatifse zaten B'nin içinde, pozitifse henüz eklenmedi — ara sonuç)
+                  const C = A!==null ? (A - B) : null;
+                  const durumEtiketiC = C===null?"—":(C>0?"🔴 Net Alacağı":(C<0?"🟢 Net Vereceği":"✓ Denk"));
+                  // Nihai: Ortak Payı POZİTİFSE, C'nin altına eklenip son sonuca ulaşılır
+                  const nihai = opPozitif ? (C!==null ? C+ortakBasinaPay : null) : null;
+                  const durumEtiketiNihai = nihai===null?"—":(nihai>0?"🔴 Net Alacağı":(nihai<0?"🟢 Net Vereceği":"✓ Denk"));
+                  const kalemStil = {display:"flex",justifyContent:"space-between"};
+                  const kalemDeger = {color:"var(--tx)",fontWeight:600};
+                  return div({key:p.id,style:{marginBottom:9,paddingBottom:9,borderBottom:"1px solid var(--br)"}},
+                    div({style:{fontSize:12,fontWeight:700,color:"var(--tx)",marginBottom:6}},
+                      (p.ortakMi?"🤝 ":"👤 ")+p.ad
                     ),
-                    p.hesaplanabildi && div({style:{fontSize:9.5,color:"var(--di)"}},
-                      "Alacağı "+fmt(p.hesaplananHakedis)+" − (İban+Avans) "+fmt(p.cebineGecen))
-                  )
-                ),
-                ...ortaklarDetay.map(o=>
-                  div({key:"o"+o.id,style:{marginBottom:4}},
-                    div({style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:12.5,color:"var(--tx)"}},
-                      div(null,"🤝 "+o.ad),
-                      div({style:{fontWeight:600,color:o.kalanOdenecek>0?"#e06060":(o.kalanOdenecek<0?"#FF9500":"var(--gr)")}},
-                        fmt(o.kalanOdenecek))
+                    // A — hiç kesinti olmadan hak ettiği brüt alacak
+                    div({style:{display:"flex",justifyContent:"space-between",fontSize:11.5,fontWeight:700,color:"var(--tx)",
+                      background:"var(--bg3)",borderRadius:6,padding:"4px 7px",marginBottom:6}},
+                      div(null,"Hak Ettiği Alacağı (kesintisiz)"),
+                      div(null,A!==null?fmt(A):"—")
                     ),
-                    div({style:{fontSize:9.5,color:"var(--di)"}},
-                      "Alacağı "+fmt(o.gercekGelir)+" − (İban+Avans) "+fmt(o.cebineGecen))
-                  )
+                    // Aldığı tüm ödemeler — eksi (−) işaretiyle. Ortak Payı NEGATİFSE, Avans'ın hemen
+                    // altına aynı düşülecek kalemler grubuna eklenir (borç gibi muamele görür).
+                    div({style:{fontSize:10.5,color:"var(--mu)",lineHeight:1.6}},
+                      div({style:kalemStil},
+                        div(null,"🏦 İbanına Gelen Kendi Hizmet Tutarı"),
+                        div(kalemDeger,"− "+fmt(p.kendiHizIban))),
+                      div({style:kalemStil},
+                        div(null,"💅 İbanına Gelen Manikür Hizmet Tutarı"),
+                        div(kalemDeger,"− "+fmt(p.manikurHizIban))),
+                      div({style:kalemStil},
+                        div(null,"📦 İbanına Gelen Ürün Tutarları"),
+                        div(kalemDeger,"− "+fmt(p.ibanUrunTop))),
+                      div({style:kalemStil},
+                        div(null,"💵 Avans"),
+                        div(kalemDeger,"− "+fmt(p.avansToplam))),
+                      opNegatif && div({style:kalemStil},
+                        div(null,"🤝 Ortak Payı / Kâr-Zarar (borcu)"),
+                        div({style:{color:"#FF9500",fontWeight:600}},"− "+fmt(Math.abs(ortakBasinaPay))))
+                    ),
+                    // B — aldığı tüm ödemelerin toplamı (Ortak Payı negatifse dahil)
+                    div({style:{display:"flex",justifyContent:"space-between",fontSize:10.5,fontWeight:600,color:"var(--tx)",
+                      marginTop:5,paddingTop:5,borderTop:"1px dashed var(--br)"}},
+                      div(null,"Toplam Aldığı"+(opNegatif?" (İban + Avans + Ortak Payı Borcu)":" (İban + Avans)")),
+                      div(null,"− "+fmt(B))
+                    ),
+                    // C — Net Alacağı/Vereceği (Ortak Payı pozitifse bu henüz ara sonuçtur)
+                    div({style:{display:"flex",justifyContent:"space-between",fontSize:12,fontWeight:700,marginTop:4,paddingTop:4,
+                      borderTop:"1px dashed var(--br)",
+                      color:C===null?"var(--mu)":(C>0?"#e06060":"var(--gr)")}},
+                      div(null,durumEtiketiC),
+                      div(null,C===null?"—":(C<0?"− ":"")+fmt(Math.abs(C)))
+                    ),
+                    // Ortak Payı POZİTİFSE: C'nin altına eklenip nihai sonuca ulaşılır
+                    opPozitif && div(null,
+                      div({style:{display:"flex",justifyContent:"space-between",fontSize:10.5,fontWeight:600,marginTop:3,color:"var(--gr)"}},
+                        div({style:{color:"var(--mu)",fontWeight:400}},"🤝 Ortak Payı / Kâr-Zarar"),
+                        div(null,"+ "+fmt(ortakBasinaPay))
+                      ),
+                      div({style:{display:"flex",justifyContent:"space-between",fontSize:12,fontWeight:700,marginTop:4,paddingTop:4,
+                        borderTop:"1px dashed var(--br)",
+                        color:nihai===null?"var(--mu)":(nihai>0?"#e06060":"var(--gr)")}},
+                        div(null,"Nihai "+durumEtiketiNihai),
+                        div(null,nihai===null?"—":(nihai<0?"− ":"")+fmt(Math.abs(nihai)))
+                      )
+                    )
+                  );
+                })()
                 )
-              ],
-          div({style:{display:"flex",justifyContent:"space-between",padding:"8px 0 0",marginTop:6,
-            borderTop:"1px solid var(--br)",fontSize:13.5,fontWeight:700,color:"var(--tx)"}},
-            div(null,"Yapılacak Ödemeler Toplamı"),
-            div(null,fmt(
-              hfCalisanListesi.reduce((s,p)=>s+(p.kalanOdenecek||0),0) +
-              ortaklarDetay.reduce((s,o)=>s+o.kalanOdenecek,0)
-            ))
+              )
+        )
+      ),
+
+      // Elimizdeki Nakit — tam genişlik, Ciro Dağılım Özeti + Yapılan ve Kalan Ödemeler'in altında
+      div({style:{background:"var(--bg2)",borderRadius:9,padding:"9px 11px",border:"1px solid var(--br)",marginBottom:12}},
+        div({style:{fontSize:12,fontWeight:700,color:"var(--tx)",marginBottom:8}},"🏦 Elimizdeki Nakit"),
+        bankaAdlari.filter(bad=>{
+          const oz = bankaOzet.find(x=>x.bad===bad);
+          return (oz && oz.girisToplam>0) || toN(hfBankalar[bad])>0;
+        }).map(bad=>
+          div({key:bad,style:{display:"grid",gridTemplateColumns:"1fr 100px",gap:6,alignItems:"center",padding:"3px 0"}},
+            div({style:{fontSize:12,color:"var(--tx)"}},bad),
+            inp({className:"fi",style:{margin:0,padding:"5px 6px",textAlign:"right"},type:"number",inputMode:"decimal",placeholder:"0",
+              value:hfBankalar[bad]||"", onChange:e=>setHfBankalar(p=>({...p,[bad]:e.target.value}))})
           )
         ),
-
-        // Elimizdeki Nakit — Bankalar + İban + Nakit (elle) + brüt hakedişinden fazla alan personel (elle)
-        div({style:{background:"var(--bg2)",borderRadius:9,padding:"9px 11px",border:"1px solid var(--br)"}},
-          div({style:{fontSize:12,fontWeight:700,color:"var(--tx)",marginBottom:8}},"🏦 Elimizdeki Nakit"),
-          bankaAdlari.filter(bad=>{
-            const oz = bankaOzet.find(x=>x.bad===bad);
-            return (oz && oz.girisToplam>0) || toN(hfBankalar[bad])>0;
-          }).map(bad=>
-            div({key:bad,style:{display:"grid",gridTemplateColumns:"1fr 100px",gap:6,alignItems:"center",padding:"3px 0"}},
-              div({style:{fontSize:12,color:"var(--tx)"}},bad),
-              inp({className:"fi",style:{margin:0,padding:"5px 6px",textAlign:"right"},type:"number",inputMode:"decimal",placeholder:"0",
-                value:hfBankalar[bad]||"", onChange:e=>setHfBankalar(p=>({...p,[bad]:e.target.value}))})
+        div({style:{display:"grid",gridTemplateColumns:"1fr 100px",gap:6,alignItems:"center",padding:"3px 0"}},
+          div({style:{fontSize:12,color:"var(--tx)"}},"💵 Nakit"),
+          inp({className:"fi",style:{margin:0,padding:"5px 6px",textAlign:"right"},type:"number",inputMode:"decimal",placeholder:"0",
+            value:hfNakit, onChange:e=>setHfNakit(e.target.value)})
+        ),
+        hfFazlaOdenenListesi.length>0 && div({style:{marginTop:6,paddingTop:8,borderTop:"1px dashed var(--br)"}},
+          div({style:{fontSize:10.5,color:"#e06060",fontWeight:600,marginBottom:4}},"⚠ Brüt Hakedişinden Fazla Alanlar"),
+          hfFazlaOdenenListesi.map(p=>
+            div({key:p.id,style:{marginBottom:4}},
+              div({style:{display:"grid",gridTemplateColumns:"1fr 100px",gap:6,alignItems:"center",padding:"3px 0"}},
+                div({style:{fontSize:12,color:"var(--tx)"}},"👤 "+p.ad),
+                inp({className:"fi",style:{margin:0,padding:"5px 6px",textAlign:"right"},type:"number",inputMode:"decimal",
+                  placeholder:String(Math.round(p.hesaplananFazla)),
+                  value:hfFazlaOdenen[p.id]||"", onChange:e=>setHfFazlaOdenen(prev=>({...prev,[p.id]:e.target.value}))})
+              ),
+              div({style:{fontSize:9.5,color:"var(--di)"}},"Hesaplanan fazla: "+fmt(p.hesaplananFazla))
             )
-          ),
-          div({style:{display:"grid",gridTemplateColumns:"1fr 100px",gap:6,alignItems:"center",padding:"3px 0"}},
-            div({style:{fontSize:12,color:"var(--tx)"}},"💵 Nakit"),
-            inp({className:"fi",style:{margin:0,padding:"5px 6px",textAlign:"right"},type:"number",inputMode:"decimal",placeholder:"0",
-              value:hfNakit, onChange:e=>setHfNakit(e.target.value)})
-          ),
-          hfFazlaOdenenListesi.length>0 && div({style:{marginTop:6,paddingTop:8,borderTop:"1px dashed var(--br)"}},
-            div({style:{fontSize:10.5,color:"#e06060",fontWeight:600,marginBottom:4}},"⚠ Brüt Hakedişinden Fazla Alanlar"),
-            hfFazlaOdenenListesi.map(p=>
-              div({key:p.id,style:{marginBottom:4}},
-                div({style:{display:"grid",gridTemplateColumns:"1fr 100px",gap:6,alignItems:"center",padding:"3px 0"}},
-                  div({style:{fontSize:12,color:"var(--tx)"}},"👤 "+p.ad),
-                  inp({className:"fi",style:{margin:0,padding:"5px 6px",textAlign:"right"},type:"number",inputMode:"decimal",
-                    placeholder:String(Math.round(p.hesaplananFazla)),
-                    value:hfFazlaOdenen[p.id]||"", onChange:e=>setHfFazlaOdenen(prev=>({...prev,[p.id]:e.target.value}))})
-                ),
-                div({style:{fontSize:9.5,color:"var(--di)"}},"Hesaplanan fazla: "+fmt(p.hesaplananFazla))
-              )
-            )
-          ),
-          div({style:{display:"flex",justifyContent:"space-between",padding:"8px 0 0",marginTop:8,
-            borderTop:"1px solid var(--br)",fontSize:13.5,fontWeight:700,color:"var(--tx)"}},
-            div(null,"Elimizdeki Nakit Toplamı"),
-            div(null,fmt(elimizdekiNakitToplam))
           )
+        ),
+        div({style:{display:"flex",justifyContent:"space-between",padding:"8px 0 0",marginTop:8,
+          borderTop:"1px solid var(--br)",fontSize:13.5,fontWeight:700,color:"var(--tx)"}},
+          div(null,"Elimizdeki Nakit Toplamı"),
+          div(null,fmt(elimizdekiNakitToplam))
         )
       ),
 
