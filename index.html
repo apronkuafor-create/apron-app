@@ -2498,6 +2498,26 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [arsivYeniUrunEkle, setArsivYeniUrunEkle] = React.useState(null); // Arşiv Detayı içinden hızlı ürün ekleme formu
   const mkArsivYuklendiRef = React.useRef(false); // ilk yükleme bitti mi → boş diziyi buluta yazmayı güvenli kılar (silme-boş kalıcı olur, açılışta bulut silinmez)
   const mkArsivKirliRef = React.useRef(false);    // mount sonrası yerel silme/düzenleme oldu mu → geç gelen bulut çekimi bunu EZMESİN (diriltmeyi önler)
+  // Ödünç Ürün Takibi (oduncler/komsular) için aynı korumanın süreli hali: bir yerel değişiklikten (Kapat/İade,
+  // Geri Al, Düzenle, yeni kayıt) sonra ~8 sn boyunca gelen bulut senkronlarını UYGULAMA — bu, henüz sunucuya
+  // ulaşmamış (bayat) bir kopyanın az önce kapatılan kaydı "diriltmesini" önler. Kalıcı değil (mkArsiv gibi), süre
+  // dolunca otomatik açılır ki diğer cihazlardaki gerçek güncellemeler yine akmaya devam etsin.
+  const oduncKirliRef = React.useRef(false);
+  const oduncKirliTimerRef = React.useRef(null);
+  const markOduncKirli = React.useCallback(()=>{
+    oduncKirliRef.current = true;
+    if(oduncKirliTimerRef.current) clearTimeout(oduncKirliTimerRef.current);
+    oduncKirliTimerRef.current = setTimeout(()=>{ oduncKirliRef.current = false; }, 8000);
+  },[]);
+  // Aynı korumanın İşyeri Kullanımı/Hediye (kullanimlar) için hali — "İptal Et" ile silinen bir kaydın
+  // geç gelen bulut senkronuyla geri gelmesini (dirilmesini) önler.
+  const kullanimKirliRef = React.useRef(false);
+  const kullanimKirliTimerRef = React.useRef(null);
+  const markKullanimKirli = React.useCallback(()=>{
+    kullanimKirliRef.current = true;
+    if(kullanimKirliTimerRef.current) clearTimeout(kullanimKirliTimerRef.current);
+    kullanimKirliTimerRef.current = setTimeout(()=>{ kullanimKirliRef.current = false; }, 8000);
+  },[]);
   const [sdAramaF, setSdAramaF] = React.useState(""); // stok durumu arama
   const [sdSupheliFiltre, setSdSupheliFiltre] = React.useState(false); // sadece şüpheli (kataloğu olmayan/düşük fiyatlı) kayıtları göster
   const [sdSupheliYoksay, setSdSupheliYoksay] = React.useState(()=>{
@@ -3021,7 +3041,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         )
       ),
       div({style:{flex:1,overflowY:"auto",padding:"14px"}},
-        h(OduncModul,{oduncler,setOduncler,komsular,setKomsular,stokPartiler,setStokPartiler,setStokHar,showToast})
+        h(OduncModul,{oduncler,setOduncler,komsular,setKomsular,stokPartiler,setStokPartiler,setStokHar,showToast,markOduncKirli})
       )
     ),
 
@@ -3044,7 +3064,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         )
       ),
       div({style:{flex:1,overflowY:"auto",padding:"14px"}},
-        h(KullanimModul,{kullanimlar,setKullanimlar,stokPartiler,setStokPartiler,setStokHar,showToast})
+        h(KullanimModul,{kullanimlar,setKullanimlar,stokPartiler,setStokPartiler,setStokHar,showToast,markKullanimKirli})
       )
     ),
 
@@ -6533,7 +6553,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
 
 
 // ── ÖDÜNÇ MODÜLÜ ──────────────────────────────────────────────────────────
-function OduncModul({oduncler,setOduncler,komsular,setKomsular,stokPartiler,setStokPartiler,setStokHar,showToast}) {
+function OduncModul({oduncler,setOduncler:setOduncler_,komsular,setKomsular:setKomsular_,stokPartiler,setStokPartiler,setStokHar,showToast,markOduncKirli}) {
+  // Bu modüldeki HER yerel değişiklik (kapat/iade, geri al, düzenle, sil, yeni kayıt), geç gelen bir bulut
+  // senkronunun az önceki değişikliği "diriltmesini" önlemek için süreli korumayı (markOduncKirli) tetikler.
+  const setOduncler = (u) => { if(markOduncKirli) markOduncKirli(); setOduncler_(u); };
+  const setKomsular = (u) => { if(markOduncKirli) markOduncKirli(); setKomsular_(u); };
   const [sekme, setSekme] = React.useState("aktif"); // aktif | gecmis | komsular
   const [komsuFrm, setKomsuFrm] = React.useState(null);
   const [oduncFrm, setOduncFrm] = React.useState(false);
@@ -7219,7 +7243,8 @@ function OduncModul({oduncler,setOduncler,komsular,setKomsular,stokPartiler,setS
 
 
 // ── İŞYERİ KULLANIMI MODÜLÜ ───────────────────────────────────────────────
-function KullanimModul({kullanimlar,setKullanimlar,stokPartiler,setStokPartiler,setStokHar,showToast}) {
+function KullanimModul({kullanimlar,setKullanimlar:setKullanimlar_,stokPartiler,setStokPartiler,setStokHar,showToast,markKullanimKirli}) {
+  const setKullanimlar = (u) => { if(markKullanimKirli) markKullanimKirli(); setKullanimlar_(u); };
   const [frm,setFrm]         = React.useState(false);
   const [arama,setArama]     = React.useState("");
   const [aramaSon,setAramaSon] = React.useState([]);
@@ -14144,9 +14169,9 @@ ayarlarRaw.forEach(a=>{ try {
     setHareketler(a.deger); // Bulut tek doğru kaynak: yereldeki eski/silinmiş kayıtlarla birleştirme yapılmaz
   }
   if(a.id==="mkArsiv" && Array.isArray(a.deger) && a.deger.length){ setMkArsiv(a.deger); try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(a.deger));}catch(e){} }
-  if(a.id==="oduncler" && Array.isArray(a.deger)) setOduncler(prev=>birlestirListe(prev,a.deger));
-  if(a.id==="komsular" && Array.isArray(a.deger)) setKomsular(prev=>birlestirListe(prev,a.deger));
-  if(a.id==="kullanimlar" && Array.isArray(a.deger)) setKullanimlar(prev=>birlestirListe(prev,a.deger));
+  if(a.id==="oduncler" && Array.isArray(a.deger) && !oduncKirliRef.current) setOduncler(prev=>birlestirListe(prev,a.deger));
+  if(a.id==="komsular" && Array.isArray(a.deger) && !oduncKirliRef.current) setKomsular(prev=>birlestirListe(prev,a.deger));
+  if(a.id==="kullanimlar" && Array.isArray(a.deger) && !kullanimKirliRef.current) setKullanimlar(prev=>birlestirListe(prev,a.deger));
   if(a.id==="ozlukDosyalari" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setOzlukDosyalari(a.deger); // Bulut tek doğru kaynak
   if(a.id==="izinKayitlari" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setIzinKayitlari(a.deger); // Bulut tek doğru kaynak
   if(a.id==="cikisIslemleri" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setCikisIslemleri(a.deger); // Bulut tek doğru kaynak
@@ -14587,9 +14612,9 @@ if(DB) dbUpsertAyar("tema",tema);
       if(a.id==="hesapSaglamaAylik" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglamaAylik(prev=>_ay(prev,{...prev,...a.deger}));
       if(a.id==="bankaKom" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setBankaKom(prev=>_ay(prev,{...prev,...a.deger}));
       if(a.id==="tema" && a.deger && typeof a.deger==="object") setTema(prev=>_ay(prev,a.deger));
-      if(a.id==="oduncler" && Array.isArray(a.deger)) setOduncler(prev=>_ay(prev,birlestirListe(prev,a.deger)));
-      if(a.id==="komsular" && Array.isArray(a.deger)) setKomsular(prev=>_ay(prev,birlestirListe(prev,a.deger)));
-      if(a.id==="kullanimlar" && Array.isArray(a.deger)) setKullanimlar(prev=>_ay(prev,birlestirListe(prev,a.deger)));
+      if(a.id==="oduncler" && Array.isArray(a.deger) && !oduncKirliRef.current) setOduncler(prev=>_ay(prev,birlestirListe(prev,a.deger)));
+      if(a.id==="komsular" && Array.isArray(a.deger) && !oduncKirliRef.current) setKomsular(prev=>_ay(prev,birlestirListe(prev,a.deger)));
+      if(a.id==="kullanimlar" && Array.isArray(a.deger) && !kullanimKirliRef.current) setKullanimlar(prev=>_ay(prev,birlestirListe(prev,a.deger)));
     };
 
     // 1) kayitlar — INSERT/UPDATE/DELETE
