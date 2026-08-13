@@ -8784,7 +8784,7 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
       .reduce((s,r)=>s+toN(r.uIB),0);
     const avansToplam = (avanslar||[]).filter(a=>{
       if(String(a.staffId)!==String(p.id)) return false;
-      if(a.durum && a.durum!=="onaylandi") return false;
+      if(a.durum!=="onaylandi") return false; // sadece kesin olarak onaylanmış avanslar sayılır (Avans sekmesiyle tutarlı)
       if(!a.tarih) return false;
       return a.tarih>=ayBasIso && a.tarih<=ayBitIso;
     }).reduce((s,a)=>s+toN(a.tutar),0);
@@ -9692,6 +9692,10 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [mevcutHatirlatma, setMevcutHatirlatma] = useState(null);
   const [hatirlatmaUyari, setHatirlatmaUyari] = useState(false);
   const [hatirlatmaGun, setHatirlatmaGun] = useState("20"); // kaç gün sonra gönderilsin (öneri 20, personel değiştirir)
+  // ── Çoklu Hizmet Seçimi: dropdown'a her seferinde tek tek girmek yerine, bir kerede birden fazla hizmet seçip
+  // "Bitti"ye basınca hepsi ayrı satır olarak eklensin, tutarlar sonra elle girilsin. ──
+  const [hizmetCokluModal, setHizmetCokluModal] = useState(false);
+  const [hizmetCokluSecim, setHizmetCokluSecim] = useState([]);
   const [hizler,   setHizler]   = useState(
     ilk?.hizler?.length
       ? (()=>{ const arr = ilk.hizler.map(normalizeIlkHizmet);
@@ -9821,17 +9825,9 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
     }
     setMusteriKaydetUyari("");
     setMusteriKaydet(true);
-    // Sadece isim/telefon ile yetinmek yerine, "Müşterilerim" sekmesindeki Yeni Kayıt formunu
-    // aynen açıp personelin tüm müşteri bilgilerini (adres, doğum tarihi, notlar vb.) girmesini sağla.
-    if(onYeniMusteriAc){
-      onYeniMusteriAc({
-        ad: musteri.trim(),
-        cinsiyet:"", dogumTarihi:"", meslek:"",
-        telefonlar:[{etiket:"Cep", numara: tel||""}],
-        email:"", il:"", ilce:"", adres:"",
-        hizmetTercihleri:"", alerji:"", tipNotu:"", ozelTarihler:"", not:""
-      });
-    }
+    // Not: ayrı bir "Yeni Müşteri" formu artık açılmıyor. İşaretlenen bu ziyaret gün sonunda
+    // gönderildiğinde, müşteri ad/telefon bilgisiyle otomatik olarak sisteme kaydediliyor
+    // (bkz. musteriHavuzunaEkle) — bu formu doldurmaya gerek kalmıyor.
   };
   const formMusteriTemizle = () => {
     // Tek X butonu iki alanı birlikte temizler.
@@ -10429,7 +10425,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
           div({style:{flex:1}},
             div({style:{fontSize:14,fontWeight:600,letterSpacing:"-.1px",color:musteriKaydet?"#1a4d8f":"#2d3748"}},"Müşteriyi Sisteme Kaydet"),
             div({style:{fontSize:12,color:musteriKaydet?"#4a7ab5":"#718096",marginTop:2,lineHeight:1.4}},
-              musteriKaydet?"Müşteri bilgi formu açıldı — doldurup kaydedin, kayıt işlemine geri dönersiniz":"Yalnızca işlem kaydedilecek — müşteri profili oluşturulmayacak")
+              musteriKaydet?"Bu ziyaret gönderildiğinde müşteri otomatik olarak sisteme kaydedilecek":"Yalnızca işlem kaydedilecek — müşteri profili oluşturulmayacak")
           )
         ),
         musteriKaydetUyari&&div({style:{margin:"7px 0 10px",padding:"9px 11px",borderRadius:9,
@@ -10689,7 +10685,16 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
             hizler.map((h,i) =>
               div({key:h.id,style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 142px",alignItems:"stretch",gap:7,padding:"9px 9px",borderBottom:i===hizler.length-1?"none":"1px solid rgba(0,0,0,.05)"}},
                 div({style:{minWidth:0,background:"rgba(0,0,0,.03)",border:"none",borderRadius:10,overflow:"hidden"}},
-                  sel({className:"fi",value:h.n,
+                  !h.n
+                    ? btn({type:"button",style:{width:"100%",margin:0,border:"none",borderRadius:0,
+                        background:"transparent",padding:"10px 11px",fontSize:13.5,textAlign:"left",
+                        color:"var(--mu)",cursor:"pointer"},
+                        onClick:()=>{
+                          const odemesiz=odemesizIlkHizmet();
+                          if(odemesiz){hizmetOdemeUyarisiGoster(odemesiz.id);return;}
+                          setHizmetCokluSecim([]); setHizmetCokluModal(true);
+                        }},"Hizmet seç ▾")
+                    : sel({className:"fi",value:h.n,
                     onPointerDown:e=>{
                       // Ödeme seçilmeden yeni hizmet listesi açılmasın; ödeme alanı işaretlensin.
                       if(!h.n){const odemesiz=odemesizIlkHizmet();if(odemesiz){e.preventDefault();e.stopPropagation();hizmetOdemeUyarisiGoster(odemesiz.id);}}
@@ -10763,6 +10768,57 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                 )
               )
             )
+          ),
+          hizmetCokluModal && ReactDOM.createPortal(
+            div({style:{position:"fixed",inset:0,zIndex:970,background:"rgba(0,0,0,.6)",display:"flex",
+              alignItems:"flex-end",justifyContent:"center"},
+              onClick:e=>{if(e.target===e.currentTarget) setHizmetCokluModal(false);}},
+              div({style:{background:"var(--bg)",borderRadius:"16px 16px 0 0",maxWidth:480,width:"100%",
+                maxHeight:"80vh",display:"flex",flexDirection:"column"}},
+                div({style:{padding:"14px 16px",borderBottom:"1px solid var(--br)",display:"flex",
+                  justifyContent:"space-between",alignItems:"center",flexShrink:0}},
+                  div({style:{fontSize:15,fontWeight:700,color:"var(--tx)"}},
+                    "Hizmet Seç"+(hizmetCokluSecim.length>0?" ("+hizmetCokluSecim.length+")":"")),
+                  btn({className:"xbtn",onClick:()=>setHizmetCokluModal(false)},"✕")
+                ),
+                div({style:{overflowY:"auto",padding:"6px 8px",flex:1}},
+                  _hizListesi.map((x,i)=>{
+                    const secili = hizmetCokluSecim.includes(x);
+                    return div({key:i,onClick:()=>{
+                      setHizmetCokluSecim(p=>secili?p.filter(y=>y!==x):[...p,x]);
+                    },style:{display:"flex",alignItems:"center",gap:10,padding:"11px 10px",
+                      borderRadius:9,cursor:"pointer",background:secili?"rgba(52,199,89,.1)":"transparent"}},
+                      div({style:{width:20,height:20,borderRadius:5,border:"1.5px solid "+(secili?"var(--g)":"var(--br)"),
+                        background:secili?"var(--g)":"transparent",display:"flex",alignItems:"center",
+                        justifyContent:"center",flexShrink:0,color:"#fff",fontSize:13,fontWeight:800}},
+                        secili?"✓":""),
+                      div({style:{fontSize:13.5,color:"var(--tx)"}},x)
+                    );
+                  })
+                ),
+                div({style:{padding:"12px 16px",borderTop:"1px solid var(--br)",flexShrink:0,
+                  paddingBottom:"max(12px, env(safe-area-inset-bottom))"}},
+                  btn({style:{width:"100%",padding:"13px 0",borderRadius:11,border:"none",
+                    background:hizmetCokluSecim.length>0?"linear-gradient(135deg,var(--g),var(--gd))":"var(--bg3)",
+                    color:hizmetCokluSecim.length>0?"var(--bg)":"var(--di)",fontSize:14.5,fontWeight:700,
+                    cursor:hizmetCokluSecim.length>0?"pointer":"default"},
+                    disabled:hizmetCokluSecim.length===0,
+                    onClick:()=>{
+                      if(hizmetCokluSecim.length===0) return;
+                      setHizler(p=>{
+                        const dolular = p.filter(x=>x.n);
+                        const yeniler = hizmetCokluSecim.map(ad=>({id:uid(),n:ad,f:"",listef:HIZ_LISTE_FIYAT[ad]||0,
+                          fkk:"",fib:"",fnk:"",odeme:"",pId:aktifKullanici?.id||"",pAd:aktifKullanici?.ad||""}));
+                        const next = [...dolular,...yeniler,bosHizmet()];
+                        hizmetOdemeToplamlariniYaz(next);
+                        return next;
+                      });
+                      setHizmetCokluModal(false);
+                      setHizmetCokluSecim([]);
+                    }},"Bitti")
+                )
+              )
+            ), document.body
           ),
           hizTop>0 && div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
             padding:"8px 11px",background:"rgba(0,0,0,.03)",border:"none",borderRadius:10,marginTop:6,marginBottom:2}},
@@ -12949,7 +13005,7 @@ function PersonelMaasGorunum({personel, tumK, onChange, showToast, tumPersonelle
   // ── Avanslar ──
   const periyotAvanslar = (avanslar||[]).filter(a=>{
     if(String(a.staffId)!==String(personel.id)) return false;
-    if(a.durum && a.durum!=="onaylandi") return false;
+    if(a.durum!=="onaylandi") return false; // sadece kesin olarak onaylanmış avanslar sayılır (Avans sekmesiyle tutarlı)
     if(!a.tarih) return false;
     const ad = new Date(a.tarih+"T12:00:00");
     return ad>=periyotBaslangic && ad<=periyotBitis;
