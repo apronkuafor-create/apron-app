@@ -2265,7 +2265,8 @@ function UrunMuhasebe({
   tedarikciler,setTedarikciler,faturalar,setFaturalar,
   odemeler,setOdemeler,hareketler,setHareketler,
   umDetay,setUmDetay,tumK,showToast,personeller,stokPartilerYuklendi,aktifSekme,onSekmeChange,onAnaPanel,isletme,
-  onSiparisler,onSiparisKarsila,onSiparisKarsilamalariGeriAl,triggerUrunRender,kul
+  onSiparisler,onSiparisKarsila,onSiparisKarsilamalariGeriAl,triggerUrunRender,kul,
+  markOduncKirli,markKullanimKirli
 }) {
 const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [showMenu, setShowMenu] = React.useState(!aktifSekme);
@@ -2501,26 +2502,6 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [tedarikciIadeNot, setTedarikciIadeNot] = React.useState("");
   const mkArsivYuklendiRef = React.useRef(false); // ilk yükleme bitti mi → boş diziyi buluta yazmayı güvenli kılar (silme-boş kalıcı olur, açılışta bulut silinmez)
   const mkArsivKirliRef = React.useRef(false);    // mount sonrası yerel silme/düzenleme oldu mu → geç gelen bulut çekimi bunu EZMESİN (diriltmeyi önler)
-  // Ödünç Ürün Takibi (oduncler/komsular) için aynı korumanın süreli hali: bir yerel değişiklikten (Kapat/İade,
-  // Geri Al, Düzenle, yeni kayıt) sonra ~8 sn boyunca gelen bulut senkronlarını UYGULAMA — bu, henüz sunucuya
-  // ulaşmamış (bayat) bir kopyanın az önce kapatılan kaydı "diriltmesini" önler. Kalıcı değil (mkArsiv gibi), süre
-  // dolunca otomatik açılır ki diğer cihazlardaki gerçek güncellemeler yine akmaya devam etsin.
-  const oduncKirliRef = React.useRef(false);
-  const oduncKirliTimerRef = React.useRef(null);
-  const markOduncKirli = React.useCallback(()=>{
-    oduncKirliRef.current = true;
-    if(oduncKirliTimerRef.current) clearTimeout(oduncKirliTimerRef.current);
-    oduncKirliTimerRef.current = setTimeout(()=>{ oduncKirliRef.current = false; }, 8000);
-  },[]);
-  // Aynı korumanın İşyeri Kullanımı/Hediye (kullanimlar) için hali — "İptal Et" ile silinen bir kaydın
-  // geç gelen bulut senkronuyla geri gelmesini (dirilmesini) önler.
-  const kullanimKirliRef = React.useRef(false);
-  const kullanimKirliTimerRef = React.useRef(null);
-  const markKullanimKirli = React.useCallback(()=>{
-    kullanimKirliRef.current = true;
-    if(kullanimKirliTimerRef.current) clearTimeout(kullanimKirliTimerRef.current);
-    kullanimKirliTimerRef.current = setTimeout(()=>{ kullanimKirliRef.current = false; }, 8000);
-  },[]);
   const [sdAramaF, setSdAramaF] = React.useState(""); // stok durumu arama
   const [sdSupheliFiltre, setSdSupheliFiltre] = React.useState(false); // sadece şüpheli (kataloğu olmayan/düşük fiyatlı) kayıtları göster
   const [sdSupheliYoksay, setSdSupheliYoksay] = React.useState(()=>{
@@ -8238,7 +8219,7 @@ function bankaGunKomisyonFn(bankAd, donemler, tarih, komGirisBank){
 }
 
 // ── HESAP ÖZETİ MODÜLÜ ─────────────────────────────────────────────────────
-function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToast, bankaKom, komisyonGiderYaz, onIncele, defaultTarih, hesapSaglamaAylik, setHesapSaglamaAylik, giderler, personeller, avanslar, ibanBildirimler}) {
+function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToast, bankaKom, komisyonGiderYaz, onIncele, defaultTarih, hesapSaglamaAylik, setHesapSaglamaAylik, giderler, personeller, avanslar, setAvanslar, markAvansKirli, ibanBildirimler}) {
   const genelToplamBolumStili = {};
   const [modTab, setModTab] = React.useState("gunluk"); // "gunluk" | "aylik"
   const [secTarih, setSecTarih] = React.useState(defaultTarih||TODAY());
@@ -8358,7 +8339,7 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
     return div(null,
       TabSwitcher,
       h(AylikHesapOzeti,{tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHesapSaglamaAylik, showToast,
-        komisyonGiderYaz, giderler, personeller, avanslar, ibanBildirimler,
+        komisyonGiderYaz, giderler, personeller, avanslar, setAvanslar, markAvansKirli, ibanBildirimler,
         gunlukGit:(tarih)=>{setSecTarih(tarih);setModTab("gunluk");}})
     );
   }
@@ -8607,7 +8588,7 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
 // toplamları, (2) o ay içindeki günlük sağlamaların otomatik toplamı (eksik
 // günler ayrıca uyarılır), (3) isteğe bağlı, ay sonu banka ekstresi ile tek
 // seferde girilen bağımsız bir karşılaştırma.
-function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHesapSaglamaAylik, showToast, gunlukGit, komisyonGiderYaz, giderler, personeller, avanslar, ibanBildirimler}) {
+function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHesapSaglamaAylik, showToast, gunlukGit, komisyonGiderYaz, giderler, personeller, avanslar, setAvanslar, markAvansKirli, ibanBildirimler}) {
   const simdi = new Date();
   const [ay, setAy] = React.useState(simdi.getMonth());
   const [yil, setYil] = React.useState(simdi.getFullYear());
@@ -8782,16 +8763,17 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
     const ibanUrunTop = ayKayitlarZengin
       .filter(r=>String(r.urunIbanId||r.staffId)===String(p.id))
       .reduce((s,r)=>s+toN(r.uIB),0);
-    const avansToplam = (avanslar||[]).filter(a=>{
+    const avansKayitlari = (avanslar||[]).filter(a=>{
       if(String(a.staffId)!==String(p.id)) return false;
       if(a.durum!=="onaylandi") return false; // sadece kesin olarak onaylanmış avanslar sayılır (Avans sekmesiyle tutarlı)
       if(!a.tarih) return false;
       return a.tarih>=ayBasIso && a.tarih<=ayBitIso;
-    }).reduce((s,a)=>s+toN(a.tutar),0);
+    });
+    const avansToplam = avansKayitlari.reduce((s,a)=>s+toN(a.tutar),0);
     const cebineGecen = ibanHizmetTop + ibanUrunTop + avansToplam;
     const ortakMi = formulDonemleri(p).some(d=>(d.formul||[]).some(b=>b.tip==="ortakPayi"));
     return {id:p.id, ad:p.ad, hesaplananHakedis, hesaplanabildi, cebineGecen, ortakMi, ortakPayiDetay,
-      kendiHizIban, manikurHizIban, ibanUrunTop, avansToplam,
+      kendiHizIban, manikurHizIban, ibanUrunTop, avansToplam, avansKayitlari,
       kalanOdenecek: hesaplanabildi ? (hesaplananHakedis - cebineGecen) : null};
   });
   const hfPersonelToplam = hfPersonelListesi.reduce((s,p)=>s+p.cebineGecen,0);
@@ -9117,6 +9099,23 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
                       div({style:kalemStil},
                         div(null,"💵 Avans"),
                         div(kalemDeger,"− "+fmt(p.avansToplam))),
+                      (p.avansKayitlari||[]).length>0 && div({style:{paddingLeft:14,marginTop:-1,marginBottom:1}},
+                        (p.avansKayitlari||[]).map(a=>
+                          div({key:a.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}},
+                            div({style:{fontSize:9,color:"var(--di)"}},
+                              "· "+fmtT(a.tarih)+" — "+fmt(toN(a.tutar))+(a.notlar?" ("+a.notlar+")":"")),
+                            setAvanslar && btn({type:"button",style:{fontSize:8,fontWeight:700,padding:"1px 5px",
+                              borderRadius:5,border:"1px solid rgba(224,60,60,.35)",background:"transparent",
+                              color:"#e06060",cursor:"pointer",flexShrink:0},
+                              onClick:()=>{
+                                if(!confirm("Bu avans kaydı silinsin mi?\n"+fmtT(a.tarih)+" — "+fmt(toN(a.tutar))))return;
+                                if(markAvansKirli) markAvansKirli();
+                                setAvanslar(prev=>(prev||[]).filter(x=>x.id!==a.id));
+                                showToast&&showToast("Avans silindi");
+                              }},"Sil")
+                          )
+                        )
+                      ),
                       opNegatif && div({style:kalemStil},
                         div(null,"🤝 Ortak Payı / Kâr-Zarar (borcu)"),
                         div({style:{color:"#FF9500",fontWeight:600}},"− "+fmt(Math.abs(ortakBasinaPay))))
@@ -12875,7 +12874,8 @@ function HakedisDetayModal({kul, tumK, giderler, avanslar, personeller,
 }
 
 // ── PERSONEL MAAŞ HESAP GÖRÜNÜMÜ (Yönetici için) ──────────────────────────
-function PersonelMaasGorunum({personel, tumK, onChange, showToast, tumPersoneller, giderler, avanslar, setAvanslar, ibanBildirimler}) {
+function PersonelMaasGorunum({personel, tumK, onChange, showToast, tumPersoneller, giderler, avanslar, setAvanslar:setAvanslar_, markAvansKirli, ibanBildirimler}) {
+  const setAvanslar = (u) => { if(markAvansKirli) markAvansKirli(); if(setAvanslar_) setAvanslar_(u); };
   const [periyot, setPeriyot] = React.useState("buAy");
   const [yeniAvansForm, setYeniAvansForm] = React.useState({tarih:TODAY(), tutar:"", not:""});
   const periyotBaslangic = React.useMemo(()=>{
@@ -12887,10 +12887,12 @@ function PersonelMaasGorunum({personel, tumK, onChange, showToast, tumPersonelle
     d.setHours(0,0,0,0);return d;
   },[periyot]);
   const periyotBitis = React.useMemo(()=>{
-    if(periyot==="gecenAy"){
-      const d=new Date();d.setDate(0);d.setHours(23,59,59,999);return d;
-    }
-    return new Date();
+    const d=new Date();
+    if(periyot==="gecenAy"){ d.setDate(0); d.setHours(23,59,59,999); return d; }
+    if(periyot==="buHafta"){ const g=d.getDay()||7; d.setDate(d.getDate()-g+7); d.setHours(23,59,59,999); return d; }
+    if(periyot==="buAy"){ d.setMonth(d.getMonth()+1,0); d.setHours(23,59,59,999); return d; }
+    if(periyot==="buYil"){ d.setMonth(11,31); d.setHours(23,59,59,999); return d; }
+    return d;
   },[periyot]);
 
   const filtreliK = (tumK||[]).filter(r=>{
@@ -13750,6 +13752,33 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
 }
 
 function App() {
+  // Ödünç Ürün Takibi (oduncler/komsular) için: bir yerel değişiklikten (Kapat/İade, Geri Al, Düzenle,
+  // yeni kayıt) sonra ~8 sn boyunca gelen bulut senkronlarını UYGULAMA — bu, henüz sunucuya ulaşmamış
+  // (bayat) bir kopyanın az önce kapatılan kaydı "diriltmesini" önler. Kalıcı değil, süre dolunca
+  // otomatik açılır ki diğer cihazlardaki gerçek güncellemeler yine akmaya devam etsin.
+  const oduncKirliRef = useRef(false);
+  const oduncKirliTimerRef = useRef(null);
+  const markOduncKirli = useCallback(()=>{
+    oduncKirliRef.current = true;
+    if(oduncKirliTimerRef.current) clearTimeout(oduncKirliTimerRef.current);
+    oduncKirliTimerRef.current = setTimeout(()=>{ oduncKirliRef.current = false; }, 8000);
+  },[]);
+  // Aynı korumanın İşyeri Kullanımı/Hediye (kullanimlar) için hali.
+  const kullanimKirliRef = useRef(false);
+  const kullanimKirliTimerRef = useRef(null);
+  const markKullanimKirli = useCallback(()=>{
+    kullanimKirliRef.current = true;
+    if(kullanimKirliTimerRef.current) clearTimeout(kullanimKirliTimerRef.current);
+    kullanimKirliTimerRef.current = setTimeout(()=>{ kullanimKirliRef.current = false; }, 8000);
+  },[]);
+  // Aynı korumanın Avans (personel avansları) için hali.
+  const avansKirliRef = useRef(false);
+  const avansKirliTimerRef = useRef(null);
+  const markAvansKirli = useCallback(()=>{
+    avansKirliRef.current = true;
+    if(avansKirliTimerRef.current) clearTimeout(avansKirliTimerRef.current);
+    avansKirliTimerRef.current = setTimeout(()=>{ avansKirliRef.current = false; }, 8000);
+  },[]);
   const [ekran, setEkran]             = useState("login");
   const [panelSec, setPanelSec]       = useState(false); // her iki role sahip kullanıcı için
   const [kul, setKul]                 = useState(null);
@@ -14329,7 +14358,7 @@ ayarlarRaw.forEach(a=>{ try {
   if(a.id==="silinenKayitlar" && Array.isArray(a.deger)) { try{ const s=new Set(); const cur=JSON.parse(localStorage.getItem("apron_silinen_kayitlar")||"[]"); if(Array.isArray(cur)) cur.forEach(x=>s.add(String(x))); a.deger.forEach(x=>s.add(String(x))); let arr=Array.from(s); if(arr.length>5000) arr=arr.slice(arr.length-5000); localStorage.setItem("apron_silinen_kayitlar", JSON.stringify(arr)); }catch(e){} }
   if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(prev=>birlestirListe(prev,a.deger));
   if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(prev=>birlestirListe(prev,a.deger));
-  if(a.id==="avanslar" && Array.isArray(a.deger)) setAvanslar(prev=>birlestirListe(prev,a.deger));
+  if(a.id==="avanslar" && Array.isArray(a.deger) && !avansKirliRef.current) setAvanslar(prev=>birlestirListe(prev,a.deger));
   if(a.id==="ibanBildirimler" && Array.isArray(a.deger)) setIbanBildirimler(prev=>birlestirListe(prev,a.deger));
   if(a.id==="hesapSaglama" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglama(prev=>({...prev, ...a.deger})); // yerel + bulut (çakışmada bulut güncel)
   if(a.id==="hesapSaglamaAylik" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglamaAylik(prev=>({...prev, ...a.deger}));
@@ -14779,7 +14808,7 @@ if(DB) dbUpsertAyar("tema",tema);
       if(a.id==="bolumStilleri") setBolumStilleri(prev=>_ay(prev,a.deger||{}));
       if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(prev=>_ay(prev,birlestirListe(prev,a.deger)));
       if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(prev=>_ay(prev,birlestirListe(prev,a.deger)));
-      if(a.id==="avanslar" && Array.isArray(a.deger)) setAvanslar(prev=>_ay(prev,birlestirListe(prev,a.deger)));
+      if(a.id==="avanslar" && Array.isArray(a.deger) && !avansKirliRef.current) setAvanslar(prev=>_ay(prev,birlestirListe(prev,a.deger)));
       if(a.id==="ibanBildirimler" && Array.isArray(a.deger)) setIbanBildirimler(prev=>_ay(prev,birlestirListe(prev,a.deger)));
       if(a.id==="hesapSaglama" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglama(prev=>_ay(prev,{...prev,...a.deger}));
       if(a.id==="hesapSaglamaAylik" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglamaAylik(prev=>_ay(prev,{...prev,...a.deger}));
@@ -22881,6 +22910,7 @@ if(DB) dbUpsertAyar("tema",tema);
               stokHar,setStokHar,
               umDetay,setUmDetay,
               tumK,showToast,personeller,stokPartilerYuklendi,aktifSekme:muhAlt,onSekmeChange:setMuhAlt,
+              markOduncKirli,markKullanimKirli,
               onAnaPanel:()=>{ setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); setMuhSek(""); setMuhAlt(""); setMuhAltAcik(""); setHesapFull(false); setVergiFull(false); },
               isletme,kul
             }),
@@ -23085,6 +23115,7 @@ if(DB) dbUpsertAyar("tema",tema);
     giderler,
     avanslar,
     setAvanslar,
+    markAvansKirli,
     ibanBildirimler
     }),
 
@@ -25298,7 +25329,7 @@ if(DB) dbUpsertAyar("tema",tema);
     hesapFull&&div({style:{background:"var(--bg)",paddingTop:16}},
       div({style:{padding:"0 14px 80px"}},
         h(HesapOzetiModul,{tumK, bankalar, hesapSaglama, setHesapSaglama, showToast, bankaKom, komisyonGiderYaz,
-          hesapSaglamaAylik, setHesapSaglamaAylik, giderler, personeller, avanslar, ibanBildirimler,
+          hesapSaglamaAylik, setHesapSaglamaAylik, giderler, personeller, avanslar, setAvanslar, markAvansKirli, ibanBildirimler,
           defaultTarih: hesapFullTarih||"",
           onIncele: ({ad, tarih, id}) => {
             // Kayıtlar paneli filtrelerini doldur
