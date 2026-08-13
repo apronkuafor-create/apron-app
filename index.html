@@ -2496,6 +2496,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [arsivFarkAcikIdx, setArsivFarkAcikIdx] = React.useState({}); // {satirIndex:true} — Arşiv Detayı'nda fatura/kabul fark paneli açık mı
   const [arsivBarkodBulunamadi, setArsivBarkodBulunamadi] = React.useState(null); // aranan barkod listede yoksa
   const [arsivYeniUrunEkle, setArsivYeniUrunEkle] = React.useState(null); // Arşiv Detayı içinden hızlı ürün ekleme formu
+  const [tedarikciIadeModal, setTedarikciIadeModal] = React.useState(null); // {arIdx, urunIdx} — tedarikçiye iade formu açık mı
+  const [tedarikciIadeMiktar, setTedarikciIadeMiktar] = React.useState("");
+  const [tedarikciIadeNot, setTedarikciIadeNot] = React.useState("");
   const mkArsivYuklendiRef = React.useRef(false); // ilk yükleme bitti mi → boş diziyi buluta yazmayı güvenli kılar (silme-boş kalıcı olur, açılışta bulut silinmez)
   const mkArsivKirliRef = React.useRef(false);    // mount sonrası yerel silme/düzenleme oldu mu → geç gelen bulut çekimi bunu EZMESİN (diriltmeyi önler)
   // Ödünç Ürün Takibi (oduncler/komsular) için aynı korumanın süreli hali: bir yerel değişiklikten (Kapat/İade,
@@ -3748,10 +3751,21 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                             color:u.sarfMi?"#FF9500":"var(--di)"},
                             onClick:()=>setArsivDuzUrunler(p=>p.map((x,k)=>k===j?{...x,sarfMi:!x.sarfMi}:x))},
                             u.sarfMi?"🧪 Sarf":"🛍️ Satılabilen")
-                        : div({style:{marginTop:3,fontSize:9,fontWeight:700,display:"inline-block",padding:"1px 6px",borderRadius:6,
-                            background:u.sarfMi?"rgba(255,149,0,.13)":"rgba(52,199,89,.13)",
-                            color:u.sarfMi?"#FF9500":"#34C759"}},
-                            u.sarfMi?"🧪 Sarf":"🛍️ Satılabilen")
+                        : div(null,
+                            div({style:{marginTop:3,fontSize:9,fontWeight:700,display:"inline-block",padding:"1px 6px",borderRadius:6,
+                              background:u.sarfMi?"rgba(255,149,0,.13)":"rgba(52,199,89,.13)",
+                              color:u.sarfMi?"#FF9500":"#34C759"}},
+                              u.sarfMi?"🧪 Sarf":"🛍️ Satılabilen"),
+                            !arsivDuzMod && !u.sarfMi && btn({type:"button",style:{marginTop:3,marginLeft:4,fontSize:9,fontWeight:700,
+                              padding:"1px 6px",borderRadius:6,border:"1px solid rgba(217,119,87,.4)",cursor:"pointer",
+                              background:"rgba(217,119,87,.1)",color:"#D97757"},
+                              onClick:e=>{e.stopPropagation();
+                                setTedarikciIadeModal({arId:ar.id, arIdx:origIdx, urunIdx:j});
+                                setTedarikciIadeMiktar(""); setTedarikciIadeNot("");
+                              }},"📤 İade Et"),
+                            (u.iadeGecmisi||[]).length>0 && div({style:{fontSize:9,color:"#D97757",marginTop:2}},
+                              "↩ "+(u.iadeGecmisi||[]).reduce((s,g)=>s+toN(g.adet),0)+" adet iade edilmiş")
+                          )
                     ),
                     div({style:{padding:"9px 5px",fontSize:10,color:"var(--mu)",textAlign:"center",wordBreak:"break-all",lineHeight:1.3,borderRight:"1px solid var(--br)"}},u.barkod||"—"),
                     // Birim Fiyat
@@ -3983,6 +3997,99 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   )
                 )
               ), document.body);
+            })(),
+
+            // ── Tedarikçiye İade Formu ──
+            tedarikciIadeModal && tedarikciIadeModal.arId===ar.id && (()=>{
+              const u = ar.urunler[tedarikciIadeModal.urunIdx];
+              if(!u) return null;
+              const kalanStok = (stokPartiler||[]).filter(p=>p.barkod===u.barkod && p.faturaN===ar.faturaN && p.tarih===ar.tarih)
+                .reduce((s,p)=>s+toN(p.kalan),0);
+              const zatenIade = (u.iadeGecmisi||[]).reduce((s,g)=>s+toN(g.adet),0);
+              const maxIade = Math.min(toN(u.adet), kalanStok);
+              const miktarSayi = toN(tedarikciIadeMiktar);
+              const gecersiz = !tedarikciIadeMiktar || miktarSayi<=0 || miktarSayi>maxIade;
+              return ReactDOM.createPortal(
+                div({style:{position:"fixed",inset:0,zIndex:960,background:"rgba(0,0,0,.7)",display:"flex",
+                  alignItems:"center",justifyContent:"center",padding:16}},
+                  div({style:{background:"var(--bg)",borderRadius:16,maxWidth:420,width:"100%",
+                    maxHeight:"90vh",overflowY:"auto",padding:20,boxSizing:"border-box"}},
+                    div({style:{fontSize:17,fontWeight:700,color:"var(--tx)",marginBottom:4}},"📤 Tedarikçiye İade"),
+                    div({style:{fontSize:13,color:"var(--g)",marginBottom:2}},urunAdCanli(u.barkod,u.urunAd)),
+                    div({style:{fontSize:11,color:"var(--mu)",marginBottom:16}},
+                      ar.tedarikci+" · Fatura: "+(ar.faturaN||"—")),
+                    kalanStok<=0
+                      ? div({style:{padding:"12px",background:"rgba(224,60,60,.1)",border:"1px solid rgba(224,60,60,.3)",
+                          borderRadius:10,color:"#e06060",fontSize:12.5,marginBottom:16}},
+                          "Bu üründen stokta hiç kalan yok (satılmış olabilir) — tedarikçiye iade edilemez.")
+                      : div(null,
+                          div({style:{marginBottom:12}},
+                            lbl({className:"fl"},"İade Miktarı (stokta kalan: "+kalanStok+" adet)"),
+                            inp({className:"fi",type:"number",min:"1",max:String(maxIade),placeholder:"0",
+                              value:tedarikciIadeMiktar,onChange:e=>setTedarikciIadeMiktar(e.target.value)})
+                          ),
+                          div({style:{marginBottom:16}},
+                            lbl({className:"fl"},"Not (opsiyonel)"),
+                            inp({className:"fi",placeholder:"örn: hasarlı geldi, fazla gelmiş...",
+                              value:tedarikciIadeNot,onChange:e=>setTedarikciIadeNot(e.target.value)})
+                          ),
+                          zatenIade>0 && div({style:{fontSize:11,color:"#D97757",marginBottom:12}},
+                            "Bu üründen daha önce "+zatenIade+" adet iade edilmiş.")
+                        ),
+                    div({style:{display:"flex",gap:10}},
+                      btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",
+                        background:"transparent",color:"var(--mu)",fontSize:14,fontWeight:600,cursor:"pointer"},
+                        onClick:()=>setTedarikciIadeModal(null)},"İptal"),
+                      kalanStok>0 && btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"none",
+                        background:gecersiz?"var(--bg3)":"linear-gradient(135deg,#D97757,#B8603F)",
+                        color:gecersiz?"var(--di)":"#fff",fontSize:14,fontWeight:700,
+                        cursor:gecersiz?"default":"pointer"},
+                        disabled:gecersiz,
+                        onClick:()=>{
+                          const miktar = miktarSayi;
+                          const yeniArsiv = mkArsiv.map((rec,idx)=>{
+                            if(idx!==tedarikciIadeModal.arIdx) return rec;
+                            const yeniUrunler = rec.urunler.map((uu,ui)=>{
+                              if(ui!==tedarikciIadeModal.urunIdx) return uu;
+                              const yeniAdet = toN(uu.adet)-miktar;
+                              const b=yeniAdet*toN(uu.birimF);
+                              const iskO=toN(uu.iskontoOran||0);
+                              const iskT=b*(iskO/100);
+                              const matrah=b-iskT;
+                              const kdvT=matrah*(toN(uu.kdvOran||20)/100);
+                              return {...uu, adet:yeniAdet, iskontoTutar:iskT, kdvTutar:kdvT, toplamF:matrah+kdvT,
+                                iadeGecmisi:[...(uu.iadeGecmisi||[]),{tarih:TODAY(),adet:miktar,not:tedarikciIadeNot}]};
+                            }).filter(uu=>toN(uu.adet)>0);
+                            return {...rec, urunler:yeniUrunler};
+                          });
+                          mkArsivKirliRef.current = true;
+                          setMkArsiv(yeniArsiv);
+                          try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
+                          if(DB) dbUpsertAyar("mkArsiv", yeniArsiv);
+                          setStokPartiler(p=>{
+                            let kalan=miktar;
+                            const yeni=p.map(x=>({...x}));
+                            for(let i=0;i<yeni.length&&kalan>0;i++){
+                              if(yeni[i].barkod===u.barkod && yeni[i].faturaN===ar.faturaN && yeni[i].tarih===ar.tarih && toN(yeni[i].kalan)>0){
+                                const dus=Math.min(toN(yeni[i].kalan),kalan);
+                                yeni[i].kalan=toN(yeni[i].kalan)-dus;
+                                yeni[i].adet=Math.max(0,toN(yeni[i].adet)-dus);
+                                kalan-=dus;
+                              }
+                            }
+                            return yeni;
+                          });
+                          const harId=uid();
+                          if(setStokHar) setStokHar(p=>[{id:harId,barkod:u.barkod,urun_ad:u.urunAd,tip:"cikis",
+                            adet:miktar,tarih:TODAY(),staff_name:"Tedarikçiye İade — "+ar.tedarikci,olusturma:Date.now()},...(p||[])]);
+                          dbEkle("stok_hareketleri",{id:harId,barkod:u.barkod,urun_ad:u.urunAd,tip:"cikis",adet:miktar,
+                            tarih:TODAY(),staff_name:"Tedarikçiye İade — "+ar.tedarikci});
+                          setTedarikciIadeModal(null);
+                          showToast(miktar+" adet tedarikçiye iade edildi ✓");
+                        }},"İade Et")
+                    )
+                  )
+                ), document.body);
             })()
           );
         }
@@ -13680,6 +13787,16 @@ function App() {
   const [yeniP, setYeniP]             = useState({ad:"",pin:"",rol:"personel"});
   const [pHata, setPHata]             = useState("");
   const [musteriKart, setMusteriKart] = useState(null);
+  // ── Müşteri Ürün İadesi ──
+  const [musteriIadeModal, setMusteriIadeModal] = useState(null); // {kayitId, urunIdx}
+  const [musteriIadeMiktar, setMusteriIadeMiktar] = useState("");
+  const [musteriIadeSebep, setMusteriIadeSebep] = useState("");
+  const [musteriIadeDurum, setMusteriIadeDurum] = useState("saglam"); // saglam | hasarli
+  const [musteriIadeTuru, setMusteriIadeTuru] = useState("ucret"); // ucret | degisim
+  const [musteriIadeYontem, setMusteriIadeYontem] = useState("kk"); // kk | ib | nk
+  const [musteriIadeYeniUrun, setMusteriIadeYeniUrun] = useState(null); // değişimde seçilen yeni ürün {b,a,m,ml,sf}
+  const [musteriIadeYeniUrunArama, setMusteriIadeYeniUrunArama] = useState("");
+  const [musteriIadeFarkYontem, setMusteriIadeFarkYontem] = useState("kk"); // değişimde fiyat farkı hangi yöntemle kapanacak
   const [musteriDuz, setMusteriDuz]   = useState(null); // düzenleme formu
   const [musteriSilOnay, setMusteriSilOnay] = useState(null);
   const [stokDB, setStokDB]           = useState({}); // {barkod: qty}
@@ -24447,6 +24564,29 @@ if(DB) dbUpsertAyar("tema",tema);
                 borderRadius:4,background:"rgba(50,140,100,.08)",border:"1px solid #2a3a10",color:"#6a8a40"}},
                 hz.n||hz))
             ),
+            r.isIade&&div({style:{fontSize:11,color:"#D97757",fontWeight:600,marginBottom:4}},
+              "↩️ İade Kaydı — "+(r.iadeSebep||"")),
+            (r.urunler||[]).length>0&&div({style:{marginBottom:4}},
+              (r.urunler||[]).map((u,ui)=>{
+                const iadeliMi = toN(u.qty)<0; // bu satırın kendisi zaten bir iade satırı mı
+                const zatenIadeAdet = (r.urunIadeler||{})[String(ui)]||0;
+                const kalanIadeEdilebilir = toN(u.qty) - zatenIadeAdet;
+                return div({key:ui,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+                  fontSize:11.5,padding:"2px 0",color:iadeliMi?"#D97757":"var(--tx)"}},
+                  div(null,"🛍️ "+(u.a||u.barkod||"Ürün")+" × "+u.qty+(zatenIadeAdet>0?" (↩ "+zatenIadeAdet+" iade edildi)":"")),
+                  (!r.isIade && !iadeliMi && r.gonderildi && kalanIadeEdilebilir>0) && btn({type:"button",
+                    style:{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:6,
+                      border:"1px solid rgba(217,119,87,.4)",background:"rgba(217,119,87,.1)",
+                      color:"#D97757",cursor:"pointer",flexShrink:0,marginLeft:6},
+                    onClick:e=>{e.stopPropagation();
+                      setMusteriIadeModal({kayitId:r.id, urunIdx:ui});
+                      setMusteriIadeMiktar(""); setMusteriIadeSebep(""); setMusteriIadeDurum("saglam");
+                      setMusteriIadeTuru("ucret"); setMusteriIadeYontem(u.odeme||"kk");
+                      setMusteriIadeYeniUrun(null); setMusteriIadeYeniUrunArama(""); setMusteriIadeFarkYontem("kk");
+                    }},"↩️ İade Et")
+                );
+              })
+            ),
             div({style:{display:"flex",gap:4}},
               kk>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:20,border:"1px solid var(--br)",color:"var(--mu)"}},"💳 "+fmt(kk)),
               ib>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:20,border:"1px solid var(--br)",color:"var(--mu)"}},"🏦 "+fmt(ib)),
@@ -24500,6 +24640,203 @@ if(DB) dbUpsertAyar("tema",tema);
     )
     ),
 
+    // ── Müşteri Ürün İadesi Formu ──
+    musteriIadeModal && (()=>{
+      const orijinalKayit = records.find(rr=>String(rr.id)===String(musteriIadeModal.kayitId));
+      if(!orijinalKayit) return null;
+      const u = (orijinalKayit.urunler||[])[musteriIadeModal.urunIdx];
+      if(!u) return null;
+      const zatenIadeAdet = (orijinalKayit.urunIadeler||{})[String(musteriIadeModal.urunIdx)]||0;
+      const maxIade = toN(u.qty) - zatenIadeAdet;
+      const miktarSayi = toN(musteriIadeMiktar);
+      const birimFiyat = toN(u.sf);
+      const iadeTutari = miktarSayi*birimFiyat;
+      const yeniUrunTutari = musteriIadeYeniUrun ? toN(musteriIadeYeniUrun.sf||musteriIadeYeniUrun.sp) : 0;
+      const farkTutari = yeniUrunTutari - iadeTutari; // değişimde: +ise müşteri fazladan öder, -ise müşteriye para iade edilir
+      const gecersiz = !musteriIadeMiktar || miktarSayi<=0 || miktarSayi>maxIade || !musteriIadeSebep.trim()
+        || (musteriIadeTuru==="degisim" && !musteriIadeYeniUrun);
+      return ReactDOM.createPortal(
+        div({style:{position:"fixed",inset:0,zIndex:960,background:"rgba(0,0,0,.85)",display:"flex",
+          alignItems:"center",justifyContent:"center",padding:16,overflow:"auto"}},
+          div({style:{background:"var(--bg)",borderRadius:16,maxWidth:440,width:"100%",
+            maxHeight:"92vh",overflowY:"auto",padding:20,boxSizing:"border-box"}},
+            div({style:{fontSize:17,fontWeight:700,color:"var(--tx)",marginBottom:4}},"↩️ Müşteri İadesi"),
+            div({style:{fontSize:13,color:"var(--g)",marginBottom:2}},u.a||u.barkod),
+            div({style:{fontSize:11,color:"var(--mu)",marginBottom:14}},
+              orijinalKayit.musteri+" · "+fmtT(orijinalKayit.tarih)+" tarihli satıştan · Birim: "+fmt(birimFiyat)),
+
+            div({style:{marginBottom:12}},
+              lbl({className:"fl"},"İade Miktarı (iade edilebilir: "+maxIade+" adet)"),
+              inp({className:"fi",type:"number",min:"1",max:String(maxIade),placeholder:"0",
+                value:musteriIadeMiktar,onChange:e=>setMusteriIadeMiktar(e.target.value)})
+            ),
+            div({style:{marginBottom:14}},
+              lbl({className:"fl"},"İade Sebebi *"),
+              inp({className:"fi",placeholder:"örn: hasarlı, beğenilmedi, yanlış ürün...",
+                value:musteriIadeSebep,onChange:e=>setMusteriIadeSebep(e.target.value)})
+            ),
+
+            div({style:{marginBottom:14}},
+              lbl({className:"fl"},"Ürünün Durumu"),
+              div({style:{display:"flex",gap:8}},
+                ["saglam","hasarli"].map(d=>
+                  btn({key:d,type:"button",style:{flex:1,padding:"9px 0",borderRadius:9,
+                    border:"1px solid "+(musteriIadeDurum===d?"var(--g)":"var(--br)"),
+                    background:musteriIadeDurum===d?"rgba(52,199,89,.12)":"transparent",
+                    color:musteriIadeDurum===d?"var(--g)":"var(--mu)",fontSize:12.5,fontWeight:600,cursor:"pointer"},
+                    onClick:()=>setMusteriIadeDurum(d)},
+                    d==="saglam"?"✅ Sağlam (stoğa dönsün)":"❌ Hasarlı (stoğa dönmesin)")
+                )
+              )
+            ),
+
+            div({style:{marginBottom:14}},
+              lbl({className:"fl"},"İade Türü"),
+              div({style:{display:"flex",gap:8}},
+                ["ucret","degisim"].map(t=>
+                  btn({key:t,type:"button",style:{flex:1,padding:"9px 0",borderRadius:9,
+                    border:"1px solid "+(musteriIadeTuru===t?"#D97757":"var(--br)"),
+                    background:musteriIadeTuru===t?"rgba(217,119,87,.12)":"transparent",
+                    color:musteriIadeTuru===t?"#D97757":"var(--mu)",fontSize:12.5,fontWeight:600,cursor:"pointer"},
+                    onClick:()=>setMusteriIadeTuru(t)},
+                    t==="ucret"?"💵 Ücret İadesi":"🔄 Ürün Değişimi")
+                )
+              )
+            ),
+
+            musteriIadeTuru==="ucret"
+              ? div({style:{marginBottom:16}},
+                  lbl({className:"fl"},"İade Yöntemi"),
+                  div({style:{display:"flex",gap:8}},
+                    [["kk","💳 Kart"],["ib","🏦 İban"],["nk","💵 Nakit"]].map(([v,lb])=>
+                      btn({key:v,type:"button",style:{flex:1,padding:"8px 0",borderRadius:9,
+                        border:"1px solid "+(musteriIadeYontem===v?"var(--g)":"var(--br)"),
+                        background:musteriIadeYontem===v?"rgba(52,199,89,.1)":"transparent",
+                        color:musteriIadeYontem===v?"var(--g)":"var(--mu)",fontSize:12,fontWeight:600,cursor:"pointer"},
+                        onClick:()=>setMusteriIadeYontem(v)},lb)
+                    )
+                  ),
+                  toN(musteriIadeMiktar)>0 && div({style:{marginTop:8,fontSize:13,fontWeight:700,color:"var(--tx)"}},
+                    "İade Edilecek Tutar: "+fmt(iadeTutari))
+                )
+              : div({style:{marginBottom:16}},
+                  lbl({className:"fl"},"Yerine Verilecek Ürün"),
+                  h(UrunAramaBilesen,{
+                    aramaVal:musteriIadeYeniUrunArama, setAramaVal:setMusteriIadeYeniUrunArama,
+                    onEkle:sec=>{ setMusteriIadeYeniUrun({b:sec.b,a:sec.a,m:sec.m,ml:sec.ml,sf:sec.bp||sec.sp||0}); setMusteriIadeYeniUrunArama(sec.a); },
+                    tipFiltre:"satilabilen", placeholder:"Yeni ürün için barkod okut veya isim yaz..."
+                  }),
+                  musteriIadeYeniUrun && div({style:{marginTop:10,padding:"9px 10px",background:"var(--bg2)",
+                    borderRadius:9,border:"1px solid var(--br)"}},
+                    div({style:{fontSize:12.5,color:"var(--tx)",fontWeight:600,marginBottom:6}},
+                      "Seçilen: "+musteriIadeYeniUrun.a+" — "+fmt(yeniUrunTutari)),
+                    div({style:{fontSize:12.5,fontWeight:700,color:farkTutari===0?"var(--gr)":(farkTutari>0?"#e06060":"var(--gr)")}},
+                      farkTutari===0?"Fiyat farkı yok":(farkTutari>0
+                        ?"Müşteri fazladan ödeyecek: "+fmt(farkTutari)
+                        :"Müşteriye iade edilecek fark: "+fmt(Math.abs(farkTutari)))),
+                    farkTutari!==0 && div({style:{marginTop:8}},
+                      lbl({className:"fl"},"Fark Hangi Yöntemle Kapatılsın?"),
+                      div({style:{display:"flex",gap:8}},
+                        [["kk","💳 Kart"],["ib","🏦 İban"],["nk","💵 Nakit"]].map(([v,lb])=>
+                          btn({key:v,type:"button",style:{flex:1,padding:"7px 0",borderRadius:8,
+                            border:"1px solid "+(musteriIadeFarkYontem===v?"var(--g)":"var(--br)"),
+                            background:musteriIadeFarkYontem===v?"rgba(52,199,89,.1)":"transparent",
+                            color:musteriIadeFarkYontem===v?"var(--g)":"var(--mu)",fontSize:11.5,fontWeight:600,cursor:"pointer"},
+                            onClick:()=>setMusteriIadeFarkYontem(v)},lb)
+                        )
+                      )
+                    )
+                  )
+                ),
+
+            div({style:{display:"flex",gap:10}},
+              btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",
+                background:"transparent",color:"var(--mu)",fontSize:14,fontWeight:600,cursor:"pointer"},
+                onClick:()=>setMusteriIadeModal(null)},"İptal"),
+              btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"none",
+                background:gecersiz?"var(--bg3)":"linear-gradient(135deg,#D97757,#B8603F)",
+                color:gecersiz?"var(--di)":"#fff",fontSize:14,fontWeight:700,cursor:gecersiz?"default":"pointer"},
+                disabled:gecersiz,
+                onClick:()=>{
+                  const miktar = miktarSayi;
+                  const yontemAlan = {kk:"uKK", ib:"uIB", nk:"uNK"};
+                  let uKK=0, uIB=0, uNK=0;
+                  const iadeUrunSatiri = {b:u.barkod||u.b, a:u.a, qty:-miktar, sf:birimFiyat, fkk:0, fib:0, fnk:0};
+                  const kayitUrunler = [iadeUrunSatiri];
+
+                  if(musteriIadeTuru==="ucret"){
+                    if(musteriIadeYontem==="kk") uKK = -iadeTutari;
+                    if(musteriIadeYontem==="ib") uIB = -iadeTutari;
+                    if(musteriIadeYontem==="nk") uNK = -iadeTutari;
+                  } else {
+                    kayitUrunler.push({b:musteriIadeYeniUrun.b, a:musteriIadeYeniUrun.a, qty:1, sf:yeniUrunTutari, fkk:0, fib:0, fnk:0});
+                    if(farkTutari!==0){
+                      if(musteriIadeFarkYontem==="kk") uKK = farkTutari;
+                      if(musteriIadeFarkYontem==="ib") uIB = farkTutari;
+                      if(musteriIadeFarkYontem==="nk") uNK = farkTutari;
+                    }
+                  }
+
+                  const iadeKayit = {
+                    id: uid(), isIade:true, iadeOrijinalKayitId: orijinalKayit.id,
+                    iadeSebep: musteriIadeSebep.trim(), iadeDurum: musteriIadeDurum, iadeTuru: musteriIadeTuru,
+                    staffId: orijinalKayit.staffId, staffAd: orijinalKayit.staffAd,
+                    musteri: orijinalKayit.musteri, tel: orijinalKayit.tel,
+                    tarih: TODAY(), saat: SAAT(),
+                    hizler: [], hizKK:0, hizIB:0, hizNK:0,
+                    urunler: kayitUrunler, uKK, uIB, uNK,
+                    toplam: uKK+uIB+uNK, gonderildi: true
+                  };
+
+                  setRecords(p=>[iadeKayit, ...p]);
+                  setGecmis(p=>[iadeKayit, ...(p||[])]);
+                  dbEkle("kayitlar",{id:iadeKayit.id,staff_id:iadeKayit.staffId,staff_name:iadeKayit.staffAd,
+                    musteri:iadeKayit.musteri,telefon:iadeKayit.tel,hizmetler:[],hiz_kk:0,hiz_ib:0,hiz_nk:0,
+                    urunler:iadeKayit.urunler,urun_kk:uKK,urun_ib:uIB,urun_nk:uNK,toplam:iadeKayit.toplam,
+                    tarih:iadeKayit.tarih,saat:iadeKayit.saat,gonderildi:true});
+
+                  // Orijinal kayda şeffaflık notu (kayıt kendisi değişmiyor, sadece iade meta-bilgisi ekleniyor)
+                  const yeniUrunIadeler = {...(orijinalKayit.urunIadeler||{}),
+                    [String(musteriIadeModal.urunIdx)]: zatenIadeAdet+miktar};
+                  setRecords(p=>p.map(rr=>String(rr.id)===String(orijinalKayit.id)?{...rr,urunIadeler:yeniUrunIadeler}:rr));
+                  setGecmis(p=>(p||[]).map(rr=>String(rr.id)===String(orijinalKayit.id)?{...rr,urunIadeler:yeniUrunIadeler}:rr));
+                  dbGnc("kayitlar",{urun_iadeler:yeniUrunIadeler},orijinalKayit.id);
+
+                  // Stok: sağlamsa iade edilen ürün geri eklenir; değişimde yeni ürün stoktan düşer
+                  if(musteriIadeDurum==="saglam"){
+                    setStokPartiler(p=>[...p,{id:uid(),barkod:u.barkod||u.b,urunAd:u.a,marka:"",
+                      adet:miktar,kalan:miktar,alisF:0,tarih:TODAY(),faturaN:"Müşteri İadesi",tip:"musteriIade"}]);
+                    const harId=uid();
+                    setStokHar(p=>[{id:harId,barkod:u.barkod||u.b,urun_ad:u.a,tip:"giris",adet:miktar,
+                      tarih:TODAY(),staff_name:"Müşteri İadesi — "+orijinalKayit.musteri,olusturma:Date.now()},...(p||[])]);
+                    dbEkle("stok_hareketleri",{id:harId,barkod:u.barkod||u.b,urun_ad:u.a,tip:"giris",adet:miktar,
+                      tarih:TODAY(),staff_name:"Müşteri İadesi — "+orijinalKayit.musteri});
+                  }
+                  if(musteriIadeTuru==="degisim" && musteriIadeYeniUrun){
+                    setStokPartiler(p=>{
+                      let kalan=1; const yeni=p.map(x=>({...x}));
+                      for(let i=0;i<yeni.length&&kalan>0;i++){
+                        if(yeni[i].barkod===musteriIadeYeniUrun.b && toN(yeni[i].kalan)>0){
+                          const dus=Math.min(toN(yeni[i].kalan),kalan);
+                          yeni[i].kalan=toN(yeni[i].kalan)-dus; kalan-=dus;
+                        }
+                      }
+                      return yeni;
+                    });
+                    const harId2=uid();
+                    setStokHar(p=>[{id:harId2,barkod:musteriIadeYeniUrun.b,urun_ad:musteriIadeYeniUrun.a,tip:"cikis",
+                      adet:1,tarih:TODAY(),staff_name:"Ürün Değişimi — "+orijinalKayit.musteri,olusturma:Date.now()},...(p||[])]);
+                    dbEkle("stok_hareketleri",{id:harId2,barkod:musteriIadeYeniUrun.b,urun_ad:musteriIadeYeniUrun.a,
+                      tip:"cikis",adet:1,tarih:TODAY(),staff_name:"Ürün Değişimi — "+orijinalKayit.musteri});
+                  }
+
+                  setMusteriIadeModal(null);
+                  showToast("İade kaydedildi ✓");
+                }},"İade Et")
+            )
+          )
+        ), document.body);
+    })(),
 
     aySek==="listeler"&&ayListeSek==="tedarikciListesi"&&div({style:{marginTop:10}},
 
