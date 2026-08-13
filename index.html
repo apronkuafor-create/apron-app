@@ -20334,6 +20334,53 @@ if(DB) dbUpsertAyar("tema",tema);
               const basD2=new Date(istTarihBas2+"T12:00:00"), bitD2=new Date(istTarihBit2+"T12:00:00");
               const donemGunSayisi=Math.max(1,Math.round((bitD2-basD2)/86400000)+1);
 
+              // ── 🎯 Kişisel Katkı Özeti: bu dönem vs. bir önceki eş uzunluktaki dönem ──
+              {
+                const oncekiBitD=new Date(basD2); oncekiBitD.setDate(oncekiBitD.getDate()-1);
+                const oncekiBasD=new Date(oncekiBitD); oncekiBasD.setDate(oncekiBasD.getDate()-donemGunSayisi+1);
+                const isoStr=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+                const oncekiListe=tumBenim.filter(r=>r.tarih && r.tarih>=isoStr(oncekiBasD) && r.tarih<=isoStr(oncekiBitD));
+                const ozetHesapla=lst=>{
+                  const grup={};
+                  lst.forEach(r=>{ const k=anahtar(r); if(k==="|") return; grup[k]=(grup[k]||0)+1; });
+                  const musteriler=Object.values(grup);
+                  const musteriSayisi=musteriler.length;
+                  const tekrarEden=musteriler.filter(z=>z>1).length;
+                  const genelTop=lst.reduce((s,r)=>s+toN(r.toplam||0),0);
+                  const kayitSay=lst.length;
+                  return {genelTop, musteriSayisi, tekrarEden, kayitSay,
+                    ortalamaFis: kayitSay>0?genelTop/kayitSay:0,
+                    sadakatOrani: musteriSayisi>0?Math.round(tekrarEden/musteriSayisi*100):0};
+                };
+                const buOzet=ozetHesapla(liste), oncekiOzet=ozetHesapla(oncekiListe);
+                const trend=(yeni,eski)=> eski>0 ? Math.round((yeni-eski)/eski*100) : (yeni>0?100:0);
+
+                // En güçlü yön: en yüksek ciro getiren hizmet (yoksa ürün)
+                let guclu=null;
+                {
+                  const hCiro={};
+                  liste.forEach(r=>(r.hizler||[]).forEach(h=>{ const ad=(h.n||"").trim(); if(!ad) return; hCiro[ad]=(hCiro[ad]||0)+toN(h.f||0); }));
+                  let enIyiAd=null, enIyiTutar=0;
+                  Object.entries(hCiro).forEach(([ad,t])=>{ if(t>enIyiTutar){enIyiTutar=t;enIyiAd=ad;} });
+                  if(enIyiAd) guclu={tip:"hizmet",ad:enIyiAd,tutar:enIyiTutar};
+                }
+
+                // Gelişim alanı: sadakat oranı düştüyse veya ciro belirgin gerilediyse otomatik tespit
+                let gelisim=null;
+                const sadakatFark=buOzet.sadakatOrani-oncekiOzet.sadakatOrani;
+                const ciroTrend=trend(buOzet.genelTop,oncekiOzet.genelTop);
+                if(oncekiOzet.kayitSay>=3 && sadakatFark<=-8){
+                  gelisim={tip:"sadakat",metin:"Tekrar gelen müşteri oranın geçen döneme göre düştü (%"+oncekiOzet.sadakatOrani+" → %"+buOzet.sadakatOrani+"). Müşterilerinle takip/hatırlatma iletişimini gözden geçirebilirsin."};
+                } else if(oncekiOzet.genelTop>0 && ciroTrend<=-15){
+                  gelisim={tip:"ciro",metin:"Ciron geçen döneme göre %"+Math.abs(ciroTrend)+" azaldı. Randevu doluluğunu ve müşteri geri dönüşlerini kontrol etmekte fayda var."};
+                }
+
+                sonuc.katkiOzeti={buOzet,oncekiOzet,
+                  ciroTrend, fisTrend:trend(buOzet.ortalamaFis,oncekiOzet.ortalamaFis),
+                  sadakatFark, musteriTrend:trend(buOzet.musteriSayisi,oncekiOzet.musteriSayisi),
+                  guclu, gelisim};
+              }
+
               // ── Zaman Çizelgesi (interaktif grafik verisi) — aralık uzunluğuna göre gün/hafta/ay bazlı gruplanır ──
               {
                 const basD=new Date(istTarihBas2+"T12:00:00"), bitD=new Date(istTarihBit2+"T12:00:00");
@@ -20519,6 +20566,42 @@ if(DB) dbUpsertAyar("tema",tema);
                   boxShadow: (istTarihBas&&istTarihBit) ? "0 4px 14px rgba(0,113,227,.28)" : "none",letterSpacing:"-.1px"},
                 onClick:()=>{ setIstHoverIdx(null); hesaplaTumu(); }
               },"Göster"),
+
+              // ── 🎯 Kişisel Katkı Özeti — trend, sadakat, güçlü yön, gelişim alanı ──
+              istSonuc&&istSonuc.katkiOzeti&&(()=>{
+                const ko=istSonuc.katkiOzeti;
+                const trendRenk=v=>v>0?"#34C759":(v<0?"#e06060":"#8a8a8e");
+                const trendOk=v=>v>0?"▲":(v<0?"▼":"—");
+                const kpiKart=(baslik,deger,trendV,trendEtiket)=>div({style:{background:"#fff",
+                  border:"1px solid rgba(0,0,0,.07)",borderRadius:12,padding:"11px 12px",flex:"1 1 130px"}},
+                  div({style:{fontSize:10.5,color:"#8a8a8e",fontWeight:600,marginBottom:4}},baslik),
+                  div({style:{fontSize:16,fontWeight:800,color:"#1D1D1F",letterSpacing:"-.2px"}},deger),
+                  trendV!==null && div({style:{fontSize:11,fontWeight:700,color:trendRenk(trendV),marginTop:3}},
+                    trendOk(trendV)+" %"+Math.abs(trendV)+" "+trendEtiket)
+                );
+                return div({style:{marginBottom:14}},
+                  div({style:{fontSize:13,fontWeight:800,color:"#1D1D1F",marginBottom:8,display:"flex",alignItems:"center",gap:6}},
+                    "🎯 Kişisel Katkı Özeti"),
+                  div({style:{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}},
+                    kpiKart("Toplam Ciro",fmt(ko.buOzet.genelTop),ko.ciroTrend,"önceki döneme göre"),
+                    kpiKart("Ortalama Fiş",fmt(ko.buOzet.ortalamaFis),ko.fisTrend,"önceki döneme göre"),
+                    kpiKart("🔁 Tekrar Gelen Müşteri",ko.buOzet.musteriSayisi>0?"%"+ko.buOzet.sadakatOrani:"—",
+                      ko.oncekiOzet.musteriSayisi>0?ko.sadakatFark:null,"puan"),
+                    kpiKart("Müşteri Sayısı",String(ko.buOzet.musteriSayisi),ko.musteriTrend,"önceki döneme göre")
+                  ),
+                  ko.guclu&&div({style:{background:"rgba(52,199,89,.08)",border:"1px solid rgba(52,199,89,.25)",
+                    borderRadius:12,padding:"11px 13px",marginBottom:8,fontSize:12.5,color:"#1a5c30",lineHeight:1.5}},
+                    h("b",null,"💪 Güçlü Yönün: "),
+                    "En çok "+ko.guclu.ad+" hizmetiyle öne çıkıyorsun — bu dönem "+fmt(ko.guclu.tutar)+" kazandırdı."),
+                  ko.gelisim
+                    ? div({style:{background:"rgba(255,149,0,.08)",border:"1px solid rgba(255,149,0,.25)",
+                        borderRadius:12,padding:"11px 13px",fontSize:12.5,color:"#8a5c08",lineHeight:1.5}},
+                        h("b",null,"🎯 Bakılabilecek Nokta: "),ko.gelisim.metin)
+                    : div({style:{background:"rgba(0,113,227,.06)",border:"1px solid rgba(0,113,227,.2)",
+                        borderRadius:12,padding:"11px 13px",fontSize:12.5,color:"#0058B0",lineHeight:1.5}},
+                        "👍 Bu dönemde belirgin bir gerileme görünmüyor, iyi gidiyorsun.")
+                );
+              })(),
 
               // ── İnteraktif Zaman Çizelgesi Grafiği (Ciro çubuk + Müşteri Sayısı çizgi, üzerinde gezinilebilir) ──
               istSonuc&&istSonuc.zamanSerisi&&istSonuc.zamanSerisi.veri.length>0&&(()=>{
