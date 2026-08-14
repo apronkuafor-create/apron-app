@@ -9684,6 +9684,14 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   };
   const [musteri,  setMusteri]  = useState(ilk?.musteri||"");
   const [tel,      setTel]      = useState(ilk?.tel||"");
+  // ── Başka Personelin Müşterisi Uyarısı: kayıt sahibi kendisi olmayan bilinen bir müşteri adı
+  // girildiğinde, kaydetmeden önce sebep sorulur. Ücret yine kaydı yapan personele yazılır —
+  // bu sadece sahibinin (Müşterilerim ekranından) bu ziyareti görebilmesi içindir.
+  const [farkliSahipUyari, setFarkliSahipUyari] = useState(null); // {sahipId, sahipAd}
+  const [farkliSahipOnaylandi, setFarkliSahipOnaylandi] = useState(false);
+  const [farkliSahipSebep, setFarkliSahipSebep] = useState("");
+  const [farkliSahipDigerModu, setFarkliSahipDigerModu] = useState(false);
+  const [farkliSahipDigerMetin, setFarkliSahipDigerMetin] = useState("");
   const [formTarih, setFormTarih] = useState(ilk?.tarih || TODAY());
   const [hizmetSaati, setHizmetSaati] = useState(ilk?.hizmetSaati || new Date().toTimeString().slice(0,5));
   const [musteriKaydet, setMusteriKaydet] = useState(!!ilk?.musteriKaydet);
@@ -10101,6 +10109,18 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
       setTimeout(()=>urunBolumRef.current?.scrollIntoView({behavior:"smooth",block:"center"}), 50);
       return;
     }
+    // Başka personelin müşterisi mi? (manikürist için ayrı bir akış zaten var, burada tekrar sorulmaz)
+    if(!_isManikurist && musteri.trim() && !farkliSahipOnaylandi){
+      const q=normText(musteri.trim());
+      const temizTelG=temizTelefonRakam(tel);
+      const eslesen=(musteriDB||[]).find(m=>
+        (temizTelG && temizTelefonRakam(m.tel)===temizTelG) || normText(m.ad)===q
+      );
+      if(eslesen && eslesen.sahipId && String(eslesen.sahipId)!==String(aktifKullanici?.id||"")){
+        setFarkliSahipUyari({sahipId:eslesen.sahipId, sahipAd:eslesen.sahipAd||"Başka bir personel"});
+        return;
+      }
+    }
     // Manikürist için personel seçimi zorunlu - disabled ile kontrol edildi
     const temizH = hizler.filter(h=>h.n&&toN(h.f)>0);
     const temizU = urunler.filter(u=>u.a&&toN(u.sf)>0&&toN(u.qty)>0).map(u=>{
@@ -10147,6 +10167,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
     onKaydet({id:ilk?.id,musteri,tel,
       anaPersonelId:anaPersonelId||ilk?.anaPersonelId||"",
       anaPersonelAd:personeller.find(p=>p.id===(anaPersonelId||ilk?.anaPersonelId))?.ad||"",
+      farkliSahipSebep:farkliSahipSebep||ilk?.farkliSahipSebep||"",
       staffId:ilk?.staffId, staffAd:ilk?.staffAd,
       tarih: formTarih || ilk?.tarih || TODAY(), saat:ilk?.saat, gonderildi:ilk?.gonderildi,
       hizmetSaati:hizmetSaati||ilk?.hizmetSaati||"",
@@ -10255,6 +10276,8 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                   const val=e.target.value;
                   setMusteri(val);
                   if((val||tel).trim()) setMusteriKaydetUyari("");
+                  if(farkliSahipOnaylandi){ setFarkliSahipOnaylandi(false); setFarkliSahipSebep(""); }
+                  if(farkliSahipDigerModu){ setFarkliSahipDigerModu(false); setFarkliSahipDigerMetin(""); }
                   setSilIkonuAlani(val||tel?"musteri":"");
                   const q=normText(val);
                   if(_isManikurist){
@@ -10596,7 +10619,8 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
             )
           ),
           // ─── Manikürist: Bildirim göndermek için ana personel seçimi ───
-          manikuristBildirimSec&&div({style:{position:"fixed",top:0,left:0,right:0,bottom:0,
+          manikuristBildirimSec&&ReactDOM.createPortal(
+          div({style:{position:"fixed",top:0,left:0,right:0,bottom:0,
             background:"rgba(0,0,0,.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,
             fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
             div({style:{background:"#FBFBFD",border:"1px solid rgba(0,0,0,.10)",borderRadius:16,padding:22,maxWidth:380,width:"100%",
@@ -10644,9 +10668,73 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                   }},"Bildirim Gönder")
               )
             )
+          ), document.body
           )
         )
         )
+        ),
+        // ── Başka Personelin Müşterisi Uyarısı ──
+        farkliSahipUyari&&ReactDOM.createPortal(
+          div({style:{position:"fixed",top:0,left:0,right:0,bottom:0,
+          background:"rgba(0,0,0,.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,
+          fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+          div({style:{background:"#FBFBFD",border:"1px solid rgba(0,0,0,.10)",borderRadius:16,padding:22,maxWidth:380,width:"100%",
+            boxShadow:"0 18px 50px rgba(0,0,0,.22), 0 4px 12px rgba(0,0,0,.10)"}},
+            div({style:{fontSize:28,textAlign:"center",marginBottom:8}},"⚠️"),
+            div({style:{fontSize:15,color:"#1D1D1F",fontWeight:700,marginBottom:8,textAlign:"center",letterSpacing:"-.2px"}},
+              musteri.trim()+", "+farkliSahipUyari.sahipAd+"'a ait bir müşteri"),
+            div({style:{fontSize:12.5,color:"#3a3a3c",marginBottom:16,textAlign:"center",lineHeight:1.5}},
+              "Bu işlemi neden siz kaydediyorsunuz?"),
+            farkliSahipDigerModu
+              ? div(null,
+                  inp({className:"fi",autoFocus:true,placeholder:"Kısaca açıklayın...",value:farkliSahipDigerMetin,
+                    onChange:e=>setFarkliSahipDigerMetin(e.target.value),
+                    style:{marginBottom:10}}),
+                  div({style:{display:"flex",gap:8,marginBottom:10}},
+                    btn({style:{flex:1,padding:"10px 0",borderRadius:9,border:"1px solid var(--br)",
+                      background:"#FFFFFF",color:"#86868B",fontSize:12.5,fontWeight:600,cursor:"pointer"},
+                      onClick:()=>{ setFarkliSahipDigerModu(false); setFarkliSahipDigerMetin(""); }},
+                      "‹ Geri"),
+                    btn({style:{flex:1,padding:"10px 0",borderRadius:9,border:"none",
+                      background:farkliSahipDigerMetin.trim()?"linear-gradient(135deg,#0071E3,#0058B0)":"var(--bg3)",
+                      color:farkliSahipDigerMetin.trim()?"#fff":"var(--di)",fontSize:12.5,fontWeight:700,
+                      cursor:farkliSahipDigerMetin.trim()?"pointer":"default"},
+                      disabled:!farkliSahipDigerMetin.trim(),
+                      onClick:()=>{
+                        setFarkliSahipSebep("✏️ "+farkliSahipDigerMetin.trim());
+                        setFarkliSahipOnaylandi(true);
+                        setFarkliSahipUyari(null);
+                        setFarkliSahipDigerModu(false);
+                        setFarkliSahipDigerMetin("");
+                        setTimeout(()=>kaydet(),0);
+                      }},"Onayla")
+                  )
+                )
+              : div({style:{display:"flex",flexDirection:"column",gap:8,marginBottom:10}},
+              [
+                ["izinli","🏖️",farkliSahipUyari.sahipAd+", bugün izinli/yok"],
+                ["ozel_istek","🙋","Müşteri özellikle benden istedi"],
+                ["yogunluk","📅","Randevu yoğunluğu nedeniyle ben aldım"],
+                ["diger","✏️","Diğer"]
+              ].map(([kod,ikon,etiket])=>
+                btn({key:kod,style:{padding:"11px 14px",borderRadius:10,border:"1px solid rgba(0,113,227,.3)",
+                  background:"rgba(0,113,227,.06)",color:"#0071E3",fontSize:13,fontWeight:600,cursor:"pointer",
+                  textAlign:"left",display:"flex",alignItems:"center",gap:9},
+                  onClick:()=>{
+                    if(kod==="diger"){ setFarkliSahipDigerModu(true); return; }
+                    setFarkliSahipSebep(etiket);
+                    setFarkliSahipOnaylandi(true);
+                    setFarkliSahipUyari(null);
+                    setTimeout(()=>kaydet(),0);
+                  }},ikon+"  "+etiket)
+              )
+            ),
+            !farkliSahipDigerModu&&btn({style:{width:"100%",padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",
+              background:"#FFFFFF",color:"#86868B",fontSize:13,fontWeight:600,cursor:"pointer"},
+              onClick:()=>{ setFarkliSahipUyari(null); formMusteriTemizle&&formMusteriTemizle(); }},
+              "↩️ Vazgeç — müşteri adını temizle")
+          )
+          ), document.body
         ),
         // Hizmetler
         div({className:"sc sc-h theme-section",ref:hizmetBolumRef,style:{
