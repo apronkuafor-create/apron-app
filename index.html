@@ -9688,10 +9688,13 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   // girildiğinde, kaydetmeden önce sebep sorulur. Ücret yine kaydı yapan personele yazılır —
   // bu sadece sahibinin (Müşterilerim ekranından) bu ziyareti görebilmesi içindir.
   const [farkliSahipUyari, setFarkliSahipUyari] = useState(null); // {sahipId, sahipAd}
-  const [farkliSahipOnaylandi, setFarkliSahipOnaylandi] = useState(false);
   const [farkliSahipSebep, setFarkliSahipSebep] = useState("");
   const [farkliSahipDigerModu, setFarkliSahipDigerModu] = useState(false);
   const [farkliSahipDigerMetin, setFarkliSahipDigerMetin] = useState("");
+  const [sahiplikPersonelSecici, setSahiplikPersonelSecici] = useState(false); // "Bu müşteri bana ait değil" akışı
+  const [farkliSahipManuelMi, setFarkliSahipManuelMi] = useState(false); // otomatik tespit mi, personel mi bildirdi
+  const [sahiplikSeciliPersonel, setSahiplikSeciliPersonel] = useState(null); // {id,ad} — 1. adımda seçilen personel
+  const [sahiplikMusteriArama, setSahiplikMusteriArama] = useState("");
   const [formTarih, setFormTarih] = useState(ilk?.tarih || TODAY());
   const [hizmetSaati, setHizmetSaati] = useState(ilk?.hizmetSaati || new Date().toTimeString().slice(0,5));
   const [musteriKaydet, setMusteriKaydet] = useState(!!ilk?.musteriKaydet);
@@ -10109,18 +10112,6 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
       setTimeout(()=>urunBolumRef.current?.scrollIntoView({behavior:"smooth",block:"center"}), 50);
       return;
     }
-    // Başka personelin müşterisi mi? (manikürist için ayrı bir akış zaten var, burada tekrar sorulmaz)
-    if(!_isManikurist && musteri.trim() && !farkliSahipOnaylandi){
-      const q=normText(musteri.trim());
-      const temizTelG=temizTelefonRakam(tel);
-      const eslesen=(musteriDB||[]).find(m=>
-        (temizTelG && temizTelefonRakam(m.tel)===temizTelG) || normText(m.ad)===q
-      );
-      if(eslesen && eslesen.sahipId && String(eslesen.sahipId)!==String(aktifKullanici?.id||"")){
-        setFarkliSahipUyari({sahipId:eslesen.sahipId, sahipAd:eslesen.sahipAd||"Başka bir personel"});
-        return;
-      }
-    }
     // Manikürist için personel seçimi zorunlu - disabled ile kontrol edildi
     const temizH = hizler.filter(h=>h.n&&toN(h.f)>0);
     const temizU = urunler.filter(u=>u.a&&toN(u.sf)>0&&toN(u.qty)>0).map(u=>{
@@ -10276,8 +10267,10 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                   const val=e.target.value;
                   setMusteri(val);
                   if((val||tel).trim()) setMusteriKaydetUyari("");
-                  if(farkliSahipOnaylandi){ setFarkliSahipOnaylandi(false); setFarkliSahipSebep(""); }
+                  if(farkliSahipSebep) setFarkliSahipSebep("");
                   if(farkliSahipDigerModu){ setFarkliSahipDigerModu(false); setFarkliSahipDigerMetin(""); }
+                  if(farkliSahipManuelMi) setFarkliSahipManuelMi(false);
+                  if(sahiplikSeciliPersonel){ setSahiplikSeciliPersonel(null); setSahiplikMusteriArama(""); }
                   setSilIkonuAlani(val||tel?"musteri":"");
                   const q=normText(val);
                   if(_isManikurist){
@@ -10368,6 +10361,96 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
               h("path",{d:"M7.2 16.5c.5-2 1.9-3.2 3.8-3.2s3.3 1.2 3.8 3.2"})
             )
           )
+        ),
+        // ── Bu Müşteri Bana Ait Değil (manikürist hariç tüm personel) ──
+        !_isManikurist && musteri.trim() && div({style:{marginTop:6,marginBottom:2}},
+          btn({type:"button",style:{fontSize:11.5,fontWeight:600,padding:"6px 11px",borderRadius:8,
+            border:"1px solid rgba(217,119,87,.35)",background:"rgba(217,119,87,.06)",color:"#D97757",cursor:"pointer"},
+            onClick:()=>{setSahiplikSeciliPersonel(null);setSahiplikMusteriArama("");setSahiplikPersonelSecici(true);}},
+            "🔄 Bu müşteri bana ait değil")
+        ),
+        sahiplikPersonelSecici && ReactDOM.createPortal(
+          div({style:{position:"fixed",top:0,left:0,right:0,bottom:0,
+            background:"rgba(0,0,0,.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,
+            fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+            div({style:{background:"#FBFBFD",border:"1px solid rgba(0,0,0,.10)",borderRadius:16,padding:22,maxWidth:400,width:"100%",
+              maxHeight:"82vh",display:"flex",flexDirection:"column",
+              boxShadow:"0 18px 50px rgba(0,0,0,.22), 0 4px 12px rgba(0,0,0,.10)"}},
+              !sahiplikSeciliPersonel
+                ? div(null,
+                    div({style:{fontSize:15,color:"#1D1D1F",fontWeight:700,marginBottom:8,textAlign:"center",letterSpacing:"-.2px"}},
+                      "Bu müşteri kimin?"),
+                    div({style:{fontSize:12.5,color:"#3a3a3c",marginBottom:14,textAlign:"center",lineHeight:1.5}},
+                      "Müşterinin asıl geldiği personeli seçin."),
+                    div({style:{maxHeight:280,overflowY:"auto",marginBottom:12}},
+                      personeller.filter(p=>p.aktif&&p.id!==aktifKullanici?.id&&p.pozisyon!=="Manikurist"&&p.pozisyon!=="Pedikürist"&&p.pozisyon!=="Pedikurist").map(p=>
+                        btn({key:p.id,type:"button",style:{width:"100%",padding:"11px 14px",borderRadius:10,
+                          border:"1px solid rgba(0,113,227,.3)",background:"rgba(0,113,227,.06)",color:"#0071E3",
+                          fontSize:13.5,fontWeight:600,cursor:"pointer",textAlign:"left",marginBottom:7},
+                          onClick:()=>{ setSahiplikSeciliPersonel({id:p.id,ad:p.ad}); setSahiplikMusteriArama(""); }
+                          },"👤 "+p.ad+(p.pozisyon?" — "+p.pozisyon:""))
+                      )
+                    ),
+                    btn({style:{width:"100%",padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",
+                      background:"#FFFFFF",color:"#86868B",fontSize:13,fontWeight:600,cursor:"pointer"},
+                      onClick:()=>setSahiplikPersonelSecici(false)},"İptal")
+                  )
+                : (()=>{
+                    // 2. adım: seçilen personelin müşteri listesi TAM GÖSTERİLMEZ (gizlilik) — Murat sadece
+                    // hatırladığı ismi yazar, benzer isimler öneri olarak çıkar (telefon numarası hiç görünmez).
+                    // Seçilince isim o kaydın GERÇEK yazımıyla eklenir (eşleşme garanti), telefon boş bırakılır.
+                    const q=normText(sahiplikMusteriArama);
+                    const oPersonelMusterileri=(musteriDB||[]).filter(m=>String(m.sahipId||"")===String(sahiplikSeciliPersonel.id));
+                    const gosterilen=q.length>=2?oPersonelMusterileri.filter(m=>normText(m.ad).includes(q)).slice(0,8):[];
+                    return div(null,
+                      div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:10}},
+                        btn({type:"button",style:{background:"transparent",border:"none",color:"#0071E3",
+                          fontSize:13,fontWeight:600,cursor:"pointer",padding:0},
+                          onClick:()=>{setSahiplikSeciliPersonel(null);setSahiplikMusteriArama("");}},"‹ Geri"),
+                        div({style:{fontSize:15,color:"#1D1D1F",fontWeight:700,letterSpacing:"-.2px"}},
+                          sahiplikSeciliPersonel.ad+"'in müşterisi")
+                      ),
+                      div({style:{fontSize:12,color:"#3a3a3c",marginBottom:10,lineHeight:1.5}},
+                        "Hatırladığınız ismi yazın, benzer isimler önerilecek."),
+                      inp({className:"fi",placeholder:"İsim yazın...",autoFocus:true,
+                        value:sahiplikMusteriArama,onChange:e=>setSahiplikMusteriArama(e.target.value),
+                        style:{marginBottom:10}}),
+                      sahiplikMusteriArama.trim().length>=2 && div({style:{maxHeight:220,overflowY:"auto",marginBottom:12}},
+                        gosterilen.length===0
+                          ? div({style:{padding:"12px 6px",textAlign:"center",fontSize:12.5,color:"#86868B"}},"Eşleşen müşteri bulunamadı.")
+                          : gosterilen.map(m=>
+                              btn({key:m.id,type:"button",style:{width:"100%",padding:"10px 13px",borderRadius:10,
+                                border:"1px solid rgba(0,113,227,.25)",background:"rgba(0,113,227,.05)",color:"#1D1D1F",
+                                fontSize:13,fontWeight:600,cursor:"pointer",textAlign:"left",marginBottom:6},
+                                onClick:()=>{
+                                  setMusteri(m.ad);
+                                  setTel("");
+                                  setSahiplikPersonelSecici(false);
+                                  setFarkliSahipManuelMi(true);
+                                  setFarkliSahipUyari({sahipId:sahiplikSeciliPersonel.id, sahipAd:sahiplikSeciliPersonel.ad});
+                                  setSahiplikSeciliPersonel(null);
+                                }},"👤 "+m.ad)
+                            )
+                      ),
+                      div({style:{fontSize:11.5,color:"#86868B",marginBottom:12,lineHeight:1.5}},
+                        "Listede bulamadınız mı? Yazdığınız isimle devam edebilirsiniz."),
+                      (sahiplikMusteriArama.trim()||musteri.trim()) && btn({style:{width:"100%",padding:"11px 0",borderRadius:10,border:"none",
+                        background:"linear-gradient(135deg,#D97757,#B8603F)",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"},
+                        onClick:()=>{
+                          const secilenAd=(sahiplikMusteriArama.trim()||musteri.trim());
+                          setMusteri(secilenAd);
+                          setSahiplikPersonelSecici(false);
+                          setFarkliSahipManuelMi(true);
+                          setFarkliSahipUyari({sahipId:sahiplikSeciliPersonel.id, sahipAd:sahiplikSeciliPersonel.ad});
+                          setSahiplikSeciliPersonel(null);
+                        }},"\""+(sahiplikMusteriArama.trim()||musteri.trim())+"\" ismiyle devam et"),
+                      btn({style:{width:"100%",padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",
+                        background:"#FFFFFF",color:"#86868B",fontSize:13,fontWeight:600,cursor:"pointer",marginTop:8},
+                        onClick:()=>{setSahiplikPersonelSecici(false);setSahiplikSeciliPersonel(null);}},"İptal")
+                    );
+                  })()
+            )
+          ), document.body
         ),
         // Manikürist için: müşteri sistemde kayıtlıysa sahibi zaten biliniyor, dropdown gerek yok
         // Müşteri adı boşsa da dropdown gizli (manikürist sadeleştirilmiş başlangıç ekranı)
@@ -10702,11 +10785,10 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                       disabled:!farkliSahipDigerMetin.trim(),
                       onClick:()=>{
                         setFarkliSahipSebep("✏️ "+farkliSahipDigerMetin.trim());
-                        setFarkliSahipOnaylandi(true);
                         setFarkliSahipUyari(null);
                         setFarkliSahipDigerModu(false);
                         setFarkliSahipDigerMetin("");
-                        setTimeout(()=>kaydet(),0);
+                        showToast&&showToast("Sahiplik bilgisi kaydedildi — hizmet/ürün girip Kaydet'e basın","uy");
                       }},"Onayla")
                   )
                 )
@@ -10723,16 +10805,19 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                   onClick:()=>{
                     if(kod==="diger"){ setFarkliSahipDigerModu(true); return; }
                     setFarkliSahipSebep(etiket);
-                    setFarkliSahipOnaylandi(true);
                     setFarkliSahipUyari(null);
-                    setTimeout(()=>kaydet(),0);
+                    showToast&&showToast("Sahiplik bilgisi kaydedildi — hizmet/ürün girip Kaydet'e basın","uy");
                   }},ikon+"  "+etiket)
               )
             ),
             !farkliSahipDigerModu&&btn({style:{width:"100%",padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",
               background:"#FFFFFF",color:"#86868B",fontSize:13,fontWeight:600,cursor:"pointer"},
-              onClick:()=>{ setFarkliSahipUyari(null); formMusteriTemizle&&formMusteriTemizle(); }},
-              "↩️ Vazgeç — müşteri adını temizle")
+              onClick:()=>{
+                setFarkliSahipUyari(null);
+                setFarkliSahipManuelMi(false);
+                if(!farkliSahipManuelMi) formMusteriTemizle&&formMusteriTemizle();
+              }},
+              farkliSahipManuelMi?"İptal":"↩️ Vazgeç — müşteri adını temizle")
           )
           ), document.body
         ),
