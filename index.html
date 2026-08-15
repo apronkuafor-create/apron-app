@@ -2570,6 +2570,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [mkAlt, setMkAlt] = React.useState("liste"); // liste | arsiv
   const [arsivAc, setArsivAc] = React.useState(null); // arşiv detay index
   const [arsivDonus, setArsivDonus] = React.useState(null); // Arşiv Detayı'na başka bir sekmeden (Cari, Ödemelerim vb.) girildiyse, "‹ Geri" hangi sekmeye dönsün — {umSek}. null ise varsayılan olarak Mal Kabul Arşiv listesine döner.
+  const [arsivAcikTedarikci, setArsivAcikTedarikci] = React.useState(null); // Arşiv listesinde açık olan tedarikçi kartı
   const [arsivDuzMod, setArsivDuzMod] = React.useState(false); // inline düzenleme modu
   const [arsivDuzTedarikci, setArsivDuzTedarikci] = React.useState("");
   const [arsivDuzFaturaN, setArsivDuzFaturaN] = React.useState("");
@@ -4228,40 +4229,92 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             })()
           );
         }
-        const renderArsivKart=(ar,i)=>{
-            const genelTop=ar.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
-            const globalIdx=sortedArsiv.indexOf(ar);
-            const sarfSayisi=(ar.urunler||[]).filter(u=>u.sarfMi).length;
-            const satSayisi=(ar.urunler||[]).length-sarfSayisi;
-            const rozet = sarfSayisi>0&&satSayisi>0
-              ? {ikon:"🔀",metin:"Karma",renk:"#8E5FE0",bg:"rgba(142,95,224,.13)"}
-              : sarfSayisi>0
-                ? {ikon:"🧪",metin:"Sarf",renk:"#FF9500",bg:"rgba(255,149,0,.13)"}
-                : {ikon:"🛍️",metin:"Satılabilen",renk:"#34C759",bg:"rgba(52,199,89,.13)"};
-            return div({key:i,style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,
-              padding:14,marginBottom:8,cursor:"pointer"},
-              onClick:()=>{setArsivDonus(null);setArsivAc(globalIdx);}},
-              div({style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
-                div(null,
-                  div({style:{display:"flex",alignItems:"center",gap:6,marginBottom:2}},
-                    ar.tedarikci&&div({style:{fontSize:14,color:"var(--g)",fontWeight:600}},ar.tedarikci),
-                    div({style:{fontSize:9,fontWeight:700,color:rozet.renk,background:rozet.bg,
-                      borderRadius:5,padding:"1px 6px",letterSpacing:.5}},rozet.ikon+" "+rozet.metin)
-                  ),
-                  div({style:{fontSize:13,color:"var(--tx)"}},(ar.faturaN?"Fatura: "+ar.faturaN+" · ":"")+fmtT(ar.tarih)),
-                  div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},ar.urunler.length+" ürün")
+        // ── Tedarikçi bazlı gruplama — Borçlarım ile AYNI bahar/pastel renk paleti ve kart deseni ──
+        const SICAK_PALET = ["#E39B7A","#9B8AC4","#7FB894","#7FABCB","#D99BB0","#D9BE6E","#9AA8D1","#C9A26E"];
+        const tedGruplarArsiv = {};
+        sortedArsiv.forEach(ar=>{
+          const tAd=(ar.tedarikci||"").trim()||"Tedarikçi Belirtilmemiş";
+          if(!tedGruplarArsiv[tAd]) tedGruplarArsiv[tAd]={ad:tAd, faturalar:[], toplam:0, sonTarih:""};
+          const genelTop=ar.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
+          tedGruplarArsiv[tAd].faturalar.push(ar);
+          tedGruplarArsiv[tAd].toplam += genelTop;
+          const t=ar.tarih||"";
+          if(t>tedGruplarArsiv[tAd].sonTarih) tedGruplarArsiv[tAd].sonTarih=t;
+        });
+        const tedListeArsiv = Object.values(tedGruplarArsiv).sort((a,b)=>b.sonTarih.localeCompare(a.sonTarih));
+        return div(null,
+          div({style:{background:"linear-gradient(135deg, rgba(217,119,87,.10), rgba(217,162,58,.08))",
+            border:"1px solid rgba(217,119,87,.18)",borderRadius:14,
+            padding:"14px 16px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}},
+            div({style:{display:"flex",alignItems:"center",gap:10}},
+              div({style:{fontSize:22}},"📁"),
+              div({style:{fontSize:12,color:"var(--mu)"}}, tedListeArsiv.length+" tedarikçi · "+sortedArsiv.length+" fatura")
+            )
+          ),
+          tedListeArsiv.map((t,ti)=>{
+            const acik = arsivAcikTedarikci===t.ad;
+            const rozet = SICAK_PALET[ti % SICAK_PALET.length];
+            const siraliFaturalar = t.faturalar.slice().sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
+            return div({key:ti,style:{background:"var(--bg2)",border:"1px solid var(--br)",
+              borderRadius:14,marginBottom:10,overflow:"hidden",
+              boxShadow:"0 1px 3px rgba(0,0,0,.04), 0 1px 2px rgba(0,0,0,.03)"}},
+              div({style:{padding:"13px 14px",cursor:"pointer",display:"flex",
+                justifyContent:"space-between",alignItems:"center",gap:10},
+                onClick:()=>setArsivAcikTedarikci(acik?null:t.ad)},
+                div({style:{display:"flex",alignItems:"center",gap:11,minWidth:0,flex:1}},
+                  div({style:{width:38,height:38,borderRadius:"50%",flexShrink:0,
+                    background:"linear-gradient(135deg, "+rozet+", "+rozet+"cc)",
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    color:"#fff",fontWeight:800,fontSize:15,
+                    boxShadow:"0 2px 5px "+rozet+"55"}},
+                    t.ad.trim().charAt(0).toUpperCase()),
+                  div({style:{minWidth:0,flex:1}},
+                    div({style:{fontSize:15,color:"var(--tx)",fontWeight:700,
+                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}, t.ad),
+                    div({style:{fontSize:11,color:rozet,marginTop:2,fontWeight:600}},
+                      t.faturalar.length+" fatura")
+                  )
                 ),
-                div({style:{textAlign:"right"}},
-                  div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",color:"var(--g)",fontWeight:700}},fmtBuyuk(genelTop,16)),
-                  div({style:{fontSize:11,color:"var(--di)",marginTop:2}},"detay →")
-                )
+                div({style:{textAlign:"right",flexShrink:0}},
+                  div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
+                    fontSize:17,fontWeight:700,color:"var(--g)"}}, fmtBuyuk(t.toplam,17))
+                ),
+                h("span",{style:{fontSize:16,color:"var(--mu)",transform:acik?"rotate(90deg)":"none",
+                  transition:"transform .15s",flexShrink:0,display:"inline-block"}},"›")
+              ),
+              acik && div({style:{borderTop:"1px solid var(--br)",borderLeft:"3px solid "+rozet,
+                background:"rgba(0,0,0,.012)",padding:"10px 14px"}},
+                siraliFaturalar.map((ar,fi)=>{
+                  const genelTop=ar.urunler.reduce((s,u)=>s+(u.toplamF||0),0);
+                  const globalIdx=sortedArsiv.indexOf(ar);
+                  const sarfSayisi=(ar.urunler||[]).filter(u=>u.sarfMi).length;
+                  const satSayisi=(ar.urunler||[]).length-sarfSayisi;
+                  const rozetTip = sarfSayisi>0&&satSayisi>0
+                    ? {ikon:"🔀",metin:"Karma",renk:"#8E5FE0",bg:"rgba(142,95,224,.13)"}
+                    : sarfSayisi>0
+                      ? {ikon:"🧪",metin:"Sarf",renk:"#FF9500",bg:"rgba(255,149,0,.13)"}
+                      : {ikon:"🛍️",metin:"Satılabilen",renk:"#34C759",bg:"rgba(52,199,89,.13)"};
+                  return div({key:fi,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+                    padding:"9px 0",borderBottom:fi<siraliFaturalar.length-1?"1px solid var(--br)":"none",cursor:"pointer"},
+                    onClick:()=>{setArsivDonus(null);setArsivAc(globalIdx);}},
+                    div(null,
+                      div({style:{display:"flex",alignItems:"center",gap:6,marginBottom:2}},
+                        div({style:{fontSize:12.5,color:"var(--tx)"}},ar.faturaN?"Fatura: "+ar.faturaN:"—"),
+                        div({style:{fontSize:9,fontWeight:700,color:rozetTip.renk,background:rozetTip.bg,
+                          borderRadius:5,padding:"1px 6px",letterSpacing:.5}},rozetTip.ikon+" "+rozetTip.metin)
+                      ),
+                      div({style:{fontSize:11,color:"var(--mu)"}},fmtT(ar.tarih)+" · "+ar.urunler.length+" ürün")
+                    ),
+                    div({style:{display:"flex",alignItems:"center",gap:6}},
+                      div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
+                        fontSize:14,color:"var(--g)",fontWeight:600}},fmt(genelTop)),
+                      div({style:{fontSize:12,color:"var(--di)"}},"›")
+                    )
+                  );
+                })
               )
             );
-          };
-        return div(null,
-          div({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,marginBottom:10}},
-            "📁 "+sortedArsiv.length+" kayıt"),
-          sortedArsiv.map((ar,i)=>renderArsivKart(ar,i))
+          })
         );
       })(),
 
