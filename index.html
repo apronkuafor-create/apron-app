@@ -2482,11 +2482,15 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     setMkFaturaOkuYukleniyor(false);
   };
   // ── Fatura Ekle (Geçmiş Stok Tarihi) için AI fatura okuma: aynı OCR servisini kullanır, ama okunan
-  // kalemleri (yeni stok eklemek yerine) MEVCUT stoktaki ürünlerle eşleştirip miktar/tarih önerir. ──
+  // kalemleri (yeni stok eklemek yerine) MEVCUT stoktaki ürünlerle eşleştirip miktar/tarih önerir.
+  // Fatura, sistemde hiç kayıtlı olmayan ürünler dahil TÜM kalemleri okur — ama analiz/otomatik ekleme
+  // SADECE mevcut stokta (kalan>0) bulunan ürünlerle sınırlıdır; eşleşmeyenler kalıcı bir liste halinde
+  // gösterilir (elle eklenebilsin diye), sessizce kaybolmaz.
   const gecmisStokFaturaOku = async () => {
     const sonGorsel = (gecmisStokGorsel||[])[gecmisStokGorsel.length-1];
     if(!sonGorsel){ showToast("Önce bir fatura görseli/PDF ekleyin","uy"); return; }
     setGecmisStokOkuYukleniyor(true);
+    setGecmisStokEslesmeyen([]); setGecmisStokKismiBilgi(null);
     try{
       const eslesme = sonGorsel.match(/^data:([^;]+);base64,(.+)$/);
       if(!eslesme){ showToast("Görsel formatı okunamadı","uy"); setGecmisStokOkuYukleniyor(false); return; }
@@ -2507,7 +2511,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
       if(veri.tedarikciAdi) setGecmisStokTedarikci(veri.tedarikciAdi);
 
       if(Array.isArray(veri.kalemler) && veri.kalemler.length>0){
-        const kelimelestir = s => normText(s).replace(/[\/\-_,.]/g," ").replace(/[^a-z0-9\s]/g," ").split(/\s+/).filter(w=>w.length>1);
+        const kelimelestir = s => normText(s).replace(/[\/\-_,.]/g," ").replace(/\b(ml|adet|lt|gr|kg)\b/g," ").replace(/[^a-z0-9\s]/g," ").split(/\s+/).filter(w=>w.length>1);
         const benzerlikSkoru = (a,b) => {
           const wa=kelimelestir(a), wb=kelimelestir(b);
           if(!wa.length||!wb.length) return {skor:0,ortak:0};
@@ -2515,27 +2519,43 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           const ortak=wa.filter(w=>setB.has(w)).length;
           return {skor: ortak/Math.min(wa.length,wb.length), ortak};
         };
-        const yeniUrunler=[]; let eslesmeyen=0;
+        const yeniUrunler=[]; const eslesmeyenler=[];
         veri.kalemler.forEach(k=>{
           const ad=(k.urunAdi||"").trim(); if(!ad) return;
-          let enIyi=null, enIyiSkor=0, enIyiOrtak=0;
-          Object.values(stokOzet).forEach(u=>{
-            const {skor,ortak}=benzerlikSkoru(ad, u.urunAd);
-            if(skor>enIyiSkor){ enIyiSkor=skor; enIyiOrtak=ortak; enIyi=u; }
-          });
-          if(enIyi && enIyiSkor>=0.6 && enIyiOrtak>=2 && enIyi.kalan>0 && !yeniUrunler.some(x=>x.barkod===enIyi.barkod)){
-            const okunanAdet = toN(k.adet)||enIyi.kalan;
-            const miktar = Math.min(okunanAdet, enIyi.kalan);
-            yeniUrunler.push({barkod:enIyi.barkod, urunAd:enIyi.urunAd, marka:enIyi.marka, mevcutKalan:enIyi.kalan, miktar:String(miktar)});
-          } else eslesmeyen++;
+          // 1) Barkod varsa önce onunla dene (en güvenilir)
+          const faturaBarkod=(k.barkod||"").trim();
+          let eslesen = faturaBarkod ? Object.values(stokOzet).find(u=>u.barkod===faturaBarkod) : null;
+          // 2) İsim benzerliği — kısa (1-2 kelimelik) ürün adlarında eşik esnetilir, aksi halde
+          // "Şampuan" gibi tek kelimelik ürünler hiçbir zaman eşleşmezdi (min. 2 ortak kelime şartı).
+          if(!eslesen){
+            let enIyi=null, enIyiSkor=0, enIyiOrtak=0;
+            Object.values(stokOzet).forEach(u=>{
+              const {skor,ortak}=benzerlikSkoru(ad, u.urunAd);
+              if(skor>enIyiSkor){ enIyiSkor=skor; enIyiOrtak=ortak; enIyi=u; }
+            });
+            const wKisa = Math.min(kelimelestir(ad).length, enIyi?kelimelestir(enIyi.urunAd).length:99);
+            const gerekliOrtak = wKisa<=2 ? 1 : 2;
+            if(enIyi && enIyiSkor>=0.6 && enIyiOrtak>=gerekliOrtak) eslesen=enIyi;
+          }
+          if(eslesen && eslesen.kalan>0 && !yeniUrunler.some(x=>x.barkod===eslesen.barkod)){
+            const okunanAdet = toN(k.adet)||eslesen.kalan;
+            const miktar = Math.min(okunanAdet, eslesen.kalan);
+            yeniUrunler.push({barkod:eslesen.barkod, urunAd:eslesen.urunAd, marka:eslesen.marka, mevcutKalan:eslesen.kalan, miktar:String(miktar)});
+          } else {
+            eslesmeyenler.push({ad, adet:k.adet||"", sebep: eslesen ? "stokta kalan yok" : "sistemde/stokta eşleşen ürün bulunamadı"});
+          }
         });
         setGecmisStokUrunler(p=>{
           const varOlan=new Set(p.map(x=>x.barkod));
           return [...p, ...yeniUrunler.filter(y=>!varOlan.has(y.barkod))];
         });
-        showToast(yeniUrunler.length+" ürün stoktan eşleşti"+(eslesmeyen>0?", "+eslesmeyen+" kalem eşleşmedi (elle ekleyin)":""));
+        setGecmisStokEslesmeyen(eslesmeyenler);
+        showToast(yeniUrunler.length+" ürün stoktan eşleşip eklendi"+(eslesmeyenler.length>0?", "+eslesmeyenler.length+" kalem aşağıda listelendi":""));
       } else {
         showToast("Fatura bilgileri okundu — ürünleri elle ekleyin");
+      }
+      if(veri._kismi){
+        setGecmisStokKismiBilgi({sayisi:veri._kismiSayisi||0});
       }
     } catch(e){
       showToast("Fatura okunamadı, lütfen alanları elle doldurun","uy");
@@ -2575,6 +2595,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [gecmisStokBilgiAcik, setGecmisStokBilgiAcik] = React.useState(false);
   const [cariEkleSecimModal, setCariEkleSecimModal] = React.useState(false); // "+ Fatura / Kayıt Ekle" seçim ekranı
   const [gecmisStokOkuYukleniyor, setGecmisStokOkuYukleniyor] = React.useState(false);
+  const [gecmisStokEslesmeyen, setGecmisStokEslesmeyen] = React.useState([]); // faturada okunan ama mevcut stokta eşleşmeyen kalemler (kalıcı liste)
+  const [gecmisStokKismiBilgi, setGecmisStokKismiBilgi] = React.useState(null); // {sayisi} — fatura çok uzunsa kısmi okundu uyarısı
   const mkArsivYuklendiRef = React.useRef(false); // ilk yükleme bitti mi → boş diziyi buluta yazmayı güvenli kılar (silme-boş kalıcı olur, açılışta bulut silinmez)
   const mkArsivKirliRef = React.useRef(false);    // mount sonrası yerel silme/düzenleme oldu mu → geç gelen bulut çekimi bunu EZMESİN (diriltmeyi önler)
   const [sdAramaF, setSdAramaF] = React.useState(""); // stok durumu arama
@@ -6094,7 +6116,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       onClick:()=>{setCariEkleSecimModal(false);borcKaydiBarkodRef.current="BORC-"+uid();setBorcKaydiForm(true);setBorcKaydiTedarikci("");setBorcKaydiFaturaN("");setBorcKaydiFaturaTarih(TODAY());setBorcKaydiVade("");setBorcKaydiTutar("");setBorcKaydiGorsel([]);}},
                     {ikon:"📅", renk:"#0071E3", baslik:"Fatura Ekle (Geçmiş Stok Tarihi)",
                       aciklama:"Elinizde uzun süredir olan, parası zaten ödenmiş ürünlerin gerçek giriş tarihini kaydeder — böylece \"Durgun Stok\" analizi bu ürünleri doğru tespit eder. Toplam stok adedi ve tedarikçi borcu hiçbir şekilde değişmez, sadece mevcut stoğun bir kısmı doğru tarihe taşınır.",
-                      onClick:()=>{setCariEkleSecimModal(false);setGecmisStokTedarikci("");setGecmisStokFaturaN("");setGecmisStokTarih("");setGecmisStokGorsel([]);setGecmisStokUrunler([]);setGecmisStokArama("");setGecmisStokBilgiAcik(false);setGecmisStokModal(true);}}
+                      onClick:()=>{setCariEkleSecimModal(false);setGecmisStokTedarikci("");setGecmisStokFaturaN("");setGecmisStokTarih("");setGecmisStokGorsel([]);setGecmisStokUrunler([]);setGecmisStokArama("");setGecmisStokBilgiAcik(false);setGecmisStokEslesmeyen([]);setGecmisStokKismiBilgi(null);setGecmisStokModal(true);}}
                   ].map((sec,i)=>
                     btn({key:i,type:"button",style:{display:"flex",gap:12,padding:"14px 16px",borderRadius:14,
                       border:"1.5px solid "+sec.renk+"55",background:sec.renk+"0F",cursor:"pointer",textAlign:"left"},
@@ -6588,7 +6610,22 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               onClick:gecmisStokFaturaOku},
               gecmisStokOkuYukleniyor?"⏳ Fatura okunuyor...":"✨ Faturadan Doldur"),
             div({style:{fontSize:10,color:"var(--di)",marginTop:4,textAlign:"center"}},
-              "Fatura no, tarih ve tedarikçi otomatik doldurulur; okunan ürünler mevcut stoğunuzla eşleşirse listeye eklenir.")
+              "Fatura no, tarih ve tedarikçi otomatik doldurulur; okunan ürünler mevcut stoğunuzla eşleşirse listeye eklenir."),
+            gecmisStokKismiBilgi && div({style:{marginTop:8,padding:"8px 10px",borderRadius:8,
+              background:"rgba(255,149,0,.1)",border:"1px solid rgba(255,149,0,.3)",fontSize:11,color:"#8a5c08"}},
+              "⚠ Fatura çok uzundu, sadece bir kısmı okundu — kalan kalemleri elle ekleyin."),
+            gecmisStokEslesmeyen.length>0 && div({style:{marginTop:8,padding:"10px 12px",borderRadius:10,
+              background:"var(--bg2)",border:"1px solid var(--br)"}},
+              div({style:{fontSize:11,fontWeight:700,color:"var(--tx)",marginBottom:6}},
+                "Faturada okundu ama otomatik eklenmedi ("+gecmisStokEslesmeyen.length+"):"),
+              gecmisStokEslesmeyen.map((e,i)=>
+                div({key:i,style:{fontSize:10.5,color:"var(--mu)",padding:"3px 0",
+                  borderTop:i>0?"1px solid var(--br)":"none"}},
+                  "· "+e.ad+(e.adet?" ("+e.adet+" adet)":"")+" — "+e.sebep)
+              ),
+              div({style:{fontSize:10,color:"var(--di)",marginTop:6}},
+                "Bu ürünler ya kataloğunuzda yok ya da mevcut stokta hiç kalanı yok — bu ekran yalnızca elinizdeki stoğun tarihini düzeltir, yeni stok eklemez. Gerekirse Ürün Ekle kutusundan elle arayabilirsiniz.")
+            )
           ),
           div({style:{marginBottom:10}},
             lbl({className:"fl"},"Ürün Ekle"),
