@@ -2258,6 +2258,7 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
 // ── ÜRÜN MUHASEBESİ V4 ──────────────────────────────────────────────────────
 function UrunMuhasebe({
   stokPartiler,setStokPartiler,stokDB,setStokDB,
+  gecmisStokKayitlari,setGecmisStokKayitlari,
   oduncler,setOduncler,komsular,setKomsular,kullanimlar,setKullanimlar,stokHar,setStokHar,
   stokGirisForm,setStokGirisForm,stokGirisUrun,setStokGirisUrun,
   stokGirisTarih,setStokGirisTarih,stokGirisFatura,setStokGirisFatura,
@@ -2500,10 +2501,24 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [tedarikciIadeModal, setTedarikciIadeModal] = React.useState(null); // {arIdx, urunIdx} — tedarikçiye iade formu açık mı
   const [tedarikciIadeMiktar, setTedarikciIadeMiktar] = React.useState("");
   const [tedarikciIadeNot, setTedarikciIadeNot] = React.useState("");
+  // ── Geçmiş Stok Tarihi Kaydı: uzun süredir elde olan (parası ödenmiş) ürünlerin GERÇEK giriş tarihini
+  // kaydetmek için — borç veya toplam stok adedini HİÇ etkilemez, sadece "Durgun Stok" analizinin doğru
+  // çalışması için mevcut stoğun bir kısmını doğru tarihe taşır. mkArsiv/Cari'ye asla dokunmaz.
+  const [gecmisStokModal, setGecmisStokModal] = React.useState(false);
+  const [gecmisStokTedarikci, setGecmisStokTedarikci] = React.useState("");
+  const [gecmisStokFaturaN, setGecmisStokFaturaN] = React.useState("");
+  const [gecmisStokTarih, setGecmisStokTarih] = React.useState("");
+  const [gecmisStokGorsel, setGecmisStokGorsel] = React.useState([]);
+  const [gecmisStokUrunler, setGecmisStokUrunler] = React.useState([]); // [{barkod,urunAd,marka,mevcutKalan,miktar}]
+  const [gecmisStokArama, setGecmisStokArama] = React.useState("");
+  const [gecmisStokBilgiAcik, setGecmisStokBilgiAcik] = React.useState(false);
+  const [cariEkleSecimModal, setCariEkleSecimModal] = React.useState(false); // "+ Fatura / Kayıt Ekle" seçim ekranı
   const mkArsivYuklendiRef = React.useRef(false); // ilk yükleme bitti mi → boş diziyi buluta yazmayı güvenli kılar (silme-boş kalıcı olur, açılışta bulut silinmez)
   const mkArsivKirliRef = React.useRef(false);    // mount sonrası yerel silme/düzenleme oldu mu → geç gelen bulut çekimi bunu EZMESİN (diriltmeyi önler)
   const [sdAramaF, setSdAramaF] = React.useState(""); // stok durumu arama
   const [sdSupheliFiltre, setSdSupheliFiltre] = React.useState(false); // sadece şüpheli (kataloğu olmayan/düşük fiyatlı) kayıtları göster
+  const [sdDurgunFiltre, setSdDurgunFiltre] = React.useState(false); // sadece durgun/yavaş satan stokları göster
+  const [sdEnflasyonYillik, setSdEnflasyonYillik] = React.useState(31.75); // % yıllık TÜFE (TÜİK, Temmuz 2026) — güncellenebilir
   const [sdSupheliYoksay, setSdSupheliYoksay] = React.useState(()=>{
     try{ return JSON.parse(localStorage.getItem("apron_sd_supheli_yoksay")||"[]"); }catch(e){ return []; }
   }); // "Bu doğru, şüpheli değil" denilip kalıcı olarak yoksayılan barkodlar
@@ -2657,6 +2672,48 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     else if(tukenmeGunu<=14) aciliyet="yakin";
     return { tukenmeGunu, onerilenAdet, aciliyet };
   };
+  // ── Durgun Stok & Fiyat Önerisi: perakendede standart "envanter yaşlandırma" (0-30/31-60/61-90/90+ gün) ve
+  // "kademeli indirim" (staged markdown) pratiğine dayanır. Enflasyon kaynaklı reel değer kaybı, TÜİK'in son
+  // açıkladığı yıllık TÜFE oranı bileşik aylık orana çevrilerek hesaplanır (sdEnflasyonYillik, güncellenebilir).
+  // Not: satış hızındaki artış tahmini KABA bir varsayımdır (fiyat esnekliği ürüne göre değişir), kesin değildir.
+  const fiyatOnerisi = (barkod, kalan, birimF, satisF) => {
+    const gun = stoktaGun(barkod);
+    if(gun===null || kalan<=0 || birimF<=0) return null;
+    const satis90 = hizMap[barkod]||0;
+    const gunlukSatis = satis90/90;
+
+    let kademe, indirimYuzde, renk, etiket;
+    if(gun<=30){ kademe="taze"; indirimYuzde=0; renk="#1e9e46"; etiket="✅ Taze — henüz erken"; }
+    else if(gun<=60){ kademe="izlemede"; indirimYuzde=10; renk="#b8901f"; etiket="🟡 İzlemede"; }
+    else if(gun<=90){ kademe="yavas"; indirimYuzde=20; renk="#c25e00"; etiket="🟠 Yavaş Satıyor"; }
+    else { kademe="durgun"; indirimYuzde=35; renk="#c05050"; etiket="🔴 Durgun Stok"; }
+
+    // Enflasyon kaynaklı reel değer kaybı (bağlı sermayenin bu süredeki erimesi)
+    const aylikEnflasyon = Math.pow(1+sdEnflasyonYillik/100, 1/12)-1;
+    const ayGecen = gun/30;
+    const bagliSermaye = kalan*birimF;
+    const reelKayip = bagliSermaye*(Math.pow(1+aylikEnflasyon, ayGecen)-1);
+
+    if(kademe==="taze") return {gun, kademe, indirimYuzde:0, etiket, renk, reelKayip, bagliSermaye, kalan};
+
+    const mevcutFiyat = satisF>0?satisF:birimF*1.5;
+    const tabanFiyat = birimF*1.05; // maliyet + asgari %5 kâr payı — asla altına inilmez
+    let yeniFiyat = Math.max(tabanFiyat, mevcutFiyat*(1-indirimYuzde/100));
+    yeniFiyat = Math.round(yeniFiyat/5)*5;
+
+    const mevcutTukenmeGun = gunlukSatis>0 ? Math.round(kalan/gunlukSatis) : null;
+    // Kaba tahmin: %X indirim, talebi yaklaşık %1.5X artırır (muhafazakar fiyat esnekliği varsayımı)
+    const hizArtisKatsayisi = 1 + (indirimYuzde/100)*1.5;
+    const yeniGunlukSatis = gunlukSatis>0 ? gunlukSatis*hizArtisKatsayisi : (kalan/60);
+    const yeniTukenmeGun = yeniGunlukSatis>0 ? Math.round(kalan/yeniGunlukSatis) : null;
+
+    const yeniKarBirim = yeniFiyat-birimF;
+    const yeniToplamKar = yeniKarBirim*kalan;
+
+    return {gun, kademe, indirimYuzde, etiket, renk, reelKayip, bagliSermaye, kalan,
+      mevcutFiyat, yeniFiyat, mevcutTukenmeGun, yeniTukenmeGun, yeniKarBirim, yeniToplamKar};
+  };
+
   // ── Bu ürünü en son hangi tedarikçiden aldık + o tedarikçiyle aramızdaki bakiye ──
   const sonTedarikci = (barkod) => {
     const gecmis = (mkArsiv||[]).filter(ar=>(ar.urunler||[]).some(u=>u.barkod===barkod) && ar.tedarikci)
@@ -5184,7 +5241,14 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         ?liste.filter(u=>normText(u.urunAd).includes(normText(q))||u.barkod.includes(q)||normText(u.marka||"").includes(normText(q)))
         :liste;
       const supheliSayisi = liste.filter(u=>u._supheli).length;
-      const filtred = sdSupheliFiltre ? filtredHam.filter(u=>u._supheli) : filtredHam;
+      const durgunSayisi = liste.filter(u=>{
+        const o=fiyatOnerisi(u.barkod,u.kalan,u.birimF,u.satisF);
+        return o && o.kademe!=="taze";
+      }).length;
+      const listeOneri = filtredHam.map(u=>({...u, _oneri: fiyatOnerisi(u.barkod,u.kalan,u.birimF,u.satisF)}));
+      const filtred = sdDurgunFiltre
+        ? listeOneri.filter(u=>u._oneri && u._oneri.kademe!=="taze").sort((a,b)=>(b._oneri.gun||0)-(a._oneri.gun||0))
+        : (sdSupheliFiltre ? listeOneri.filter(u=>u._supheli) : listeOneri);
       const topCesit=liste.length;
       const topAdet=liste.reduce((s,u)=>s+u.kalan,0);
       const topMaliyet=liste.reduce((s,u)=>s+u.toplamMaliyet,0);
@@ -5260,6 +5324,20 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 color:"#E08600"}},
               sdSupheliFiltre?"✕ Şüpheli Filtreyi Kapat":"⚠️ "+supheliSayisi+" Şüpheli Kayıt Var — Göster")
           ),
+          durgunSayisi>0&&div({style:{marginTop:8}},
+            btn({onClick:()=>setSdDurgunFiltre(v=>!v),
+              style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:7,
+                padding:"9px 12px",borderRadius:9,cursor:"pointer",fontSize:12.5,fontWeight:700,
+                border:sdDurgunFiltre?"1px solid rgba(192,80,80,.5)":"1px solid rgba(192,80,80,.3)",
+                background:sdDurgunFiltre?"rgba(192,80,80,.18)":"rgba(192,80,80,.08)",
+                color:"#c05050"}},
+              sdDurgunFiltre?"✕ Durgun Stok Filtreyi Kapat":"📉 "+durgunSayisi+" Yavaş/Durgun Ürün — Göster")
+          ),
+          sdDurgunFiltre&&div({style:{marginTop:8,display:"flex",alignItems:"center",gap:8,fontSize:11.5,color:"var(--mu)"}},
+            div(null,"Yıllık enflasyon varsayımı (%):"),
+            inp({className:"fi",type:"number",style:{width:70,padding:"5px 8px",fontSize:12},
+              value:sdEnflasyonYillik,onChange:e=>setSdEnflasyonYillik(toN(e.target.value)||0)})
+          ),
           (sdSupheliYoksay||[]).length>0&&div({style:{marginTop:6,textAlign:"center"}},
             h("span",{style:{fontSize:11,color:"var(--di)"}},
               (sdSupheliYoksay.length)+" ürün \"doğru\" olarak işaretlenmiş — "),
@@ -5313,7 +5391,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 const cel={borderRight:"1px solid var(--br)",display:"flex",alignItems:"center",
                   justifyContent:"center",minHeight:44,padding:"6px 5px"};
                 const _secili = sdSilMod && !!sdSecimSil[u.barkod];
-                return div({key:u.barkod, id:"stok-satir-"+u.barkod, style:{display:"grid",
+                const oneri = u._oneri;
+                return div({key:u.barkod},
+                  div({id:"stok-satir-"+u.barkod, style:{display:"grid",
                   gridTemplateColumns:"50px 100px 1fr 90px 60px 55px 80px 90px 95px",
                   borderBottom:"1px solid var(--br)",
                   background:_secili?"rgba(209,17,17,.14)":u._supheli?"rgba(255,149,0,.09)":u.kalan<=2?"rgba(192,80,80,.07)":i%2===0?"var(--bg)":"var(--bg2)",
@@ -5349,6 +5429,37 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   div({style:{...cel,fontSize:12,color:"var(--mu)"}},fmt(kdvT)),
                   div({style:{...cel,fontSize:13,color:"var(--tx)",fontWeight:500}},fmt(hariç)),
                   div({style:{...cel,borderRight:"none",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt(dahil))
+                  ),
+                  // ── Durgun Stok & Fiyat Önerisi paneli — sadece filtre açıkken, yaşlanmış ürünlerde ──
+                  sdDurgunFiltre && oneri && oneri.kademe!=="taze" && div({style:{padding:"12px 14px",
+                    background:"rgba(192,80,80,.05)",borderBottom:"2px solid var(--br)"}},
+                    div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}},
+                      h("span",{style:{fontSize:11,fontWeight:800,color:oneri.renk}},oneri.etiket),
+                      h("span",{style:{fontSize:11,color:"var(--mu)"}},oneri.gun+" gündür stokta")
+                    ),
+                    div({style:{fontSize:12,color:"var(--tx)",lineHeight:1.6,marginBottom:8}},
+                      "Bu üründen elinizde "+oneri.kalan+" adet var, "+fmt(oneri.bagliSermaye)+" sermaye bağlı. "+
+                      "Bu süre boyunca enflasyon (%"+sdEnflasyonYillik+" yıllık) nedeniyle yaklaşık ",
+                      h("b",{style:{color:"#c05050"}},fmt(oneri.reelKayip)),
+                      " reel değer kaybı oluştu."
+                    ),
+                    oneri.yeniFiyat!=null && div({style:{background:"var(--bg)",border:"1px solid var(--br)",borderRadius:10,padding:"10px 12px"}},
+                      div({style:{fontSize:12.5,fontWeight:700,color:"var(--tx)",marginBottom:6}},
+                        "💡 Öneri: Fiyatı "+fmt(oneri.mevcutFiyat)+" → ",
+                        h("span",{style:{color:"#1e9e46"}},fmt(oneri.yeniFiyat)),
+                        " yapın (%"+oneri.indirimYuzde+" indirim)"),
+                      div({style:{fontSize:11.5,color:"var(--mu)",lineHeight:1.6}},
+                        oneri.mevcutTukenmeGun!=null
+                          ? "Şu anki hızla tükenme süresi: ~"+oneri.mevcutTukenmeGun+" gün. "
+                          : "Son 90 günde hiç satış olmadı. ",
+                        "Bu fiyatla tahmini ~"+oneri.yeniTukenmeGun+" günde satılır. ",
+                        "Adet başı kâr "+fmt(oneri.yeniKarBirim)+"'ye düşer, kalan stoğun toplam kârı yaklaşık ",
+                        h("b",null,fmt(oneri.yeniToplamKar)),"."
+                      ),
+                      div({style:{fontSize:9.5,color:"var(--di)",marginTop:6,fontStyle:"italic"}},
+                        "* Satış hızı artışı tahminidir, ürüne göre değişebilir — kesin garanti değildir.")
+                    )
+                  )
                 );
               })
             )
@@ -5893,20 +6004,48 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         const sortedGruplar=acikGruplar.slice().sort((a,b)=>enSonTarih(b).localeCompare(enSonTarih(a)));
         const toplamBorc=acikGruplar.reduce((s,g)=>s+gKalanHesapla(g),0);
         return div({style:{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}},
-          // + Devir / Açılış Borcu (tek seferlik, kuruma geçiş için)  +  + Sadece Borç Kaydı (fatura bazlı, tekrarlanabilir)
-          div({style:{padding:"10px 14px 4px",flexShrink:0,display:"flex",gap:8}},
-            btn({style:{flex:1,padding:"10px 0",borderRadius:10,border:"1px dashed #D97757",
-              background:"rgba(217,119,87,.06)",color:"#D97757",fontSize:13,fontWeight:600,cursor:"pointer"},
-              onClick:()=>{setAcilisForm(true);setAcilisTedarikci("");setAcilisTutar("");setAcilisTarih(TODAY());setAcilisNot("");}},
-              "+ Devir / Açılış Borcu"),
-            btn({style:{flex:1,padding:"10px 0",borderRadius:10,border:"1px dashed #D97757",
-              background:"rgba(217,119,87,.06)",color:"#D97757",fontSize:13,fontWeight:600,cursor:"pointer"},
-              onClick:()=>{
-                borcKaydiBarkodRef.current="BORC-"+uid();
-                setBorcKaydiForm(true);setBorcKaydiTedarikci("");setBorcKaydiFaturaN("");
-                setBorcKaydiFaturaTarih(TODAY());setBorcKaydiVade("");setBorcKaydiTutar("");setBorcKaydiGorsel([]);
-              }},
-              "+ 📄 Sadece Borç Kaydı")
+          // + Fatura / Kayıt Ekle — tek buton, tıklanınca 3 seçenek açıklamalı kartlar halinde sunulur
+          div({style:{padding:"10px 14px 4px",flexShrink:0}},
+            btn({style:{width:"100%",padding:"11px 0",borderRadius:10,border:"1px dashed #D97757",
+              background:"rgba(217,119,87,.06)",color:"#D97757",fontSize:13.5,fontWeight:700,cursor:"pointer"},
+              onClick:()=>setCariEkleSecimModal(true)},
+              "+ Fatura / Kayıt Ekle")
+          ),
+          cariEkleSecimModal && ReactDOM.createPortal(
+            div({style:{position:"fixed",inset:0,zIndex:905,background:"rgba(0,0,0,.6)",display:"flex",
+              alignItems:"center",justifyContent:"center",padding:16},
+              onClick:e=>{if(e.target===e.currentTarget) setCariEkleSecimModal(false);}},
+              div({style:{background:"var(--bg)",borderRadius:16,maxWidth:440,width:"100%",maxHeight:"88vh",
+                overflowY:"auto",padding:20,boxSizing:"border-box"}},
+                div({style:{fontSize:17,fontWeight:700,color:"var(--tx)",marginBottom:16}},"Ne Eklemek İstiyorsunuz?"),
+                div({style:{display:"flex",flexDirection:"column",gap:10}},
+                  [
+                    {ikon:"🏦", renk:"#D97757", baslik:"Devir / Açılış Borcu",
+                      aciklama:"Sisteme yeni geçerken, o güne kadar tedarikçilere birikmiş toplam borcunuzu tek seferlik bir bakiye olarak kaydeder. Ürün detayı içermez, sadece tedarikçi + tutar.",
+                      onClick:()=>{setCariEkleSecimModal(false);setAcilisForm(true);setAcilisTedarikci("");setAcilisTutar("");setAcilisTarih(TODAY());setAcilisNot("");}},
+                    {ikon:"📄", renk:"#D97757", baslik:"Sadece Borç Kaydı",
+                      aciklama:"Ürün ürün girmeden, tek bir toplam tutar ve fatura görseliyle tedarikçiye olan borcunuzu kaydeder. Fatura no/tarih/vade girilebilir. Stoğa hiçbir şekilde işlenmez.",
+                      onClick:()=>{setCariEkleSecimModal(false);borcKaydiBarkodRef.current="BORC-"+uid();setBorcKaydiForm(true);setBorcKaydiTedarikci("");setBorcKaydiFaturaN("");setBorcKaydiFaturaTarih(TODAY());setBorcKaydiVade("");setBorcKaydiTutar("");setBorcKaydiGorsel([]);}},
+                    {ikon:"📅", renk:"#0071E3", baslik:"Fatura Ekle (Geçmiş Stok Tarihi)",
+                      aciklama:"Elinizde uzun süredir olan, parası zaten ödenmiş ürünlerin gerçek giriş tarihini kaydeder — böylece \"Durgun Stok\" analizi bu ürünleri doğru tespit eder. Toplam stok adedi ve tedarikçi borcu hiçbir şekilde değişmez, sadece mevcut stoğun bir kısmı doğru tarihe taşınır.",
+                      onClick:()=>{setCariEkleSecimModal(false);setGecmisStokTedarikci("");setGecmisStokFaturaN("");setGecmisStokTarih("");setGecmisStokGorsel([]);setGecmisStokUrunler([]);setGecmisStokArama("");setGecmisStokBilgiAcik(false);setGecmisStokModal(true);}}
+                  ].map((sec,i)=>
+                    btn({key:i,type:"button",style:{display:"flex",gap:12,padding:"14px 16px",borderRadius:14,
+                      border:"1.5px solid "+sec.renk+"55",background:sec.renk+"0F",cursor:"pointer",textAlign:"left"},
+                      onClick:sec.onClick},
+                      div({style:{fontSize:26,flexShrink:0,lineHeight:1}},sec.ikon),
+                      div(null,
+                        div({style:{fontSize:14,fontWeight:700,color:sec.renk,marginBottom:4}},sec.baslik),
+                        div({style:{fontSize:11.5,color:"var(--mu)",lineHeight:1.55}},sec.aciklama)
+                      )
+                    )
+                  )
+                ),
+                btn({style:{width:"100%",marginTop:14,padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",
+                  background:"transparent",color:"var(--mu)",fontSize:13,fontWeight:600,cursor:"pointer"},
+                  onClick:()=>setCariEkleSecimModal(false)},"İptal")
+              )
+            ), document.body
           ),
           // ── Tedarikçi bazlı gruplama: her tedarikçi için toplam borç + fatura fatura döküm ──
           (()=>{
@@ -6285,6 +6424,164 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 if(DB) dbUpsertAyar("mkArsiv", yeniArsiv);
                 setBorcKaydiForm(false);
                 showToast("Borç kaydı eklendi");
+              }},"Kaydet")
+          )
+        )
+        ), document.body
+      ),
+
+      // ── Geçmiş Stok Tarihi Kaydı — SADECE tarih düzeltmesi, borç/toplam stok adedi hiç etkilenmez ──
+      gecmisStokModal && ReactDOM.createPortal(
+        div({style:{position:"fixed",inset:0,zIndex:905,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}},
+        div({style:{background:"var(--bg)",borderRadius:16,maxWidth:460,width:"100%",maxHeight:"90vh",overflowY:"auto",padding:20,boxSizing:"border-box"}},
+          div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}},
+            div({style:{fontSize:17,fontWeight:700,color:"var(--tx)"}},"Fatura Ekle"),
+            btn({type:"button",title:"Bu alan ne için?",style:{width:26,height:26,borderRadius:"50%",
+              border:"1px solid rgba(0,113,227,.4)",background:"rgba(0,113,227,.08)",color:"#0071E3",
+              fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"},
+              onClick:()=>setGecmisStokBilgiAcik(v=>!v)},"ⓘ")
+          ),
+          gecmisStokBilgiAcik && div({style:{background:"rgba(0,113,227,.06)",border:"1px solid rgba(0,113,227,.25)",
+            borderRadius:10,padding:"10px 12px",marginBottom:14,fontSize:12,color:"var(--tx)",lineHeight:1.6}},
+            div({style:{fontWeight:700,marginBottom:4}},"Bu alan ne işe yarar?"),
+            "Elinizde uzun süredir bulunan, parası zaten ödenmiş ürünlerin gerçek giriş tarihini kaydetmek içindir. "+
+            "Örneğin bir ürünü aylar önce almış ama sisteme az önce eklemiş olabilirsiniz — bu durumda sistem o ürünü "+
+            "\"yeni gelmiş\" sanır ve \"Durgun Stok\" uyarısı hiç çıkmaz. Burada gerçek tarihi girerek bu ürünlerin de "+
+            "doğru şekilde takip edilmesini sağlarsınız.",
+            div({style:{fontWeight:700,marginTop:8,marginBottom:4}},"Neyi etkilemez?"),
+            "Toplam stok adediniz ve tedarikçilere olan borcunuz bu kayıttan hiçbir şekilde etkilenmez — sadece "+
+            "mevcut stoğunuzun bir kısmı, doğru tarihe taşınır. Fatura görseli isterseniz kanıt/arşiv amaçlı eklenebilir."
+          ),
+          div({style:{display:"flex",gap:8,marginBottom:12}},
+            div({style:{flex:1}},
+              lbl({className:"fl"},"Tedarikçi (opsiyonel)"),
+              inp({className:"fi",style:{fontSize:13},placeholder:"—",value:gecmisStokTedarikci,onChange:e=>setGecmisStokTedarikci(e.target.value)})
+            ),
+            div({style:{flex:1}},
+              lbl({className:"fl"},"Fatura No (opsiyonel)"),
+              inp({className:"fi",style:{fontSize:13},placeholder:"—",value:gecmisStokFaturaN,onChange:e=>setGecmisStokFaturaN(e.target.value)})
+            )
+          ),
+          div({style:{marginBottom:14}},
+            lbl({className:"fl"},"Gerçek Giriş Tarihi *"),
+            inp({className:"fi",type:"date",style:{fontSize:13},value:gecmisStokTarih,onChange:e=>setGecmisStokTarih(e.target.value)})
+          ),
+          div({style:{marginBottom:16}},
+            lbl({className:"fl"},"Fatura Görseli (opsiyonel, sadece kayıt/kanıt amaçlı)"),
+            div({style:{display:"flex",alignItems:"center",gap:8,marginTop:6,flexWrap:"wrap"}},
+              btn({type:"button",style:{padding:"7px 12px",borderRadius:8,border:"1px dashed var(--br)",
+                background:"transparent",color:"var(--mu)",fontSize:12,cursor:"pointer",flexShrink:0},
+                onClick:()=>{
+                  const fi=document.createElement("input");
+                  fi.type="file";fi.accept="image/*,.pdf,application/pdf";fi.multiple=true;
+                  fi.onchange=ev=>{
+                    Array.from(ev.target.files||[]).forEach(f=>{
+                      if(f.size>5242880)return;
+                      const rd=new FileReader();
+                      rd.onload=e=>{
+                        let sonuc=e.target.result;
+                        const bilinenTipler=["image/jpeg","image/png","image/webp","image/gif","application/pdf"];
+                        const mevcutTip=(sonuc.match(/^data:([^;]+);/)||[])[1]||"";
+                        if(!bilinenTipler.includes(mevcutTip)){
+                          const adi=(f.name||"").toLowerCase();
+                          const dogruTip = adi.endsWith(".pdf")?"application/pdf"
+                            : adi.endsWith(".png")?"image/png"
+                            : adi.endsWith(".webp")?"image/webp"
+                            : adi.endsWith(".gif")?"image/gif"
+                            : (adi.endsWith(".jpg")||adi.endsWith(".jpeg"))?"image/jpeg" : "";
+                          if(dogruTip) sonuc=sonuc.replace(/^data:[^;]*;/, "data:"+dogruTip+";");
+                        }
+                        setGecmisStokGorsel(p=>[...p,sonuc]);
+                      };
+                      rd.readAsDataURL(f);
+                    });
+                  };fi.click();
+                }},"📎 Fatura Ekle"),
+              gecmisStokGorsel.map((im,i)=>{
+                const pdfMi = /^data:application\/pdf/.test(im);
+                return div({key:i,style:{position:"relative",width:38,height:38,flexShrink:0}},
+                  pdfMi
+                    ? div({style:{width:38,height:38,borderRadius:6,border:"1px solid var(--br)",cursor:"pointer",
+                        background:"var(--bg2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16},
+                        onClick:e=>{e.stopPropagation();const w=window.open(); if(w){w.document.write('<iframe src="'+im+'" style="border:0;width:100%;height:100vh"></iframe>');}}},"📄")
+                    : img({src:im,style:{width:38,height:38,objectFit:"cover",borderRadius:6,border:"1px solid var(--br)",cursor:"pointer"},
+                        onClick:e=>{e.stopPropagation();const ov=document.createElement("div");ov.style.cssText="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.95);display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer";const im2=document.createElement("img");im2.src=im;im2.style.cssText="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px";ov.appendChild(im2);ov.onclick=()=>document.body.removeChild(ov);document.body.appendChild(ov);}}),
+                  btn({style:{position:"absolute",top:-4,right:-4,background:"rgba(0,0,0,.8)",border:"none",borderRadius:"50%",color:"#fff",fontSize:10,cursor:"pointer",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center"},
+                    onClick:e=>{e.stopPropagation();setGecmisStokGorsel(p=>p.filter((_,j)=>j!==i));}},"✕")
+                );
+              })
+            )
+          ),
+          div({style:{marginBottom:10}},
+            lbl({className:"fl"},"Ürün Ekle"),
+            h(UrunAramaBilesen,{
+              aramaVal:gecmisStokArama, setAramaVal:setGecmisStokArama,
+              onEkle:sec=>{
+                const mevcut = stokOzet[sec.b];
+                const mevcutKalan = mevcut ? mevcut.kalan : 0;
+                if(mevcutKalan<=0){ showToast("Bu üründe elde stok yok — düzeltilecek bir şey bulunamadı","uy"); return; }
+                if(gecmisStokUrunler.some(x=>x.barkod===sec.b)){ showToast("Zaten eklendi","uy"); return; }
+                setGecmisStokUrunler(p=>[...p,{barkod:sec.b,urunAd:sec.a,marka:sec.m,mevcutKalan,miktar:String(mevcutKalan)}]);
+                setGecmisStokArama("");
+              },
+              tipFiltre:null, placeholder:"Barkod okut veya ürün adı yaz..."
+            })
+          ),
+          gecmisStokUrunler.length>0 && div({style:{marginBottom:16}},
+            gecmisStokUrunler.map((u,i)=>
+              div({key:u.barkod,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 0",
+                borderBottom:i<gecmisStokUrunler.length-1?"1px solid var(--br)":"none"}},
+                div({style:{flex:1,minWidth:0}},
+                  div({style:{fontSize:12.5,color:"var(--tx)",fontWeight:600}},u.urunAd),
+                  div({style:{fontSize:10.5,color:"var(--mu)"}},"Elde: "+u.mevcutKalan+" adet")
+                ),
+                inp({className:"fi",type:"number",style:{width:70,padding:"6px 8px",fontSize:12},min:"0",max:String(u.mevcutKalan),
+                  value:u.miktar,onChange:e=>{
+                    const v=e.target.value;
+                    setGecmisStokUrunler(p=>p.map((x,j)=>j===i?{...x,miktar:v}:x));
+                  }}),
+                btn({type:"button",style:{fontSize:11,color:"#e06060",background:"none",border:"none",cursor:"pointer",padding:"4px"},
+                  onClick:()=>setGecmisStokUrunler(p=>p.filter((_,j)=>j!==i))},"✕")
+              )
+            )
+          ),
+          div({style:{display:"flex",gap:10}},
+            btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",background:"transparent",color:"var(--mu)",fontSize:14,fontWeight:600,cursor:"pointer"},
+              onClick:()=>setGecmisStokModal(false)},"İptal"),
+            btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"none",background:"linear-gradient(135deg,#0071E3,#0058B0)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"},
+              onClick:()=>{
+                if(!gecmisStokTarih){showToast("Gerçek giriş tarihini girin","uy");return;}
+                if(gecmisStokUrunler.length===0){showToast("En az bir ürün ekleyin","uy");return;}
+                const gecersiz = gecmisStokUrunler.find(u=>toN(u.miktar)<=0 || toN(u.miktar)>u.mevcutKalan);
+                if(gecersiz){showToast(gecersiz.urunAd+" için geçersiz miktar (elde: "+gecersiz.mevcutKalan+")","uy");return;}
+
+                let sonrakiPartiler = [...stokPartiler];
+                const uygulananUrunler = [];
+                gecmisStokUrunler.forEach(u=>{
+                  let dusulecek = toN(u.miktar);
+                  let alisF = 0;
+                  // Mevcut (yanlış tarihli) partilerden bu kadarını düş
+                  sonrakiPartiler = sonrakiPartiler.map(p=>{
+                    if(p.barkod!==u.barkod || toN(p.kalan)<=0 || dusulecek<=0) return p;
+                    const dus = Math.min(toN(p.kalan), dusulecek);
+                    alisF = p.alisF||alisF;
+                    dusulecek -= dus;
+                    return {...p, kalan: toN(p.kalan)-dus};
+                  });
+                  // Aynı miktarı doğru tarihle yeni bir parti olarak ekle (toplam adet DEĞİŞMEZ)
+                  sonrakiPartiler.push({id:uid(), barkod:u.barkod, urunAd:u.urunAd, marka:u.marka||"",
+                    adet:toN(u.miktar), kalan:toN(u.miktar), alisF, tarih:gecmisStokTarih,
+                    faturaN:gecmisStokFaturaN.trim()||"Geçmiş Kayıt", tip:"gecmisTarihDuzeltme"});
+                  uygulananUrunler.push({barkod:u.barkod, urunAd:u.urunAd, miktar:toN(u.miktar)});
+                });
+                setStokPartiler(sonrakiPartiler);
+
+                const kayit={id:uid(), tedarikci:gecmisStokTedarikci.trim(), faturaN:gecmisStokFaturaN.trim(),
+                  tarih:gecmisStokTarih, gorsel:gecmisStokGorsel, urunler:uygulananUrunler, olusturma:Date.now()};
+                setGecmisStokKayitlari(p=>[kayit,...(p||[])]);
+
+                setGecmisStokModal(false);
+                showToast(uygulananUrunler.length+" ürünün stok tarihi düzeltildi ✓");
               }},"Kaydet")
           )
         )
@@ -14102,6 +14399,7 @@ function App() {
   const [umDetay, setUmDetay]             = useState(null);
   const [giderler, setGiderler]           = useState([]); // [{id,tarih,kategori,tutar,aciklama}]
   const [avanslar, setAvanslar]           = useState([]); // [{id,staffId,staffAd,tutar,tarih,notlar,durum,odendi}]
+  const [gecmisStokKayitlari, setGecmisStokKayitlari] = useState([]); // [{id,tedarikci,faturaN,tarih,gorsel,urunler,olusturma}] — sadece tarih düzeltmesi, Cari/borca hiç etkisi yok
   const [oduncler, setOduncler]           = useState([]); // [{id,komsuId,komsuAd,barkod,urunAd,miktar,tarih,notlar,geriAlindi,geriAlindiTarih}]
   const [komsular, setKomsular]           = useState([]); // [{id,ad,tel,adres}] // [{id,musteriAd,tel,staffId,tarih,gonderiTarih,gonderildi,tip}]
   // İnsan Kaynakları — Özlük Dosyası: { [personelId]: [{id,tur,baslik,tarih,hatirlatmaTarihi,durum,not,olusturma}] }
@@ -14463,6 +14761,7 @@ function App() {
     if(local.kullanimlar?.length) setKullanimlar(local.kullanimlar);
     if(local.giderler?.length) setGiderler(local.giderler);
     if(local.avanslar?.length) setAvanslar(local.avanslar);
+    if(local.gecmisStokKayitlari?.length) setGecmisStokKayitlari(local.gecmisStokKayitlari);
     if(!local._bildirimTemizlendi) setIbanBildirimler([]); else if(local.ibanBildirimler?.length) setIbanBildirimler(local.ibanBildirimler);
     if(local.bankalar?.length) setBankalar(local.bankalar);
     if(local.hesapSaglama) setHesapSaglama(local.hesapSaglama);
@@ -14532,6 +14831,7 @@ ayarlarRaw.forEach(a=>{ try {
   if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(prev=>birlestirListe(prev,a.deger));
   if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(prev=>birlestirListe(prev,a.deger));
   if(a.id==="avanslar" && Array.isArray(a.deger) && !avansKirliRef.current) setAvanslar(prev=>birlestirListe(prev,a.deger));
+  if(a.id==="gecmisStokKayitlari" && Array.isArray(a.deger)) setGecmisStokKayitlari(prev=>birlestirListe(prev,a.deger));
   if(a.id==="ibanBildirimler" && Array.isArray(a.deger)) setIbanBildirimler(prev=>birlestirListe(prev,a.deger));
   if(a.id==="hesapSaglama" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglama(prev=>({...prev, ...a.deger})); // yerel + bulut (çakışmada bulut güncel)
   if(a.id==="hesapSaglamaAylik" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglamaAylik(prev=>({...prev, ...a.deger}));
@@ -14805,6 +15105,7 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("zamGecmisi",zamGecmisi); },[zamGecmisi]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("giderler",giderler); },[giderler]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("avanslar",avanslar); },[avanslar]);
+  useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("gecmisStokKayitlari",gecmisStokKayitlari); },[gecmisStokKayitlari]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("ibanBildirimler",ibanBildirimler); },[ibanBildirimler]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("giderKategoriler",giderKategoriler); },[giderKategoriler]);
   useEffect(()=>{ if(yukleniyor||!DB||!stokPartilerYuklendi.current) return; dbUpsertAyar("stokPartiler",stokPartiler); },[stokPartiler]);
@@ -14982,6 +15283,7 @@ if(DB) dbUpsertAyar("tema",tema);
       if(a.id==="zamGecmisi" && Array.isArray(a.deger)) setZamGecmisi(prev=>_ay(prev,birlestirListe(prev,a.deger)));
       if(a.id==="giderler" && Array.isArray(a.deger)) setGiderler(prev=>_ay(prev,birlestirListe(prev,a.deger)));
       if(a.id==="avanslar" && Array.isArray(a.deger) && !avansKirliRef.current) setAvanslar(prev=>_ay(prev,birlestirListe(prev,a.deger)));
+      if(a.id==="gecmisStokKayitlari" && Array.isArray(a.deger)) setGecmisStokKayitlari(prev=>_ay(prev,birlestirListe(prev,a.deger)));
       if(a.id==="ibanBildirimler" && Array.isArray(a.deger)) setIbanBildirimler(prev=>_ay(prev,birlestirListe(prev,a.deger)));
       if(a.id==="hesapSaglama" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglama(prev=>_ay(prev,{...prev,...a.deger}));
       if(a.id==="hesapSaglamaAylik" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setHesapSaglamaAylik(prev=>_ay(prev,{...prev,...a.deger}));
@@ -23148,6 +23450,7 @@ if(DB) dbUpsertAyar("tema",tema);
 
             muhSek==="urunMuhasebe"&&h(UrunMuhasebe,{
               stokPartiler,setStokPartiler,stokDB,setStokDB,
+              gecmisStokKayitlari,setGecmisStokKayitlari,
               onSiparisler,onSiparisKarsila,onSiparisKarsilamalariGeriAl,
               triggerUrunRender,
               stokGirisForm,setStokGirisForm,
