@@ -2598,6 +2598,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [gecmisStokArama, setGecmisStokArama] = React.useState("");
   const [gecmisStokBilgiAcik, setGecmisStokBilgiAcik] = React.useState(false);
   const [cariEkleSecimModal, setCariEkleSecimModal] = React.useState(false); // "+ Fatura / Kayıt Ekle" seçim ekranı
+  const [gecmisStokDetayAcik, setGecmisStokDetayAcik] = React.useState(null); // hangi geçmiş kaydın detayı açık
   const [gecmisStokOkuYukleniyor, setGecmisStokOkuYukleniyor] = React.useState(false);
   const [gecmisStokKismiBilgi, setGecmisStokKismiBilgi] = React.useState(null); // {sayisi} — fatura çok uzunsa kısmi okundu uyarısı
   const mkArsivYuklendiRef = React.useRef(false); // ilk yükleme bitti mi → boş diziyi buluta yazmayı güvenli kılar (silme-boş kalıcı olur, açılışta bulut silinmez)
@@ -6126,7 +6127,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       aciklama:"Ürün ürün girmeden, tek bir toplam tutar ve fatura görseliyle tedarikçiye olan borcunuzu kaydeder. Fatura no/tarih/vade girilebilir. Stoğa hiçbir şekilde işlenmez.",
                       onClick:()=>{setCariEkleSecimModal(false);borcKaydiBarkodRef.current="BORC-"+uid();setBorcKaydiForm(true);setBorcKaydiTedarikci("");setBorcKaydiFaturaN("");setBorcKaydiFaturaTarih(TODAY());setBorcKaydiVade("");setBorcKaydiTutar("");setBorcKaydiGorsel([]);}},
                     {ikon:"📅", renk:"#0071E3", baslik:"Fatura Ekle (Geçmiş Stok Tarihi)",
-                      aciklama:"Elinizde uzun süredir olan, parası zaten ödenmiş ürünlerin gerçek giriş tarihini kaydeder — böylece \"Durgun Stok\" analizi bu ürünleri doğru tespit eder. Toplam stok adedi ve tedarikçi borcu hiçbir şekilde değişmez, sadece mevcut stoğun bir kısmı doğru tarihe taşınır.",
+                      aciklama:"Elinizde uzun süredir olan, parası zaten ödenmiş bir faturayı kaydeder — tedarikçinin diğer faturaları arasında \"ödenmiş\" olarak görünür, güncel borcunuzu artırmaz. Toplam stok adediniz de değişmez; sadece bu ürünlerin \"Durgun Stok\" analizinde doğru tarihle görünmesini sağlar.",
                       onClick:()=>{setCariEkleSecimModal(false);setGecmisStokTedarikci("");setGecmisStokFaturaN("");setGecmisStokTarih("");setGecmisStokGorsel([]);setGecmisStokUrunler([]);setGecmisStokArama("");setGecmisStokBilgiAcik(false);setGecmisStokKismiBilgi(null);setGecmisStokModal(true);}}
                   ].map((sec,i)=>
                     btn({key:i,type:"button",style:{display:"flex",gap:12,padding:"14px 16px",borderRadius:14,
@@ -6547,9 +6548,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             "Örneğin bir ürünü aylar önce almış ama sisteme az önce eklemiş olabilirsiniz — bu durumda sistem o ürünü "+
             "\"yeni gelmiş\" sanır ve \"Durgun Stok\" uyarısı hiç çıkmaz. Burada gerçek tarihi girerek bu ürünlerin de "+
             "doğru şekilde takip edilmesini sağlarsınız.",
-            div({style:{fontWeight:700,marginTop:8,marginBottom:4}},"Neyi etkilemez?"),
-            "Toplam stok adediniz ve tedarikçilere olan borcunuz bu kayıttan hiçbir şekilde etkilenmez — sadece "+
-            "mevcut stoğunuzun bir kısmı, doğru tarihe taşınır. Fatura görseli isterseniz kanıt/arşiv amaçlı eklenebilir."
+            div({style:{fontWeight:700,marginTop:8,marginBottom:4}},"Nereye kaydedilir, neyi etkilemez?"),
+            "Bu fatura, tedarikçinin diğer faturaları gibi Borçlarım/Ödemelerim altında görünür — ama kayıt anında "+
+            "otomatik olarak TAM ÖDENMİŞ işlenir, yani güncel borcunuzu bir an bile artırmaz (siz zaten daha önce ödediniz). "+
+            "Toplam stok adediniz de bu kayıttan hiç etkilenmez — miktar girmeniz sadece Durgun Stok analizinin bu ürünleri "+
+            "doğru tarihle eşleştirebilmesi içindir, mevcut stoğunuza yeni ürün eklemez."
           ),
           div({style:{marginBottom:12}},
             lbl({className:"fl"},"Tedarikçi (opsiyonel)"),
@@ -6671,19 +6674,44 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 const gecersiz = gecmisStokUrunler.find(u=>toN(u.miktar)<=0);
                 if(gecersiz){showToast(gecersiz.urunAd+" için miktar 0'dan büyük olmalı","uy");return;}
 
-                // Fatura, OLDUĞU GİBİ kaydedilir — stokPartiler'e ASLA dokunulmaz (ne ekleme ne düşme),
-                // borç/Cari hesaplarına da hiç girmez. Bu sadece bir "bu fatura bu tarihte gelmiş" kaydı;
-                // Durgun Stok analizi, mevcut stoktaki ürünleri (barkod üzerinden) bu kayıtla SONRADAN
-                // eşleştirip "kaç gündür elde" hesabını kendisi yapar (bkz. stoktaGun fonksiyonu).
-                const kayit={id:uid(), tedarikci:gecmisStokTedarikci.trim(), faturaN:gecmisStokFaturaN.trim(),
+                // Fatura, sizin "daha önce ödenmiş bir fatura" tarifinize göre kaydedilir: normal bir
+                // tedarikçi faturası gibi Borçlarım/Ödemelerim altında görünmesi için mkArsiv'e ekleniyor,
+                // AMA aynı anda tam tutarlı bir ödeme de işleniyor — yani "borç" bir an bile açık kalmıyor,
+                // sadece geçmişte ödenmiş bir fatura olarak listeleniyor. stokPartiler'e HİÇ dokunulmuyor
+                // (stok miktarı değişmiyor); Durgun Stok analizi bu kaydı barkod üzerinden ayrıca kullanır.
+                const urunlerHazir = gecmisStokUrunler.map(u=>{
+                  const adet = toN(u.miktar)||1;
+                  const birimF = u.bedelsizMi ? 0 : (toN(u.birimFiyat)||0);
+                  const matrah = adet*birimF;
+                  const kdvOran = 20;
+                  const kdvTutar = u.bedelsizMi ? 0 : matrah*(kdvOran/100);
+                  return {barkod:u.barkod||"", urunAd:u.urunAd, marka:u.marka||"",
+                    adet, birimF, iskontoOran:0, iskontoTutar:0, kdvOran, kdvTutar,
+                    toplamF: u.bedelsizMi?0:(matrah+kdvTutar), bedelsiz:!!u.bedelsizMi,
+                    kabulAdet:adet, farkSebep:"", farkNot:""};
+                });
+                const tutarToplam = urunlerHazir.reduce((s,u)=>s+u.toplamF,0);
+                const arsivKayit = {id:uid(), tarih:gecmisStokTarih, faturaTarih:gecmisStokTarih,
+                  faturaN:gecmisStokFaturaN.trim(), irsaliyeN:"", tedarikci:gecmisStokTedarikci.trim()||"—",
+                  vade:"", malKabulTarihi:gecmisStokTarih, tip:"satilabilen",
+                  faturaImg:gecmisStokGorsel, urunler:urunlerHazir,
+                  odemeler: tutarToplam>0 ? [{id:uid(), tarih:gecmisStokTarih, tip:"gecmis",
+                    tutar:tutarToplam, not:"Geçmiş fatura — kayıt anında ödenmiş olarak işlendi", detay:""}] : []};
+                const yeniArsiv=[arsivKayit,...mkArsiv];
+                mkArsivKirliRef.current=true;
+                setMkArsiv(yeniArsiv);
+                try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
+                if(DB) dbUpsertAyar("mkArsiv", yeniArsiv);
+
+                const gecmisKayit={id:uid(), tedarikci:gecmisStokTedarikci.trim(), faturaN:gecmisStokFaturaN.trim(),
                   tarih:gecmisStokTarih, gorsel:gecmisStokGorsel,
                   urunler: gecmisStokUrunler.map(u=>({barkod:u.barkod||"", urunAd:u.urunAd,
                     miktar:toN(u.miktar), birimFiyat:toN(u.birimFiyat)||0, bedelsizMi:!!u.bedelsizMi})),
                   olusturma:Date.now()};
-                setGecmisStokKayitlari(p=>[kayit,...(p||[])]);
+                setGecmisStokKayitlari(p=>[gecmisKayit,...(p||[])]);
 
                 setGecmisStokModal(false);
-                showToast("Fatura kaydedildi ✓ ("+gecmisStokUrunler.length+" ürün)");
+                showToast("Fatura kaydedildi ✓ — Borçlarım'da "+(gecmisStokTedarikci.trim()||"tedarikçi")+" altında, ödenmiş olarak görünecek");
               }},"Kaydet")
           )
         )
