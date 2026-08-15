@@ -2527,15 +2527,27 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           let eslesen = faturaBarkod ? Object.values(stokOzet).find(u=>u.barkod===faturaBarkod) : null;
           // 2) İsim benzerliği — kısa (1-2 kelimelik) ürün adlarında eşik esnetilir, aksi halde
           // "Şampuan" gibi tek kelimelik ürünler hiçbir zaman eşleşmezdi (min. 2 ortak kelime şartı).
+          // ÖNEMLİ: aynı isme benzer birden fazla kayıt olabilir (biri stoklu, biri tükenmiş) — sadece
+          // metin benzerliğine göre "en iyi" seçilirse yanlışlıkla tükenmiş olan seçilebilir. Bu yüzden
+          // önce SADECE stokta kalanı olan adaylar arasında en iyi eşleşme aranır; bulunamazsa (rapor
+          // amaçlı, "bulundu ama stokta yok" diyebilmek için) tüm adaylar arasında ikinci bir arama yapılır.
           if(!eslesen){
             let enIyi=null, enIyiSkor=0, enIyiOrtak=0;
+            let enIyiHer=null, enIyiHerSkor=0, enIyiHerOrtak=0;
             Object.values(stokOzet).forEach(u=>{
               const {skor,ortak}=benzerlikSkoru(ad, u.urunAd);
-              if(skor>enIyiSkor){ enIyiSkor=skor; enIyiOrtak=ortak; enIyi=u; }
+              if(skor>enIyiHerSkor){ enIyiHerSkor=skor; enIyiHerOrtak=ortak; enIyiHer=u; }
+              if(u.kalan>0 && skor>enIyiSkor){ enIyiSkor=skor; enIyiOrtak=ortak; enIyi=u; }
             });
-            const wKisa = Math.min(kelimelestir(ad).length, enIyi?kelimelestir(enIyi.urunAd).length:99);
-            const gerekliOrtak = wKisa<=2 ? 1 : 2;
-            if(enIyi && enIyiSkor>=0.6 && enIyiOrtak>=gerekliOrtak) eslesen=enIyi;
+            const wKisaStok = Math.min(kelimelestir(ad).length, enIyi?kelimelestir(enIyi.urunAd).length:99);
+            const gerekliOrtakStok = wKisaStok<=2 ? 1 : 2;
+            if(enIyi && enIyiSkor>=0.6 && enIyiOrtak>=gerekliOrtakStok){
+              eslesen=enIyi; // stoklu bir aday bulundu, bunu kullan
+            } else {
+              const wKisaHer = Math.min(kelimelestir(ad).length, enIyiHer?kelimelestir(enIyiHer.urunAd).length:99);
+              const gerekliOrtakHer = wKisaHer<=2 ? 1 : 2;
+              if(enIyiHer && enIyiHerSkor>=0.6 && enIyiHerOrtak>=gerekliOrtakHer) eslesen=enIyiHer; // sadece tükenmiş aday var, raporda göstermek için kullanılır
+            }
           }
           if(eslesen && eslesen.kalan>0 && !yeniUrunler.some(x=>x.barkod===eslesen.barkod)){
             const okunanAdet = toN(k.adet)||eslesen.kalan;
