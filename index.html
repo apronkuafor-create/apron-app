@@ -2481,6 +2481,67 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     }
     setMkFaturaOkuYukleniyor(false);
   };
+  // ── Fatura Ekle (Geçmiş Stok Tarihi) için AI fatura okuma: aynı OCR servisini kullanır, ama okunan
+  // kalemleri (yeni stok eklemek yerine) MEVCUT stoktaki ürünlerle eşleştirip miktar/tarih önerir. ──
+  const gecmisStokFaturaOku = async () => {
+    const sonGorsel = (gecmisStokGorsel||[])[gecmisStokGorsel.length-1];
+    if(!sonGorsel){ showToast("Önce bir fatura görseli/PDF ekleyin","uy"); return; }
+    setGecmisStokOkuYukleniyor(true);
+    try{
+      const eslesme = sonGorsel.match(/^data:([^;]+);base64,(.+)$/);
+      if(!eslesme){ showToast("Görsel formatı okunamadı","uy"); setGecmisStokOkuYukleniyor(false); return; }
+      const mediaType = eslesme[1], base64Veri = eslesme[2];
+      const { data: sessionData } = await DB.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if(!token){ showToast("Oturum bulunamadı, lütfen tekrar giriş yapın","uy"); setGecmisStokOkuYukleniyor(false); return; }
+      const resp = await fetch(FATURA_OKU_URL, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+token },
+        body: JSON.stringify({ image_base64: base64Veri, media_type: mediaType })
+      });
+      const veri = await resp.json().catch(()=>null);
+      if(!resp.ok || !veri){ showToast("Fatura okunamadı, lütfen alanları elle doldurun","uy"); setGecmisStokOkuYukleniyor(false); return; }
+
+      if(veri.faturaNo) setGecmisStokFaturaN(veri.faturaNo);
+      if(veri.faturaTarihi) setGecmisStokTarih(veri.faturaTarihi);
+      if(veri.tedarikciAdi) setGecmisStokTedarikci(veri.tedarikciAdi);
+
+      if(Array.isArray(veri.kalemler) && veri.kalemler.length>0){
+        const kelimelestir = s => normText(s).replace(/[\/\-_,.]/g," ").replace(/[^a-z0-9\s]/g," ").split(/\s+/).filter(w=>w.length>1);
+        const benzerlikSkoru = (a,b) => {
+          const wa=kelimelestir(a), wb=kelimelestir(b);
+          if(!wa.length||!wb.length) return {skor:0,ortak:0};
+          const setB=new Set(wb);
+          const ortak=wa.filter(w=>setB.has(w)).length;
+          return {skor: ortak/Math.min(wa.length,wb.length), ortak};
+        };
+        const yeniUrunler=[]; let eslesmeyen=0;
+        veri.kalemler.forEach(k=>{
+          const ad=(k.urunAdi||"").trim(); if(!ad) return;
+          let enIyi=null, enIyiSkor=0, enIyiOrtak=0;
+          Object.values(stokOzet).forEach(u=>{
+            const {skor,ortak}=benzerlikSkoru(ad, u.urunAd);
+            if(skor>enIyiSkor){ enIyiSkor=skor; enIyiOrtak=ortak; enIyi=u; }
+          });
+          if(enIyi && enIyiSkor>=0.6 && enIyiOrtak>=2 && enIyi.kalan>0 && !yeniUrunler.some(x=>x.barkod===enIyi.barkod)){
+            const okunanAdet = toN(k.adet)||enIyi.kalan;
+            const miktar = Math.min(okunanAdet, enIyi.kalan);
+            yeniUrunler.push({barkod:enIyi.barkod, urunAd:enIyi.urunAd, marka:enIyi.marka, mevcutKalan:enIyi.kalan, miktar:String(miktar)});
+          } else eslesmeyen++;
+        });
+        setGecmisStokUrunler(p=>{
+          const varOlan=new Set(p.map(x=>x.barkod));
+          return [...p, ...yeniUrunler.filter(y=>!varOlan.has(y.barkod))];
+        });
+        showToast(yeniUrunler.length+" ürün stoktan eşleşti"+(eslesmeyen>0?", "+eslesmeyen+" kalem eşleşmedi (elle ekleyin)":""));
+      } else {
+        showToast("Fatura bilgileri okundu — ürünleri elle ekleyin");
+      }
+    } catch(e){
+      showToast("Fatura okunamadı, lütfen alanları elle doldurun","uy");
+    }
+    setGecmisStokOkuYukleniyor(false);
+  };
   const [mkArsiv, setMkArsiv] = React.useState([]);
   const [mkAlt, setMkAlt] = React.useState("liste"); // liste | arsiv
   const [arsivAc, setArsivAc] = React.useState(null); // arşiv detay index
@@ -2513,6 +2574,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [gecmisStokArama, setGecmisStokArama] = React.useState("");
   const [gecmisStokBilgiAcik, setGecmisStokBilgiAcik] = React.useState(false);
   const [cariEkleSecimModal, setCariEkleSecimModal] = React.useState(false); // "+ Fatura / Kayıt Ekle" seçim ekranı
+  const [gecmisStokOkuYukleniyor, setGecmisStokOkuYukleniyor] = React.useState(false);
   const mkArsivYuklendiRef = React.useRef(false); // ilk yükleme bitti mi → boş diziyi buluta yazmayı güvenli kılar (silme-boş kalıcı olur, açılışta bulut silinmez)
   const mkArsivKirliRef = React.useRef(false);    // mount sonrası yerel silme/düzenleme oldu mu → geç gelen bulut çekimi bunu EZMESİN (diriltmeyi önler)
   const [sdAramaF, setSdAramaF] = React.useState(""); // stok durumu arama
@@ -5324,15 +5386,19 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 color:"#E08600"}},
               sdSupheliFiltre?"✕ Şüpheli Filtreyi Kapat":"⚠️ "+supheliSayisi+" Şüpheli Kayıt Var — Göster")
           ),
-          durgunSayisi>0&&div({style:{marginTop:8}},
+          div({style:{marginTop:8}},
             btn({onClick:()=>setSdDurgunFiltre(v=>!v),
               style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:7,
                 padding:"9px 12px",borderRadius:9,cursor:"pointer",fontSize:12.5,fontWeight:700,
                 border:sdDurgunFiltre?"1px solid rgba(192,80,80,.5)":"1px solid rgba(192,80,80,.3)",
                 background:sdDurgunFiltre?"rgba(192,80,80,.18)":"rgba(192,80,80,.08)",
                 color:"#c05050"}},
-              sdDurgunFiltre?"✕ Durgun Stok Filtreyi Kapat":"📉 "+durgunSayisi+" Yavaş/Durgun Ürün — Göster")
+              sdDurgunFiltre?"✕ Durgun Stok Filtreyi Kapat":
+                (durgunSayisi>0?"📉 "+durgunSayisi+" Yavaş/Durgun Ürün — Göster":"📉 Durgun Stok & Fiyat Önerileri"))
           ),
+          sdDurgunFiltre && durgunSayisi===0 && div({style:{marginTop:6,padding:"9px 12px",borderRadius:9,
+            background:"rgba(52,199,89,.08)",border:"1px solid rgba(52,199,89,.25)",fontSize:11.5,color:"#1e9e46",textAlign:"center"}},
+            "✅ Şu an 30 günden eski, yavaş satan bir ürün görünmüyor."),
           sdDurgunFiltre&&div({style:{marginTop:8,display:"flex",alignItems:"center",gap:8,fontSize:11.5,color:"var(--mu)"}},
             div(null,"Yıllık enflasyon varsayımı (%):"),
             inp({className:"fi",type:"number",style:{width:70,padding:"5px 8px",fontSize:12},
@@ -6511,6 +6577,16 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 );
               })
             )
+          ),
+          gecmisStokGorsel.length>0 && div({style:{marginBottom:14}},
+            btn({type:"button",disabled:gecmisStokOkuYukleniyor,style:{width:"100%",padding:"10px 0",borderRadius:10,
+              border:"1px solid rgba(0,113,227,.4)",background:"rgba(0,113,227,.08)",color:"#0071E3",
+              fontSize:13,fontWeight:700,cursor:gecmisStokOkuYukleniyor?"default":"pointer",
+              opacity:gecmisStokOkuYukleniyor?.6:1},
+              onClick:gecmisStokFaturaOku},
+              gecmisStokOkuYukleniyor?"⏳ Fatura okunuyor...":"✨ Faturadan Doldur"),
+            div({style:{fontSize:10,color:"var(--di)",marginTop:4,textAlign:"center"}},
+              "Fatura no, tarih ve tedarikçi otomatik doldurulur; okunan ürünler mevcut stoğunuzla eşleşirse listeye eklenir.")
           ),
           div({style:{marginBottom:10}},
             lbl({className:"fl"},"Ürün Ekle"),
