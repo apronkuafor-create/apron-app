@@ -2481,16 +2481,17 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     }
     setMkFaturaOkuYukleniyor(false);
   };
-  // ── Fatura Ekle (Geçmiş Stok Tarihi) için AI fatura okuma: aynı OCR servisini kullanır, ama okunan
-  // kalemleri (yeni stok eklemek yerine) MEVCUT stoktaki ürünlerle eşleştirip miktar/tarih önerir.
-  // Fatura, sistemde hiç kayıtlı olmayan ürünler dahil TÜM kalemleri okur — ama analiz/otomatik ekleme
-  // SADECE mevcut stokta (kalan>0) bulunan ürünlerle sınırlıdır; eşleşmeyenler kalıcı bir liste halinde
-  // gösterilir (elle eklenebilsin diye), sessizce kaybolmaz.
+  // ── Fatura Ekle (Geçmiş Stok Tarihi) için AI fatura okuma: faturada ne varsa OLDUĞU GİBİ kaydedilir —
+  // ürün kataloğunuzda olsun olmasın, şu an stokta olsun olmasın, bedelsiz/promosyon olsun olsun, HİÇBİR
+  // kalem elenmez. Bu form stoğa veya borca hiç dokunmuyor zaten — sadece "bu fatura, bu tarihte gelmiş"
+  // diye bir kayıt bırakıyor. Kataloğa eşleştirme sadece (varsa) bir barkod bulup iliştirmek için yapılır;
+  // bu barkod sayesinde "Durgun Stok" ekranı, mevcut stoktaki ürünle bu faturayı SONRADAN ilişkilendirip
+  // "kaç gündür stokta" hesaplayabilir. Eşleşme bulunamazsa ürün yine de barkodsuz olarak eklenir.
   const gecmisStokFaturaOku = async () => {
     const sonGorsel = (gecmisStokGorsel||[])[gecmisStokGorsel.length-1];
     if(!sonGorsel){ showToast("Önce bir fatura görseli/PDF ekleyin","uy"); return; }
     setGecmisStokOkuYukleniyor(true);
-    setGecmisStokEslesmeyen([]); setGecmisStokKismiBilgi(null);
+    setGecmisStokKismiBilgi(null);
     try{
       const eslesme = sonGorsel.match(/^data:([^;]+);base64,(.+)$/);
       if(!eslesme){ showToast("Görsel formatı okunamadı","uy"); setGecmisStokOkuYukleniyor(false); return; }
@@ -2519,21 +2520,16 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           const ortak=wa.filter(w=>setB.has(w)).length;
           return {skor: ortak/Math.min(wa.length,wb.length), ortak};
         };
-        // Eşleştirme havuzu: hem ürün kataloğu (URUN_DB) hem de mevcut stok kayıtlarındaki (stokOzet) ürünler
-        // birleştirilir — bazen bir ürün, kataloğun statik listesinden FARKLI bir barkod/adla fiilen stoğa
-        // girmiş olabilir; bu birleşim, o gerçek stok kaydının da yakalanmasını sağlar.
+        // Eşleştirme havuzu: hem ürün kataloğu (URUN_DB) hem de mevcut stok kayıtlarındaki (stokOzet) ürünler.
         const adayHavuzu = (()=>{
           const map = {};
           URUN_DB.forEach(d=>{ if(d.b) map[d.b]={b:d.b,a:d.a||"",m:d.m||""}; });
           Object.values(stokOzet).forEach(u=>{ if(u.barkod && !map[u.barkod]) map[u.barkod]={b:u.barkod,a:u.urunAd||"",m:u.marka||""}; });
           return Object.values(map);
         })();
-        const yeniUrunler=[]; const eslesmeyenler=[];
+        const yeniUrunler=[]; let barkodsuzSayisi=0;
         veri.kalemler.forEach(k=>{
           const ad=(k.urunAdi||"").trim(); if(!ad) return;
-          // ── Mal Kabul'daki "Faturadan Doldur" ile AYNI mantık: önce TÜM aday havuzuna karşı eşleştir
-          // (barkod, sonra isim benzerliği) — bu, kanıtlanmış ve güvenilir yöntem. Ürün böylece doğru
-          // tespit edildikten SONRA, ayrı bir adımda o ürünün ŞU ANKİ stok miktarına bakılır. ──
           const faturaBarkod=(k.barkod||"").trim();
           let katalogUrun = faturaBarkod ? adayHavuzu.find(d=>d.b && d.b.trim()===faturaBarkod) : null;
           if(!katalogUrun){
@@ -2546,27 +2542,19 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             const gerekliOrtak = wKisa<=2 ? 1 : 2;
             if(enIyi && enIyiSkor>=0.6 && enIyiOrtak>=gerekliOrtak) katalogUrun=enIyi;
           }
-          if(!katalogUrun){
-            eslesmeyenler.push({ad, adet:k.adet||"", sebep:"kataloğunuzda eşleşen ürün bulunamadı"});
-            return;
-          }
-          // Ürün kataloğunda tanındı — şimdi bu ürünün ŞU ANKİ stok durumuna bakılıyor.
-          const stok = stokOzet[katalogUrun.b];
-          const mevcutKalan = stok ? stok.kalan : 0;
-          if(mevcutKalan>0 && !yeniUrunler.some(x=>x.barkod===katalogUrun.b)){
-            const okunanAdet = toN(k.adet)||mevcutKalan;
-            const miktar = Math.min(okunanAdet, mevcutKalan);
-            yeniUrunler.push({barkod:katalogUrun.b, urunAd:katalogUrun.a, marka:katalogUrun.m, mevcutKalan, miktar:String(miktar)});
-          } else if(mevcutKalan<=0){
-            eslesmeyenler.push({ad:katalogUrun.a, adet:k.adet||"", sebep:"ürün tanındı ama stokta kalan yok"});
-          }
+          if(!katalogUrun) barkodsuzSayisi++;
+          const bedelsizMi = !!k.bedelsiz || toN(k.birimFiyat)===0;
+          yeniUrunler.push({
+            barkod: katalogUrun?katalogUrun.b:"",
+            urunAd: katalogUrun?katalogUrun.a:ad,
+            marka: katalogUrun?katalogUrun.m:"",
+            miktar: String(toN(k.adet)||1),
+            birimFiyat: toN(k.birimFiyat)||0,
+            bedelsizMi
+          });
         });
-        setGecmisStokUrunler(p=>{
-          const varOlan=new Set(p.map(x=>x.barkod));
-          return [...p, ...yeniUrunler.filter(y=>!varOlan.has(y.barkod))];
-        });
-        setGecmisStokEslesmeyen(eslesmeyenler);
-        showToast(yeniUrunler.length+" ürün stoktan eşleşip eklendi"+(eslesmeyenler.length>0?", "+eslesmeyenler.length+" kalem aşağıda listelendi":""));
+        setGecmisStokUrunler(p=>[...p, ...yeniUrunler]);
+        showToast(yeniUrunler.length+" ürün faturadan eklendi"+(barkodsuzSayisi>0?" ("+barkodsuzSayisi+" tanesi kataloğunuzda bulunamadı, yine de eklendi)":""));
       } else {
         showToast("Fatura bilgileri okundu — ürünleri elle ekleyin");
       }
@@ -2606,12 +2594,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [gecmisStokFaturaN, setGecmisStokFaturaN] = React.useState("");
   const [gecmisStokTarih, setGecmisStokTarih] = React.useState("");
   const [gecmisStokGorsel, setGecmisStokGorsel] = React.useState([]);
-  const [gecmisStokUrunler, setGecmisStokUrunler] = React.useState([]); // [{barkod,urunAd,marka,mevcutKalan,miktar}]
+  const [gecmisStokUrunler, setGecmisStokUrunler] = React.useState([]); // [{barkod,urunAd,marka,miktar,birimFiyat,bedelsizMi}]
   const [gecmisStokArama, setGecmisStokArama] = React.useState("");
   const [gecmisStokBilgiAcik, setGecmisStokBilgiAcik] = React.useState(false);
   const [cariEkleSecimModal, setCariEkleSecimModal] = React.useState(false); // "+ Fatura / Kayıt Ekle" seçim ekranı
   const [gecmisStokOkuYukleniyor, setGecmisStokOkuYukleniyor] = React.useState(false);
-  const [gecmisStokEslesmeyen, setGecmisStokEslesmeyen] = React.useState([]); // faturada okunan ama mevcut stokta eşleşmeyen kalemler (kalıcı liste)
   const [gecmisStokKismiBilgi, setGecmisStokKismiBilgi] = React.useState(null); // {sayisi} — fatura çok uzunsa kısmi okundu uyarısı
   const mkArsivYuklendiRef = React.useRef(false); // ilk yükleme bitti mi → boş diziyi buluta yazmayı güvenli kılar (silme-boş kalıcı olur, açılışta bulut silinmez)
   const mkArsivKirliRef = React.useRef(false);    // mount sonrası yerel silme/düzenleme oldu mu → geç gelen bulut çekimi bunu EZMESİN (diriltmeyi önler)
@@ -2740,9 +2727,17 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   // ── Bu üründen elde kalan en eski parti ne zaman girmiş — "kaç gündür rafta" ──
   const stoktaGun = (barkod) => {
     const partiler = (stokPartiler||[]).filter(p=>p.barkod===barkod && toN(p.kalan)>0 && p.tarih);
-    if(!partiler.length) return null;
-    const enEski = partiler.reduce((a,b)=> (a.tarih<b.tarih?a:b));
-    const fark = Math.floor((new Date()-new Date(enEski.tarih))/86400000);
+    const tarihler = partiler.map(p=>p.tarih);
+    // "Fatura Ekle (Geçmiş Stok Tarihi)" ile kaydedilen geçmiş faturalar da (stoğa hiç dokunmadan, sadece
+    // kayıt amaçlı) aynı barkod için bir tarih önerisi taşıyorsa, bu da dikkate alınır — mevcut stoğun
+    // bu üründen ne zamandır elde olabileceğine dair en eski/gerçekçi tarihi bulmak için.
+    (gecmisStokKayitlari||[]).forEach(kayit=>{
+      if(!kayit.tarih) return;
+      (kayit.urunler||[]).forEach(u=>{ if(u.barkod===barkod) tarihler.push(kayit.tarih); });
+    });
+    if(!tarihler.length) return null;
+    const enEski = tarihler.reduce((a,b)=> (a<b?a:b));
+    const fark = Math.floor((new Date()-new Date(enEski))/86400000);
     return fark>=0 ? fark : null;
   };
   const hizEtiket = (barkod) => {
@@ -6132,7 +6127,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       onClick:()=>{setCariEkleSecimModal(false);borcKaydiBarkodRef.current="BORC-"+uid();setBorcKaydiForm(true);setBorcKaydiTedarikci("");setBorcKaydiFaturaN("");setBorcKaydiFaturaTarih(TODAY());setBorcKaydiVade("");setBorcKaydiTutar("");setBorcKaydiGorsel([]);}},
                     {ikon:"📅", renk:"#0071E3", baslik:"Fatura Ekle (Geçmiş Stok Tarihi)",
                       aciklama:"Elinizde uzun süredir olan, parası zaten ödenmiş ürünlerin gerçek giriş tarihini kaydeder — böylece \"Durgun Stok\" analizi bu ürünleri doğru tespit eder. Toplam stok adedi ve tedarikçi borcu hiçbir şekilde değişmez, sadece mevcut stoğun bir kısmı doğru tarihe taşınır.",
-                      onClick:()=>{setCariEkleSecimModal(false);setGecmisStokTedarikci("");setGecmisStokFaturaN("");setGecmisStokTarih("");setGecmisStokGorsel([]);setGecmisStokUrunler([]);setGecmisStokArama("");setGecmisStokBilgiAcik(false);setGecmisStokEslesmeyen([]);setGecmisStokKismiBilgi(null);setGecmisStokModal(true);}}
+                      onClick:()=>{setCariEkleSecimModal(false);setGecmisStokTedarikci("");setGecmisStokFaturaN("");setGecmisStokTarih("");setGecmisStokGorsel([]);setGecmisStokUrunler([]);setGecmisStokArama("");setGecmisStokBilgiAcik(false);setGecmisStokKismiBilgi(null);setGecmisStokModal(true);}}
                   ].map((sec,i)=>
                     btn({key:i,type:"button",style:{display:"flex",gap:12,padding:"14px 16px",borderRadius:14,
                       border:"1.5px solid "+sec.renk+"55",background:sec.renk+"0F",cursor:"pointer",textAlign:"left"},
@@ -6626,33 +6621,17 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               onClick:gecmisStokFaturaOku},
               gecmisStokOkuYukleniyor?"⏳ Fatura okunuyor...":"✨ Faturadan Doldur"),
             div({style:{fontSize:10,color:"var(--di)",marginTop:4,textAlign:"center"}},
-              "Fatura no, tarih ve tedarikçi otomatik doldurulur; okunan ürünler mevcut stoğunuzla eşleşirse listeye eklenir."),
+              "Fatura no, tarih ve tedarikçi otomatik doldurulur; faturadaki TÜM ürünler (bedelsiz dahil) — kataloğunuzda olsun olmasın, stokta olsun olmasın — olduğu gibi listeye eklenir."),
             gecmisStokKismiBilgi && div({style:{marginTop:8,padding:"8px 10px",borderRadius:8,
               background:"rgba(255,149,0,.1)",border:"1px solid rgba(255,149,0,.3)",fontSize:11,color:"#8a5c08"}},
-              "⚠ Fatura çok uzundu, sadece bir kısmı okundu — kalan kalemleri elle ekleyin."),
-            gecmisStokEslesmeyen.length>0 && div({style:{marginTop:8,padding:"10px 12px",borderRadius:10,
-              background:"var(--bg2)",border:"1px solid var(--br)"}},
-              div({style:{fontSize:11,fontWeight:700,color:"var(--tx)",marginBottom:6}},
-                "Faturada okundu ama otomatik eklenmedi ("+gecmisStokEslesmeyen.length+"):"),
-              gecmisStokEslesmeyen.map((e,i)=>
-                div({key:i,style:{fontSize:10.5,color:"var(--mu)",padding:"3px 0",
-                  borderTop:i>0?"1px solid var(--br)":"none"}},
-                  "· "+e.ad+(e.adet?" ("+e.adet+" adet)":"")+" — "+e.sebep)
-              ),
-              div({style:{fontSize:10,color:"var(--di)",marginTop:6}},
-                "Bu ürünler ya kataloğunuzda yok ya da mevcut stokta hiç kalanı yok — bu ekran yalnızca elinizdeki stoğun tarihini düzeltir, yeni stok eklemez. Gerekirse Ürün Ekle kutusundan elle arayabilirsiniz.")
-            )
+              "⚠ Fatura çok uzundu, sadece bir kısmı okundu — kalan kalemleri elle ekleyin.")
           ),
           div({style:{marginBottom:10}},
             lbl({className:"fl"},"Ürün Ekle"),
             h(UrunAramaBilesen,{
               aramaVal:gecmisStokArama, setAramaVal:setGecmisStokArama,
               onEkle:sec=>{
-                const mevcut = stokOzet[sec.b];
-                const mevcutKalan = mevcut ? mevcut.kalan : 0;
-                if(mevcutKalan<=0){ showToast("Bu üründe elde stok yok — düzeltilecek bir şey bulunamadı","uy"); return; }
-                if(gecmisStokUrunler.some(x=>x.barkod===sec.b)){ showToast("Zaten eklendi","uy"); return; }
-                setGecmisStokUrunler(p=>[...p,{barkod:sec.b,urunAd:sec.a,marka:sec.m,mevcutKalan,miktar:String(mevcutKalan)}]);
+                setGecmisStokUrunler(p=>[...p,{barkod:sec.b,urunAd:sec.a,marka:sec.m,miktar:"1",birimFiyat:toN(sec.bp)||0,bedelsizMi:false}]);
                 setGecmisStokArama("");
               },
               tipFiltre:null, placeholder:"Barkod okut veya ürün adı yaz..."
@@ -6660,13 +6639,19 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           ),
           gecmisStokUrunler.length>0 && div({style:{marginBottom:16}},
             gecmisStokUrunler.map((u,i)=>
-              div({key:u.barkod,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 0",
+              div({key:i,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 0",
                 borderBottom:i<gecmisStokUrunler.length-1?"1px solid var(--br)":"none"}},
                 div({style:{flex:1,minWidth:0}},
-                  div({style:{fontSize:12.5,color:"var(--tx)",fontWeight:600}},u.urunAd),
-                  div({style:{fontSize:10.5,color:"var(--mu)"}},"Elde: "+u.mevcutKalan+" adet")
+                  div({style:{fontSize:12.5,color:"var(--tx)",fontWeight:600,display:"flex",alignItems:"center",gap:6}},
+                    u.urunAd,
+                    !u.barkod && h("span",{style:{fontSize:9,fontWeight:700,color:"#8a5c08",background:"rgba(255,149,0,.15)",
+                      borderRadius:5,padding:"1px 5px"}},"kataloğa eşleşmedi"),
+                    u.bedelsizMi && h("span",{style:{fontSize:9,fontWeight:700,color:"#1e9e46",background:"rgba(52,199,89,.15)",
+                      borderRadius:5,padding:"1px 5px"}},"bedelsiz")
+                  ),
+                  u.birimFiyat>0 && div({style:{fontSize:10.5,color:"var(--mu)"}},"Birim: "+fmt(u.birimFiyat))
                 ),
-                inp({className:"fi",type:"number",style:{width:70,padding:"6px 8px",fontSize:12},min:"0",max:String(u.mevcutKalan),
+                inp({className:"fi",type:"number",style:{width:70,padding:"6px 8px",fontSize:12},min:"0",
                   value:u.miktar,onChange:e=>{
                     const v=e.target.value;
                     setGecmisStokUrunler(p=>p.map((x,j)=>j===i?{...x,miktar:v}:x));
@@ -6683,36 +6668,22 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               onClick:()=>{
                 if(!gecmisStokTarih){showToast("Gerçek giriş tarihini girin","uy");return;}
                 if(gecmisStokUrunler.length===0){showToast("En az bir ürün ekleyin","uy");return;}
-                const gecersiz = gecmisStokUrunler.find(u=>toN(u.miktar)<=0 || toN(u.miktar)>u.mevcutKalan);
-                if(gecersiz){showToast(gecersiz.urunAd+" için geçersiz miktar (elde: "+gecersiz.mevcutKalan+")","uy");return;}
+                const gecersiz = gecmisStokUrunler.find(u=>toN(u.miktar)<=0);
+                if(gecersiz){showToast(gecersiz.urunAd+" için miktar 0'dan büyük olmalı","uy");return;}
 
-                let sonrakiPartiler = [...stokPartiler];
-                const uygulananUrunler = [];
-                gecmisStokUrunler.forEach(u=>{
-                  let dusulecek = toN(u.miktar);
-                  let alisF = 0;
-                  // Mevcut (yanlış tarihli) partilerden bu kadarını düş
-                  sonrakiPartiler = sonrakiPartiler.map(p=>{
-                    if(p.barkod!==u.barkod || toN(p.kalan)<=0 || dusulecek<=0) return p;
-                    const dus = Math.min(toN(p.kalan), dusulecek);
-                    alisF = p.alisF||alisF;
-                    dusulecek -= dus;
-                    return {...p, kalan: toN(p.kalan)-dus};
-                  });
-                  // Aynı miktarı doğru tarihle yeni bir parti olarak ekle (toplam adet DEĞİŞMEZ)
-                  sonrakiPartiler.push({id:uid(), barkod:u.barkod, urunAd:u.urunAd, marka:u.marka||"",
-                    adet:toN(u.miktar), kalan:toN(u.miktar), alisF, tarih:gecmisStokTarih,
-                    faturaN:gecmisStokFaturaN.trim()||"Geçmiş Kayıt", tip:"gecmisTarihDuzeltme"});
-                  uygulananUrunler.push({barkod:u.barkod, urunAd:u.urunAd, miktar:toN(u.miktar)});
-                });
-                setStokPartiler(sonrakiPartiler);
-
+                // Fatura, OLDUĞU GİBİ kaydedilir — stokPartiler'e ASLA dokunulmaz (ne ekleme ne düşme),
+                // borç/Cari hesaplarına da hiç girmez. Bu sadece bir "bu fatura bu tarihte gelmiş" kaydı;
+                // Durgun Stok analizi, mevcut stoktaki ürünleri (barkod üzerinden) bu kayıtla SONRADAN
+                // eşleştirip "kaç gündür elde" hesabını kendisi yapar (bkz. stoktaGun fonksiyonu).
                 const kayit={id:uid(), tedarikci:gecmisStokTedarikci.trim(), faturaN:gecmisStokFaturaN.trim(),
-                  tarih:gecmisStokTarih, gorsel:gecmisStokGorsel, urunler:uygulananUrunler, olusturma:Date.now()};
+                  tarih:gecmisStokTarih, gorsel:gecmisStokGorsel,
+                  urunler: gecmisStokUrunler.map(u=>({barkod:u.barkod||"", urunAd:u.urunAd,
+                    miktar:toN(u.miktar), birimFiyat:toN(u.birimFiyat)||0, bedelsizMi:!!u.bedelsizMi})),
+                  olusturma:Date.now()};
                 setGecmisStokKayitlari(p=>[kayit,...(p||[])]);
 
                 setGecmisStokModal(false);
-                showToast(uygulananUrunler.length+" ürünün stok tarihi düzeltildi ✓");
+                showToast("Fatura kaydedildi ✓ ("+gecmisStokUrunler.length+" ürün)");
               }},"Kaydet")
           )
         )
