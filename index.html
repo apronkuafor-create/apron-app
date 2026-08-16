@@ -2354,8 +2354,53 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   },[mkForm, mkTip, mkTarih, mkFatura, mkIrsaliye, mkFaturaTarih, mkTedarikci, mkVade, mkMalKabulTarihi, mkFaturaImg, mkUrunler]);
 
   const [mkFarkAcikIdx, setMkFarkAcikIdx] = React.useState({}); // {satirIndex:true} — fark bildirim paneli açık mı
-  const [mkMukerrerUyari, setMkMukerrerUyari] = React.useState(null); // {sayi,tarihler} — aynı fatura no'yla önceki kayıt(lar)
+  const [mkMukerrerUyari, setMkMukerrerUyari] = React.useState(null); // {sayi,tarihler,devamFn} — aynı fatura no'yla önceki kayıt(lar)
   const [mkMukerrerGecildi, setMkMukerrerGecildi] = React.useState(false); // kullanıcı "Yine de Ekle" dedi mi
+  // ── Fatura Görseli Hash Önbelleği: AYNI görsel daha önce AI'ya okutulduysa, tekrar okutup token
+  // harcamadan önce kullanıcıyı uyarır ("bu görsel daha önce okunmuş, sonucu tekrar kullanmak ister misin?").
+  // Hem Mal Kabul'daki hem Cari'deki "Faturadan Doldur" bu ortak önbelleği kullanır.
+  const [faturaOkumaHash, setFaturaOkumaHash] = React.useState([]); // [{hash,faturaN,faturaTarihi,tedarikciAdi,kalemSayisi,zaman}]
+  const gorselHashHesapla = base64 => {
+    let h=0;
+    for(let i=0;i<base64.length;i+=97) h=(h*31+base64.charCodeAt(i))>>>0; // seyrek örnekleme — büyük görsellerde hızlı
+    return h.toString(36)+"_"+base64.length;
+  };
+  // Görseli okutmadan önce çağrılır: önbellekte varsa kullanıcıya sorar, döndürdüğü true ise okuma devam etmeli.
+  const faturaOkumaOncesiKontrol = base64 => {
+    const hash = gorselHashHesapla(base64);
+    const eslesen = faturaOkumaHash.find(h=>h.hash===hash);
+    if(eslesen){
+      const devam = window.confirm(
+        "Bu görsel daha önce okunmuş görünüyor"+(eslesen.faturaN?" (Fatura No: "+eslesen.faturaN+")":"")+
+        ".\n\nTekrar okutmak token harcayacaktır. Yine de yeniden okutmak istiyor musunuz?\n\n"+
+        "İptal: bilgileri elle kontrol edin.\nTamam: yeniden oku."
+      );
+      if(!devam) return {devam:false, hash};
+    }
+    return {devam:true, hash};
+  };
+  const faturaOkumaHashKaydet = (hash, veri) => {
+    setFaturaOkumaHash(p=>{
+      const yeni=[{hash, faturaN:veri?.faturaNo||"", faturaTarihi:veri?.faturaTarihi||"",
+        tedarikciAdi:veri?.tedarikciAdi||"", kalemSayisi:(veri?.kalemler||[]).length, zaman:Date.now()},
+        ...p.filter(h=>h.hash!==hash)].slice(0,50); // son 50 kayıtla sınırlı
+      try{localStorage.setItem("apron_fatura_oku_hash",JSON.stringify(yeni));}catch(e){}
+      return yeni;
+    });
+  };
+  // ── Genel mükerrer fatura kontrolü: Mal Kabul, Sadece Borç Kaydı, Fatura Ekle (Geçmiş Stok Tarihi) —
+  // hepsi bu tek fonksiyonu kullanır. Fatura no'yla mkArsiv'de eşleşen varsa true döner ve uyarı gösterir;
+  // devamFn, kullanıcı "Yine de Ekle" derse çalıştırılır. ──
+  const mukerrerKontrolEt = (faturaN, devamFn) => {
+    const fn=(faturaN||"").trim();
+    if(!fn) return false;
+    const eslesen=(mkArsiv||[]).filter(ar=>(ar.faturaN||"").trim().toLowerCase()===fn.toLowerCase() && ar.kayitTuru!=="acilis");
+    if(eslesen.length>0){
+      setMkMukerrerUyari({sayi:eslesen.length, tarihler:eslesen.map(a=>fmtT(a.malKabulTarihi||a.tarih)), devamFn});
+      return true;
+    }
+    return false;
+  };
   const [mkKaydediliyor, setMkKaydediliyor] = React.useState(false); // "Stoğa Ekle" işleniyor mu — art arda tıklamayı engeller
   const mkKaydediliyorRef = React.useRef(false); // anlık (senkron) koruma — state güncellemesi bir sonraki render'a kadar bekleyemez
   const [mkTeslimAlPrompt, setMkTeslimAlPrompt] = React.useState(null); // {parti, gelenAdet} — "Teslim Aldım" onay penceresi
@@ -2378,6 +2423,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
       const eslesme = sonGorsel.match(/^data:([^;]+);base64,(.+)$/);
       if(!eslesme){ setMkFaturaOkuHata("Görsel formatı okunamadı."); setMkFaturaOkuYukleniyor(false); return; }
       const mediaType = eslesme[1], base64Veri = eslesme[2];
+      const {devam, hash} = faturaOkumaOncesiKontrol(base64Veri);
+      if(!devam){ setMkFaturaOkuYukleniyor(false); return; }
       const { data: sessionData } = await DB.auth.getSession();
       const token = sessionData?.session?.access_token;
       if(!token){ setMkFaturaOkuHata("Oturum bulunamadı, lütfen tekrar giriş yapın."); setMkFaturaOkuYukleniyor(false); return; }
@@ -2387,6 +2434,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         body: JSON.stringify({ image_base64: base64Veri, media_type: mediaType })
       });
       const veri = await resp.json().catch(()=>null);
+      if(resp.ok && veri) faturaOkumaHashKaydet(hash, veri);
       if(!resp.ok || !veri){
         const detay = veri?.detay ? " ("+String(veri.detay).slice(0,200)+")" : veri?.error ? " ("+veri.error+")" : "";
         setMkFaturaOkuHata("Fatura okunamadı, lütfen alanları elle doldurun."+detay);
@@ -2496,6 +2544,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
       const eslesme = sonGorsel.match(/^data:([^;]+);base64,(.+)$/);
       if(!eslesme){ showToast("Görsel formatı okunamadı","uy"); setGecmisStokOkuYukleniyor(false); return; }
       const mediaType = eslesme[1], base64Veri = eslesme[2];
+      const {devam, hash} = faturaOkumaOncesiKontrol(base64Veri);
+      if(!devam){ setGecmisStokOkuYukleniyor(false); return; }
       const { data: sessionData } = await DB.auth.getSession();
       const token = sessionData?.session?.access_token;
       if(!token){ showToast("Oturum bulunamadı, lütfen tekrar giriş yapın","uy"); setGecmisStokOkuYukleniyor(false); return; }
@@ -2505,6 +2555,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         body: JSON.stringify({ image_base64: base64Veri, media_type: mediaType })
       });
       const veri = await resp.json().catch(()=>null);
+      if(resp.ok && veri) faturaOkumaHashKaydet(hash, veri);
       if(!resp.ok || !veri){ showToast("Fatura okunamadı, lütfen alanları elle doldurun","uy"); setGecmisStokOkuYukleniyor(false); return; }
 
       if(veri.faturaNo) setGecmisStokFaturaN(veri.faturaNo);
@@ -2960,6 +3011,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     // Eksik id'leri tamamla (eski kayıtlar id'siz olabilir) → silme/düzenleme id ile sağlam çalışsın
     const _bfId = arr => (Array.isArray(arr)?arr:[]).map(x => (x && typeof x==="object" && !x.id) ? {...x, id: uid()} : x);
     try{const a=JSON.parse(localStorage.getItem("apron_mk_arsiv")||"[]"); if(a.length){ const b=_bfId(a); setMkArsiv(b); try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(b));}catch(e){} } }catch(e){}
+    try{const fh=JSON.parse(localStorage.getItem("apron_fatura_oku_hash")||"[]"); if(fh.length) setFaturaOkumaHash(fh);}catch(e){}
     // Supabase'den taze veriyi çek (localStorage'dan daha güncel olabilir)
     if(DB){
       DB.from("ayarlar").select("deger").eq("id","mkArsiv").maybeSingle()
@@ -4501,7 +4553,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     onEkle:u=>{
                       if(mkUrunler.find(x=>x.barkod===u.b)){showToast("Zaten eklendi","uy");return;}
                       setMkUrunler(p=>[...p,{barkod:u.b,urunAd:u.a,marka:u.m,ml:u.ml,
-                        adet:"",birimF:String(u.bp||""),iskontoOran:"0",kdvOran:"20",sarfMi:false}]);
+                        adet:"",birimF:String(u.bp||""),iskontoOran:"0",kdvOran:"20",sarfMi:u.tip==="sarf"}]);
                     },
                     onBarkodBulunamadi: kod=>setMkBarkodBulunamadi(kod),
                     tipFiltre: null,
@@ -4773,14 +4825,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         return;
                       }
                       if(mkTip!=="acilis" && !mkMukerrerGecildi){
-                        const fn=(mkFatura||"").trim();
-                        if(fn){
-                          const eslesen=(mkArsiv||[]).filter(ar=>(ar.faturaN||"").trim().toLowerCase()===fn.toLowerCase() && ar.kayitTuru!=="acilis");
-                          if(eslesen.length>0){
-                            setMkMukerrerUyari({sayi:eslesen.length,tarihler:eslesen.map(a=>fmtT(a.malKabulTarihi||a.tarih))});
-                            return;
-                          }
-                        }
+                        const varMi = mukerrerKontrolEt(mkFatura, ()=>{
+                          setMkMukerrerGecildi(true);
+                          setTimeout(()=>{ document.getElementById("mk-stoga-ekle-btn")?.click(); },50);
+                        });
+                        if(varMi) return;
                       }
                       mkKaydediliyorRef.current = true;
                       setMkKaydediliyor(true);
@@ -4978,9 +5027,15 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             btn({style:{flex:1,padding:"12px 0",borderRadius:11,border:"none",
               background:"linear-gradient(135deg,var(--g),var(--gd))",color:"var(--bg)",fontSize:14,fontWeight:700,cursor:"pointer"},
               onClick:()=>{
-                setMkMukerrerGecildi(true);
-                setMkMukerrerUyari(null);
-                setTimeout(()=>{ document.getElementById("mk-stoga-ekle-btn")?.click(); },50);
+                if(mkMukerrerUyari?.devamFn){
+                  const fn = mkMukerrerUyari.devamFn;
+                  setMkMukerrerUyari(null);
+                  fn();
+                } else {
+                  setMkMukerrerGecildi(true);
+                  setMkMukerrerUyari(null);
+                  setTimeout(()=>{ document.getElementById("mk-stoga-ekle-btn")?.click(); },50);
+                }
               }},"Yine de Ekle")
           )
         )
@@ -6204,12 +6259,9 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           // ── Tedarikçi bazlı gruplama: her tedarikçi için toplam borç + fatura fatura döküm ──
           (()=>{
             const tedGruplar = {};
-            // NOT: Burada sortedGruplar (sadece açık/ödenmemiş faturalar) değil, gruplar (TÜMÜ — ödenmiş dahil)
-            // kullanılıyor; böylece bir tedarikçinin kartını açtığında geçmişte tamamen ödediği faturaları da
-            // "✅ Ödendi" ibaresiyle görebiliyor, sadece açık faturalarla sınırlı kalmıyor. Kart listesine
-            // girme şartı yine "hâlâ borcu olması" (aşağıda toplam>0 filtresi) — tamamen kapanmış bir tedarikçi
-            // Borçlarım'da ayrı bir kart olarak görünmeye devam etmiyor.
-            gruplar.forEach(g=>{
+            // Sadece AÇIK (ödenmemiş) faturalar kullanılır — tamamen ödenmiş faturalar artık Ödemelerim'in
+            // kendi tedarikçi bazlı listesinde gösteriliyor, burada tekrar görünmemeli.
+            sortedGruplar.forEach(g=>{
               const ar0=g.kayitlar[0];
               const tAd = (ar0.tedarikci||"").trim() || "Tedarikçi Belirtilmemiş";
               if(!tedGruplar[tAd]) tedGruplar[tAd]={ad:tAd, gruplar:[], toplam:0, enYakinVade:null, gecikenSayisi:0};
@@ -6564,20 +6616,24 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               onClick:()=>{
                 if(!borcKaydiTedarikci){showToast("Tedarikçi seçin","uy");return;}
                 if(!toN(borcKaydiTutar)){showToast("Toplam tutar girin","uy");return;}
-                const tutar=toN(borcKaydiTutar);
-                const kayit={id:uid(),tarih:borcKaydiFaturaTarih,faturaTarih:borcKaydiFaturaTarih,
-                  faturaN:borcKaydiFaturaN.trim(),irsaliyeN:"",tedarikci:borcKaydiTedarikci,vade:borcKaydiVade,
-                  malKabulTarihi:borcKaydiFaturaTarih,tip:"satilabilen",faturaImg:borcKaydiGorsel,
-                  urunler:[{barkod:borcKaydiBarkodRef.current,urunAd:"Fatura Tutarı (ürün detayı girilmedi)",
-                    marka:"",adet:1,birimF:tutar,iskontoOran:0,iskontoTutar:0,kdvOran:0,kdvTutar:0,
-                    toplamF:tutar,bedelsiz:false,kabulAdet:1,farkSebep:"",farkNot:""}]};
-                const yeniArsiv=[kayit,...mkArsiv];
-                mkArsivKirliRef.current=true;
-                setMkArsiv(yeniArsiv);
-                try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
-                if(DB) dbUpsertAyar("mkArsiv", yeniArsiv);
-                setBorcKaydiForm(false);
-                showToast("Borç kaydı eklendi");
+                const gercekKaydet=()=>{
+                  const tutar=toN(borcKaydiTutar);
+                  const kayit={id:uid(),tarih:borcKaydiFaturaTarih,faturaTarih:borcKaydiFaturaTarih,
+                    faturaN:borcKaydiFaturaN.trim(),irsaliyeN:"",tedarikci:borcKaydiTedarikci,vade:borcKaydiVade,
+                    malKabulTarihi:borcKaydiFaturaTarih,tip:"satilabilen",faturaImg:borcKaydiGorsel,
+                    urunler:[{barkod:borcKaydiBarkodRef.current,urunAd:"Fatura Tutarı (ürün detayı girilmedi)",
+                      marka:"",adet:1,birimF:tutar,iskontoOran:0,iskontoTutar:0,kdvOran:0,kdvTutar:0,
+                      toplamF:tutar,bedelsiz:false,kabulAdet:1,farkSebep:"",farkNot:""}]};
+                  const yeniArsiv=[kayit,...mkArsiv];
+                  mkArsivKirliRef.current=true;
+                  setMkArsiv(yeniArsiv);
+                  try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
+                  if(DB) dbUpsertAyar("mkArsiv", yeniArsiv);
+                  setBorcKaydiForm(false);
+                  showToast("Borç kaydı eklendi");
+                };
+                if(mukerrerKontrolEt(borcKaydiFaturaN, gercekKaydet)) return;
+                gercekKaydet();
               }},"Kaydet")
           )
         )
@@ -6733,39 +6789,43 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 // AMA aynı anda tam tutarlı bir ödeme de işleniyor — yani "borç" bir an bile açık kalmıyor,
                 // sadece geçmişte ödenmiş bir fatura olarak listeleniyor. stokPartiler'e HİÇ dokunulmuyor
                 // (stok miktarı değişmiyor); Durgun Stok analizi bu kaydı barkod üzerinden ayrıca kullanır.
-                const urunlerHazir = gecmisStokUrunler.map(u=>{
-                  const adet = toN(u.miktar)||1;
-                  const birimF = u.bedelsizMi ? 0 : (toN(u.birimFiyat)||0);
-                  const matrah = adet*birimF;
-                  const kdvOran = 20;
-                  const kdvTutar = u.bedelsizMi ? 0 : matrah*(kdvOran/100);
-                  return {barkod:u.barkod||"", urunAd:u.urunAd, marka:u.marka||"",
-                    adet, birimF, iskontoOran:0, iskontoTutar:0, kdvOran, kdvTutar,
-                    toplamF: u.bedelsizMi?0:(matrah+kdvTutar), bedelsiz:!!u.bedelsizMi,
-                    kabulAdet:adet, farkSebep:"", farkNot:""};
-                });
-                const tutarToplam = urunlerHazir.reduce((s,u)=>s+u.toplamF,0);
-                const arsivKayit = {id:uid(), tarih:gecmisStokTarih, faturaTarih:gecmisStokTarih,
-                  faturaN:gecmisStokFaturaN.trim(), irsaliyeN:"", tedarikci:gecmisStokTedarikci.trim()||"—",
-                  vade:"", malKabulTarihi:gecmisStokTarih, tip:"satilabilen",
-                  faturaImg:gecmisStokGorsel, urunler:urunlerHazir,
-                  odemeler: tutarToplam>0 ? [{id:uid(), tarih:gecmisStokTarih, tip:"gecmis",
-                    tutar:tutarToplam, not:"Geçmiş fatura — kayıt anında ödenmiş olarak işlendi", detay:""}] : []};
-                const yeniArsiv=[arsivKayit,...mkArsiv];
-                mkArsivKirliRef.current=true;
-                setMkArsiv(yeniArsiv);
-                try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
-                if(DB) dbUpsertAyar("mkArsiv", yeniArsiv);
+                const gercekKaydet=()=>{
+                  const urunlerHazir = gecmisStokUrunler.map(u=>{
+                    const adet = toN(u.miktar)||1;
+                    const birimF = u.bedelsizMi ? 0 : (toN(u.birimFiyat)||0);
+                    const matrah = adet*birimF;
+                    const kdvOran = 20;
+                    const kdvTutar = u.bedelsizMi ? 0 : matrah*(kdvOran/100);
+                    return {barkod:u.barkod||"", urunAd:u.urunAd, marka:u.marka||"",
+                      adet, birimF, iskontoOran:0, iskontoTutar:0, kdvOran, kdvTutar,
+                      toplamF: u.bedelsizMi?0:(matrah+kdvTutar), bedelsiz:!!u.bedelsizMi,
+                      kabulAdet:adet, farkSebep:"", farkNot:""};
+                  });
+                  const tutarToplam = urunlerHazir.reduce((s,u)=>s+u.toplamF,0);
+                  const arsivKayit = {id:uid(), tarih:gecmisStokTarih, faturaTarih:gecmisStokTarih,
+                    faturaN:gecmisStokFaturaN.trim(), irsaliyeN:"", tedarikci:gecmisStokTedarikci.trim()||"—",
+                    vade:"", malKabulTarihi:gecmisStokTarih, tip:"satilabilen",
+                    faturaImg:gecmisStokGorsel, urunler:urunlerHazir,
+                    odemeler: tutarToplam>0 ? [{id:uid(), tarih:gecmisStokTarih, tip:"gecmis",
+                      tutar:tutarToplam, not:"Geçmiş fatura — kayıt anında ödenmiş olarak işlendi", detay:""}] : []};
+                  const yeniArsiv=[arsivKayit,...mkArsiv];
+                  mkArsivKirliRef.current=true;
+                  setMkArsiv(yeniArsiv);
+                  try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
+                  if(DB) dbUpsertAyar("mkArsiv", yeniArsiv);
 
-                const gecmisKayit={id:uid(), tedarikci:gecmisStokTedarikci.trim(), faturaN:gecmisStokFaturaN.trim(),
-                  tarih:gecmisStokTarih, gorsel:gecmisStokGorsel,
-                  urunler: gecmisStokUrunler.map(u=>({barkod:u.barkod||"", urunAd:u.urunAd,
-                    miktar:toN(u.miktar), birimFiyat:toN(u.birimFiyat)||0, bedelsizMi:!!u.bedelsizMi})),
-                  olusturma:Date.now()};
-                setGecmisStokKayitlari(p=>[gecmisKayit,...(p||[])]);
+                  const gecmisKayit={id:uid(), tedarikci:gecmisStokTedarikci.trim(), faturaN:gecmisStokFaturaN.trim(),
+                    tarih:gecmisStokTarih, gorsel:gecmisStokGorsel,
+                    urunler: gecmisStokUrunler.map(u=>({barkod:u.barkod||"", urunAd:u.urunAd,
+                      miktar:toN(u.miktar), birimFiyat:toN(u.birimFiyat)||0, bedelsizMi:!!u.bedelsizMi})),
+                    olusturma:Date.now()};
+                  setGecmisStokKayitlari(p=>[gecmisKayit,...(p||[])]);
 
-                setGecmisStokModal(false);
-                showToast("Fatura kaydedildi ✓ — Borçlarım'da "+(gecmisStokTedarikci.trim()||"tedarikçi")+" altında, ödenmiş olarak görünecek");
+                  setGecmisStokModal(false);
+                  showToast("Fatura kaydedildi ✓ — Borçlarım'da "+(gecmisStokTedarikci.trim()||"tedarikçi")+" altında, ödenmiş olarak görünecek");
+                };
+                if(mukerrerKontrolEt(gecmisStokFaturaN, gercekKaydet)) return;
+                gercekKaydet();
               }},"Kaydet")
           )
         )
