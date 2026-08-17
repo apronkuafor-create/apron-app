@@ -833,7 +833,8 @@ const ODEME_IKON = {
     h("circle",{cx:12,cy:12,r:3})
   )
 };
-const OdemeGir = React.memo(function OdemeGir({renk, kk, ib, nk, onChange, label, beklenen, onSil, ibanPersoneller, ibanBilgi, onIbanSec, ibanSecili}) {
+const OdemeGir = React.memo(function OdemeGir({renk, kk, ib, nk, onChange, label, beklenen, onSil, ibanPersoneller, ibanBilgi, onIbanSec, ibanSecili, notVal, onNotChange}) {
+  const [notAcik, setNotAcik] = React.useState(!!notVal);
   const top = toN(kk)+toN(ib)+toN(nk);
   const fark = beklenen>0 ? top - beklenen : 0;
   const yuzde = beklenen>0 && top>0 ? Math.round((fark/beklenen)*100) : 0;
@@ -908,6 +909,20 @@ const OdemeGir = React.memo(function OdemeGir({renk, kk, ib, nk, onChange, label
           )
         )
       )
+    ),
+    // Ödemeyle ilgili not — o ödemenin görüldüğü her yerde (kayıt listesi, müşteri kartı vb.) gösterilir.
+    onNotChange && top>0 && div({style:{marginTop:8}},
+      !notAcik
+        ? btn({type:"button",style:{fontSize:11.5,fontWeight:600,padding:"6px 11px",borderRadius:8,
+            border:"1px solid var(--br)",background:"transparent",color:"var(--mu)",cursor:"pointer"},
+            onClick:()=>setNotAcik(true)},"💬 Ödeme İçin Not Ekle")
+        : div(null,
+            inp({className:"fi",placeholder:"Örn: Pos Pratik ile tedarikçi POS'undan tahsil edildi",
+              value:notVal||"",onChange:e=>onNotChange(e.target.value),style:{fontSize:12.5}}),
+            !notVal && btn({type:"button",style:{fontSize:11,color:"var(--di)",background:"none",
+              border:"none",cursor:"pointer",padding:"4px 0",marginTop:2},
+              onClick:()=>setNotAcik(false)},"İptal")
+          )
     )
   );
 });
@@ -1996,7 +2011,10 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
                     color:v>0?"var(--g)":"var(--di)",fontWeight:700}},v>0?fmt(v):"—")
                 )
               )
-            )
+            ),
+            r.hizOdemeNotu && h("div",{style:{marginTop:6,padding:"6px 9px",background:"rgba(0,113,227,.06)",
+              border:"1px solid rgba(0,113,227,.2)",borderRadius:7,fontSize:11.5,color:"var(--tx)"}},
+              "💬 "+r.hizOdemeNotu)
           )
         )
       ),
@@ -10231,6 +10249,8 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
     };
   };
   const [musteri,  setMusteri]  = useState(ilk?.musteri||"");
+  const [hizOdemeNotu, setHizOdemeNotu] = useState(ilk?.hizOdemeNotu||"");
+  const [urunOdemeNotu, setUrunOdemeNotu] = useState(ilk?.urunOdemeNotu||"");
   const [tel,      setTel]      = useState(ilk?.tel||"");
   // ── Başka Personelin Müşterisi Uyarısı: kayıt sahibi kendisi olmayan bilinen bir müşteri adı
   // girildiğinde, kaydetmeden önce sebep sorulur. Ücret yine kaydı yapan personele yazılır —
@@ -10712,6 +10732,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
       anaPersonelId:anaPersonelId||ilk?.anaPersonelId||"",
       anaPersonelAd:personeller.find(p=>p.id===(anaPersonelId||ilk?.anaPersonelId))?.ad||"",
       farkliSahipSebep:farkliSahipSebep||ilk?.farkliSahipSebep||"",
+      hizOdemeNotu:hizOdemeNotu.trim(), urunOdemeNotu:urunOdemeNotu.trim(),
       staffId:ilk?.staffId, staffAd:ilk?.staffAd,
       tarih: formTarih || ilk?.tarih || TODAY(), saat:ilk?.saat, gonderildi:ilk?.gonderildi,
       hizmetSaati:hizmetSaati||ilk?.hizmetSaati||"",
@@ -11558,6 +11579,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
             ibanPersoneller:aktifP.filter(p=>p.id!==aktifKullanici?.id),
             ibanSecili:hIbanSec,
             onIbanSec:(pId,pAd)=>ibanPersonelSec("hiz",pId,pAd),
+            notVal:hizOdemeNotu, onNotChange:setHizOdemeNotu,
             onChange:(k,v)=>{if(k==="kk")setHKK(v);else if(k==="ib"){setHIB(v);if(!v)setHIbanSec("");}else setHNK(v);}}),
           (()=>{
             const satirlar = hizler.filter(x=>x.n && toN(x.listef)>0 && toN(x.f)>0).map(x=>{
@@ -11723,6 +11745,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
             ibanPersoneller:aktifP.filter(p=>p.id!==aktifKullanici?.id),
             ibanSecili:uIbanSec,
             onIbanSec:(pId,pAd)=>ibanPersonelSec("ürün",pId,pAd),
+            notVal:urunOdemeNotu, onNotChange:setUrunOdemeNotu,
             onChange:(k,v)=>{if(k==="kk")setUKK(v);else if(k==="ib"){setUIB(v);if(!v)setUIbanSec("");}else setUNK(v);}}),
           (()=>{
             const satirlar = urunler.filter(x=>x.a && toN(x.sp)>0 && toN(x.sf)>0).map(x=>{
