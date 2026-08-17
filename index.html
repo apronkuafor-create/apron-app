@@ -8457,16 +8457,19 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
 
 
 // ── VERGİ MUHASEBESİ MODÜLÜ ─────────────────────────────────────────────────
-// Şahıs şirketi için 2026 kademeli gelir vergisi tarifesi
-// Matrah = KDV hariç seçili ciro − KDV hariç giderler
-// Gelir vergisi YILLIK beyan edilir, bu yüzden yıllık kümülatif gösteriyoruz
+// Gerçek muhasebe pratiğine göre kurulmuştur: KDV aylık, Geçici Vergi 3 aylık
+// dönemler halinde (yıllık verginin peşin ödemesi), Yıllık Gelir Vergisi bir
+// sonraki yılın Mart/Temmuz aylarında 2 taksitte ödenir. "Aylık gelir vergisi"
+// diye bir şey YOKTUR — bu, eski modüldeki temel bir hataydı.
 function VergiMuhasebesiModul({tumK, faturalar}) {
+  const SICAK_PALET = {kdv:"#7FABCB", kar:"#7FB894", gecici:"#9B8AC4", yillik:"#E39B7A", takvim:"#D99BB0"};
   const [secAy, setSecAy] = React.useState(new Date().toISOString().slice(0,7));
   const [kdvOran, setKdvOran] = React.useState(20);
-  const [secimler, setSecimler] = React.useState({kk:true, ib:true, nk:true});
-  // Vergi muhasebesi kendi gider listesini yönetir (Muhasebe→Giderler'den bağımsız)
-  const [vergiGiderler, setVergiGiderler] = React.useState([]);
-  const giderler = vergiGiderler;
+  const [vergiGiderler, setVergiGiderler] = React.useState([]); // Muhasebe→Giderler'den bağımsız, kendi listesi
+  const [yeniGiderAd, setYeniGiderAd] = React.useState("");
+  const [yeniGiderTutar, setYeniGiderTutar] = React.useState("");
+  const [yeniGiderTarih, setYeniGiderTarih] = React.useState(new Date().toISOString().slice(0,10));
+  const [bilgiAcik, setBilgiAcik] = React.useState(null); // hangi kartın açıklaması açık
 
   const oran = Math.max(0, toN(kdvOran)) / 100;
   const kdvIcinden = React.useCallback((brut)=>{
@@ -8474,290 +8477,347 @@ function VergiMuhasebesiModul({tumK, faturalar}) {
     return oran > 0 ? n - (n / (1 + oran)) : 0;
   }, [oran]);
 
-  // 2026 Şahıs Şirketi Gelir Vergisi Tarifesi (kademeli)
+  // 2026 Şahıs Şirketi Gelir Vergisi Tarifesi (kademeli) — hem Geçici Vergi hem Yıllık GV bunu kullanır
   const GV_TARIFE_2026 = [
-    {ust: 158000,   oran: 0.15, sabit: 0},
-    {ust: 330000,   oran: 0.20, sabit: 23700},      // 158000 × %15
-    {ust: 1200000,  oran: 0.27, sabit: 58100},      // 23700 + (330000-158000)×%20
-    {ust: 4300000,  oran: 0.35, sabit: 293000},     // 58100 + (1200000-330000)×%27
-    {ust: Infinity, oran: 0.40, sabit: 1378000}     // 293000 + (4300000-1200000)×%35
+    {ust: 158000,   oran: 0.15},
+    {ust: 330000,   oran: 0.20},
+    {ust: 1200000,  oran: 0.27},
+    {ust: 4300000,  oran: 0.35},
+    {ust: Infinity, oran: 0.40}
   ];
-
-  // Kademeli gelir vergisi hesaplama
   const hesaplaGV = React.useCallback((matrah)=>{
     const m = Math.max(0, toN(matrah));
     if(m <= 0) return {vergi: 0, dilimler: []};
-    let kalan = m;
-    let oncekiUst = 0;
-    let toplamVergi = 0;
+    let kalan = m, oncekiUst = 0, toplamVergi = 0;
     const dilimler = [];
     for(const dilim of GV_TARIFE_2026) {
       if(kalan <= 0) break;
-      const dilimGenisligi = dilim.ust === Infinity ? kalan : Math.min(kalan, dilim.ust - oncekiUst);
-      if(dilimGenisligi > 0) {
-        const dilimVergi = dilimGenisligi * dilim.oran;
-        toplamVergi += dilimVergi;
-        dilimler.push({
-          alt: oncekiUst,
-          ust: dilim.ust === Infinity ? null : Math.min(m, dilim.ust),
-          oran: dilim.oran,
-          tutar: dilimGenisligi,
-          vergi: dilimVergi
-        });
-        kalan -= dilimGenisligi;
+      const genislik = dilim.ust === Infinity ? kalan : Math.min(kalan, dilim.ust - oncekiUst);
+      if(genislik > 0) {
+        const v = genislik * dilim.oran;
+        toplamVergi += v;
+        dilimler.push({alt:oncekiUst, ust:dilim.ust===Infinity?null:Math.min(m,dilim.ust), oran:dilim.oran, tutar:genislik, vergi:v});
+        kalan -= genislik;
       }
       oncekiUst = dilim.ust;
     }
     return {vergi: toplamVergi, dilimler};
   }, []);
 
-  // Ortalama efektif vergi oranı
-  const efektifOran = (vergi, matrah) => {
-    const m = toN(matrah);
-    return m > 0 ? (toN(vergi) / m) * 100 : 0;
-  };
-
-  // ── AYLIK VERİLER ──
-  const ayKayitlar = React.useMemo(()=>
-    (tumK||[]).filter(r => (r.tarih||"").startsWith(secAy) && r.gonderildi !== false)
-  ,[tumK, secAy]);
-
-  const ayGiderler = React.useMemo(()=>
-    (giderler||[]).filter(g => (g.tarih||"").startsWith(secAy))
-  ,[giderler, secAy]);
-
-  const ayHesap = React.useMemo(()=>{
-    const o = {
-      kk:{ad:"Kredi Kartı", ikon:"💳", toplam:0, hizmet:0, urun:0},
-      ib:{ad:"IBAN", ikon:"🏦", toplam:0, hizmet:0, urun:0},
-      nk:{ad:"Nakit", ikon:"💵", toplam:0, hizmet:0, urun:0}
-    };
-    ayKayitlar.forEach(r=>{
-      o.kk.hizmet += toN(r.hizKK); o.kk.urun += toN(r.uKK);
-      o.ib.hizmet += toN(r.hizIB); o.ib.urun += toN(r.uIB);
-      o.nk.hizmet += toN(r.hizNK); o.nk.urun += toN(r.uNK);
-    });
-    Object.keys(o).forEach(k=>{
-      o[k].toplam = o[k].hizmet + o[k].urun;
-      o[k].kdv = kdvIcinden(o[k].toplam);
-      o[k].net = o[k].toplam - o[k].kdv;
-    });
-    const seciliBrut = (secimler.kk?o.kk.toplam:0) + (secimler.ib?o.ib.toplam:0) + (secimler.nk?o.nk.toplam:0);
-    const seciliKdv  = (secimler.kk?o.kk.kdv:0)    + (secimler.ib?o.ib.kdv:0)    + (secimler.nk?o.nk.kdv:0);
-    const seciliNet  = seciliBrut - seciliKdv;
-    const giderBrut = ayGiderler.reduce((s,g)=>s+toN(g.tutar),0);
-    const giderKdv  = kdvIcinden(giderBrut);
-    const giderNet  = giderBrut - giderKdv;
-    const alisFaturalar = (faturalar||[]).filter(f => (f.tarih||"").startsWith(secAy));
-    const alisBrut = alisFaturalar.reduce((s,f)=>s+toN(f.tutar),0);
-    const alisKdv  = kdvIcinden(alisBrut);
-    const odenecekKdv = Math.max(0, seciliKdv - alisKdv);
-    // Aylık matrah (KDV hariç ciro − KDV hariç giderler)
-    const aylikMatrah = Math.max(0, seciliNet - giderNet);
-    const aylikGV = hesaplaGV(aylikMatrah);
-    return {odeme:o, seciliBrut, seciliKdv, seciliNet, giderBrut, giderKdv, giderNet,
-      alisBrut, alisKdv, odenecekKdv, aylikMatrah, aylikGV};
-  }, [ayKayitlar, ayGiderler, faturalar, kdvIcinden, secimler, hesaplaGV]);
-
-  // ── YILLIK KÜMÜLATİF VERİLER (gelir vergisi yıllık beyan edilir) ──
-  const secYil = secAy.slice(0,4);
-  const yilHesap = React.useMemo(()=>{
-    const yilKayit = (tumK||[]).filter(r => (r.tarih||"").startsWith(secYil) && r.gonderildi !== false);
-    const yilGider = (giderler||[]).filter(g => (g.tarih||"").startsWith(secYil));
-    let brut = 0;
-    yilKayit.forEach(r=>{
-      if(secimler.kk) brut += toN(r.hizKK) + toN(r.uKK);
-      if(secimler.ib) brut += toN(r.hizIB) + toN(r.uIB);
-      if(secimler.nk) brut += toN(r.hizNK) + toN(r.uNK);
-    });
-    const kdv = kdvIcinden(brut);
-    const net = brut - kdv;
-    const giderBrut = yilGider.reduce((s,g)=>s+toN(g.tutar),0);
+  // Bir ayın net kârını (KDV hariç ciro − KDV hariç giderler) hesaplayan ortak fonksiyon
+  const ayNetKar = React.useCallback((ayStr)=>{
+    const kayitlar = (tumK||[]).filter(r=>(r.tarih||"").startsWith(ayStr) && r.gonderildi!==false);
+    let brut=0;
+    kayitlar.forEach(r=>{ brut += toN(r.hizKK)+toN(r.uKK)+toN(r.hizIB)+toN(r.uIB)+toN(r.hizNK)+toN(r.uNK); });
+    const net = brut - kdvIcinden(brut);
+    const giderAy = (vergiGiderler||[]).filter(g=>(g.tarih||"").startsWith(ayStr));
+    const giderBrut = giderAy.reduce((s,g)=>s+toN(g.tutar),0);
     const giderNet = giderBrut - kdvIcinden(giderBrut);
-    const matrah = Math.max(0, net - giderNet);
-    const gv = hesaplaGV(matrah);
-    return {brut, kdv, net, giderBrut, giderNet, matrah, gv};
-  }, [tumK, giderler, secYil, kdvIcinden, secimler, hesaplaGV]);
+    return {brut, net, giderBrut, giderNet, kar: net-giderNet};
+  }, [tumK, vergiGiderler, kdvIcinden]);
 
-  // SVG ikonlar (personel panelindeki ile aynı)
-  const ikKK = h("svg",{width:18,height:18,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
-    h("rect",{x:1,y:4,width:22,height:16,rx:2,ry:2}),
-    h("line",{x1:1,y1:10,x2:23,y2:10})
-  );
-  const ikIB = h("svg",{width:18,height:18,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
-    h("line",{x1:3,y1:22,x2:21,y2:22}),
-    h("line",{x1:6,y1:18,x2:6,y2:11}),
-    h("line",{x1:10,y1:18,x2:10,y2:11}),
-    h("line",{x1:14,y1:18,x2:14,y2:11}),
-    h("line",{x1:18,y1:18,x2:18,y2:11}),
-    h("polygon",{points:"12 2 20 7 4 7"})
-  );
-  const ikNK = h("svg",{width:18,height:18,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
-    h("rect",{x:1,y:4,width:22,height:16,rx:2,ry:2}),
-    h("circle",{cx:12,cy:12,r:3})
-  );
-  const KART_IKONLAR = {kk:ikKK, ib:ikIB, nk:ikNK};
-  const KART_LABELS  = {kk:"K.K", ib:"IBAN", nk:"Nakit"};
+  // Bir ayın KDV farkını (hesaplanan − indirilecek) hesaplayan fonksiyon
+  const ayKdvFarki = React.useCallback((ayStr)=>{
+    const kayitlar = (tumK||[]).filter(r=>(r.tarih||"").startsWith(ayStr) && r.gonderildi!==false);
+    let brut=0;
+    kayitlar.forEach(r=>{ brut += toN(r.hizKK)+toN(r.uKK)+toN(r.hizIB)+toN(r.uIB)+toN(r.hizNK)+toN(r.uNK); });
+    const hesaplanan = kdvIcinden(brut);
+    const alislar = (faturalar||[]).filter(f=>(f.tarih||"").startsWith(ayStr));
+    const alisBrut = alislar.reduce((s,f)=>s+toN(f.tutar),0);
+    const indirilecek = kdvIcinden(alisBrut);
+    return {hesaplanan, indirilecek, fark: hesaplanan-indirilecek, brut, alisBrut};
+  }, [tumK, faturalar, kdvIcinden]);
 
-  const Kart = ({id}) => {
-    const x   = ayHesap.odeme[id];
-    const gv  = hesaplaGV(x.net);
-    const ikon = KART_IKONLAR[id];
-    const lb   = KART_LABELS[id];
-    return div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:13,marginBottom:10}},
-      // Başlık — personel panelindeki bolum() stiline benzer
-      div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:12}},
-        div({style:{display:"flex",alignItems:"center",gap:10}},
-          div({style:{width:34,height:34,borderRadius:9,background:"rgba(0,113,227,.08)",
-            display:"flex",alignItems:"center",justifyContent:"center",color:"#0071E3",flexShrink:0}},
-            ikon),
-          div(null,
-            div({style:{fontSize:14,color:"var(--tx)",fontWeight:700,fontFamily:"'Inter',-apple-system,sans-serif"}},lb),
-            div({style:{fontSize:11,color:"var(--mu)",marginTop:2,fontFamily:"'Inter',-apple-system,sans-serif"}},
-              "Hizmet: "+fmt(x.hizmet)+" · Ürün: "+fmt(x.urun))
-          )
-        ),
-        div({style:{fontSize:15,color:"#0071E3",fontWeight:700,fontFamily:"'Inter',-apple-system,sans-serif"}},fmt(x.toplam))
+  const secYil = secAy.slice(0,4);
+  const secAyNo = Number(secAy.split("-")[1]);
+
+  // ═══ 1) KDV (Bu Ay) — devreden KDV, yıl başından itibaren kümülatif hesaplanır ═══
+  const kdvBuAy = React.useMemo(()=>ayKdvFarki(secAy), [ayKdvFarki, secAy]);
+  const kdvKumulatif = React.useMemo(()=>{
+    let devreden = 0;
+    for(let a=1; a<=secAyNo; a++){
+      const ayStr = secYil+"-"+String(a).padStart(2,"0");
+      devreden += ayKdvFarki(ayStr).fark;
+    }
+    return devreden;
+  }, [ayKdvFarki, secYil, secAyNo]);
+  const kdvOdenecek = Math.max(0, kdvKumulatif);
+  const kdvDevreden = Math.max(0, -kdvKumulatif);
+
+  // ═══ 2) Kâr/Zarar Özeti (Bu Ay) — sadece bilgi amaçlı ═══
+  const karBuAy = React.useMemo(()=>ayNetKar(secAy), [ayNetKar, secAy]);
+
+  // ═══ 3) Geçici Vergi (Bu Çeyrek) ═══
+  const ceyrekNo = Math.ceil(secAyNo/3);
+  const ceyrekAylar = [(ceyrekNo-1)*3+1, (ceyrekNo-1)*3+2, (ceyrekNo-1)*3+3];
+  const ceyrekAdlari = ["Ocak-Şubat-Mart", "Nisan-Mayıs-Haziran", "Temmuz-Ağustos-Eylül", "Ekim-Kasım-Aralık"];
+  const ceyrekSonTarih = ["17 Mayıs", "17 Ağustos", "17 Kasım", "17 Şubat (ertesi yıl)"];
+  const ceyrekKar = React.useMemo(()=>{
+    let toplam = 0;
+    ceyrekAylar.forEach(ay=>{ toplam += ayNetKar(secYil+"-"+String(ay).padStart(2,"0")).kar; });
+    return Math.max(0, toplam);
+  }, [ayNetKar, secYil, ceyrekNo]);
+  const geciciVergi = hesaplaGV(ceyrekKar);
+
+  // ═══ 4) Yıllık Gelir Vergisi Tahmini — yıl başından bugüne kümülatif kâr ═══
+  const yillikKar = React.useMemo(()=>{
+    let toplam = 0;
+    for(let a=1; a<=secAyNo; a++){ toplam += ayNetKar(secYil+"-"+String(a).padStart(2,"0")).kar; }
+    return Math.max(0, toplam);
+  }, [ayNetKar, secYil, secAyNo]);
+  const yillikGV = hesaplaGV(yillikKar);
+  // O yıl, tamamlanmış geçmiş çeyreklerde ödenmiş olması gereken geçici vergi toplamı (mahsup edilecek)
+  const odenenGeciciToplam = React.useMemo(()=>{
+    let toplam = 0;
+    for(let c=1; c<ceyrekNo; c++){
+      let ceyrekK = 0;
+      [1,2,3].forEach(i=>{ const ay=(c-1)*3+i; ceyrekK += ayNetKar(secYil+"-"+String(ay).padStart(2,"0")).kar; });
+      toplam += hesaplaGV(Math.max(0,ceyrekK)).vergi;
+    }
+    return toplam;
+  }, [ayNetKar, secYil, ceyrekNo, hesaplaGV]);
+  const kalanTahminiBorc = Math.max(0, yillikGV.vergi - odenenGeciciToplam - geciciVergi.vergi);
+
+  // ═══ 5) Vergi Takvimi — yaklaşan tarihleri hesapla ═══
+  const bugun = new Date();
+  const gunFarki = (hedefTarih) => Math.ceil((hedefTarih - bugun) / 86400000);
+  const buYil = bugun.getFullYear();
+  const takvimOgeleri = React.useMemo(()=>{
+    const ogeler = [];
+    // KDV: her ayın 28'i
+    let kdvTarih = new Date(buYil, bugun.getMonth(), 28);
+    if(kdvTarih < bugun) kdvTarih = new Date(buYil, bugun.getMonth()+1, 28);
+    ogeler.push({ad:"KDV Beyannamesi", ikon:"📅", tarih:kdvTarih, aciklama:"Aylık, izleyen ayın 28'i"});
+    // Geçici Vergi: 17 May / 17 Ağu / 17 Kas / 17 Şub
+    const geciciTarihler = [new Date(buYil,4,17), new Date(buYil,7,17), new Date(buYil,10,17), new Date(buYil+1,1,17)];
+    const enYakinGecici = geciciTarihler.filter(t=>t>=bugun).sort((a,b)=>a-b)[0] || geciciTarihler[0];
+    ogeler.push({ad:"Geçici Vergi", ikon:"📊", tarih:enYakinGecici, aciklama:"3 aylık dönem, izleyen 2. ayın 17'si"});
+    // Muhtasar: aylık veya 3 aylık (personel sayısına göre değişir — hatırlatıcı)
+    let muhtasarTarih = new Date(buYil, bugun.getMonth(), 26);
+    if(muhtasarTarih < bugun) muhtasarTarih = new Date(buYil, bugun.getMonth()+1, 26);
+    ogeler.push({ad:"Muhtasar Beyanname", ikon:"👥", tarih:muhtasarTarih,
+      aciklama:"10'dan az personeliniz varsa 3 ayda bir, fazlaysa her ay 26'sına kadar"});
+    // SGK: her ayın 23'ü
+    let sgkTarih = new Date(buYil, bugun.getMonth(), 23);
+    if(sgkTarih < bugun) sgkTarih = new Date(buYil, bugun.getMonth()+1, 23);
+    ogeler.push({ad:"SGK Bildirgesi", ikon:"🏥", tarih:sgkTarih, aciklama:"Personel bordronuz varsa, aylık"});
+    // Yıllık GV: 31 Mart beyan, Mart+Temmuz sonu 2 taksit ödeme
+    const yilBeyan = new Date(buYil, 2, 31);
+    const taksit1 = new Date(buYil, 2, 31), taksit2 = new Date(buYil, 6, 31);
+    const enYakinYillik = [yilBeyan, taksit1, taksit2].filter(t=>t>=bugun).sort((a,b)=>a-b)[0] || new Date(buYil+1,2,31);
+    ogeler.push({ad:"Yıllık Gelir Vergisi", ikon:"🗓️", tarih:enYakinYillik, aciklama:"Beyan 31 Mart, ödeme Mart+Temmuz sonu (2 taksit)"});
+    return ogeler.map(o=>({...o, kalanGun:gunFarki(o.tarih)})).sort((a,b)=>a.kalanGun-b.kalanGun);
+  }, [bugun.getMonth(), buYil]);
+
+  // ── Ay adları ──
+  const AY_ADLARI = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
+
+  const KartBaslik = (ikon, baslik, renk, bilgiKey, aciklamaMetni) =>
+    div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+      div({style:{display:"flex",alignItems:"center",gap:9}},
+        div({style:{width:32,height:32,borderRadius:9,background:renk+"22",display:"flex",
+          alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}},ikon),
+        div({style:{fontSize:14.5,fontWeight:700,color:"var(--tx)"}},baslik)
       ),
-      // Detay kutular — personel panelindeki odemeSatir stiline benzer
-      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:7}},
-        [
-          {lb:"Tahsilat",  v:fmt(x.toplam), c:"#0071E3"},
-          {lb:"KDV Hariç", v:fmt(x.net),    c:"var(--tx)"},
-          {lb:"KDV",       v:fmt(x.kdv),    c:"#f0a060"},
-          {lb:"GV Est.",   v:fmt(gv.vergi), c:"#e06060"}
-        ].map(function(item,i){
-          return div({key:i,style:{background:"rgba(0,113,227,.04)",border:"1px solid rgba(0,113,227,.10)",
-            borderRadius:9,padding:"8px 5px",textAlign:"center"}},
-            div({style:{fontSize:10,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,
-              marginBottom:3,fontWeight:600,fontFamily:"'Inter',-apple-system,sans-serif"}},item.lb),
-            div({style:{fontSize:13,color:item.c,fontWeight:700,
-              fontFamily:"'Inter',-apple-system,sans-serif"}},item.v)
-          );
-        })
-      )
+      btn({type:"button",style:{width:22,height:22,borderRadius:"50%",border:"1px solid "+renk+"55",
+        background:renk+"11",color:renk,fontSize:11,fontWeight:700,cursor:"pointer"},
+        onClick:()=>setBilgiAcik(bilgiAcik===bilgiKey?null:bilgiKey)},"ⓘ")
     );
-  };
 
-  // ── TOPLAM (kk+ib+nk) — B alanı için anlık hesap (veri saklanmaz) ──
-  const toplamlar = (function(){
-    const o = ayHesap.odeme;
-    let tahsilat = 0, net = 0, kdv = 0, gv = 0;
-    ["kk","ib","nk"].forEach(function(id){
-      const x = o[id];
-      tahsilat += x.toplam;
-      net      += x.net;
-      kdv      += x.kdv;
-      gv       += hesaplaGV(x.net).vergi;
-    });
-    return {tahsilat, net, kdv, gv};
-  })();
+  const AciklamaKutu = (bilgiKey, renk, metin) =>
+    bilgiAcik===bilgiKey && div({style:{background:renk+"11",border:"1px solid "+renk+"33",
+      borderRadius:10,padding:"10px 12px",marginBottom:12,fontSize:12,color:"var(--tx)",lineHeight:1.6}},metin);
 
   return div(null,
-    // BAŞLIK
-    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:16,marginBottom:12}},
-      div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:12,flexWrap:"wrap"}},
+    // ── BAŞLIK + AY SEÇİCİ ──
+    div({style:{background:"linear-gradient(135deg, rgba(154,168,209,.12), rgba(217,190,110,.08))",
+      border:"1px solid rgba(154,168,209,.22)",borderRadius:16,padding:18,marginBottom:14}},
+      div({style:{fontSize:22,fontWeight:700,color:"var(--tx)",marginBottom:4}},"🧾 Vergi Muhasebesi"),
+      div({style:{fontSize:12,color:"var(--mu)",marginBottom:14,lineHeight:1.5}},
+        "Gerçek muhasebe pratiğine göre: KDV aylık, Geçici Vergi 3 aylık dönemler halinde, Yıllık Gelir Vergisi ertesi yıl 2 taksitte ödenir."),
+      div({style:{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}},
         div(null,
-          div({style:{fontSize:22,color:"var(--g)",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontWeight:700}},"🧾 Vergi Muhasebesi"),
-          div({style:{fontSize:12,color:"var(--mu)",marginTop:3}},"Şahıs şirketi · Kademeli gelir vergisi tarifesi (2026)")
+          lbl({className:"fl"},"Dönem (Ay)"),
+          h("input",{type:"month",className:"fi",value:secAy,onChange:e=>setSecAy(e.target.value)})
         ),
-        div({style:{display:"flex",gap:8,alignItems:"center"}},
-          inp({type:"month",className:"fi",style:{width:150},value:secAy,onChange:e=>setSecAy(e.target.value)}),
-          inp({type:"number",className:"fi",style:{width:78},value:kdvOran,onChange:e=>setKdvOran(e.target.value),placeholder:"KDV %"})
+        div(null,
+          lbl({className:"fl"},"KDV Oranı (%)"),
+          inp({className:"fi",type:"number",style:{width:90},value:kdvOran,onChange:e=>setKdvOran(e.target.value)})
+        )
+      )
+    ),
+
+    // ══════════════ 1) KDV (BU AY) ══════════════
+    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:16,padding:16,marginBottom:12,
+      borderLeft:"3px solid "+SICAK_PALET.kdv}},
+      KartBaslik("💳", "KDV — "+AY_ADLARI[secAyNo-1]+" "+secYil, SICAK_PALET.kdv, "kdv",
+        "KDV, aylık beyan edilir (izleyen ayın 28'ine kadar). Hesaplanan KDV (satışlarınızdan tahsil ettiğiniz), İndirilecek KDV'den (mal alışlarınızda ödediğiniz) fazlaysa aradaki farkı devlete ödersiniz. Tersi durumda, fazla kısım bir sonraki aya \"devreden KDV\" olarak taşınır — bu yüzden burada yıl başından bugüne kümülatif hesaplanır."),
+      AciklamaKutu("kdv", SICAK_PALET.kdv, "Hesaplanan KDV, aylık beyan edilir. İndirilecek KDV, indirilecek KDV'den fazlaysa fark devlete ödenir; tersi durumda fazla kısım bir sonraki aya devreden KDV olarak taşınır."),
+      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+        div({style:{background:"var(--bg3)",borderRadius:10,padding:"10px 12px"}},
+          div({style:{fontSize:10.5,color:"var(--mu)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}},"Hesaplanan KDV (Bu Ay)"),
+          div({style:{fontSize:15,fontWeight:700,color:"var(--tx)",fontFamily:"'Inter',-apple-system,sans-serif"}},fmt(kdvBuAy.hesaplanan))
+        ),
+        div({style:{background:"var(--bg3)",borderRadius:10,padding:"10px 12px"}},
+          div({style:{fontSize:10.5,color:"var(--mu)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}},"İndirilecek KDV (Bu Ay)"),
+          div({style:{fontSize:15,fontWeight:700,color:"var(--tx)",fontFamily:"'Inter',-apple-system,sans-serif"}},fmt(kdvBuAy.indirilecek))
         )
       ),
-      div({style:{fontSize:12,color:"#f0a060",lineHeight:1.5,background:"rgba(180,90,0,.08)",border:"1px solid rgba(180,90,0,.22)",borderRadius:10,padding:10}},
-        "Not: Bu ekran yönetim ve takip amaçlıdır. Gelir vergisi YILLIK beyan edilir, aylık tutarlar tahminidir. Resmi beyan için muhasebecinin onayı gerekir."
-      )
-    ),
-
-    // ÖDEME TÜRÜ KARTLARI
-    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:14,marginBottom:12}},
-      div({style:{display:"flex",alignItems:"center",gap:9,marginBottom:10}},
-        h("svg",{width:19,height:19,viewBox:"0 0 24 24",fill:"none",stroke:"var(--g)",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
-          h("line",{x1:3,y1:21,x2:21,y2:21}),
-          h("rect",{x:5,y:11,width:3.4,height:7,rx:1}),
-          h("rect",{x:10.3,y:6.5,width:3.4,height:11.5,rx:1}),
-          h("rect",{x:15.6,y:14,width:3.4,height:4,rx:1})
+      div({style:{background:kdvOdenecek>0?SICAK_PALET.kdv+"18":"rgba(52,199,89,.1)",
+        border:"1px solid "+(kdvOdenecek>0?SICAK_PALET.kdv+"44":"rgba(52,199,89,.3)"),
+        borderRadius:12,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+        div(null,
+          div({style:{fontSize:12,fontWeight:700,color:"var(--tx)"}},
+            kdvOdenecek>0?"Ödenecek KDV (Kümülatif)":"Devreden KDV (Sonraki Aya)"),
+          div({style:{fontSize:10.5,color:"var(--mu)",marginTop:2}},"Son ödeme: izleyen ayın 28'i")
         ),
-        div({style:{fontSize:14,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:700}},"Ödeme Türüne Göre Aylık Vergi")
-      ),
-      h(Kart,{id:"kk"}),
-      h(Kart,{id:"ib"}),
-      h(Kart,{id:"nk"}),
-      // B — TOPLAM SATIRI (kk+ib+nk)
-      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginTop:4}},
-        [
-          {lb:"Toplam Tahsilat",      v:fmt(toplamlar.tahsilat), c:"#0071E3"},
-          {lb:"Toplam KDV Hariç",     v:fmt(toplamlar.net),      c:"var(--tx)"},
-          {lb:"Toplam KDV",           v:fmt(toplamlar.kdv),      c:"#f0a060"},
-          {lb:"Toplam Gelir Vergisi", v:fmt(toplamlar.gv),       c:"#e06060"}
-        ].map(function(item,i){
-          return div({key:i,style:{background:"rgba(0,113,227,.05)",border:"1px solid rgba(0,113,227,.13)",
-            borderRadius:10,padding:"11px 6px",textAlign:"center"}},
-            div({style:{fontSize:10.5,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,
-              marginBottom:5,fontWeight:600,fontFamily:"'Inter',-apple-system,sans-serif"}},item.lb),
-            div({style:{fontSize:18,color:item.c,fontWeight:700,
-              fontFamily:"'Inter',-apple-system,sans-serif"}},item.v)
-          );
-        })
+        div({style:{fontSize:19,fontWeight:800,color:kdvOdenecek>0?SICAK_PALET.kdv:"#34C759",
+          fontFamily:"'Inter',-apple-system,sans-serif"}},fmt(kdvOdenecek>0?kdvOdenecek:kdvDevreden))
       )
     ),
 
-    // AYLIK ÖZET TABLO
-    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:14,marginBottom:12}},
-      div({style:{fontSize:14,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",fontWeight:700,marginBottom:10}},"📌 Aylık Hesap Detayı"),
-      div({style:{display:"grid",gridTemplateColumns:"1fr 130px",gap:8,alignItems:"center",fontSize:13,color:"var(--mu)"}},
-        div(null,"Toplam gider (brüt)"),
-          div({style:{textAlign:"right",color:"var(--tx)",fontWeight:700}},fmt(ayHesap.giderBrut)),
-        div(null,"KDV hariç gider"),                    div({style:{textAlign:"right",color:"var(--gr)",fontWeight:700}},"- "+fmt(ayHesap.giderNet)),
-        div(null,"Alış KDV (düşülecek)"),               div({style:{textAlign:"right",color:"var(--gr)",fontWeight:700}},"- "+fmt(ayHesap.alisKdv)),
-        div({style:{borderTop:"1px solid var(--br)",paddingTop:9,color:"var(--tx)",fontWeight:700}},"Ödenecek aylık KDV"),
-          div({style:{borderTop:"1px solid var(--br)",paddingTop:9,textAlign:"right",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:20,color:"#f0a060",fontWeight:700}},fmt(ayHesap.odenecekKdv)),
-        div({style:{color:"var(--tx)",fontWeight:700,marginTop:6}},"Aylık matrah"),
-          div({style:{textAlign:"right",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:20,color:"var(--g)",fontWeight:700,marginTop:6}},fmt(ayHesap.aylikMatrah)),
-        div({style:{color:"var(--tx)",fontWeight:700}},"Aylık GV (tahmini)"),
-          div({style:{textAlign:"right",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:22,color:"#e06060",fontWeight:700}},fmt(ayHesap.aylikGV.vergi))
+    // ══════════════ 2) KÂR/ZARAR ÖZETİ (BU AY) ══════════════
+    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:16,padding:16,marginBottom:12,
+      borderLeft:"3px solid "+SICAK_PALET.kar}},
+      KartBaslik("💰", "Kâr/Zarar Özeti — "+AY_ADLARI[secAyNo-1]+" "+secYil, SICAK_PALET.kar, "kar",
+        "Bu, sadece bilgi amaçlıdır — resmi bir vergi beyanı değildir. Geçici Vergi ve Yıllık Gelir Vergisi hesaplamaları bu kâr rakamını temel alır."),
+      AciklamaKutu("kar", SICAK_PALET.kar, "Net Kâr = (KDV hariç ciro) − (KDV hariç giderler). Bu rakam sadece işletmenizin o ayki performansını göstermek içindir; resmi vergi beyanı bu şekilde aylık verilmez."),
+      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+        div({style:{background:"var(--bg3)",borderRadius:10,padding:"10px 12px"}},
+          div({style:{fontSize:10.5,color:"var(--mu)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}},"Ciro (KDV Hariç)"),
+          div({style:{fontSize:15,fontWeight:700,color:"var(--tx)",fontFamily:"'Inter',-apple-system,sans-serif"}},fmt(karBuAy.net))
+        ),
+        div({style:{background:"var(--bg3)",borderRadius:10,padding:"10px 12px"}},
+          div({style:{fontSize:10.5,color:"var(--mu)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}},"Giderler (KDV Hariç)"),
+          div({style:{fontSize:15,fontWeight:700,color:"var(--tx)",fontFamily:"'Inter',-apple-system,sans-serif"}},fmt(karBuAy.giderNet))
+        )
+      ),
+      div({style:{background:karBuAy.kar>=0?"rgba(52,199,89,.1)":"rgba(192,80,80,.1)",
+        border:"1px solid "+(karBuAy.kar>=0?"rgba(52,199,89,.3)":"rgba(192,80,80,.3)"),
+        borderRadius:12,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+        div({style:{fontSize:12,fontWeight:700,color:"var(--tx)"}},karBuAy.kar>=0?"Net Kâr":"Net Zarar"),
+        div({style:{fontSize:19,fontWeight:800,color:karBuAy.kar>=0?"#34C759":"#c05050",
+          fontFamily:"'Inter',-apple-system,sans-serif"}},fmt(Math.abs(karBuAy.kar)))
+      ),
+      // Gider ekleme
+      div({style:{borderTop:"1px solid var(--br)",paddingTop:12}},
+        div({style:{fontSize:11,fontWeight:700,color:"var(--mu)",marginBottom:8,textTransform:"uppercase",letterSpacing:.5}},"Bu Ayın Giderleri"),
+        (vergiGiderler||[]).filter(g=>(g.tarih||"").startsWith(secAy)).map((g,i)=>
+          div({key:g.id||i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",
+            borderBottom:"1px solid var(--br)",fontSize:12.5}},
+            div(null,g.ad+" · "+fmtT(g.tarih)),
+            div({style:{display:"flex",alignItems:"center",gap:8}},
+              h("span",{style:{fontWeight:700}},fmt(toN(g.tutar))),
+              btn({type:"button",style:{background:"none",border:"none",color:"#c05050",cursor:"pointer",fontSize:12},
+                onClick:()=>setVergiGiderler(p=>p.filter(x=>x!==g))},"✕")
+            )
+          )
+        ),
+        div({style:{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}},
+          inp({className:"fi",placeholder:"Gider adı",style:{flex:2,minWidth:100,fontSize:12},value:yeniGiderAd,onChange:e=>setYeniGiderAd(e.target.value)}),
+          inp({className:"fi",type:"number",placeholder:"Tutar",style:{flex:1,minWidth:80,fontSize:12},value:yeniGiderTutar,onChange:e=>setYeniGiderTutar(e.target.value)}),
+          h("input",{type:"date",className:"fi",style:{flex:1,minWidth:110,fontSize:12},value:yeniGiderTarih,onChange:e=>setYeniGiderTarih(e.target.value)}),
+          btn({type:"button",style:{padding:"7px 14px",borderRadius:8,border:"none",background:SICAK_PALET.kar,
+            color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer"},
+            onClick:()=>{
+              if(!yeniGiderAd.trim()||!toN(yeniGiderTutar)) return;
+              setVergiGiderler(p=>[...p,{id:uid(),ad:yeniGiderAd.trim(),tutar:toN(yeniGiderTutar),tarih:yeniGiderTarih}]);
+              setYeniGiderAd(""); setYeniGiderTutar("");
+            }},"+ Ekle")
+        )
       )
     ),
 
-    // YILLIK KÜMÜLATİF + KADEME TABLOSU
-    div({style:{background:"var(--bg2)",border:"1.5px solid rgba(224,96,96,.35)",borderRadius:14,padding:14,marginBottom:12}},
-      div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}},
-        div({style:{fontSize:14,color:"#e06060",letterSpacing:2,textTransform:"uppercase",fontWeight:700}},"📅 "+secYil+" Yıllık Kümülatif"),
-        div({style:{fontSize:11,color:"var(--mu)"}},"Gelir vergisi yıllık beyan edilir")
+    // ══════════════ 3) GEÇİCİ VERGİ (BU ÇEYREK) ══════════════
+    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:16,padding:16,marginBottom:12,
+      borderLeft:"3px solid "+SICAK_PALET.gecici}},
+      KartBaslik("📊", "Geçici Vergi — "+ceyrekAdlari[ceyrekNo-1]+" "+secYil, SICAK_PALET.gecici, "gecici",
+        "Geçici Vergi, yıllık gelir vergisinin PEŞİN ödemesidir. Yıl içinde 3'er aylık dönemler halinde hesaplanır ve o çeyreğin bitişini izleyen 2. ayın 17'sine kadar ödenir. Yıl sonunda, ödediğiniz geçici vergiler, hesaplanan yıllık gelir vergisinden düşülür (mahsup edilir)."),
+      AciklamaKutu("gecici", SICAK_PALET.gecici, "Bu çeyreğin (3 ayın toplamı) net kârı, aynı kademeli gelir vergisi tarifesiyle hesaplanır. Çıkan tutar, çeyrek bitişini izleyen 2. ayın 17'sine kadar ödenmesi gereken geçici vergidir."),
+      div({style:{background:"var(--bg3)",borderRadius:10,padding:"10px 12px",marginBottom:10}},
+        div({style:{fontSize:10.5,color:"var(--mu)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}},"Çeyrek Net Kârı (3 Ay Toplamı)"),
+        div({style:{fontSize:15,fontWeight:700,color:"var(--tx)",fontFamily:"'Inter',-apple-system,sans-serif"}},fmt(ceyrekKar))
       ),
-      div({style:{display:"grid",gridTemplateColumns:"1fr 130px",gap:8,alignItems:"center",fontSize:13,color:"var(--mu)",marginBottom:14}},
-        div(null,"Yıllık seçili ciro (brüt)"),    div({style:{textAlign:"right",color:"var(--tx)",fontWeight:700}},fmt(yilHesap.brut)),
-        div(null,"Yıllık KDV hariç ciro"),         div({style:{textAlign:"right",color:"var(--g)",fontWeight:700}},fmt(yilHesap.net)),
-        div(null,"Yıllık KDV hariç gider"),        div({style:{textAlign:"right",color:"var(--gr)",fontWeight:700}},"- "+fmt(yilHesap.giderNet)),
-        div({style:{borderTop:"1px solid var(--br)",paddingTop:9,color:"var(--tx)",fontWeight:700}},"YILLIK MATRAH"),
-          div({style:{borderTop:"1px solid var(--br)",paddingTop:9,textAlign:"right",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:22,color:"var(--g)",fontWeight:700}},fmt(yilHesap.matrah)),
-        div({style:{color:"#e06060",fontWeight:700}},"YILLIK GELİR VERGİSİ"),
-          div({style:{textAlign:"right",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:26,color:"#e06060",fontWeight:700}},fmt(yilHesap.gv.vergi)),
-        div({style:{fontSize:11,color:"var(--mu)"}},"Efektif vergi oranı"),
-          div({style:{textAlign:"right",fontSize:13,color:"var(--mu)",fontWeight:600}},"%"+efektifOran(yilHesap.gv.vergi, yilHesap.matrah).toFixed(2))
-      ),
+      div({style:{background:SICAK_PALET.gecici+"18",border:"1px solid "+SICAK_PALET.gecici+"44",
+        borderRadius:12,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+        div(null,
+          div({style:{fontSize:12,fontWeight:700,color:"var(--tx)"}},"Ödenecek Geçici Vergi"),
+          div({style:{fontSize:10.5,color:"var(--mu)",marginTop:2}},"Son ödeme: "+ceyrekSonTarih[ceyrekNo-1])
+        ),
+        div({style:{fontSize:19,fontWeight:800,color:SICAK_PALET.gecici,
+          fontFamily:"'Inter',-apple-system,sans-serif"}},fmt(geciciVergi.vergi))
+      )
+    ),
 
-      // Dilim detayı
-      yilHesap.gv.dilimler.length > 0 && div(null,
-        div({style:{fontSize:11,color:"var(--mu)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:8,fontWeight:600}},"Kademe Detayı"),
-        yilHesap.gv.dilimler.map((d,i)=>
-          div({key:i,style:{display:"grid",gridTemplateColumns:"auto 1fr auto",gap:8,alignItems:"center",padding:"7px 10px",background:"var(--bg3)",borderRadius:8,marginBottom:5,fontSize:12}},
-            div({style:{color:"var(--g)",fontWeight:700,minWidth:50}},"%"+(d.oran*100).toFixed(0)),
-            div({style:{color:"var(--tx)"}},
-              fmt(d.alt) + " - " + (d.ust === null ? "∞" : fmt(d.ust)) + " arası dilim",
-              div({style:{fontSize:10,color:"var(--mu)",marginTop:2}},"Bu dilimde matrah: "+fmt(d.tutar))
-            ),
-            div({style:{textAlign:"right",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:"#e06060",fontWeight:700}},fmt(d.vergi))
+    // ══════════════ 4) YILLIK GELİR VERGİSİ TAHMİNİ ══════════════
+    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:16,padding:16,marginBottom:12,
+      borderLeft:"3px solid "+SICAK_PALET.yillik}},
+      KartBaslik("🗓️", "Yıllık Gelir Vergisi Tahmini — "+secYil, SICAK_PALET.yillik, "yillik",
+        "Bu, yıl başından bugüne kadar birikmiş kümülatif kârınıza göre yapılan bir TAHMİNDİR — kesin değildir. Gerçek yıllık gelir vergisi, ertesi yılın Mart ayında beyan edilir ve Mart + Temmuz sonu olmak üzere 2 taksitte ödenir. Yıl içinde ödediğiniz geçici vergiler bu tutardan düşülür."),
+      AciklamaKutu("yillik", SICAK_PALET.yillik, "Yıl başından bugüne kadarki kümülatif net kâra göre tahmini yıllık vergi hesaplanır, o yıl içinde tamamlanmış çeyreklerde ödenmiş geçici vergiler düşülür. Kesin sonuç, muhasebecinizin yıl sonu beyannamesiyle belirlenir."),
+      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+        div({style:{background:"var(--bg3)",borderRadius:10,padding:"10px 12px"}},
+          div({style:{fontSize:10.5,color:"var(--mu)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}},"Yıl Başından Bugüne Kâr"),
+          div({style:{fontSize:15,fontWeight:700,color:"var(--tx)",fontFamily:"'Inter',-apple-system,sans-serif"}},fmt(yillikKar))
+        ),
+        div({style:{background:"var(--bg3)",borderRadius:10,padding:"10px 12px"}},
+          div({style:{fontSize:10.5,color:"var(--mu)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}},"Tahmini Yıllık Vergi"),
+          div({style:{fontSize:15,fontWeight:700,color:"var(--tx)",fontFamily:"'Inter',-apple-system,sans-serif"}},fmt(yillikGV.vergi))
+        )
+      ),
+      div({style:{background:"var(--bg3)",borderRadius:10,padding:"10px 12px",marginBottom:10}},
+        div({style:{fontSize:10.5,color:"var(--mu)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}},"Bu Yıl Ödenen Geçici Vergiler (Tamamlanmış Çeyrekler)"),
+        div({style:{fontSize:14,fontWeight:600,color:"var(--tx)",fontFamily:"'Inter',-apple-system,sans-serif"}},fmt(odenenGeciciToplam))
+      ),
+      div({style:{background:SICAK_PALET.yillik+"18",border:"1px solid "+SICAK_PALET.yillik+"44",
+        borderRadius:12,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+        div(null,
+          div({style:{fontSize:12,fontWeight:700,color:"var(--tx)"}},"Tahmini Kalan Borç (Mart+Temmuz Taksitleri)"),
+          div({style:{fontSize:10.5,color:"var(--mu)",marginTop:2}},"Bu çeyreğin geçici vergisi düşüldükten sonra")
+        ),
+        div({style:{fontSize:19,fontWeight:800,color:SICAK_PALET.yillik,
+          fontFamily:"'Inter',-apple-system,sans-serif"}},fmt(kalanTahminiBorc))
+      ),
+      // Vergi dilimleri dökümü
+      yillikGV.dilimler.length>0 && div({style:{marginTop:12,paddingTop:12,borderTop:"1px solid var(--br)"}},
+        div({style:{fontSize:11,fontWeight:700,color:"var(--mu)",marginBottom:8,textTransform:"uppercase",letterSpacing:.5}},"Kademeli Tarife Dökümü"),
+        yillikGV.dilimler.map((d,i)=>
+          div({key:i,style:{display:"flex",justifyContent:"space-between",fontSize:11.5,color:"var(--tx)",padding:"4px 0"}},
+            div(null,fmt(d.alt)+" — "+(d.ust?fmt(d.ust):"üzeri")+" (%"+(d.oran*100)+")"),
+            h("span",{style:{fontWeight:600}},fmt(d.vergi))
           )
         )
       )
     ),
 
-    // TARİFE BİLGİ
-    div({style:{background:"rgba(37,99,168,.05)",border:"1px solid rgba(37,99,168,.18)",borderRadius:11,padding:12}},
-      div({style:{fontSize:11,color:"var(--g)",letterSpacing:1.5,textTransform:"uppercase",fontWeight:700,marginBottom:8}},"📖 2026 Gelir Vergisi Tarifesi (Şahıs)"),
+    // ══════════════ 5) VERGİ TAKVİMİ ══════════════
+    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:16,padding:16,marginBottom:12,
+      borderLeft:"3px solid "+SICAK_PALET.takvim}},
+      KartBaslik("🗓️", "Vergi Takvimi — Yaklaşan Ödemeler", SICAK_PALET.takvim, "takvim",
+        "Bu liste, işletme türünüze göre GENEL bir hatırlatıcıdır — kesin tarihler ve yükümlülükleriniz için muhasebecinize danışın."),
+      AciklamaKutu("takvim", SICAK_PALET.takvim, "Muhtasar Beyanname ve SGK, personel çalıştırıyorsanız geçerlidir. Personel sayınıza göre (10'dan az/fazla) Muhtasar'ın aylık mı 3 aylık mı verileceği değişir — bu detay için muhasebecinize danışın."),
+      takvimOgeleri.map((o,i)=>
+        div({key:i,style:{display:"flex",alignItems:"center",gap:12,padding:"10px 0",
+          borderBottom:i<takvimOgeleri.length-1?"1px solid var(--br)":"none"}},
+          div({style:{fontSize:20,flexShrink:0}},o.ikon),
+          div({style:{flex:1,minWidth:0}},
+            div({style:{fontSize:13,fontWeight:700,color:"var(--tx)"}},o.ad),
+            div({style:{fontSize:11,color:"var(--mu)",marginTop:1}},o.aciklama)
+          ),
+          div({style:{textAlign:"right",flexShrink:0}},
+            div({style:{fontSize:12.5,fontWeight:700,
+              color:o.kalanGun<=7?"#c05050":o.kalanGun<=15?"#c25e00":"var(--tx)"}},
+              o.tarih.toLocaleDateString("tr-TR")),
+            div({style:{fontSize:10.5,color:o.kalanGun<=7?"#c05050":"var(--mu)",marginTop:1}},
+              o.kalanGun+" gün kaldı")
+          )
+        )
+      )
+    ),
+
+    // ── 2026 TARİFE KARTI ──
+    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:16,padding:16}},
+      div({style:{fontSize:11,color:"var(--mu)",letterSpacing:1.5,textTransform:"uppercase",fontWeight:700,marginBottom:8}},"📖 2026 Gelir Vergisi Tarifesi (Şahıs)"),
       div({style:{fontSize:12,color:"var(--tx)",lineHeight:1.7}},
         "• 158.000 ₺'ye kadar: ",h("b",null,"%15"),h("br"),
         "• 158.000 - 330.000 ₺ arası: ",h("b",null,"%20"),h("br"),
@@ -8768,6 +8828,7 @@ function VergiMuhasebesiModul({tumK, faturalar}) {
     )
   );
 }
+
 
 
 // Banka POS komisyon kart türleri (POS anlaşma tablosundaki gibi). Kendi banka satırları banka adıyla isimlenir.
