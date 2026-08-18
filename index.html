@@ -294,6 +294,7 @@ const USTA_KALFA_HIZMETLER_VARSAYILAN = ["Saç Kesimi","Sakal Traşı","Çocuk S
 const SES_DOLDUR_URL = "https://txbvqwcwarpkwvvhxdoo.supabase.co/functions/v1/kayit-sesli-doldur";
 // Sarf Malzeme Mal Kabul — Faturadan Otomatik Doldur için Supabase Edge Function
 const FATURA_OKU_URL = "https://txbvqwcwarpkwvvhxdoo.supabase.co/functions/v1/fatura-oku";
+const EVRAK_OKU_URL = "https://txbvqwcwarpkwvvhxdoo.supabase.co/functions/v1/evrak-oku"; // Vergi/kamu evrakları için — deploy edilene kadar 404 dönebilir, evraktanDoldur bunu ele alır
 const DEV_SECENEKLER = ["Haftalık İzin","İş Yapamama","Unutma","Hastalık Devamsızlığı","Mazeret Devamsızlığı","Resmi Tatil","Dini Bayram Tatili","Diğer"];
 const RESMI_TATILLER = ["1 Ocak — Yılbaşı","23 Nisan — Ulusal Egemenlik ve Çocuk Bayramı","1 Mayıs — Emek ve Dayanışma Günü","19 Mayıs — Atatürk'ü Anma, Gençlik ve Spor Bayramı","15 Temmuz — Demokrasi ve Millî Birlik Günü","30 Ağustos — Zafer Bayramı","29 Ekim — Cumhuriyet Bayramı"];
 const DEFAULT_PERSONELLER = [
@@ -8465,7 +8466,7 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
 // Vergi hesaplamaları bu ekranda YAPILMAZ — bu sorumluluk muhasebecinizdedir.
 // Burası, muhasebecinizden gelen evrakları (beyannameler, tahakkuk fişleri,
 // makbuzlar) düzenli olarak saklayabileceğiniz bir arşivdir.
-function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar}) {
+function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar, showToast}) {
   const SICAK_PALET = {kdv:"#7FABCB", gecici:"#9B8AC4", muhtasar:"#D9BE6E", yillik:"#E39B7A", sgk:"#7FB894",
     damga:"#C9A26E", belediye:"#9AA8D1", oda:"#E39B7A", diger:"#D99BB0"};
   const TUR_LISTESI = [
@@ -8489,10 +8490,125 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar}) {
   const [fNot, setFNot] = React.useState("");
   const [fDosyalar, setFDosyalar] = React.useState([]);
   const [acikTur, setAcikTur] = React.useState(null);
+  const [okuYukleniyor, setOkuYukleniyor] = React.useState(false);
+
+  // GİB'in resmi "Ana Vergi Kodu" listesinden — Tahakkuk Fişi'nde TÜRÜ sütununda görünen 4 haneli kod.
+  // Kaynak: GİB / TÜRMOB vergi türü kodları listesi.
+  const ANA_VERGI_KODU_TUR = {
+    "0001":"yillik", "0010":"yillik", // Yıllık Gelir/Kurumlar Vergisi
+    "0003":"muhtasar", // Gelir Vergisi Stopajı (Muhtasar)
+    "0015":"kdv", "0016":"kdv", "0017":"kdv", // KDV (gerçek/hasılat/götürü usul)
+    "0027":"gecici", "0032":"gecici", "0033":"gecici", "0053":"gecici", // Geçici Vergi (gelir/kurum)
+    "0040":"damga", "1047":"damga", "1018":"damga" // Damga Vergisi
+  };
+  // Kod bulunamazsa, metin içindeki anahtar kelimelere göre yedek tespit
+  const metinToTur = (metin) => {
+    const m = normText(metin||"");
+    if(m.includes("gecici") || m.includes("geçici")) return "gecici";
+    if(m.includes("muhtasar")) return "muhtasar";
+    if(m.includes("kdv") || m.includes("katma deger")) return "kdv";
+    if(m.includes("damga")) return "damga";
+    if(m.includes("sgk") || m.includes("sigorta")) return "sgk";
+    if(m.includes("yillik") || m.includes("gelir vergisi")) return "yillik";
+    if(m.includes("belediye") || m.includes("emlak") || m.includes("cevre")) return "belediye";
+    if(m.includes("oda") || m.includes("aidat")) return "oda";
+    return null;
+  };
+  // Serbest metinden tarih yakalamaya çalışır: DD/MM/YYYY, DD.MM.YYYY → YYYY-MM-DD
+  const metindenTarihYakala = (metin) => {
+    const m = String(metin||"").match(/(\d{2})[.\/](\d{2})[.\/](\d{4})/);
+    if(!m) return "";
+    return m[3]+"-"+m[2]+"-"+m[1];
+  };
+  // "MM/YYYY-MM/YYYY" ya da "MM/YYYY" gibi bir vergilendirme dönemini "YYYY-MM" (ayın input'una uygun) çevirir
+  const metindenDonemYakala = (metin) => {
+    const araligi = String(metin||"").match(/(\d{2})\/(\d{4})\s*-\s*(\d{2})\/(\d{4})/);
+    if(araligi) return araligi[2]+"-"+araligi[1]; // dönemin İLK ayı esas alınır
+    const tek = String(metin||"").match(/(\d{2})\/(\d{4})/);
+    if(tek) return tek[2]+"-"+tek[1];
+    return "";
+  };
 
   const formuSifirla = () => {
     setDuzenlenenId(null); setFTur("kdv"); setFDonem(new Date().toISOString().slice(0,7));
     setFTutar(""); setFSonOdeme(""); setFOdendi(false); setFNot(""); setFDosyalar([]);
+  };
+
+  // ── ✨ Evraktan Doldur: Tahakkuk Fişi / beyanname görselini okuyup tür, dönem, tutar ve vadeyi
+  // otomatik doldurur. Önce vergi evrakına özel EVRAK_OKU_URL denenir (temiz, güvenilir şema);
+  // o fonksiyon henüz deploy edilmediyse (404), fatura-oku üzerinden en iyi çaba (tahmine dayalı)
+  // okumaya otomatik geri düşülür. ──
+  const evraktanDoldur = async () => {
+    const sonGorsel = fDosyalar[fDosyalar.length-1];
+    if(!sonGorsel){ showToast("Önce bir belge ekleyin","uy"); return; }
+    setOkuYukleniyor(true);
+    try{
+      const eslesme = sonGorsel.match(/^data:([^;]+);base64,(.+)$/);
+      if(!eslesme){ showToast("Görsel formatı okunamadı","uy"); setOkuYukleniyor(false); return; }
+      const mediaType = eslesme[1], base64Veri = eslesme[2];
+      const { data: sessionData } = await DB.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if(!token){ showToast("Oturum bulunamadı, lütfen tekrar giriş yapın","uy"); setOkuYukleniyor(false); return; }
+
+      const gercekOkuma = async () => {
+        const resp = await fetch(EVRAK_OKU_URL, {
+          method:"POST",
+          headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+token },
+          body: JSON.stringify({ image_base64: base64Veri, media_type: mediaType })
+        });
+        if(resp.status===404) return {kullanilamaz:true};
+        const veri = await resp.json().catch(()=>null);
+        if(!resp.ok || !veri) return {basarisiz:true};
+
+        if(veri.turKategori && TUR_LISTESI.some(t=>t.k===veri.turKategori)) setFTur(veri.turKategori);
+        if(veri.vergilendirmeDonemiBaslangic) setFDonem(veri.vergilendirmeDonemiBaslangic);
+        if(veri.vadeTarihi) setFSonOdeme(veri.vadeTarihi);
+        if(toN(veri.toplamTutar)>0) setFTutar(String(veri.toplamTutar));
+        if(veri.mukellefAdi && !fNot.trim()) setFNot((veri.turAciklama?veri.turAciklama+" — ":"")+veri.mukellefAdi);
+        showToast("Belge okundu — lütfen doldurulan alanları kontrol edin");
+        return {tamam:true};
+      };
+
+      // Eski, tahmine dayalı yöntem (evrak-oku henüz deploy edilmediyse yedek olarak kullanılır)
+      const yedekOkuma = async () => {
+        const resp = await fetch(FATURA_OKU_URL, {
+          method:"POST",
+          headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+token },
+          body: JSON.stringify({ image_base64: base64Veri, media_type: mediaType })
+        });
+        const veri = await resp.json().catch(()=>null);
+        if(!resp.ok || !veri){ showToast("Belge okunamadı, lütfen alanları elle doldurun","uy"); return; }
+        const tumMetin = JSON.stringify(veri);
+        let bulunanTur = null;
+        (veri.kalemler||[]).forEach(k=>{
+          if(bulunanTur) return;
+          const kod = String(k.urunAdi||"").match(/\b(00\d{2}|1047|1018)\b/);
+          if(kod && ANA_VERGI_KODU_TUR[kod[1]]) bulunanTur = ANA_VERGI_KODU_TUR[kod[1]];
+        });
+        if(!bulunanTur){
+          const kodGenel = tumMetin.match(/\b(00\d{2}|1047|1018)\b/);
+          if(kodGenel && ANA_VERGI_KODU_TUR[kodGenel[1]]) bulunanTur = ANA_VERGI_KODU_TUR[kodGenel[1]];
+        }
+        if(!bulunanTur) bulunanTur = metinToTur(tumMetin);
+        if(bulunanTur) setFTur(bulunanTur);
+        if(Array.isArray(veri.kalemler) && veri.kalemler.length>0){
+          const toplam = veri.kalemler.reduce((s,k)=>s+(toN(k.adet)||1)*toN(k.birimFiyat),0);
+          if(toplam>0) setFTutar(String(Math.round(toplam*100)/100));
+        }
+        const donem = metindenDonemYakala(veri.faturaTarihi) || metindenDonemYakala(tumMetin);
+        if(donem) setFDonem(donem);
+        const vade = metindenTarihYakala(tumMetin.match(/vad[eE]si[^0-9]{0,15}(\d{2}[.\/]\d{2}[.\/]\d{4})/)?.[0] || "");
+        if(vade) setFSonOdeme(vade);
+        showToast("Belge okundu (yedek yöntemle) — lütfen doldurulan alanları dikkatle kontrol edin");
+      };
+
+      const sonuc = await gercekOkuma();
+      if(sonuc.kullanilamaz) await yedekOkuma();
+      else if(sonuc.basarisiz){ showToast("Belge okunamadı, lütfen alanları elle doldurun","uy"); }
+    } catch(e){
+      showToast("Belge okunamadı, lütfen alanları elle doldurun","uy");
+    }
+    setOkuYukleniyor(false);
   };
 
   const gorselEkle = () => {
@@ -8681,7 +8797,16 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar}) {
                     onClick:e=>{e.stopPropagation();setFDosyalar(p=>p.filter((_,j)=>j!==i));}},"✕")
                 );
               })
-            )
+            ),
+            fDosyalar.length>0 && div({style:{marginTop:10}},
+              btn({type:"button",disabled:okuYukleniyor,style:{width:"100%",padding:"10px 0",borderRadius:10,
+                border:"1px solid rgba(0,113,227,.4)",background:"rgba(0,113,227,.08)",color:"#0071E3",
+                fontSize:13,fontWeight:700,cursor:okuYukleniyor?"default":"pointer",opacity:okuYukleniyor?.6:1},
+                onClick:evraktanDoldur},
+                okuYukleniyor?"⏳ Belge okunuyor...":"✨ Evraktan Doldur"),
+              div({style:{fontSize:10,color:"var(--di)",marginTop:4,textAlign:"center"}},
+                "Tür, dönem, tutar ve vade otomatik doldurulmaya çalışılır — kaydetmeden önce doldurulan alanları kontrol edin.")
+            ),
           ),
           div({style:{display:"flex",gap:10}},
             btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",background:"transparent",
@@ -23780,7 +23905,7 @@ if(DB) dbUpsertAyar("tema",tema);
               onAnaPanel:()=>{ setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); setMuhSek(""); setMuhAlt(""); setMuhAltAcik(""); setHesapFull(false); setVergiFull(false); },
               isletme,kul
             }),
-            false&&muhSek==="vergiMuhasebesi"&&h(VergiMuhasebesiModul,{vergiEvraklar,setVergiEvraklar}),
+            false&&muhSek==="vergiMuhasebesi"&&h(VergiMuhasebesiModul,{vergiEvraklar,setVergiEvraklar,showToast}),
             muhSek==="indirimZam"&&h(IndirimZamModul,{zamGecmisi,setZamGecmisi,triggerUrunRender,hizListeleri,setHizListeleri,showToast}),
             muhSek==="giderler"&&h(GiderlerModul,{giderler,setGiderler,giderKategoriler,showToast,bankalar}),
 
@@ -26240,7 +26365,7 @@ if(DB) dbUpsertAyar("tema",tema);
 
     vergiFull&&div({style:{background:"var(--bg)",paddingTop:16}},
       div({style:{padding:"0 14px 80px"}},
-        h(VergiMuhasebesiModul,{vergiEvraklar,setVergiEvraklar})
+        h(VergiMuhasebesiModul,{vergiEvraklar,setVergiEvraklar,showToast})
       )
     ),
 
