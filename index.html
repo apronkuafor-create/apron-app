@@ -8466,14 +8466,18 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
 // Burası, muhasebecinizden gelen evrakları (beyannameler, tahakkuk fişleri,
 // makbuzlar) düzenli olarak saklayabileceğiniz bir arşivdir.
 function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar}) {
-  const SICAK_PALET = {kdv:"#7FABCB", gecici:"#9B8AC4", muhtasar:"#D9BE6E", yillik:"#E39B7A", sgk:"#7FB894", diger:"#D99BB0"};
+  const SICAK_PALET = {kdv:"#7FABCB", gecici:"#9B8AC4", muhtasar:"#D9BE6E", yillik:"#E39B7A", sgk:"#7FB894",
+    damga:"#C9A26E", belediye:"#9AA8D1", oda:"#E39B7A", diger:"#D99BB0"};
   const TUR_LISTESI = [
     {k:"kdv", ad:"KDV Beyannamesi", ikon:"💳"},
     {k:"gecici", ad:"Geçici Vergi", ikon:"📊"},
     {k:"muhtasar", ad:"Muhtasar Beyanname", ikon:"👥"},
     {k:"yillik", ad:"Yıllık Gelir Vergisi", ikon:"🗓️"},
-    {k:"sgk", ad:"SGK Bildirgesi", ikon:"🏥"},
-    {k:"diger", ad:"Diğer", ikon:"📄"}
+    {k:"sgk", ad:"SGK Primi/Bildirgesi", ikon:"🏥"},
+    {k:"damga", ad:"Damga Vergisi", ikon:"🖋️"},
+    {k:"belediye", ad:"Belediye (Emlak/Çevre/İlan)", ikon:"🏢"},
+    {k:"oda", ad:"Oda/Birlik Aidatı", ikon:"🎫"},
+    {k:"diger", ad:"Diğer Kamu Ödemesi", ikon:"📄"}
   ];
   const [formAcik, setFormAcik] = React.useState(false);
   const [duzenlenenId, setDuzenlenenId] = React.useState(null);
@@ -8543,6 +8547,22 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar}) {
 
   const odenmemisSayisi = (vergiEvraklar||[]).filter(e=>!e.odendi && toN(e.tutar)>0).length;
   const toplamEvrak = (vergiEvraklar||[]).length;
+  const odenmemisToplamTutar = (vergiEvraklar||[]).reduce((s,e)=>s+(!e.odendi?toN(e.tutar):0),0);
+
+  // ── Yaklaşan/Geciken Ödemeler: son ödeme tarihi girilmiş ve ödenmemiş her evrak, aciliyete göre sıralı ──
+  const bugunD = new Date(); bugunD.setHours(0,0,0,0);
+  const uyariListesi = React.useMemo(()=>{
+    return (vergiEvraklar||[])
+      .filter(e=>!e.odendi && e.sonOdeme)
+      .map(e=>{
+        const hedef = new Date(e.sonOdeme+"T00:00:00");
+        const kalanGun = Math.round((hedef-bugunD)/86400000);
+        return {...e, kalanGun};
+      })
+      .sort((a,b)=>a.kalanGun-b.kalanGun);
+  }, [vergiEvraklar]);
+  const uyariRengi = (kalanGun) => kalanGun<0 ? "#B02020" : kalanGun<=7 ? "#c05050" : kalanGun<=15 ? "#c25e00" : "#8a8a30";
+  const uyariMetni = (kalanGun) => kalanGun<0 ? Math.abs(kalanGun)+" gün gecikti" : kalanGun===0 ? "Bugün son gün" : kalanGun+" gün kaldı";
 
   return div(null,
     // ── BAŞLIK ──
@@ -8550,17 +8570,47 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar}) {
       border:"1px solid rgba(154,168,209,.22)",borderRadius:16,padding:18,marginBottom:14}},
       div({style:{fontSize:22,fontWeight:700,color:"var(--tx)",marginBottom:4}},"🧾 Vergi Muhasebesi"),
       div({style:{fontSize:12,color:"var(--mu)",lineHeight:1.5,marginBottom:14}},
-        "Vergi hesaplamaları muhasebecinize aittir — burası sadece muhasebecinizden gelen beyanname, tahakkuk fişi ve makbuzları düzenli olarak saklamanız için bir arşivdir."),
+        "Bir işyerinin kamuya (Vergi Dairesi, SGK, Belediye, Odalar) yaptığı her türlü ödemenin arşivi ve takibi. Hesaplamalar muhasebecinize aittir — burası kayıt ve hatırlatma içindir."),
       div({style:{display:"flex",gap:12,flexWrap:"wrap"}},
-        div({style:{background:"var(--bg2)",borderRadius:10,padding:"10px 14px",flex:"1 1 120px"}},
+        div({style:{background:"var(--bg2)",borderRadius:10,padding:"10px 14px",flex:"1 1 110px"}},
           div({style:{fontSize:19,fontWeight:700,color:"var(--tx)"}},toplamEvrak),
           div({style:{fontSize:11,color:"var(--mu)"}},"Toplam Evrak")
         ),
-        div({style:{background:odenmemisSayisi>0?"rgba(192,80,80,.1)":"var(--bg2)",borderRadius:10,padding:"10px 14px",flex:"1 1 120px"}},
+        div({style:{background:odenmemisSayisi>0?"rgba(192,80,80,.1)":"var(--bg2)",borderRadius:10,padding:"10px 14px",flex:"1 1 110px"}},
           div({style:{fontSize:19,fontWeight:700,color:odenmemisSayisi>0?"#c05050":"var(--tx)"}},odenmemisSayisi),
           div({style:{fontSize:11,color:"var(--mu)"}},"Ödenmemiş")
+        ),
+        odenmemisToplamTutar>0 && div({style:{background:"rgba(192,80,80,.1)",borderRadius:10,padding:"10px 14px",flex:"1 1 150px"}},
+          div({style:{fontSize:17,fontWeight:700,color:"#c05050",fontFamily:"'Inter',-apple-system,sans-serif"}},fmt(odenmemisToplamTutar)),
+          div({style:{fontSize:11,color:"var(--mu)"}},"Toplam Ödenmemiş Tutar")
         )
       )
+    ),
+
+    // ── ⚠️ YAKLAŞAN/GECİKEN ÖDEMELER — aktif uyarı sistemi ──
+    uyariListesi.length>0 && div({style:{background:"rgba(192,80,80,.06)",border:"1.5px solid rgba(192,80,80,.28)",
+      borderRadius:16,padding:16,marginBottom:14}},
+      div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:12}},
+        div({style:{fontSize:18}},"⚠️"),
+        div({style:{fontSize:14.5,fontWeight:700,color:"#c05050"}},"Yaklaşan / Geciken Ödemeler")
+      ),
+      uyariListesi.map((ev,i)=>{
+        const tur = TUR_LISTESI.find(t=>t.k===ev.tur) || {ad:"Diğer",ikon:"📄"};
+        const renk = uyariRengi(ev.kalanGun);
+        return div({key:ev.id,style:{display:"flex",alignItems:"center",gap:10,padding:"9px 0",
+          borderBottom:i<uyariListesi.length-1?"1px solid rgba(192,80,80,.15)":"none",cursor:"pointer"},
+          onClick:()=>duzenle(ev)},
+          div({style:{fontSize:18,flexShrink:0}},tur.ikon),
+          div({style:{flex:1,minWidth:0}},
+            div({style:{fontSize:13,fontWeight:600,color:"var(--tx)"}},tur.ad+" — "+ev.donem),
+            toN(ev.tutar)>0 && div({style:{fontSize:11.5,color:"var(--mu)",marginTop:1}},fmt(ev.tutar))
+          ),
+          div({style:{textAlign:"right",flexShrink:0}},
+            div({style:{fontSize:12.5,fontWeight:800,color:renk}},uyariMetni(ev.kalanGun)),
+            div({style:{fontSize:10.5,color:"var(--mu)",marginTop:1}},fmtT(ev.sonOdeme))
+          )
+        );
+      })
     ),
 
     // ── EVRAK EKLE BUTONU ──
@@ -21949,12 +21999,21 @@ if(DB) dbUpsertAyar("tema",tema);
             ["rgba(150,90,220,.13)","👥","Personel Performansı",null,()=>{setAsek("ozet");setMuhSek("personelPerformans");setMuhAlt("");setMuhAltAcik("");}],
           ].map(([bg,ikon,lb,altSek,fn],i)=>
             div({key:i,onClick:()=>{ altSek ? setPanelAltSek(altSek) : fn(); },style:{
-              display:"flex",alignItems:"center",gap:14,
+              display:"flex",alignItems:"center",gap:14,position:"relative",
               background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderLeft:"4px solid "+bg.replace(",.13)",",1)"),
               borderRadius:14,padding:"13px 16px",
               marginBottom:9,cursor:"pointer",
               boxShadow:"0 1px 6px rgba(0,0,0,.05)"
             }},
+              lb==="Vergi Muhasebesi" && (()=>{
+                const yediGunSonraIso = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+                const uyariSayisi = (vergiEvraklar||[]).filter(ev=>!ev.odendi && ev.sonOdeme && ev.sonOdeme<=yediGunSonraIso).length;
+                if(uyariSayisi<=0) return null;
+                return div({style:{position:"absolute",top:8,right:8,minWidth:22,height:22,padding:"0 6px",
+                  borderRadius:11,background:"#FF3B30",color:"#fff",display:"flex",alignItems:"center",
+                  justifyContent:"center",fontSize:12,fontWeight:700,boxShadow:"0 2px 6px rgba(255,59,48,.4)"}},
+                  String(uyariSayisi));
+              })(),
               div({style:{
                 width:48,height:48,borderRadius:14,background:bg,
                 display:"flex",alignItems:"center",justifyContent:"center",
