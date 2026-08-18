@@ -8486,11 +8486,31 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar, showToast}) {
   const [fDonem, setFDonem] = React.useState(new Date().toISOString().slice(0,7));
   const [fTutar, setFTutar] = React.useState("");
   const [fSonOdeme, setFSonOdeme] = React.useState("");
-  const [fOdendi, setFOdendi] = React.useState(false);
   const [fNot, setFNot] = React.useState("");
   const [fDosyalar, setFDosyalar] = React.useState([]);
+  // ── Ayrı "Öde" akışı: ödeme, orijinal evraktan (tahakkuk fişi vb.) farklı bir şey — kendi tarihi ve
+  // makbuz/dekontu var. Bunu evrak listesindeki bir kutucuktan değil, ayrı bir butondan yönetiyoruz. ──
+  const [odeModalEv, setOdeModalEv] = React.useState(null); // ödeme yapılmakta olan evrak
+  const [odeTarihi, setOdeTarihi] = React.useState(new Date().toISOString().slice(0,10));
+  const [odeMakbuzlar, setOdeMakbuzlar] = React.useState([]);
   const [acikTur, setAcikTur] = React.useState(null);
   const [okuYukleniyor, setOkuYukleniyor] = React.useState(false);
+  // ── Gecikme Zammı: 6183 sayılı Kanun m.51 — vadesi geçmiş kamu alacaklarına aylık uygulanır.
+  // Güncel oran %3,7 (10556 sayılı Cumhurbaşkanı Kararı, 13.11.2025'ten itibaren) — değişebileceği için
+  // düzenlenebilir bırakıldı. Tam aylar için aylık oran, kalan gün (ay kesri) için günlük oran (aylık/30)
+  // uygulanır. Bu bir TAHMİNDİR — kesin tutar için GİB/vergi dairesi sistemini kontrol edin.
+  const [gecikmeOrani, setGecikmeOrani] = React.useState(3.7);
+  const gecikmeZammiHesapla = (borc, vadeIso, hedefIso) => {
+    const tutar = toN(borc);
+    if(tutar<=0 || !vadeIso || !hedefIso) return {gun:0, zam:0};
+    const vade = new Date(vadeIso+"T00:00:00"), hedef = new Date(hedefIso+"T00:00:00");
+    const gun = Math.round((hedef-vade)/86400000);
+    if(gun<=0) return {gun:0, zam:0};
+    const tamAy = Math.floor(gun/30), kalanGun = gun%30;
+    const aylikOranPay = gecikmeOrani/100;
+    const zam = tutar*aylikOranPay*tamAy + tutar*(aylikOranPay/30)*kalanGun;
+    return {gun, zam, tamAy, kalanGun};
+  };
 
   // GİB'in resmi "Ana Vergi Kodu" listesinden — Tahakkuk Fişi'nde TÜRÜ sütununda görünen 4 haneli kod.
   // Kaynak: GİB / TÜRMOB vergi türü kodları listesi.
@@ -8531,7 +8551,7 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar, showToast}) {
 
   const formuSifirla = () => {
     setDuzenlenenId(null); setFTur("kdv"); setFDonem(new Date().toISOString().slice(0,7));
-    setFTutar(""); setFSonOdeme(""); setFOdendi(false); setFNot(""); setFDosyalar([]);
+    setFTutar(""); setFSonOdeme(""); setFNot(""); setFDosyalar([]);
   };
 
   // ── ✨ Evraktan Doldur: Tahakkuk Fişi / beyanname görselini okuyup tür, dönem, tutar ve vadeyi
@@ -8625,15 +8645,30 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar, showToast}) {
     fi.click();
   };
 
+  const makbuzEkle = () => {
+    const fi=document.createElement("input");
+    fi.type="file"; fi.accept="image/*,.pdf"; fi.multiple=true;
+    fi.onchange=ev=>{
+      Array.from(ev.target.files||[]).forEach(f=>{
+        if(f.size>5242880) return;
+        const rd=new FileReader();
+        rd.onload=e=>{ setOdeMakbuzlar(p=>[...p, e.target.result]); };
+        rd.readAsDataURL(f);
+      });
+    };
+    fi.click();
+  };
+
   const kaydet = () => {
     if(!fDonem.trim()){ return; }
+    // odendi/odemeTarihi/odemeMakbuzu buraya DAHİL EDİLMEZ — ödeme durumu sadece "Öde" akışından değişir,
+    // bu formda düzenleme yapmak mevcut ödeme kaydını asla silmez/değiştirmez.
     const kayit = {id: duzenlenenId||uid(), tur:fTur, donem:fDonem, tutar:toN(fTutar), sonOdeme:fSonOdeme,
-      odendi:fOdendi, not:fNot.trim(), dosyalar:fDosyalar, olusturma:duzenlenenId?undefined:Date.now()};
+      not:fNot.trim(), dosyalar:fDosyalar};
     setVergiEvraklar(prev=>{
-      const varOlan=(prev||[]).find(x=>x.id===kayit.id);
       const yeni = duzenlenenId
-        ? (prev||[]).map(x=>x.id===kayit.id?{...x,...kayit,olusturma:x.olusturma}:x)
-        : [{...kayit, olusturma:Date.now()}, ...(prev||[])];
+        ? (prev||[]).map(x=>x.id===kayit.id?{...x,...kayit}:x)
+        : [{...kayit, odendi:false, olusturma:Date.now()}, ...(prev||[])];
       return yeni;
     });
     setFormAcik(false);
@@ -8642,12 +8677,29 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar, showToast}) {
 
   const duzenle = (ev) => {
     setDuzenlenenId(ev.id); setFTur(ev.tur); setFDonem(ev.donem); setFTutar(String(ev.tutar||""));
-    setFSonOdeme(ev.sonOdeme||""); setFOdendi(!!ev.odendi); setFNot(ev.not||""); setFDosyalar(ev.dosyalar||[]);
+    setFSonOdeme(ev.sonOdeme||""); setFNot(ev.not||""); setFDosyalar(ev.dosyalar||[]);
     setFormAcik(true);
   };
 
   const sil = (id) => {
     setVergiEvraklar(prev=>(prev||[]).filter(x=>x.id!==id));
+  };
+
+  // ── Öde akışı: ayrı tarih + ayrı makbuz/dekont ile ödemeyi kaydeder ──
+  const odeAc = (ev) => {
+    setOdeModalEv(ev); setOdeTarihi(new Date().toISOString().slice(0,10)); setOdeMakbuzlar(ev.odemeMakbuzu||[]);
+  };
+  const odeyiOnayla = () => {
+    if(!odeModalEv) return;
+    setVergiEvraklar(prev=>(prev||[]).map(x=>x.id===odeModalEv.id
+      ? {...x, odendi:true, odemeTarihi:odeTarihi, odemeMakbuzu:odeMakbuzlar}
+      : x));
+    showToast&&showToast("Ödeme kaydedildi ✓");
+    setOdeModalEv(null);
+  };
+  const odemeyiGeriAl = (id) => {
+    setVergiEvraklar(prev=>(prev||[]).map(x=>x.id===id ? {...x, odendi:false} : x));
+    showToast&&showToast("Ödeme geri alındı");
   };
 
   // Tür bazlı gruplama
@@ -8700,6 +8752,12 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar, showToast}) {
           div({style:{fontSize:17,fontWeight:700,color:"#c05050",fontFamily:"'Inter',-apple-system,sans-serif"}},fmt(odenmemisToplamTutar)),
           div({style:{fontSize:11,color:"var(--mu)"}},"Toplam Ödenmemiş Tutar")
         )
+      ),
+      div({style:{display:"flex",alignItems:"center",gap:8,marginTop:12,paddingTop:12,borderTop:"1px solid rgba(154,168,209,.15)"}},
+        div({style:{fontSize:11.5,color:"var(--mu)"}},"Gecikme zammı oranı (aylık %):"),
+        inp({className:"fi",type:"number",step:"0.1",style:{width:70,padding:"5px 8px",fontSize:12},
+          value:gecikmeOrani,onChange:e=>setGecikmeOrani(toN(e.target.value)||0)}),
+        div({style:{fontSize:10,color:"var(--di)"}},"(6183 s.K. m.51 — Hazine ve Maliye Bakanlığı kararıyla değişebilir)")
       )
     ),
 
@@ -8713,17 +8771,26 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar, showToast}) {
       uyariListesi.map((ev,i)=>{
         const tur = TUR_LISTESI.find(t=>t.k===ev.tur) || {ad:"Diğer",ikon:"📄"};
         const renk = uyariRengi(ev.kalanGun);
+        const bugunIso = new Date().toISOString().slice(0,10);
+        const gz = ev.kalanGun<0 ? gecikmeZammiHesapla(ev.tutar, ev.sonOdeme, bugunIso) : null;
         return div({key:ev.id,style:{display:"flex",alignItems:"center",gap:10,padding:"9px 0",
           borderBottom:i<uyariListesi.length-1?"1px solid rgba(192,80,80,.15)":"none",cursor:"pointer"},
           onClick:()=>duzenle(ev)},
           div({style:{fontSize:18,flexShrink:0}},tur.ikon),
           div({style:{flex:1,minWidth:0}},
             div({style:{fontSize:13,fontWeight:600,color:"var(--tx)"}},tur.ad+" — "+ev.donem),
-            toN(ev.tutar)>0 && div({style:{fontSize:11.5,color:"var(--mu)",marginTop:1}},fmt(ev.tutar))
+            toN(ev.tutar)>0 && div({style:{fontSize:11.5,color:"var(--mu)",marginTop:1}},fmt(ev.tutar)),
+            gz&&gz.zam>0 && div({style:{fontSize:10.5,color:"#B02020",marginTop:1,fontWeight:600}},
+              "+ tahmini gecikme zammı: "+fmt(gz.zam)+" (%"+gecikmeOrani+"/ay)")
           ),
-          div({style:{textAlign:"right",flexShrink:0}},
-            div({style:{fontSize:12.5,fontWeight:800,color:renk}},uyariMetni(ev.kalanGun)),
-            div({style:{fontSize:10.5,color:"var(--mu)",marginTop:1}},fmtT(ev.sonOdeme))
+          div({style:{textAlign:"right",flexShrink:0,display:"flex",alignItems:"center",gap:8}},
+            div(null,
+              div({style:{fontSize:12.5,fontWeight:800,color:renk}},uyariMetni(ev.kalanGun)),
+              div({style:{fontSize:10.5,color:"var(--mu)",marginTop:1}},fmtT(ev.sonOdeme))
+            ),
+            btn({type:"button",style:{fontSize:11,fontWeight:700,padding:"6px 11px",borderRadius:8,
+              border:"none",background:"#34C759",color:"#fff",cursor:"pointer"},
+              onClick:e=>{e.stopPropagation();odeAc(ev);}},"💳 Öde")
           )
         );
       })
@@ -8766,14 +8833,38 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar, showToast}) {
             lbl({className:"fl"},"Son Ödeme Tarihi (opsiyonel)"),
             h("input",{type:"date",className:"fi",value:fSonOdeme,onChange:e=>setFSonOdeme(e.target.value)})
           ),
-          div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:12,padding:"10px 12px",
-            background:"var(--bg2)",borderRadius:10,cursor:"pointer"},
-            onClick:()=>setFOdendi(v=>!v)},
-            div({style:{width:20,height:20,borderRadius:5,border:"1.5px solid "+(fOdendi?"#34C759":"var(--br)"),
-              background:fOdendi?"#34C759":"transparent",display:"flex",alignItems:"center",justifyContent:"center",
-              color:"#fff",fontSize:13,fontWeight:800,flexShrink:0}}, fOdendi?"✓":""),
-            div({style:{fontSize:13,color:"var(--tx)",fontWeight:600}},"Ödendi")
-          ),
+          (()=>{
+            const mevcutEv = duzenlenenId ? (vergiEvraklar||[]).find(x=>x.id===duzenlenenId) : null;
+            if(!mevcutEv) return null; // yeni evrak henüz kaydedilmedi, ödeme durumu gösterilecek bir şey yok
+            if(mevcutEv.odendi){
+              return div({style:{marginBottom:12,padding:"10px 12px",background:"rgba(52,199,89,.08)",
+                border:"1px solid rgba(52,199,89,.25)",borderRadius:10}},
+                div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:(mevcutEv.odemeMakbuzu||[]).length>0?8:0}},
+                  div({style:{fontSize:13,fontWeight:700,color:"#1e9e46"}},"✓ Ödendi — "+fmtT(mevcutEv.odemeTarihi)),
+                  btn({type:"button",style:{fontSize:11,color:"#c05050",background:"none",border:"none",cursor:"pointer",fontWeight:600},
+                    onClick:()=>odemeyiGeriAl(mevcutEv.id)},"Geri Al")
+                ),
+                (mevcutEv.odemeMakbuzu||[]).length>0 && div({style:{display:"flex",gap:6,flexWrap:"wrap"}},
+                  (mevcutEv.odemeMakbuzu||[]).map((im,i)=>{
+                    const pdfMi = /^data:application\/pdf/.test(im);
+                    return pdfMi
+                      ? div({key:i,style:{width:34,height:34,borderRadius:6,border:"1px solid var(--br)",cursor:"pointer",
+                          background:"var(--bg)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14},
+                          onClick:()=>{const w=window.open(); if(w){w.document.write('<iframe src="'+im+'" style="border:0;width:100%;height:100vh"></iframe>');}}},"📄")
+                      : img({key:i,src:im,style:{width:34,height:34,objectFit:"cover",borderRadius:6,border:"1px solid var(--br)",cursor:"pointer"},
+                          onClick:()=>{const ov=document.createElement("div");ov.style.cssText="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.95);display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer";const im2=document.createElement("img");im2.src=im;im2.style.cssText="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px";ov.appendChild(im2);ov.onclick=()=>document.body.removeChild(ov);document.body.appendChild(ov);}});
+                  })
+                )
+              );
+            }
+            return div({style:{marginBottom:12,padding:"10px 12px",background:"rgba(192,80,80,.06)",
+              border:"1px solid rgba(192,80,80,.2)",borderRadius:10,display:"flex",justifyContent:"space-between",alignItems:"center"}},
+              div({style:{fontSize:12.5,color:"#c05050",fontWeight:600}},"Henüz ödenmedi"),
+              btn({type:"button",style:{fontSize:12,fontWeight:700,padding:"6px 12px",borderRadius:8,border:"none",
+                background:"#34C759",color:"#fff",cursor:"pointer"},
+                onClick:()=>{ setFormAcik(false); odeAc(mevcutEv); }},"💳 Öde")
+            );
+          })(),
           div({style:{marginBottom:12}},
             lbl({className:"fl"},"Not (opsiyonel)"),
             inp({className:"fi",placeholder:"Örn: Mali müşavir elden teslim etti",value:fNot,onChange:e=>setFNot(e.target.value)})
@@ -8818,6 +8909,70 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar, showToast}) {
             btn({style:{flex:2,padding:"11px 0",borderRadius:10,border:"none",
               background:"linear-gradient(135deg,#9AA8D1,#7280b0)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"},
               onClick:kaydet},duzenlenenId?"Kaydet":"Ekle")
+          )
+        )
+      ), document.body
+    ),
+
+    // ── 💳 ÖDE MODALI — ayrı tarih + ayrı makbuz/dekont ──
+    odeModalEv && ReactDOM.createPortal(
+      div({style:{position:"fixed",inset:0,zIndex:906,background:"rgba(0,0,0,.6)",display:"flex",
+        alignItems:"center",justifyContent:"center",padding:16}},
+        div({style:{background:"var(--bg)",borderRadius:16,maxWidth:420,width:"100%",maxHeight:"90vh",
+          overflowY:"auto",padding:20,boxSizing:"border-box"}},
+          div({style:{fontSize:17,fontWeight:700,color:"var(--tx)",marginBottom:4}},"💳 Ödemeyi Kaydet"),
+          div({style:{fontSize:12.5,color:"var(--mu)",marginBottom:16}},
+            (TUR_LISTESI.find(t=>t.k===odeModalEv.tur)||{ad:"Evrak"}).ad+" — "+odeModalEv.donem+
+            (toN(odeModalEv.tutar)>0?" · "+fmt(odeModalEv.tutar):"")),
+
+          div({style:{marginBottom:12}},
+            lbl({className:"fl"},"Ödeme Tarihi"),
+            h("input",{type:"date",className:"fi",value:odeTarihi,onChange:e=>setOdeTarihi(e.target.value)})
+          ),
+          (()=>{
+            if(!odeModalEv.sonOdeme || toN(odeModalEv.tutar)<=0) return null;
+            const gz = gecikmeZammiHesapla(odeModalEv.tutar, odeModalEv.sonOdeme, odeTarihi);
+            if(gz.zam<=0) return null;
+            return div({style:{marginBottom:16,padding:"10px 12px",background:"rgba(192,80,80,.08)",
+              border:"1px solid rgba(192,80,80,.25)",borderRadius:10}},
+              div({style:{fontSize:12,fontWeight:700,color:"#B02020",marginBottom:4}},
+                "⚠️ Vade "+fmtT(odeModalEv.sonOdeme)+" — "+gz.gun+" gün geçmiş"),
+              div({style:{fontSize:11.5,color:"var(--tx)",lineHeight:1.5}},
+                "Tahmini gecikme zammı (%"+gecikmeOrani+"/ay): ",
+                h("b",null,fmt(gz.zam)),
+                " · Tahmini toplam: ",h("b",null,fmt(toN(odeModalEv.tutar)+gz.zam))),
+              div({style:{fontSize:10,color:"var(--di)",marginTop:4}},
+                "Bu bir tahmindir — kesin tutar için GİB/vergi dairesi sistemini kontrol edin.")
+            );
+          })(),
+          div({style:{marginBottom:16}},
+            lbl({className:"fl"},"Makbuz / Dekont (opsiyonel)"),
+            div({style:{display:"flex",alignItems:"center",gap:8,marginTop:6,flexWrap:"wrap"}},
+              btn({type:"button",style:{padding:"7px 12px",borderRadius:8,border:"1px dashed var(--br)",
+                background:"transparent",color:"var(--mu)",fontSize:12,cursor:"pointer",flexShrink:0},
+                onClick:makbuzEkle},"📎 Makbuz Ekle"),
+              odeMakbuzlar.map((im,i)=>{
+                const pdfMi = /^data:application\/pdf/.test(im);
+                return div({key:i,style:{position:"relative",width:38,height:38,flexShrink:0}},
+                  pdfMi
+                    ? div({style:{width:38,height:38,borderRadius:6,border:"1px solid var(--br)",cursor:"pointer",
+                        background:"var(--bg2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16},
+                        onClick:e=>{e.stopPropagation();const w=window.open(); if(w){w.document.write('<iframe src="'+im+'" style="border:0;width:100%;height:100vh"></iframe>');}}},"📄")
+                    : img({src:im,style:{width:38,height:38,objectFit:"cover",borderRadius:6,border:"1px solid var(--br)",cursor:"pointer"},
+                        onClick:e=>{e.stopPropagation();const ov=document.createElement("div");ov.style.cssText="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.95);display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer";const im2=document.createElement("img");im2.src=im;im2.style.cssText="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px";ov.appendChild(im2);ov.onclick=()=>document.body.removeChild(ov);document.body.appendChild(ov);}}),
+                  btn({style:{position:"absolute",top:-4,right:-4,background:"rgba(0,0,0,.8)",border:"none",borderRadius:"50%",color:"#fff",fontSize:10,cursor:"pointer",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center"},
+                    onClick:e=>{e.stopPropagation();setOdeMakbuzlar(p=>p.filter((_,j)=>j!==i));}},"✕")
+                );
+              })
+            )
+          ),
+          div({style:{display:"flex",gap:10}},
+            btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",background:"transparent",
+              color:"var(--mu)",fontSize:14,fontWeight:600,cursor:"pointer"},
+              onClick:()=>setOdeModalEv(null)},"İptal"),
+            btn({style:{flex:2,padding:"11px 0",borderRadius:10,border:"none",
+              background:"linear-gradient(135deg,#34C759,#1e9e46)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"},
+              onClick:odeyiOnayla},"Ödemeyi Onayla")
           )
         )
       ), document.body
@@ -8870,8 +9025,13 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar, showToast}) {
                     div({style:{fontSize:11,color:"var(--mu)"}},
                       (ev.sonOdeme?"Son ödeme: "+fmtT(ev.sonOdeme):"")+(ev.not?" · "+ev.not:""))
                   ),
-                  toN(ev.tutar)>0 && div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
-                    fontSize:14,color:renk,fontWeight:600}},fmt(ev.tutar))
+                  div({style:{display:"flex",alignItems:"center",gap:8,flexShrink:0}},
+                    toN(ev.tutar)>0 && div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
+                      fontSize:14,color:renk,fontWeight:600}},fmt(ev.tutar)),
+                    !ev.odendi && btn({type:"button",style:{fontSize:11,fontWeight:700,padding:"6px 11px",borderRadius:8,
+                      border:"none",background:"#34C759",color:"#fff",cursor:"pointer"},
+                      onClick:e=>{e.stopPropagation();odeAc(ev);}},"💳 Öde")
+                  )
                 )
               )
             )
