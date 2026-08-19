@@ -2755,6 +2755,18 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [cariAcikTedarikci, setCariAcikTedarikci] = React.useState(null); // Borçlarım'da açık olan tedarikçi kartı
   const [cariAcikTedarikciOde, setCariAcikTedarikciOde] = React.useState(null); // Ödemelerim'de açık olan tedarikçi kartı
   const [cariOdeDonusCari, setCariOdeDonusCari] = React.useState(false); // Ödeme formuna Borçlarım'daki "💳 Ödeme Yap" ile girildiyse, "← Fatura Seç" Borçlarım'a dönsün
+  // ── Toplu Ödeme: birden fazla faturayı tek dekontla ödemek için. Her fatura kendi ayrı ödeme kaydını
+  // alır (tutarı kendi kalan borcu kadar), ama hepsine AYNI dekont/tarih/yöntem işlenir ve her birine
+  // "bu, şu X faturanın Y₺'lik toplu ödemesinin bir parçası" notu otomatik eklenir — böylece tek bir
+  // fatura ayrı ayrı açıldığında dekonttaki toplam tutarla o faturanın tutarı arasındaki fark kafa
+  // karıştırmaz, ilişki açıkça görünür.
+  const [topluSecim, setTopluSecim] = React.useState({}); // {[g.key]: true}
+  const [topluOdemeModal, setTopluOdemeModal] = React.useState(false);
+  const [topluOdemeTarihi, setTopluOdemeTarihi] = React.useState(new Date().toISOString().slice(0,10));
+  const [topluOdemeTip, setTopluOdemeTip] = React.useState("Banka");
+  const [topluOdemeKartAdi, setTopluOdemeKartAdi] = React.useState("");
+  const [topluOdemeGorsel, setTopluOdemeGorsel] = React.useState([]);
+  const [topluOdemeNot, setTopluOdemeNot] = React.useState("");
   const [acilisTedarikci, setAcilisTedarikci] = React.useState("");
   const [acilisTutar, setAcilisTutar] = React.useState("");
   const [acilisTarih, setAcilisTarih] = React.useState(TODAY());
@@ -6399,6 +6411,152 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}}, fmtBuyuk(toplamBorc,19))
                 )
               ),
+              // ── Toplu Öde çubuğu: bir veya daha fazla fatura seçiliyse ekranın altında sabit görünür ──
+              (()=>{
+                const secilenler = tedList.flatMap(t=>t.gruplar).filter(g=>topluSecim[g.key]);
+                if(secilenler.length===0) return null;
+                const topluToplam = secilenler.reduce((s,g)=>s+gKalanHesapla(g),0);
+                return ReactDOM.createPortal(
+                  div({style:{position:"fixed",left:0,right:0,bottom:0,zIndex:940,
+                    background:"var(--bg)",borderTop:"1px solid var(--br)",
+                    padding:"12px 16px",paddingBottom:"max(12px, env(safe-area-inset-bottom))",
+                    boxShadow:"0 -4px 16px rgba(0,0,0,.08)",display:"flex",alignItems:"center",gap:12}},
+                    div({style:{flex:1,minWidth:0}},
+                      div({style:{fontSize:12.5,fontWeight:700,color:"var(--tx)"}},secilenler.length+" fatura seçildi"),
+                      div({style:{fontSize:15,fontWeight:800,color:"#7FB894",
+                        fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},fmt(topluToplam))
+                    ),
+                    btn({style:{padding:"6px 12px",borderRadius:8,border:"1px solid var(--br)",
+                      background:"transparent",color:"var(--mu)",fontSize:12,fontWeight:600,cursor:"pointer",flexShrink:0},
+                      onClick:()=>setTopluSecim({})},"Vazgeç"),
+                    btn({style:{padding:"9px 18px",borderRadius:10,border:"none",
+                      background:"linear-gradient(135deg,#7FB894,#5FA377)",color:"#fff",
+                      fontSize:13.5,fontWeight:700,cursor:"pointer",flexShrink:0},
+                      onClick:()=>{
+                        setTopluOdemeTarihi(new Date().toISOString().slice(0,10));
+                        setTopluOdemeTip("Banka"); setTopluOdemeKartAdi("");
+                        setTopluOdemeGorsel([]); setTopluOdemeNot("");
+                        setTopluOdemeModal(true);
+                      }},"💳 Toplu Öde")
+                  ), document.body
+                );
+              })(),
+              topluOdemeModal && ReactDOM.createPortal((()=>{
+                const secilenler = tedList.flatMap(t=>t.gruplar).filter(g=>topluSecim[g.key]);
+                const topluToplam = secilenler.reduce((s,g)=>s+gKalanHesapla(g),0);
+                return div({style:{position:"fixed",inset:0,zIndex:945,background:"rgba(0,0,0,.6)",
+                  display:"flex",alignItems:"center",justifyContent:"center",padding:16}},
+                  div({style:{background:"var(--bg)",borderRadius:16,maxWidth:460,width:"100%",maxHeight:"90vh",
+                    overflowY:"auto",padding:20,boxSizing:"border-box"}},
+                    div({style:{fontSize:17,fontWeight:700,color:"var(--tx)",marginBottom:4}},"💳 Toplu Ödeme"),
+                    div({style:{fontSize:12,color:"var(--mu)",marginBottom:14,lineHeight:1.5}},
+                      "Her fatura kendi ayrı ödeme kaydını alır (kendi kalan borcu kadar); girdiğiniz dekont/tarih/yöntem hepsine işlenir ve her birine bu toplu ödemenin bir parçası olduğu notu otomatik eklenir."),
+                    div({style:{background:"var(--bg2)",borderRadius:10,padding:"10px 12px",marginBottom:14,
+                      maxHeight:140,overflowY:"auto"}},
+                      secilenler.map((g,i)=>{
+                        const ar=g.kayitlar[0];
+                        return div({key:g.key,style:{display:"flex",justifyContent:"space-between",
+                          fontSize:12,padding:"4px 0",borderBottom:i<secilenler.length-1?"1px solid var(--br)":"none"}},
+                          div(null,(ar.tedarikci||"—")+" · "+(ar.faturaN||"—")),
+                          h("span",{style:{fontWeight:700}},fmt(gKalanHesapla(g)))
+                        );
+                      })
+                    ),
+                    div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+                      background:"rgba(127,184,148,.1)",border:"1px solid rgba(127,184,148,.3)",
+                      borderRadius:10,padding:"10px 12px",marginBottom:14}},
+                      div({style:{fontSize:12.5,fontWeight:700,color:"var(--tx)"}},secilenler.length+" fatura — Toplam"),
+                      div({style:{fontSize:16,fontWeight:800,color:"#5FA377",
+                        fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},fmt(topluToplam))
+                    ),
+                    div({style:{marginBottom:12}},
+                      lbl({className:"fl"},"Ödeme Tarihi"),
+                      h("input",{type:"date",className:"fi",value:topluOdemeTarihi,onChange:e=>setTopluOdemeTarihi(e.target.value)})
+                    ),
+                    div({style:{marginBottom:12}},
+                      lbl({className:"fl"},"Ödeme Yöntemi"),
+                      h("select",{className:"fi",value:topluOdemeTip,onChange:e=>setTopluOdemeTip(e.target.value)},
+                        opt("Nakit","💵 Nakit"),opt("Banka","🏦 Banka Havalesi"),opt("EFT","🏧 EFT"),
+                        opt("Çek","📝 Çek"),opt("Senet","📋 Senet"),opt("KrediKarti","💳 Kredi Kartı"),opt("Diğer","Diğer"))
+                    ),
+                    topluOdemeTip==="KrediKarti" && div({style:{marginBottom:12}},
+                      lbl({className:"fl"},"Banka / Kart Adı (opsiyonel)"),
+                      inp({className:"fi",value:topluOdemeKartAdi,onChange:e=>setTopluOdemeKartAdi(e.target.value)})
+                    ),
+                    div({style:{marginBottom:12}},
+                      lbl({className:"fl"},"Dekont / Makbuz (opsiyonel)"),
+                      div({style:{display:"flex",alignItems:"center",gap:8,marginTop:6,flexWrap:"wrap"}},
+                        btn({type:"button",style:{padding:"7px 12px",borderRadius:8,border:"1px dashed var(--br)",
+                          background:"transparent",color:"var(--mu)",fontSize:12,cursor:"pointer",flexShrink:0},
+                          onClick:()=>{
+                            const fi=document.createElement("input");
+                            fi.type="file"; fi.accept="image/*,.pdf"; fi.multiple=true;
+                            fi.onchange=ev=>{
+                              Array.from(ev.target.files||[]).forEach(f=>{
+                                if(f.size>5242880) return;
+                                const rd=new FileReader();
+                                rd.onload=e=>{ setTopluOdemeGorsel(p=>[...p, e.target.result]); };
+                                rd.readAsDataURL(f);
+                              });
+                            };
+                            fi.click();
+                          }},"📎 Dekont Ekle"),
+                        topluOdemeGorsel.map((im,i)=>{
+                          const pdfMi = /^data:application\/pdf/.test(im);
+                          return div({key:i,style:{position:"relative",width:38,height:38,flexShrink:0}},
+                            pdfMi
+                              ? div({style:{width:38,height:38,borderRadius:6,border:"1px solid var(--br)",cursor:"pointer",
+                                  background:"var(--bg2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16},
+                                  onClick:e=>{e.stopPropagation();const w=window.open(); if(w){w.document.write('<iframe src="'+im+'" style="border:0;width:100%;height:100vh"></iframe>');}}},"📄")
+                              : img({src:im,style:{width:38,height:38,objectFit:"cover",borderRadius:6,border:"1px solid var(--br)",cursor:"pointer"},
+                                  onClick:e=>{e.stopPropagation();const ov=document.createElement("div");ov.style.cssText="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.95);display:flex;align-items:center;justify-content:center;padding:20px;cursor:pointer";const im2=document.createElement("img");im2.src=im;im2.style.cssText="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px";ov.appendChild(im2);ov.onclick=()=>document.body.removeChild(ov);document.body.appendChild(ov);}}),
+                            btn({style:{position:"absolute",top:-4,right:-4,background:"rgba(0,0,0,.8)",border:"none",borderRadius:"50%",color:"#fff",fontSize:10,cursor:"pointer",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center"},
+                              onClick:e=>{e.stopPropagation();setTopluOdemeGorsel(p=>p.filter((_,j)=>j!==i));}},"✕")
+                          );
+                        })
+                      )
+                    ),
+                    div({style:{marginBottom:18}},
+                      lbl({className:"fl"},"Not (opsiyonel)"),
+                      inp({className:"fi",placeholder:"—",value:topluOdemeNot,onChange:e=>setTopluOdemeNot(e.target.value)})
+                    ),
+                    div({style:{display:"flex",gap:10}},
+                      btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",
+                        background:"transparent",color:"var(--mu)",fontSize:14,fontWeight:600,cursor:"pointer"},
+                        onClick:()=>setTopluOdemeModal(false)},"İptal"),
+                      btn({style:{flex:2,padding:"11px 0",borderRadius:10,border:"none",
+                        background:"linear-gradient(135deg,#7FB894,#5FA377)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"},
+                        onClick:()=>{
+                          const faturaOzet = secilenler.map(g=>{
+                            const ar=g.kayitlar[0];
+                            return (ar.faturaN||"Fatura")+" ("+fmt(gKalanHesapla(g))+")";
+                          }).join(", ");
+                          const detay={};
+                          if(topluOdemeTip==="KrediKarti" && topluOdemeKartAdi) detay.kart=topluOdemeKartAdi;
+                          if(topluOdemeGorsel.length>0) detay.gorsel=topluOdemeGorsel;
+                          const hedefIdSet = new Set(secilenler.map(g=>g.kayitlar[0]));
+                          const yeniArsiv = mkArsiv.map(ar=>{
+                            if(!hedefIdSet.has(ar)) return ar;
+                            const g = secilenler.find(sg=>sg.kayitlar[0]===ar);
+                            const buFaturaninTutari = gKalanHesapla(g);
+                            const otomatikNot = "Toplu ödemenin parçası — "+secilenler.length+" fatura, toplam "+fmt(topluToplam)+
+                              " ("+faturaOzet+")"+(topluOdemeNot.trim()?" · "+topluOdemeNot.trim():"");
+                            const yeniOdeme = {id:uid(), tarih:topluOdemeTarihi, tip:topluOdemeTip,
+                              tutar:buFaturaninTutari, not:otomatikNot, detay};
+                            return {...ar, odemeler:[...(ar.odemeler||[]), yeniOdeme]};
+                          });
+                          mkArsivKirliRef.current=true;
+                          setMkArsiv(yeniArsiv);
+                          try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
+                          if(DB) dbUpsertAyar("mkArsiv", yeniArsiv);
+                          setTopluSecim({});
+                          setTopluOdemeModal(false);
+                          showToast(secilenler.length+" fatura ödendi ✓ ("+fmt(topluToplam)+")");
+                        }},"Ödemeyi Onayla")
+                    )
+                  )
+                );
+              })(), document.body),
               tedList.length===0
                 ? div({style:{textAlign:"center",padding:50,color:"var(--mu)"}},
                     div({style:{fontSize:40,marginBottom:12}},mkArsiv.length>0?"✅":"📋"),
@@ -6467,10 +6625,16 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                               if(imgs.indexOf(im)===-1) imgs.push(im);
                             });
                           });
-                          return div({key:gi,style:{padding:"10px 14px",
+                          return div({key:gi,style:{padding:"10px 14px",position:"relative",
+                            paddingLeft:odendiMi?14:36,
                             borderTop:gi>0?"1px solid var(--br)":"none",
                             background:gecikti?"rgba(192,80,80,.05)":odendiMi?"rgba(80,184,128,.04)":"transparent",
                             opacity:odendiMi?.75:1}},
+                            !odendiMi && h("input",{type:"checkbox",
+                              style:{position:"absolute",left:12,top:14,width:17,height:17,cursor:"pointer",accentColor:"#7FB894"},
+                              checked:!!topluSecim[g.key],
+                              onClick:e=>e.stopPropagation(),
+                              onChange:e=>setTopluSecim(p=>({...p,[g.key]:e.target.checked}))}),
                             div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,cursor:"pointer"},
                             onClick:()=>{
                               const sirali = mkArsiv.filter(a=>a.kayitTuru!=="acilis"&&a.tip!=="acilis")
