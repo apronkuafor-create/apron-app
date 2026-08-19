@@ -2639,6 +2639,53 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     }
     setGecmisStokOkuYukleniyor(false);
   };
+
+  // ── Sadece Borç Kaydı için Faturadan Doldur: bu form ürün detayı almadığı için sadece üst bilgileri
+  // (tedarikçi, fatura no, tarih, TOPLAM tutar) doldurur — kalemler tek bir toplamda birleştirilir. ──
+  const borcKaydiFaturaOku = async () => {
+    const sonGorsel = borcKaydiGorsel[borcKaydiGorsel.length-1];
+    if(!sonGorsel){ showToast("Önce bir fatura görseli/PDF ekleyin","uy"); return; }
+    setBorcKaydiOkuYukleniyor(true);
+    try{
+      const eslesme = sonGorsel.match(/^data:([^;]+);base64,(.+)$/);
+      if(!eslesme){ showToast("Görsel formatı okunamadı","uy"); setBorcKaydiOkuYukleniyor(false); return; }
+      const mediaType = eslesme[1], base64Veri = eslesme[2];
+      const {devam, hash} = faturaOkumaOncesiKontrol(base64Veri);
+      if(!devam){ setBorcKaydiOkuYukleniyor(false); return; }
+      const { data: sessionData } = await DB.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if(!token){ showToast("Oturum bulunamadı, lütfen tekrar giriş yapın","uy"); setBorcKaydiOkuYukleniyor(false); return; }
+      const resp = await fetch(FATURA_OKU_URL, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+token },
+        body: JSON.stringify({ image_base64: base64Veri, media_type: mediaType })
+      });
+      const veri = await resp.json().catch(()=>null);
+      if(resp.ok && veri) faturaOkumaHashKaydet(hash, veri);
+      if(!resp.ok || !veri){ showToast("Fatura okunamadı, lütfen alanları elle doldurun","uy"); setBorcKaydiOkuYukleniyor(false); return; }
+
+      if(veri.tedarikciAdi) setBorcKaydiTedarikci(veri.tedarikciAdi);
+      if(veri.faturaNo) setBorcKaydiFaturaN(veri.faturaNo);
+      if(veri.faturaTarihi) setBorcKaydiFaturaTarih(veri.faturaTarihi);
+      if(Array.isArray(veri.kalemler) && veri.kalemler.length>0){
+        const toplam = veri.kalemler.reduce((s,k)=>{
+          const adet = toN(k.adet)||1, birim = toN(k.birimFiyat)||0;
+          const matrah = adet*birim;
+          const kdvOran = k.kdvOrani!=null?toN(k.kdvOrani):20;
+          const iskOran = toN(k.iskontoOrani)||0;
+          const iskTutar = matrah*(iskOran/100);
+          const kdvTutar = (matrah-iskTutar)*(kdvOran/100);
+          return s + (matrah-iskTutar+kdvTutar);
+        },0);
+        if(toplam>0) setBorcKaydiTutar(String(Math.round(toplam*100)/100));
+      }
+      showToast("Fatura okundu — lütfen doldurulan alanları kontrol edin");
+      if(veri._kismi) showToast("Fatura çok uzundu, sadece bir kısmı okunmuş olabilir — toplam tutarı kontrol edin","uy");
+    } catch(e){
+      showToast("Fatura okunamadı, lütfen alanları elle doldurun","uy");
+    }
+    setBorcKaydiOkuYukleniyor(false);
+  };
   const [mkArsiv, setMkArsiv] = React.useState([]);
   const [mkAlt, setMkAlt] = React.useState("liste"); // liste | arsiv
   const [arsivAc, setArsivAc] = React.useState(null); // arşiv detay index
@@ -2720,6 +2767,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [borcKaydiVade, setBorcKaydiVade] = React.useState("");
   const [borcKaydiTutar, setBorcKaydiTutar] = React.useState("");
   const [borcKaydiGorsel, setBorcKaydiGorsel] = React.useState([]);
+  const [borcKaydiOkuYukleniyor, setBorcKaydiOkuYukleniyor] = React.useState(false);
   const borcKaydiBarkodRef = React.useRef(null); // sentetik satırın barkodu — form açıldığında bir kez üretilir
 
   // Stok detay state
@@ -6637,6 +6685,16 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 );
               })
             )
+          ),
+          borcKaydiGorsel.length>0 && div({style:{marginBottom:16}},
+            btn({type:"button",disabled:borcKaydiOkuYukleniyor,style:{width:"100%",padding:"10px 0",borderRadius:10,
+              border:"1px solid rgba(0,113,227,.4)",background:"rgba(0,113,227,.08)",color:"#0071E3",
+              fontSize:13,fontWeight:700,cursor:borcKaydiOkuYukleniyor?"default":"pointer",
+              opacity:borcKaydiOkuYukleniyor?.6:1},
+              onClick:borcKaydiFaturaOku},
+              borcKaydiOkuYukleniyor?"⏳ Fatura okunuyor...":"✨ Faturadan Doldur"),
+            div({style:{fontSize:10,color:"var(--di)",marginTop:4,textAlign:"center"}},
+              "Tedarikçi, fatura no, tarih ve toplam tutar otomatik doldurulur.")
           ),
           div({style:{display:"flex",gap:10}},
             btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",background:"transparent",color:"var(--mu)",fontSize:14,fontWeight:600,cursor:"pointer"},
