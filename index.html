@@ -2843,6 +2843,20 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         }
         return 0; // gerçekten elde sadece bedelsiz parti(ler) varsa 0 doğru göstergedir
       })();
+      // Çoklu fiyat tespiti: elde kalan stoğu birden fazla farklı alış fiyatından oluşan ürünler için
+      // Stok Durumu listesinde tek bir "Birim F." yanıltıcı olmasın diye — kaç farklı fiyat kademesi
+      // olduğunu ve ağırlıklı ortalama maliyeti burada hesaplayıp arayüze taşıyoruz.
+      u.ortMaliyet = u.kalan>0 ? u.toplamMaliyet/u.kalan : 0;
+      u.fiyatKademeleri = (()=>{
+        const map={};
+        u.partiler.forEach(p=>{
+          if((p.kalan||0)<=0) return;
+          const f = Math.round((p.alisF||0)*100)/100;
+          map[f] = (map[f]||0)+p.kalan;
+        });
+        return Object.entries(map).map(([fiyat,adet])=>({fiyat:toN(fiyat),adet})).sort((a,b)=>a.fiyat-b.fiyat);
+      })();
+      u.cokluFiyat = u.fiyatKademeleri.length>1;
     });
     return oz;
   },[stokPartiler]);
@@ -5742,7 +5756,15 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       )
                     )
                   ),
-                  div({style:{...cel,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:13,color:"var(--tx)"}},fmt(u.birimF||0)),
+                  div({style:{...cel,flexDirection:"column",gap:3,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+                    div({style:{fontSize:13,color:"var(--tx)"}},fmt(u.cokluFiyat?u.ortMaliyet:(u.birimF||0))),
+                    u.cokluFiyat&&span({title:u.fiyatKademeleri.map(k=>k.adet+" adet × "+fmt(k.fiyat)).join(" · ")+" — ortalama gösteriliyor, ayrıntı için ürüne tıklayın",
+                      style:{fontSize:9,fontWeight:800,padding:"2px 7px",borderRadius:20,
+                        background:"rgba(0,113,227,.16)",color:"#0071E3",border:"1px solid rgba(0,113,227,.4)",
+                        display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap",cursor:"pointer",
+                        animation:"pulse 1.6s ease-in-out infinite"}},
+                      "🏷 "+u.fiyatKademeleri.length+" fiyat")
+                  ),
                   div({style:{...cel,fontSize:14,color:u.kalan<=2?"#c05050":"var(--g)",fontWeight:700}},String(u.kalan??0)),
                   div({style:{...cel,fontSize:12,color:"var(--mu)"}},(u.kdvOran||20)+"%"),
                   div({style:{...cel,fontSize:12,color:"var(--mu)"}},fmt(kdvT)),
