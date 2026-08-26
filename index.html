@@ -6152,9 +6152,38 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         return true;
       }).sort((a,b)=>(b.malKabulTarihi||b.tarih||"").localeCompare(a.malKabulTarihi||a.tarih||""));
 
+      // İşyeri Kullanımı (Hediye HARİÇ) — kayıt anında maliyet damgası VARSA (yeni kayıtlar) o kullanılır:
+      // önce bedelsiz (promosyon/numune) parti varsa 0₺, yoksa tüketilen partinin gerçek fatura fiyatı.
+      // Damga YOKSA (bu özellikten önceki eski kayıtlar), Mal Kabul arşivinden o tarihe kadarki en son
+      // fatura kaydına bakarak EN İYİ TAHMİN yapılır — o tarihteki gerçek parti/stok durumu geriye dönük
+      // birebir yeniden kurulamadığı için bu kesin değil, yaklaşıktır.
+      const gecmisMaliyetTahminEt = (barkod, tarih) => {
+        const satirlar = [];
+        (mkArsiv||[]).forEach(ar=>{
+          const arTarih = ar.malKabulTarihi||ar.tarih||"";
+          if(arTarih>tarih) return; // kullanımdan sonraki faturalar sayılmaz
+          (ar.urunler||[]).forEach(u=>{ if(u.barkod===barkod) satirlar.push({tarih:arTarih,bedelsiz:!!u.bedelsiz,birimF:toN(u.birimF)}); });
+        });
+        if(!satirlar.length){ const dbU=URUN_DB.find(d=>d.b===barkod); return toN(dbU?.bp)||0; } // hiç fatura yoksa (örn. açılış stoğu) kayıtlı alış fiyatına düş
+        if(satirlar.some(s=>s.bedelsiz)) return 0; // o tarihe kadar bedelsiz giriş olmuşsa öncelik bedelsize verilir
+        satirlar.sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
+        return satirlar[0].birimF||0; // en son (kullanıma en yakın) faturadaki gerçek fiyat
+      };
+      const kullanimSarflari = (kullanimlar||[]).filter(k=>k.tip==="kullanim").filter(k=>{
+        const t = k.tarih||"";
+        if(sarfAnalizBas && t<sarfAnalizBas) return false;
+        if(sarfAnalizBit && t>sarfAnalizBit) return false;
+        return true;
+      }).map(k=>{
+        const kesin = k.maliyet!==undefined;
+        const tutar = kesin ? toN(k.maliyet) : gecmisMaliyetTahminEt(k.barkod, k.tarih||"");
+        return {...k, tutar, kesin};
+      }).sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
+
       const sarfSatirlari = ar => (ar.urunler||[]).filter(u=>u.sarfMi);
-      const toplamGider = filtreli.reduce((s,ar)=>s+sarfSatirlari(ar).reduce((s2,u)=>s2+(u.toplamF||0),0),0);
-      const toplamKalem = filtreli.reduce((s,ar)=>s+sarfSatirlari(ar).length,0);
+      const toplamGider = filtreli.reduce((s,ar)=>s+sarfSatirlari(ar).reduce((s2,u)=>s2+(u.toplamF||0),0),0)
+        + kullanimSarflari.reduce((s,k)=>s+k.tutar,0);
+      const toplamKalem = filtreli.reduce((s,ar)=>s+sarfSatirlari(ar).length,0) + kullanimSarflari.length;
 
       const urunMap={};
       filtreli.forEach(ar=>{
@@ -6163,6 +6192,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           urunMap[u.barkod].toplam += (u.toplamF||0);
           urunMap[u.barkod].adet += (u.adet||0);
         });
+      });
+      kullanimSarflari.forEach(k=>{
+        if(!urunMap[k.barkod]) urunMap[k.barkod]={barkod:k.barkod,urunAd:k.urunAd,marka:k.marka,toplam:0,adet:0};
+        urunMap[k.barkod].toplam += k.tutar;
+        urunMap[k.barkod].adet += toN(k.miktar);
       });
       const urunListesi = Object.values(urunMap).sort((a,b)=>b.toplam-a.toplam);
 
@@ -6174,10 +6208,21 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         const tutar=sarfSatirlari(ar).reduce((s,u)=>s+(u.toplamF||0),0);
         ayMap[ay]=(ayMap[ay]||0)+tutar;
       });
+      kullanimSarflari.forEach(k=>{
+        const ay=(k.tarih||"").slice(0,7);
+        if(!ay) return;
+        ayMap[ay]=(ayMap[ay]||0)+k.tutar;
+      });
       const aylikListe = Object.entries(ayMap).sort((a,b)=>b[0].localeCompare(a[0]));
       const AYLAR=["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
       const ayAdi=(ym)=>{ const p=ym.split("-"); return (AYLAR[parseInt(p[1])-1]||ym)+" "+p[0]; };
       const enYuksekAy = aylikListe.length ? Math.max(...aylikListe.map(a=>a[1])) : 0;
+
+      // Fatura + İşyeri Kullanımı kayıtlarını tarih sırasına göre karışık tek listede birleştir
+      const sarfKayitListesi = [
+        ...filtreli.map(ar=>({tip:"fatura",tarih:ar.malKabulTarihi||ar.tarih||"",ar})),
+        ...kullanimSarflari.map(k=>({tip:"kullanim",tarih:k.tarih||"",k}))
+      ].sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
 
       return div({style:{position:"fixed",inset:0,zIndex:902,background:"var(--bg)",display:"flex",flexDirection:"column",overflow:"hidden"}},
         h("div",{style:{display:"flex",alignItems:"center",padding:"10px 12px 16px",paddingTop:"max(10px, env(safe-area-inset-top))",background:"#1F3D2C",width:"100%",boxSizing:"border-box",flexShrink:0}},
@@ -6209,7 +6254,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             borderRadius:14,padding:16,marginBottom:14}},
             div({style:{fontSize:11,color:"var(--mu)",letterSpacing:1,textTransform:"uppercase",marginBottom:6}},"Toplam Sarf Gideri"),
             div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",color:"#FF9500",fontWeight:700}},fmtBuyuk(toplamGider,28)),
-            div({style:{fontSize:12,color:"var(--mu)",marginTop:4}},filtreli.length+" fatura · "+toplamKalem+" kalem ürün")
+            div({style:{fontSize:12,color:"var(--mu)",marginTop:4}},filtreli.length+" fatura"+(kullanimSarflari.length?" + "+kullanimSarflari.length+" işyeri kullanımı":"")+" · "+toplamKalem+" kalem ürün")
           ),
 
           // ── Ürün bazlı kırılım ──
@@ -6244,16 +6289,30 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                 ))
           ),
 
-          // ── Fatura listesi ──
+          // ── Fatura + Kullanım listesi ──
           div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:16}},
-            div({style:{fontSize:12,color:"var(--g)",letterSpacing:1,textTransform:"uppercase",marginBottom:12}},"📄 Sarf Faturaları"),
-            filtreli.length===0
+            div({style:{fontSize:12,color:"var(--g)",letterSpacing:1,textTransform:"uppercase",marginBottom:12}},"📄 Sarf Faturaları & İşyeri Kullanımı"),
+            sarfKayitListesi.length===0
               ? div({style:{fontSize:12,color:"var(--mu)",textAlign:"center",padding:"14px 0"}},"Bu aralıkta kayıt yok")
-              : filtreli.map((ar,i)=>{
+              : sarfKayitListesi.map((kayit,i)=>{
+                  if(kayit.tip==="kullanim"){
+                    const k=kayit.k;
+                    return div({key:"k"+(k.id||i),style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+                      padding:"10px 0",borderBottom:i<sarfKayitListesi.length-1?"1px solid var(--br)":"none",cursor:"pointer"},
+                      onClick:()=>setUmSek("kullanim")},
+                      div({style:{flex:1,minWidth:0}},
+                        div({style:{fontSize:13,color:"var(--tx)",fontWeight:500}},"🏪 İşyeri Kullanımı — "+urunAdCanli(k.barkod,k.urunAd)),
+                        div({style:{fontSize:11,color:"var(--mu)",marginTop:1}},
+                          fmtT(k.tarih)+" · "+k.miktar+" adet · "+(k.kesin?"gerçek maliyet":"yaklaşık (geçmiş fatura kaydına göre)"))
+                      ),
+                      div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:14,color:"#FF9500",fontWeight:700,flexShrink:0}},fmt(k.tutar))
+                    );
+                  }
+                  const ar=kayit.ar;
                   const sarfSat=sarfSatirlari(ar);
                   const arToplam=sarfSat.reduce((s,u)=>s+(u.toplamF||0),0);
                   return div({key:ar.id||i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",
-                    padding:"10px 0",borderBottom:i<filtreli.length-1?"1px solid var(--br)":"none",cursor:"pointer"},
+                    padding:"10px 0",borderBottom:i<sarfKayitListesi.length-1?"1px solid var(--br)":"none",cursor:"pointer"},
                     onClick:()=>{
                       const sortedArsivLocal=mkArsiv.filter(a=>a.kayitTuru!=="acilis"&&a.tip!=="acilis").slice().sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
                       const idx=sortedArsivLocal.indexOf(ar);
@@ -8219,14 +8278,34 @@ function KullanimModul({kullanimlar,setKullanimlar:setKullanimlar_,stokPartiler,
   const kaydet=()=>{
     if(!urunler.length){ showToast("Ürün ekleyin","uy"); return; }
     for(const u of urunler){ if((parseInt(u.miktar)||1)>stokKalan(u.barkod)){ showToast("Stokta yeterli "+urunAdCanli(u.barkod,u.urunAd)+" yok","uy"); return; } }
-    const yeni=urunler.map(u=>({id:uid(),barkod:u.barkod,urunAd:u.urunAd,marka:u.marka||"",miktar:parseInt(u.miktar)||1,tarih,notlar:not,tip,musteriAdi:tip==="hediye"?musteriAdi:""}));
-    setKullanimlar(p=>[...yeni,...(p||[])]);
-    // FIFO stoktan düş (tek functional update)
-    setStokPartiler(p=>{
-      const arr=p.map(x=>({...x}));
-      yeni.forEach(k=>{ let kalan=k.miktar; for(let i=0;i<arr.length&&kalan>0;i++){ if(arr[i].barkod===k.barkod&&toN(arr[i].kalan)>0){ const d=Math.min(toN(arr[i].kalan),kalan); arr[i].kalan=toN(arr[i].kalan)-d; kalan-=d; } } });
-      return arr;
+    // FIFO stoktan düş + gerçek maliyeti kayıt anında damgala.
+    // İşyeri Kullanımı'nda (tip==="kullanim") varsa önce BEDELSİZ (promosyon/numune) partiler tüketilir —
+    // bunların fatura anındaki gerçek bedeli 0₺ olduğu için maliyete 0 olarak yansır. Hediye ve satışta bu
+    // önceliklendirme uygulanmaz, standart kronolojik sıra (stoğa giriş sırası) kullanılır.
+    const arr=(stokPartiler||[]).map(x=>({...x}));
+    const yeni=urunler.map(u=>{
+      const barkod=u.barkod, miktar=parseInt(u.miktar)||1;
+      let kalan=miktar, maliyet=0;
+      if(tip==="kullanim"){
+        for(let i=0;i<arr.length&&kalan>0;i++){
+          if(arr[i].barkod===barkod && arr[i].bedelsiz && toN(arr[i].kalan)>0){
+            const d=Math.min(toN(arr[i].kalan),kalan);
+            arr[i].kalan=toN(arr[i].kalan)-d; kalan-=d; // bedelsiz parti: maliyete 0₺ eklenir
+          }
+        }
+      }
+      for(let i=0;i<arr.length&&kalan>0;i++){
+        if(arr[i].barkod===barkod && !(tip==="kullanim"&&arr[i].bedelsiz) && toN(arr[i].kalan)>0){
+          const d=Math.min(toN(arr[i].kalan),kalan);
+          arr[i].kalan=toN(arr[i].kalan)-d;
+          maliyet += d*toN(arr[i].alisF||0);
+          kalan-=d;
+        }
+      }
+      return {id:uid(),barkod,urunAd:u.urunAd,marka:u.marka||"",miktar,tarih,notlar:not,tip,musteriAdi:tip==="hediye"?musteriAdi:"",maliyet};
     });
+    setStokPartiler(arr);
+    setKullanimlar(p=>[...yeni,...(p||[])]);
     const staffAd = tip==="hediye" ? ("Hediye"+(musteriAdi?(" — "+musteriAdi):"")) : "İşyeri Kullanımı";
     const harlar=yeni.map(k=>({id:uid(),barkod:k.barkod,urun_ad:k.urunAd,tip:"cikis",adet:k.miktar,tarih,staff_name:staffAd,olusturma:Date.now()}));
     if(setStokHar) setStokHar(p=>[...harlar,...(p||[])]);
@@ -8238,7 +8317,10 @@ function KullanimModul({kullanimlar,setKullanimlar:setKullanimlar_,stokPartiler,
   // Yanlış kayıt düzeltmesi: stoğa iade et + logdan kaldır
   const iptalEt=(k)=>{
     const urunDef=URUN_DB.find(u=>u.b===k.barkod);
-    setStokPartiler(p=>[...p,{id:uid(),barkod:k.barkod,urunAd:k.urunAd,marka:k.marka||"",adet:k.miktar,kalan:k.miktar,alisF:toN(urunDef?.bp),tarih:TODAY(),faturaN:"Kullanım İptali",tip:"kullanimIptal"}]);
+    // Kaydedilmiş gerçek maliyet varsa (yeni kayıtlar) o birim maliyetle iade et — böylece bedelsizden
+    // gelen (0₺ maliyetli) bir kullanım, iptal edildiğinde yanlışlıkla kayıtlı alış fiyatıyla stoğa girmez.
+    const birimMaliyet = (k.maliyet!==undefined) ? (toN(k.maliyet)/(toN(k.miktar)||1)) : toN(urunDef?.bp);
+    setStokPartiler(p=>[...p,{id:uid(),barkod:k.barkod,urunAd:k.urunAd,marka:k.marka||"",adet:k.miktar,kalan:k.miktar,alisF:birimMaliyet,tarih:TODAY(),faturaN:"Kullanım İptali",tip:"kullanimIptal"}]);
     const harId=uid();
     if(setStokHar) setStokHar(p=>[{id:harId,barkod:k.barkod,urun_ad:k.urunAd,tip:"giris",adet:k.miktar,tarih:TODAY(),staff_name:"Kullanım İptali",olusturma:Date.now()},...(p||[])]);
     dbEkle("stok_hareketleri",{id:harId,barkod:k.barkod,urun_ad:k.urunAd,tip:"giris",adet:k.miktar,tarih:TODAY(),staff_name:"Kullanım İptali"});
