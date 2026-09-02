@@ -444,6 +444,31 @@ const skBosalt = async () => {
   }
   skYaz(kalan);
 };
+// ── Görsel yükleme: localStorage/DB şişmesini önlemek için Supabase Storage'a yükler ──
+// Fatura/dekont/makbuz/logo görselleri artık base64 olarak state'e/veritabanına gömülmüyor;
+// buluta yüklenip sadece küçük bir URL saklanıyor. Bucket henüz yoksa veya yükleme başarısız
+// olursa (ağ, izin vb.) eski base64 yöntemine SESSİZCE düşülür — hiçbir görsel kaybolmaz,
+// sadece o görsel için eski (büyük) saklama yöntemi devam eder.
+const GORSEL_BUCKET = "gorseller";
+const _dataUrlToBlob = (dataUrl) => {
+  const parts = dataUrl.split(",");
+  const mime = (parts[0].match(/data:([^;]+);/)||[])[1] || "application/octet-stream";
+  const bin = atob(parts[1]);
+  const arr = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+  return new Blob([arr], {type:mime});
+};
+const gorselYukle = async (fileOrBlob, adOnerisi) => {
+  if(!DB || !fileOrBlob) return null;
+  try{
+    const uzanti = ((adOnerisi||fileOrBlob.name||"jpg").split(".").pop()||"jpg").toLowerCase().slice(0,5);
+    const yol = "g_"+Date.now()+"_"+Math.random().toString(36).slice(2,8)+"."+uzanti;
+    const {error} = await DB.storage.from(GORSEL_BUCKET).upload(yol, fileOrBlob, {contentType:fileOrBlob.type||undefined, upsert:false});
+    if(error){ console.warn("Görsel buluta yüklenemedi, yerel yedeğe düşülüyor:", error.message||error); return null; }
+    const {data} = DB.storage.from(GORSEL_BUCKET).getPublicUrl(yol);
+    return (data && data.publicUrl) || null;
+  }catch(e){ console.warn("Görsel yükleme hatası, yerel yedeğe düşülüyor:", e); return null; }
+};
 const dbEkle = (t,r) => {
   if(!DB){ skEkle({op:"insert",t,r}); return Promise.resolve(false); }
   return DB.from(t).insert(r).then(({error})=>{ if(error){ skEkle({op:"insert",t,r}); return false; } return true; })
@@ -4601,8 +4626,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   const fi=document.createElement("input");
                   fi.type="file";fi.accept="image/*,.pdf,application/pdf";fi.multiple=true;
                   fi.onchange=ev=>{
-                    Array.from(ev.target.files||[]).forEach(f=>{
+                    Array.from(ev.target.files||[]).forEach(async f=>{
                       if(f.size>5242880)return;
+                      const url = await gorselYukle(f);
+                      if(url){ setMkFaturaImg(p=>{const a=(Array.isArray(p)?p:[p]).filter(Boolean);return [...a,url];}); return; }
                       const rd=new FileReader();
                       rd.onload=e=>{
                         let sonuc=e.target.result;
@@ -6573,8 +6600,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                             const fi=document.createElement("input");
                             fi.type="file"; fi.accept="image/*,.pdf"; fi.multiple=true;
                             fi.onchange=ev=>{
-                              Array.from(ev.target.files||[]).forEach(f=>{
+                              Array.from(ev.target.files||[]).forEach(async f=>{
                                 if(f.size>5242880) return;
+                                const url = await gorselYukle(f);
+                                if(url){ setTopluOdemeGorsel(p=>[...p, url]); return; }
                                 const rd=new FileReader();
                                 rd.onload=e=>{ setTopluOdemeGorsel(p=>[...p, e.target.result]); };
                                 rd.readAsDataURL(f);
@@ -6922,8 +6951,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   const fi=document.createElement("input");
                   fi.type="file";fi.accept="image/*,.pdf,application/pdf";fi.multiple=true;
                   fi.onchange=ev=>{
-                    Array.from(ev.target.files||[]).forEach(f=>{
+                    Array.from(ev.target.files||[]).forEach(async f=>{
                       if(f.size>5242880)return;
+                      const url = await gorselYukle(f);
+                      if(url){ setBorcKaydiGorsel(p=>[...p,url]); return; }
                       const rd=new FileReader();
                       rd.onload=e=>{
                         let sonuc=e.target.result;
@@ -7050,8 +7081,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   const fi=document.createElement("input");
                   fi.type="file";fi.accept="image/*,.pdf,application/pdf";fi.multiple=true;
                   fi.onchange=ev=>{
-                    Array.from(ev.target.files||[]).forEach(f=>{
+                    Array.from(ev.target.files||[]).forEach(async f=>{
                       if(f.size>5242880)return;
+                      const url = await gorselYukle(f);
+                      if(url){ setGecmisStokGorsel(p=>[...p,url]); return; }
                       const rd=new FileReader();
                       rd.onload=e=>{
                         let sonuc=e.target.result;
@@ -7474,8 +7507,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         const fi=document.createElement("input");
                         fi.type="file";fi.accept="image/*,.pdf";fi.multiple=true;
                         fi.onchange=ev=>{
-                          Array.from(ev.target.files||[]).forEach(f=>{
+                          Array.from(ev.target.files||[]).forEach(async f=>{
                             if(f.size>5242880)return;
+                            const url = await gorselYukle(f);
+                            if(url){ setCariOdeGorsel(p=>[...(Array.isArray(p)?p:[]),url]); return; }
                             const rd=new FileReader();
                             rd.onload=e=>{setCariOdeGorsel(p=>[...(Array.isArray(p)?p:[]),e.target.result]);};
                             rd.readAsDataURL(f);
@@ -8997,8 +9032,10 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar, showToast}) {
     const fi=document.createElement("input");
     fi.type="file"; fi.accept="image/*,.pdf"; fi.multiple=true;
     fi.onchange=ev=>{
-      Array.from(ev.target.files||[]).forEach(f=>{
+      Array.from(ev.target.files||[]).forEach(async f=>{
         if(f.size>5242880) return;
+        const url = await gorselYukle(f);
+        if(url){ setFDosyalar(p=>[...p, url]); return; }
         const rd=new FileReader();
         rd.onload=e=>{ setFDosyalar(p=>[...p, e.target.result]); };
         rd.readAsDataURL(f);
@@ -9011,8 +9048,10 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar, showToast}) {
     const fi=document.createElement("input");
     fi.type="file"; fi.accept="image/*,.pdf"; fi.multiple=true;
     fi.onchange=ev=>{
-      Array.from(ev.target.files||[]).forEach(f=>{
+      Array.from(ev.target.files||[]).forEach(async f=>{
         if(f.size>5242880) return;
+        const url = await gorselYukle(f);
+        if(url){ setOdeMakbuzlar(p=>[...p, url]); return; }
         const rd=new FileReader();
         rd.onload=e=>{ setOdeMakbuzlar(p=>[...p, e.target.result]); };
         rd.readAsDataURL(f);
@@ -17817,8 +17856,10 @@ if(DB) dbUpsertAyar("tema",tema);
   // ({[personelId]: [{id,...}]} şeklinde bir state güncelleyen fonksiyon).
   const ikKayitDosyaYukle = async (setStateFn, personelId, kayitId, file) => {
     if(!file) return;
-    const kaydet = (dataUrl, ad) => {
-      setStateFn(prev=>({...prev, [personelId]: (prev[personelId]||[]).map(k=>k.id===kayitId?{...k,dosya:dataUrl,dosyaAdi:ad}:k)}));
+    const kaydet = async (dataUrlVeyaBlob, ad, blobMu) => {
+      const url = await gorselYukle(blobMu?dataUrlVeyaBlob:_dataUrlToBlob(dataUrlVeyaBlob), ad);
+      const kaydedilecek = url || (blobMu ? await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(dataUrlVeyaBlob);}) : dataUrlVeyaBlob);
+      setStateFn(prev=>({...prev, [personelId]: (prev[personelId]||[]).map(k=>k.id===kayitId?{...k,dosya:kaydedilecek,dosyaAdi:ad}:k)}));
       showToast("Belge yüklendi","ba");
     };
     if(file.type==="application/pdf" || file.name.toLowerCase().endsWith(".pdf")){
@@ -17833,14 +17874,12 @@ if(DB) dbUpsertAyar("tema",tema);
         canvas.width = vp.width; canvas.height = vp.height;
         const ctx = canvas.getContext("2d");
         await page.render({canvasContext:ctx, viewport:vp}).promise;
-        kaydet(canvas.toDataURL("image/png",1.0), file.name.replace(/\.pdf$/i,"")+".png");
+        kaydet(canvas.toDataURL("image/png",1.0), file.name.replace(/\.pdf$/i,"")+".png", false);
       }catch(err){ showToast("PDF okunamadı: "+err.message,"ha"); }
       return;
     }
     if(file.size>3145728){ showToast("Dosya en fazla 3MB olabilir","uy"); return; }
-    const rd = new FileReader();
-    rd.onload = e2 => kaydet(e2.target.result, file.name);
-    rd.readAsDataURL(file);
+    kaydet(file, file.name, true);
   };
   // Geriye dönük uyumluluk: mevcut Özlük Dosyası çağrıları aynen çalışmaya devam etsin
   const ikBelgeDosyaYukle = (personelId, kayitId, file) => ikKayitDosyaYukle(setOzlukDosyalari, personelId, kayitId, file);
@@ -23192,8 +23231,10 @@ if(DB) dbUpsertAyar("tema",tema);
 
           const belgeDosyaYukle = async (belgeAdi, file) => {
             if(!file) return;
-            const kaydet = (dataUrl, ad) => {
-              setCikisIslemleri(prev=>({...prev, [p.id]: (prev[p.id]||[]).map(x=>x.id===surec.id?{...x,belgeler:{...x.belgeler,[belgeAdi]:{...x.belgeler[belgeAdi],dosya:dataUrl,dosyaAdi:ad}}}:x)}));
+            const kaydet = async (dataUrlVeyaBlob, ad, blobMu) => {
+              const url = await gorselYukle(blobMu?dataUrlVeyaBlob:_dataUrlToBlob(dataUrlVeyaBlob), ad);
+              const kaydedilecek = url || (blobMu ? await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(dataUrlVeyaBlob);}) : dataUrlVeyaBlob);
+              setCikisIslemleri(prev=>({...prev, [p.id]: (prev[p.id]||[]).map(x=>x.id===surec.id?{...x,belgeler:{...x.belgeler,[belgeAdi]:{...x.belgeler[belgeAdi],dosya:kaydedilecek,dosyaAdi:ad}}}:x)}));
               showToast("Belge yüklendi","ba");
             };
             if(file.type==="application/pdf" || file.name.toLowerCase().endsWith(".pdf")){
@@ -23208,14 +23249,12 @@ if(DB) dbUpsertAyar("tema",tema);
                 canvas.width = vp.width; canvas.height = vp.height;
                 const ctx = canvas.getContext("2d");
                 await page.render({canvasContext:ctx, viewport:vp}).promise;
-                kaydet(canvas.toDataURL("image/png",1.0), file.name.replace(/\.pdf$/i,"")+".png");
+                kaydet(canvas.toDataURL("image/png",1.0), file.name.replace(/\.pdf$/i,"")+".png", false);
               }catch(err){ showToast("PDF okunamadı: "+err.message,"ha"); }
               return;
             }
             if(file.size>3145728){ showToast("Dosya en fazla 3MB olabilir","uy"); return; }
-            const rd = new FileReader();
-            rd.onload = e2 => kaydet(e2.target.result, file.name);
-            rd.readAsDataURL(file);
+            kaydet(file, file.name, true);
           };
 
           const surecTamamla = () => {
