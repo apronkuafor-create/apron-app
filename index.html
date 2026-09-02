@@ -2806,6 +2806,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const [borcKaydiTutar, setBorcKaydiTutar] = React.useState("");
   const [borcKaydiGorsel, setBorcKaydiGorsel] = React.useState([]);
   const [borcKaydiOkuYukleniyor, setBorcKaydiOkuYukleniyor] = React.useState(false);
+  const [borcKaydiUrunler, setBorcKaydiUrunler] = React.useState([]); // isteğe bağlı ürün ürün döküm — "Geçmiş Stok Tarihi" ekranıyla aynı desen
+  const [borcKaydiArama, setBorcKaydiArama] = React.useState("");
   const borcKaydiBarkodRef = React.useRef(null); // sentetik satırın barkodu — form açıldığında bir kez üretilir
 
   // Stok detay state
@@ -6452,7 +6454,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       onClick:()=>{setCariEkleSecimModal(false);setAcilisForm(true);setAcilisTedarikci("");setAcilisTutar("");setAcilisTarih(TODAY());setAcilisNot("");}},
                     {ikon:"📄", renk:"#D97757", baslik:"Sadece Borç Kaydı",
                       aciklama:"Ürün ürün girmeden, tek bir toplam tutar ve fatura görseliyle tedarikçiye olan borcunuzu kaydeder. Fatura no/tarih/vade girilebilir. Stoğa hiçbir şekilde işlenmez.",
-                      onClick:()=>{setCariEkleSecimModal(false);borcKaydiBarkodRef.current="BORC-"+uid();setBorcKaydiForm(true);setBorcKaydiTedarikci("");setBorcKaydiFaturaN("");setBorcKaydiFaturaTarih(TODAY());setBorcKaydiVade("");setBorcKaydiTutar("");setBorcKaydiGorsel([]);}},
+                      onClick:()=>{setCariEkleSecimModal(false);borcKaydiBarkodRef.current="BORC-"+uid();setBorcKaydiForm(true);setBorcKaydiTedarikci("");setBorcKaydiFaturaN("");setBorcKaydiFaturaTarih(TODAY());setBorcKaydiVade("");setBorcKaydiTutar("");setBorcKaydiGorsel([]);setBorcKaydiUrunler([]);setBorcKaydiArama("");}},
                     {ikon:"📅", renk:"#0071E3", baslik:"Fatura Ekle (Geçmiş Stok Tarihi)",
                       aciklama:"Elinizde uzun süredir olan, parası zaten ödenmiş bir faturayı kaydeder — tedarikçinin diğer faturaları arasında \"ödenmiş\" olarak görünür, güncel borcunuzu artırmaz. Toplam stok adediniz de değişmez; sadece bu ürünlerin \"Durgun Stok\" analizinde doğru tarihle görünmesini sağlar.",
                       onClick:()=>{setCariEkleSecimModal(false);setGecmisStokTedarikci("");setGecmisStokFaturaN("");setGecmisStokTarih("");setGecmisStokGorsel([]);setGecmisStokUrunler([]);setGecmisStokArama("");setGecmisStokBilgiAcik(false);setGecmisStokKismiBilgi(null);setGecmisStokModal(true);}}
@@ -7000,6 +7002,55 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             div({style:{fontSize:10,color:"var(--di)",marginTop:4,textAlign:"center"}},
               "Tedarikçi, fatura no, tarih ve toplam tutar otomatik doldurulur.")
           ),
+          div({style:{marginBottom:10}},
+            lbl({className:"fl"},"Ürün Ekle (opsiyonel — girerseniz Toplam Tutar otomatik hesaplanır)"),
+            h(UrunAramaBilesen,{
+              aramaVal:borcKaydiArama, setAramaVal:setBorcKaydiArama,
+              onEkle:sec=>{
+                const yeni=[...borcKaydiUrunler,{barkod:sec.b,urunAd:sec.a,marka:sec.m,miktar:"1",birimFiyat:toN(sec.bp)||0,bedelsizMi:false,sarfMi:false}];
+                setBorcKaydiUrunler(yeni);
+                setBorcKaydiArama("");
+                setBorcKaydiTutar(String(Math.round(yeni.reduce((s,u)=>{const bf=u.bedelsizMi?0:(toN(u.birimFiyat)||0);const ad=toN(u.miktar)||0;return s+(u.bedelsizMi?0:ad*bf*1.2);},0)*100)/100));
+              },
+              tipFiltre:null, placeholder:"Barkod okut veya ürün adı yaz..."
+            })
+          ),
+          borcKaydiUrunler.length>0 && div({style:{marginBottom:16}},
+            borcKaydiUrunler.map((u,i)=>
+              div({key:i,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 0",
+                borderBottom:i<borcKaydiUrunler.length-1?"1px solid var(--br)":"none"}},
+                div({style:{flex:1,minWidth:0}},
+                  div({style:{fontSize:12.5,color:"var(--tx)",fontWeight:600,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}},
+                    u.urunAd,
+                    !u.barkod && h("span",{style:{fontSize:9,fontWeight:700,color:"#8a5c08",background:"rgba(255,149,0,.15)",
+                      borderRadius:5,padding:"1px 5px"}},"kataloğa eşleşmedi"),
+                    u.bedelsizMi && h("span",{style:{fontSize:9,fontWeight:700,color:"#1e9e46",background:"rgba(52,199,89,.15)",
+                      borderRadius:5,padding:"1px 5px"}},"bedelsiz"),
+                    btn({type:"button",style:{fontSize:9,fontWeight:700,padding:"1px 6px",borderRadius:5,
+                      border:"1px solid "+(u.sarfMi?"rgba(255,149,0,.5)":"var(--br)"),cursor:"pointer",
+                      background:u.sarfMi?"rgba(255,149,0,.15)":"transparent",
+                      color:u.sarfMi?"#FF9500":"var(--di)"},
+                      onClick:()=>setBorcKaydiUrunler(p=>p.map((x,j)=>j===i?{...x,sarfMi:!x.sarfMi}:x))},
+                      u.sarfMi?"🧪 Sarf":"🛍️ Satılabilen")
+                  ),
+                  u.birimFiyat>0 && div({style:{fontSize:10.5,color:"var(--mu)"}},"Birim: "+fmt(u.birimFiyat))
+                ),
+                inp({className:"fi",type:"number",style:{width:70,padding:"6px 8px",fontSize:12},min:"0",
+                  value:u.miktar,onChange:e=>{
+                    const v=e.target.value;
+                    const yeni=borcKaydiUrunler.map((x,j)=>j===i?{...x,miktar:v}:x);
+                    setBorcKaydiUrunler(yeni);
+                    setBorcKaydiTutar(String(Math.round(yeni.reduce((s,u2)=>{const bf=u2.bedelsizMi?0:(toN(u2.birimFiyat)||0);const ad=toN(u2.miktar)||0;return s+(u2.bedelsizMi?0:ad*bf*1.2);},0)*100)/100));
+                  }}),
+                btn({type:"button",style:{fontSize:11,color:"#e06060",background:"none",border:"none",cursor:"pointer",padding:"4px"},
+                  onClick:()=>{
+                    const yeni=borcKaydiUrunler.filter((_,j)=>j!==i);
+                    setBorcKaydiUrunler(yeni);
+                    setBorcKaydiTutar(String(Math.round(yeni.reduce((s,u2)=>{const bf=u2.bedelsizMi?0:(toN(u2.birimFiyat)||0);const ad=toN(u2.miktar)||0;return s+(u2.bedelsizMi?0:ad*bf*1.2);},0)*100)/100));
+                  }},"✕")
+              )
+            )
+          ),
           div({style:{display:"flex",gap:10}},
             btn({style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",background:"transparent",color:"var(--mu)",fontSize:14,fontWeight:600,cursor:"pointer"},
               onClick:()=>setBorcKaydiForm(false)},"İptal"),
@@ -7007,15 +7058,36 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               onClick:()=>{
                 if(!borcKaydiTedarikci){showToast("Tedarikçi seçin","uy");return;}
                 if(!toN(borcKaydiTutar)){showToast("Toplam tutar girin","uy");return;}
+                if(borcKaydiUrunler.length>0){
+                  const gecersiz = borcKaydiUrunler.find(u=>toN(u.miktar)<=0);
+                  if(gecersiz){showToast(gecersiz.urunAd+" için miktar 0'dan büyük olmalı","uy");return;}
+                }
                 const gercekKaydet=()=>{
                   const tutar=toN(borcKaydiTutar);
+                  // Ürün ürün döküm girilmişse ("Ürün Ekle") o satırlar kullanılır — girilmemişse eskisi gibi
+                  // tek bir "ürün detayı girilmedi" satırıyla toplam tutar kaydedilir. İkisi de stokTakipsiz:true
+                  // olduğu için stoğa hiçbir şekilde işlenmez.
+                  const urunlerHazir = borcKaydiUrunler.length>0
+                    ? borcKaydiUrunler.map(u=>{
+                        const adet = toN(u.miktar)||1;
+                        const birimF = u.bedelsizMi ? 0 : (toN(u.birimFiyat)||0);
+                        const matrah = adet*birimF;
+                        const kdvOran = 20;
+                        const kdvTutar = u.bedelsizMi ? 0 : matrah*(kdvOran/100);
+                        return {barkod:u.barkod||"", urunAd:u.urunAd, marka:u.marka||"",
+                          adet, birimF, iskontoOran:0, iskontoTutar:0, kdvOran, kdvTutar,
+                          toplamF: u.bedelsizMi?0:(matrah+kdvTutar), bedelsiz:!!u.bedelsizMi,
+                          kabulAdet:adet, farkSebep:"", farkNot:"", sarfMi:!!u.sarfMi,
+                          stokTakipsiz:true}; // AÇIK GÜVENCE: bu satırlar hiçbir zaman stoğa işlenmez
+                      })
+                    : [{barkod:borcKaydiBarkodRef.current,urunAd:"Fatura Tutarı (ürün detayı girilmedi)",
+                        marka:"",adet:1,birimF:tutar,iskontoOran:0,iskontoTutar:0,kdvOran:0,kdvTutar:0,
+                        toplamF:tutar,bedelsiz:false,kabulAdet:1,farkSebep:"",farkNot:"",
+                        stokTakipsiz:true}]; // AÇIK GÜVENCE: bu satır hiçbir zaman stoğa işlenmez — "Sadece Borç Kaydı" ürün detayı içermez
                   const kayit={id:uid(),tarih:borcKaydiFaturaTarih,faturaTarih:borcKaydiFaturaTarih,
                     faturaN:borcKaydiFaturaN.trim(),irsaliyeN:"",tedarikci:borcKaydiTedarikci,vade:borcKaydiVade,
                     malKabulTarihi:borcKaydiFaturaTarih,tip:"satilabilen",faturaImg:borcKaydiGorsel,
-                    urunler:[{barkod:borcKaydiBarkodRef.current,urunAd:"Fatura Tutarı (ürün detayı girilmedi)",
-                      marka:"",adet:1,birimF:tutar,iskontoOran:0,iskontoTutar:0,kdvOran:0,kdvTutar:0,
-                      toplamF:tutar,bedelsiz:false,kabulAdet:1,farkSebep:"",farkNot:"",
-                      stokTakipsiz:true}]}; // AÇIK GÜVENCE: bu satır hiçbir zaman stoğa işlenmez — "Sadece Borç Kaydı" ürün detayı içermez
+                    urunler:urunlerHazir};
                   const yeniArsiv=[kayit,...mkArsiv];
                   mkArsivKirliRef.current=true;
                   setMkArsiv(yeniArsiv);
@@ -10944,7 +11016,15 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [musteri,  setMusteri]  = useState(ilk?.musteri||"");
   const [hizOdemeNotu, setHizOdemeNotu] = useState(ilk?.hizOdemeNotu||"");
   const [urunOdemeNotu, setUrunOdemeNotu] = useState(ilk?.urunOdemeNotu||"");
-  const [tel,      setTel]      = useState(ilk?.tel||"");
+  const [tel,      setTel]      = useState(() => {
+    // Düzenleme sırasında da gizlilik korunsun: kayıt başkasının müşterisine aitse telefon burada
+    // görünmesin, aşağıdaki farkliSahipGercekTel'e (gizli) taşınsın.
+    if(ilk?.tel){
+      const m0 = (musteriDB||[]).find(x=>normText(x.ad)===normText(ilk.musteri||""));
+      if(m0 && m0.sahipId && String(m0.sahipId)!==String(aktifKullanici?.id||"")) return "";
+    }
+    return ilk?.tel||"";
+  });
   // ── Başka Personelin Müşterisi Uyarısı: kayıt sahibi kendisi olmayan bilinen bir müşteri adı
   // girildiğinde, kaydetmeden önce sebep sorulur. Ücret yine kaydı yapan personele yazılır —
   // bu sadece sahibinin (Müşterilerim ekranından) bu ziyareti görebilmesi içindir.
@@ -10956,6 +11036,23 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [farkliSahipManuelMi, setFarkliSahipManuelMi] = useState(false); // otomatik tespit mi, personel mi bildirdi
   const [sahiplikSeciliPersonel, setSahiplikSeciliPersonel] = useState(null); // {id,ad} — 1. adımda seçilen personel
   const [sahiplikMusteriArama, setSahiplikMusteriArama] = useState("");
+  // Gizlilik + otomatik hatırlatma için: sahiplik onaylandığında müşterinin GERÇEK telefonu görünür alanda
+  // (tel) DEĞİL, burada tutulur — form ekranında hiç gösterilmez ama Kaydet anında hatırlatma oluşturmak için
+  // kullanılır. Hatırlatmanın hangi personelin alanına düşeceğini bilmek için asıl sahip bilgisi de saklanır.
+  const [farkliSahipGercekTel, setFarkliSahipGercekTel] = useState(() => {
+    if(ilk?.tel){
+      const m0 = (musteriDB||[]).find(x=>normText(x.ad)===normText(ilk.musteri||""));
+      if(m0 && m0.sahipId && String(m0.sahipId)!==String(aktifKullanici?.id||"")) return ilk.tel;
+    }
+    return "";
+  });
+  const [farkliSahipSahipBilgi, setFarkliSahipSahipBilgi] = useState(() => {
+    if(ilk?.tel){
+      const m0 = (musteriDB||[]).find(x=>normText(x.ad)===normText(ilk.musteri||""));
+      if(m0 && m0.sahipId && String(m0.sahipId)!==String(aktifKullanici?.id||"")) return {sahipId:m0.sahipId, sahipAd:m0.sahipAd||""};
+    }
+    return null;
+  }); // {sahipId, sahipAd}
   const [formTarih, setFormTarih] = useState(ilk?.tarih || TODAY());
   const [hizmetSaati, setHizmetSaati] = useState(ilk?.hizmetSaati || new Date().toTimeString().slice(0,5));
   const [musteriKaydet, setMusteriKaydet] = useState(!!ilk?.musteriKaydet);
@@ -11114,6 +11211,8 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
     setTelOneri([]);
     setSilIkonuAlani("");
     setMusteriKaydetUyari("");
+    setFarkliSahipGercekTel("");
+    setFarkliSahipSahipBilgi(null);
   };
 
   useEffect(() => {
@@ -11399,12 +11498,17 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
       const hizmetTarihi = new Date((formTarih||TODAY())+"T12:00:00");
       const mesajGunSayisi = Math.max(1, Math.round((gonTarih - hizmetTarihi)/86400000));
       const hatId = uid();
+      // Gizlilik: "Bu müşteri bana ait değil" akışında telefon görünür alanda değil, farkliSahipGercekTel'de
+      // saklanır — hatırlatma yine de gerçek numarayla oluşturulur. Hatırlatma, hizmeti VEREN değil, müşterinin
+      // GERÇEK SAHİBİ olan personelin alanına düşer — çünkü telefon numarasını görüp mesajı atabilecek olan odur.
+      const hatStaffId = farkliSahipSahipBilgi ? farkliSahipSahipBilgi.sahipId : (aktifKullanici?.id||"");
+      const hatStaffAd = farkliSahipSahipBilgi ? farkliSahipSahipBilgi.sahipAd : (aktifKullanici?.ad||"");
       const yeniHat = {
         id:hatId,
         musteriAd:musteri,
-        tel:tel,
-        staffId:aktifKullanici?.id||"",
-        staffAd:aktifKullanici?.ad||"",
+        tel:tel||farkliSahipGercekTel,
+        staffId:hatStaffId,
+        staffAd:hatStaffAd,
         olusturmaTarihi:TODAY(),
         hizmetTarihi:formTarih||TODAY(), // saç kesiminin gerçek tarihi — gönderim anında doğru gün hesabı için
         gonderiTarih:gonTarih.toISOString().split("T")[0],
@@ -11421,7 +11525,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
       });
       dbUpsert("hatirlatmalar", yeniHat, "isletme_id,id"); // ☁ buluta kalıcı yaz
     }
-    onKaydet({id:ilk?.id,musteri,tel,
+    onKaydet({id:ilk?.id,musteri,tel:tel||farkliSahipGercekTel,
       anaPersonelId:anaPersonelId||ilk?.anaPersonelId||"",
       anaPersonelAd:personeller.find(p=>p.id===(anaPersonelId||ilk?.anaPersonelId))?.ad||"",
       farkliSahipSebep:farkliSahipSebep||ilk?.farkliSahipSebep||"",
@@ -11537,6 +11641,8 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                   if(farkliSahipSebep) setFarkliSahipSebep("");
                   if(farkliSahipDigerModu){ setFarkliSahipDigerModu(false); setFarkliSahipDigerMetin(""); }
                   if(farkliSahipManuelMi) setFarkliSahipManuelMi(false);
+                  if(farkliSahipGercekTel) setFarkliSahipGercekTel("");
+                  if(farkliSahipSahipBilgi) setFarkliSahipSahipBilgi(null);
                   if(sahiplikSeciliPersonel){ setSahiplikSeciliPersonel(null); setSahiplikMusteriArama(""); }
                   setSilIkonuAlani(val||tel?"musteri":"");
                   const q=normText(val);
@@ -11581,7 +11687,9 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
           div({style:{position:"relative",gridColumn:1,gridRow:2,display:_isManikurist?"none":"block"}},
             lbl({className:"fl"},"Telefon"),
             div({style:{position:"relative"}},
-              inp({className:"fi",type:"tel",inputMode:"tel",placeholder:"05XX...",value:tel,
+              inp({className:"fi",type:"tel",inputMode:"tel",
+                placeholder: farkliSahipGercekTel ? "•• ••• •• •• (kayıtlı, gizli)" : "05XX...",
+                value:tel,
                 maxLength:15,
                 style:{width:"100%",paddingRight:(silIkonuAlani==="tel"&&(musteri||tel))?34:11,fontSize:12.5,letterSpacing:"-.4px"},
                 onChange:e=>{
@@ -11695,9 +11803,11 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                                 onClick:()=>{
                                   setMusteri(m.ad);
                                   setTel("");
+                                  setFarkliSahipGercekTel(m.tel||""); // gerçek numara gizli saklanır — otomatik hatırlatma için
                                   setSahiplikPersonelSecici(false);
                                   setFarkliSahipManuelMi(true);
                                   setFarkliSahipUyari({sahipId:sahiplikSeciliPersonel.id, sahipAd:sahiplikSeciliPersonel.ad});
+                                  setFarkliSahipSahipBilgi({sahipId:sahiplikSeciliPersonel.id, sahipAd:sahiplikSeciliPersonel.ad});
                                   setSahiplikSeciliPersonel(null);
                                 }},"👤 "+m.ad)
                             )
@@ -11712,6 +11822,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                           setSahiplikPersonelSecici(false);
                           setFarkliSahipManuelMi(true);
                           setFarkliSahipUyari({sahipId:sahiplikSeciliPersonel.id, sahipAd:sahiplikSeciliPersonel.ad});
+                          setFarkliSahipSahipBilgi({sahipId:sahiplikSeciliPersonel.id, sahipAd:sahiplikSeciliPersonel.ad});
                           setSahiplikSeciliPersonel(null);
                         }},"\""+(sahiplikMusteriArama.trim()||musteri.trim())+"\" ismiyle devam et"),
                       btn({style:{width:"100%",padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",
