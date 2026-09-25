@@ -130,7 +130,7 @@ const DB = (window.supabase && window.supabase.createClient)
   ? window.supabase.createClient("https://txbvqwcwarpkwvvhxdoo.supabase.co", "sb_publishable_fqTUK7zk4d0peq6jFib-VQ__gYCl34J")
   : null;
 
-const TODAY = () => new Date().toISOString().split("T")[0];
+const TODAY = () => { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
 // Yerel tarih bileşenlerinden (saat dilimi kaymasına karşı güvenli) ISO tarih string'i üretir.
 const isoTarih = (d) => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
 const SAAT  = () => new Date().toTimeString().slice(0,5);
@@ -11511,7 +11511,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
         staffAd:hatStaffAd,
         olusturmaTarihi:TODAY(),
         hizmetTarihi:formTarih||TODAY(), // saç kesiminin gerçek tarihi — gönderim anında doğru gün hesabı için
-        gonderiTarih:gonTarih.toISOString().split("T")[0],
+        gonderiTarih:gonTarih.getFullYear()+"-"+String(gonTarih.getMonth()+1).padStart(2,"0")+"-"+String(gonTarih.getDate()).padStart(2,"0"),
         gonderildi:false,
         tip:"sacKesimi",
         mesaj:"Merhaba Sayın "+musteri+", son saç kesiminizi "+fmtT(formTarih||TODAY())+" tarihinde yapmıştık. Üzerinden "+mesajGunSayisi+" gün geçti. Saçınızın uzama hızını ve kesim hassasiyetinizi göz önünde bulundurarak, saç kesimi zamanınızın geldiğini düşünüyoruz. Randevu için lütfen bizi arayın. 💈\n\n"+(isletme?.ad||"Apron"),
@@ -15839,7 +15839,10 @@ function App() {
     // Bu izin, sadece GERÇEK bulut verisi geldiğinde (aşağıdaki realtime/ilk-yükleme handler'ında)
     // veya kullanıcı gerçek bir stok işlemi yaptığında verilir.
     if(local.stokPartiler?.length) { setStokPartiler(local.stokPartiler); }
-    if(!local._bildirimTemizlendi){ setHatirlatmalar([]); } else if(local.hatirlatmalar?.length) setHatirlatmalar(local.hatirlatmalar);
+    if(local._bildirimTemizlendi && local.hatirlatmalar?.length){
+      // Buluttan önce gelmiş olabilecek veriyi silmeden birleştir (bulut kazanır)
+      setHatirlatmalar(prev=>{ const m={}; local.hatirlatmalar.forEach(h=>{ if(h&&h.id!=null) m[String(h.id)]=h; }); (prev||[]).forEach(h=>{ if(h&&h.id!=null) m[String(h.id)]=h; }); return Object.values(m); });
+    }
     if(local.randevular?.length) setRandevular(local.randevular);
     if(local.tedarikciler?.length) setTedarikciler(local.tedarikciler);
     if(local.faturalar?.length) setFaturalar(local.faturalar);
@@ -16300,7 +16303,9 @@ if(DB) dbUpsertAyar("tema",tema);
   // ── Müşteri Hatırlatmaları (hatirlatmalar) - Supabase'den yükle + realtime + yereli buluta taşı ──
   useEffect(()=>{
     if(!DB) return;
-    const yukle = () => DB.from("hatirlatmalar").select("*").then(({data,error})=>{
+    const yukle = async () => {
+      try { await DB.auth.getSession(); } catch(e){} // oturum hazır olmadan sorgu RLS yüzünden boş döner
+      return DB.from("hatirlatmalar").select("*").then(({data,error})=>{
       if(error || !data) return;
       setHatirlatmalar(prev=>{
         const m={};
@@ -16308,11 +16313,19 @@ if(DB) dbUpsertAyar("tema",tema);
         const bulutId=new Set(data.map(h=>String(h.id)));
         data.forEach(h=>{ if(h&&h.id!=null) m[String(h.id)]=h; });
         // Bulutta olmayan yerel hatırlatmaları buluta taşı (tek seferlik geçiş)
-        (prev||[]).forEach(h=>{ if(h&&h.id!=null && !bulutId.has(String(h.id))) dbUpsert("hatirlatmalar",h,"isletme_id,id"); });
+        if(data.length) (prev||[]).forEach(h=>{ if(h&&h.id!=null && !bulutId.has(String(h.id))) dbUpsert("hatirlatmalar",h,"isletme_id,id"); });
         return Object.values(m);
       });
     }).catch(()=>{});
+    };
     yukle();
+    // Oturum geç açılırsa / token yenilenirse tekrar çek
+    let authSub=null;
+    try { authSub = DB.auth.onAuthStateChange((ev)=>{ if(ev==="SIGNED_IN"||ev==="TOKEN_REFRESHED"||ev==="INITIAL_SESSION") yukle(); }); } catch(e){}
+    // Mobilde uygulama arka plandan dönünce realtime kopmuş olabilir — tekrar çek
+    const onVisHat = ()=>{ if(!document.hidden) yukle(); };
+    document.addEventListener("visibilitychange", onVisHat);
+    const temizleEk = ()=>{ try{ authSub?.data?.subscription?.unsubscribe(); }catch(e){} document.removeEventListener("visibilitychange", onVisHat); };
     let interval=null;
     try {
       const ch = DB.channel("hatirlatmalar_ch")
@@ -16328,10 +16341,10 @@ if(DB) dbUpsertAyar("tema",tema);
         .subscribe((status,err)=>{
           if(err || status==="CHANNEL_ERROR" || status==="TIMED_OUT"){ DB.removeChannel(ch); interval=setInterval(yukle,15000); }
         });
-      return ()=>{ try{ DB.removeChannel(ch); }catch(e){} if(interval) clearInterval(interval); };
+      return ()=>{ try{ DB.removeChannel(ch); }catch(e){} if(interval) clearInterval(interval); temizleEk(); };
     } catch(e){
       interval=setInterval(yukle,15000);
-      return ()=>{ if(interval) clearInterval(interval); };
+      return ()=>{ if(interval) clearInterval(interval); temizleEk(); };
     }
   },[]);
 
