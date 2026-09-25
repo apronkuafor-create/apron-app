@@ -479,6 +479,24 @@ const dbGnc  = (t,r,id) => {
   return DB.from(t).update(r).eq("id",id).then(({error})=>{ if(error){ skEkle({op:"update",t,r,id}); return false; } return true; })
     .catch(()=>{ skEkle({op:"update",t,r,id}); return false; });
 };
+const hatNorm = (h) => {
+  if(!h || h.id==null) return h;
+  const al = (...k) => { for(const x of k){ if(h[x]!==undefined && h[x]!==null) return h[x]; } return undefined; };
+  const g = al("gonderildi");
+  const out = {...h, id:String(h.id),
+    musteriAd: al("musteriAd","musteriad","musteri_ad"),
+    staffId: al("staffId","staffid","staff_id")!=null ? String(al("staffId","staffid","staff_id")) : undefined,
+    staffAd: al("staffAd","staffad","staff_ad"),
+    gonderiTarih: (al("gonderiTarih","gonderitarih","gonderi_tarih")||"").toString().slice(0,10) || undefined,
+    hizmetTarihi: al("hizmetTarihi","hizmettarihi","hizmet_tarihi"),
+    olusturmaTarihi: al("olusturmaTarihi","olusturmatarihi","olusturma_tarihi"),
+    gonderildiTarih: al("gonderildiTarih","gonderilditarih","gonderildi_tarih"),
+    gonderildi: g===true || g==="true" || g===1 };
+  Object.keys(out).forEach(k=>{ if(out[k]===undefined) delete out[k]; });
+  return out;
+};
+// İki kopyayı alan kaybetmeden birleştir (b, a'nın üstüne yazar ama boş alanlarla silmez)
+const hatBirlestir = (a, b) => { const x=hatNorm(a)||{}, y=hatNorm(b)||{}; const r={...x}; Object.keys(y).forEach(k=>{ if(y[k]!==undefined&&y[k]!==null&&y[k]!=="") r[k]=y[k]; }); return r; };
 const dbSil  = (t,id) => DB&&DB.from(t).delete().eq("id",id).then(()=>{}).catch(()=>{});
 const dbUpsert = (t,rows,c) => {
   if(!DB){ skEkle({op:"upsert",t,r:rows,c}); return Promise.resolve(false); }
@@ -15767,7 +15785,7 @@ function App() {
 
       const bugun = TODAY();
       const vadesi = hatirlatmalar.filter(h=>
-        h.staffId === kul.id && !h.gonderildi && h.gonderiTarih <= bugun
+        String(h.staffId) === String(kul.id) && !h.gonderildi && h.gonderiTarih <= bugun
       );
       if(vadesi.length === 0) return;
 
@@ -15800,7 +15818,7 @@ function App() {
   React.useEffect(()=>{
     if(!kul || !hatirlatmalar) return;
     const bugun = TODAY();
-    const vadesi = hatirlatmalar.filter(h=>h.staffId===kul.id && !h.gonderildi && h.gonderiTarih<=bugun);
+    const vadesi = hatirlatmalar.filter(h=>String(h.staffId)===String(kul.id) && !h.gonderildi && h.gonderiTarih<=bugun);
     if(vadesi.length===0) return;
     const popKey = "apron_hat_popup_"+kul.id+"_"+bugun;
     if(localStorage.getItem(popKey)) return;
@@ -15841,7 +15859,7 @@ function App() {
     if(local.stokPartiler?.length) { setStokPartiler(local.stokPartiler); }
     if(local._bildirimTemizlendi && local.hatirlatmalar?.length){
       // Buluttan önce gelmiş olabilecek veriyi silmeden birleştir (bulut kazanır)
-      setHatirlatmalar(prev=>{ const m={}; local.hatirlatmalar.forEach(h=>{ if(h&&h.id!=null) m[String(h.id)]=h; }); (prev||[]).forEach(h=>{ if(h&&h.id!=null) m[String(h.id)]=h; }); return Object.values(m); });
+      setHatirlatmalar(prev=>{ const m={}; local.hatirlatmalar.forEach(h=>{ if(h&&h.id!=null) m[String(h.id)]=hatNorm(h); }); (prev||[]).forEach(h=>{ if(h&&h.id!=null){ const k=String(h.id); m[k]=m[k]?hatBirlestir(m[k],h):hatNorm(h); } }); return Object.values(m); });
     }
     if(local.randevular?.length) setRandevular(local.randevular);
     if(local.tedarikciler?.length) setTedarikciler(local.tedarikciler);
@@ -16189,7 +16207,8 @@ if(DB) dbUpsertAyar("tema",tema);
       return yeniH;
     });
     if(degisenSayisi>0){
-      setHatirlatmalar(guncellenmis);
+      const degisenMap={}; guncellenmis.forEach(h=>{ if(h&&h.id!=null) degisenMap[String(h.id)]=h; });
+      setHatirlatmalar(p=>(p||[]).map(h=>{ const y=degisenMap[String(h.id)]; return (y&&y.mesaj!==h.mesaj)?{...h,mesaj:y.mesaj}:h; }));
       if(typeof showToast==="function") showToast(degisenSayisi+" bekleyen hatırlatma mesajı düzeltildi","ba");
     }
   },[yukleniyor]);
@@ -16309,9 +16328,9 @@ if(DB) dbUpsertAyar("tema",tema);
       if(error || !data) return;
       setHatirlatmalar(prev=>{
         const m={};
-        (prev||[]).forEach(h=>{ if(h&&h.id!=null) m[String(h.id)]=h; });
+        (prev||[]).forEach(h=>{ if(h&&h.id!=null) m[String(h.id)]=hatNorm(h); });
         const bulutId=new Set(data.map(h=>String(h.id)));
-        data.forEach(h=>{ if(h&&h.id!=null) m[String(h.id)]=h; });
+        data.forEach(h=>{ if(h&&h.id!=null){ const k=String(h.id); m[k]=m[k]?hatBirlestir(m[k],h):hatNorm(h); } });
         // Bulutta olmayan yerel hatırlatmaları buluta taşı (tek seferlik geçiş)
         if(data.length) (prev||[]).forEach(h=>{ if(h&&h.id!=null && !bulutId.has(String(h.id))) dbUpsert("hatirlatmalar",h,"isletme_id,id"); });
         return Object.values(m);
@@ -16330,10 +16349,10 @@ if(DB) dbUpsertAyar("tema",tema);
     try {
       const ch = DB.channel("hatirlatmalar_ch")
         .on("postgres_changes",{event:"INSERT",schema:"public",table:"hatirlatmalar"},payload=>{
-          setHatirlatmalar(p=>[...(p||[]).filter(h=>String(h.id)!==String(payload.new.id)),payload.new]);
+          setHatirlatmalar(p=>{ const eski=(p||[]).find(h=>String(h.id)===String(payload.new.id)); return [...(p||[]).filter(h=>String(h.id)!==String(payload.new.id)), eski?hatBirlestir(eski,payload.new):hatNorm(payload.new)]; });
         })
         .on("postgres_changes",{event:"UPDATE",schema:"public",table:"hatirlatmalar"},payload=>{
-          setHatirlatmalar(p=>(p||[]).map(h=>String(h.id)===String(payload.new.id)?payload.new:h));
+          setHatirlatmalar(p=>{ const var_=(p||[]).some(h=>String(h.id)===String(payload.new.id)); return var_ ? (p||[]).map(h=>String(h.id)===String(payload.new.id)?hatBirlestir(h,payload.new):h) : [...(p||[]), hatNorm(payload.new)]; });
         })
         .on("postgres_changes",{event:"DELETE",schema:"public",table:"hatirlatmalar"},payload=>{
           setHatirlatmalar(p=>(p||[]).filter(h=>String(h.id)!==String(payload.old.id)));
@@ -19446,7 +19465,7 @@ if(DB) dbUpsertAyar("tema",tema);
     // ── Gün açılışında bekleyen hatırlatma pop-up'ı (ara çözüm — otomatik gönderim yerine) ──
     hatBildirimGoster&&kul&&(()=>{
       const bugunPop = TODAY();
-      const vadesiPop = (hatirlatmalar||[]).filter(h=>h.staffId===kul.id&&!h.gonderildi&&h.gonderiTarih<=bugunPop);
+      const vadesiPop = (hatirlatmalar||[]).filter(h=>String(h.staffId)===String(kul.id)&&!h.gonderildi&&h.gonderiTarih<=bugunPop);
       if(vadesiPop.length===0) return null;
       return div({className:"conf-ov",style:{alignItems:"center",padding:"0 16px"}},
         div({className:"gs-k"},
@@ -20428,7 +20447,7 @@ if(DB) dbUpsertAyar("tema",tema);
             if((b.tip==="mkayit_kaydedildi" || b.tip==="mkayit_red") && String(b.talepEdenId||"")===benimId) return true;
             return false;
           }).length;
-          const bekleyenHatSayim = (hatirlatmalar||[]).filter(h=>h.staffId===kul.id&&!h.gonderildi&&h.gonderiTarih<=bugunStr2).length;
+          const bekleyenHatSayim = (hatirlatmalar||[]).filter(h=>String(h.staffId)===String(kul.id)&&!h.gonderildi&&h.gonderiTarih<=bugunStr2).length;
           const musteriBadge = okunmamisDevirSayim + bekleyenHatSayim;
           return h(Fragment,null,
             div({className:`atab${psek==="bugun"?" a":""}`,onClick:()=>setPsek("bugun"),
@@ -20512,7 +20531,7 @@ if(DB) dbUpsertAyar("tema",tema);
         const bildirimSil = (b) => { setDevirBildirim(p=>p.filter(x=>x.id!==b.id)); };
         // ── Hatırlatma bildirimleri ──
         const bugunHat = TODAY();
-        const bekleyenHat = (hatirlatmalar||[]).filter(h=>h.staffId===kul.id&&!h.gonderildi&&h.gonderiTarih<=bugunHat);
+        const bekleyenHat = (hatirlatmalar||[]).filter(h=>String(h.staffId)===String(kul.id)&&!h.gonderildi&&h.gonderiTarih<=bugunHat);
         return div({className:"pg"},
           // ── Devir Bildirimleri Banner ──
           benimDevirBildirimlerim.length>0&&div({style:{
@@ -20668,7 +20687,7 @@ if(DB) dbUpsertAyar("tema",tema);
           ),
           // ── Hatırlatma Özeti (bu personel için) ──
           (()=>{
-            const myHat=(hatirlatmalar||[]).filter(h=>h.staffId===kul.id);
+            const myHat=(hatirlatmalar||[]).filter(h=>String(h.staffId)===String(kul.id));
             if(myHat.length===0) return null;
             const tGonderildi=myHat.filter(h=>h.gonderildi).length;
             const tVade=myHat.filter(h=>!h.gonderildi&&h.gonderiTarih<=bugunHat).length;
