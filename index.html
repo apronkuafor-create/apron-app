@@ -2056,6 +2056,9 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
                 )
               )
             ),
+            r.hizIbanSebep && toN(r.hizIB)>0 && h("div",{style:{marginTop:6,padding:"6px 9px",background:"rgba(255,159,10,.10)",
+              border:"1px solid rgba(255,159,10,.35)",borderRadius:7,fontSize:11.5,color:"#8a4b00"}},
+              "🏦 IBAN "+(r.hizIbanAd||"başka personel")+"'a gitti"+(r.anaPersonelAd?" (müşteri "+r.anaPersonelAd+"'a ait)":"")+" — "+r.hizIbanSebep),
             r.hizOdemeNotu && h("div",{style:{marginTop:6,padding:"6px 9px",background:"rgba(0,113,227,.06)",
               border:"1px solid rgba(0,113,227,.2)",borderRadius:7,fontSize:11.5,color:"var(--tx)"}},
               "💬 "+r.hizOdemeNotu)
@@ -11100,6 +11103,16 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   const [hIbanSec, setHIbanSec] = useState(ilk?.hizIbanId||"");
   const [uIbanSec, setUIbanSec] = useState(ilk?.urunIbanId||"");
   const [anaPersonelId, setAnaPersonelId] = useState(ilk?.anaPersonelId||"");
+  // Manikürist: hizmet IBAN'ı müşteri sahibinden farklı bir personele gittiyse gerekçe
+  const [hIbanSebep, setHIbanSebep] = useState(ilk?.hizIbanSebep||"");
+  const [ibanFarkModal, setIbanFarkModal] = useState(null); // {pId,pAd,sahipId,sahipAd}
+  const [ibanFarkDiger, setIbanFarkDiger] = useState("");
+  // Müşteri sahibi değişirse önceki farklı-IBAN seçimi ve gerekçesi sıfırlanır (ilk açılışta dokunulmaz)
+  const ibanSahipIlkRef = useRef(true);
+  useEffect(()=>{
+    if(ibanSahipIlkRef.current){ ibanSahipIlkRef.current=false; return; }
+    if(_isManikurist){ setHIbanSec(""); setHIbanSebep(""); }
+  },[anaPersonelId]);
   const [moneri, setMoneri] = useState([]);
   const [telOneri, setTelOneri] = useState([]);
   const [silIkonuAlani, setSilIkonuAlani] = useState(ilk?.tel ? "tel" : (ilk?.musteri ? "musteri" : ""));
@@ -11283,8 +11296,25 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
   };
 
   const ibanPersonelSec = (tip, pId, pAd) => {
-    if(tip==="hiz") setHIbanSec(pId);
+    if(tip==="hiz"){
+      // Manikürist, müşteri sahibinden farklı birinin IBAN'ını seçerse gerekçe sorulur
+      if(_isManikurist && anaPersonelId && String(pId)!==String(anaPersonelId)){
+        const sahipAd = personeller.find(p=>p.id===anaPersonelId)?.ad || "müşteri sahibi";
+        setIbanFarkDiger("");
+        setIbanFarkModal({pId, pAd, sahipId:anaPersonelId, sahipAd});
+        return;
+      }
+      setHIbanSec(pId);
+      setHIbanSebep("");
+    }
     else setUIbanSec(pId);
+  };
+  const ibanFarkOnayla = (sebep) => {
+    if(!ibanFarkModal) return;
+    setHIbanSec(ibanFarkModal.pId);
+    setHIbanSebep(sebep);
+    setIbanFarkModal(null);
+    setIbanFarkDiger("");
   };
 
   // ── Sesle Doldur — konuşmayı dinle, metne çevir ──
@@ -11553,8 +11583,9 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
       hizmetSaati:hizmetSaati||ilk?.hizmetSaati||"",
       hizler:temizH,hizKK:hKK,hizIB:hIB,hizNK:hNK,
       urunler:temizU,uKK,uIB,uNK,
-      hizIbanId: toN(hIB)>0 ? (_isManikurist ? (anaPersonelId||"" ) : (hIbanSec||aktifKullanici?.id||"")) : "",
-      hizIbanAd: toN(hIB)>0 ? (_isManikurist ? (aktifP.find(p=>p.id===anaPersonelId)?.ad||"") : (hIbanSec ? aktifP.find(p=>p.id===hIbanSec)?.ad||"" : aktifKullanici?.ad||"")) : "",
+      hizIbanId: toN(hIB)>0 ? (_isManikurist ? (hIbanSec||anaPersonelId||"") : (hIbanSec||aktifKullanici?.id||"")) : "",
+      hizIbanAd: toN(hIB)>0 ? (_isManikurist ? (aktifP.find(p=>p.id===(hIbanSec||anaPersonelId))?.ad||"") : (hIbanSec ? aktifP.find(p=>p.id===hIbanSec)?.ad||"" : aktifKullanici?.ad||"")) : "",
+      hizIbanSebep: (toN(hIB)>0 && _isManikurist && hIbanSec && anaPersonelId && String(hIbanSec)!==String(anaPersonelId)) ? hIbanSebep : "",
       urunIbanId: toN(uIB)>0 ? (uIbanSec||aktifKullanici?.id||"") : "",
       urunIbanAd: toN(uIB)>0 ? (uIbanSec ? aktifP.find(p=>p.id===uIbanSec)?.ad||"" : aktifKullanici?.ad||"") : "",
       // Yönetici tarafından personele gönderilen düzenleme bildirimini kaybetmemek için taşınır.
@@ -12050,6 +12081,33 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
               )
             )
           ),
+          // ─── Manikürist: IBAN müşteri sahibinden farklı personele gitti ───
+          ibanFarkModal&&div({style:{position:"fixed",top:0,left:0,right:0,bottom:0,
+            background:"rgba(0,0,0,.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,
+            fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+            div({style:{background:"#FBFBFD",border:"1px solid rgba(0,0,0,.10)",borderRadius:16,padding:22,maxWidth:400,width:"100%",
+              boxShadow:"0 18px 50px rgba(0,0,0,.22), 0 4px 12px rgba(0,0,0,.10)"}},
+              div({style:{fontSize:15,color:"#1D1D1F",fontWeight:700,marginBottom:10,textAlign:"center",letterSpacing:"-.2px"}},"⚠️ IBAN farklı personele"),
+              div({style:{fontSize:13,color:"#1D1D1F",lineHeight:1.55,marginBottom:14}},
+                "Bu müşteri ",h("strong",null,ibanFarkModal.sahipAd),"'a ait. IBAN ödemesi ",
+                h("strong",null,ibanFarkModal.pAd),"'a mı yapıldı? Lütfen sebebini seçin:"),
+              ...[ibanFarkModal.sahipAd+" bugün işyerinde değildi",
+                  ibanFarkModal.sahipAd+" yoğundu",
+                  ibanFarkModal.sahipAd+"'ın IBAN'ında sorun vardı"].map((t,i)=>
+                btn({key:i,style:{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid rgba(0,113,227,.25)",
+                  background:"rgba(0,113,227,.06)",color:"#0058B0",fontSize:13,fontWeight:600,cursor:"pointer",marginBottom:7,textAlign:"left"},
+                  onClick:()=>ibanFarkOnayla(t)},t)),
+              div({style:{display:"flex",gap:6,marginBottom:12}},
+                inp({className:"fi",placeholder:"Diğer sebep...",value:ibanFarkDiger,style:{flex:1},
+                  onChange:e=>setIbanFarkDiger(e.target.value)}),
+                btn({disabled:!ibanFarkDiger.trim(),style:{padding:"0 14px",borderRadius:10,border:"none",
+                  background:ibanFarkDiger.trim()?"#0071E3":"#C7C7CC",color:"#fff",fontSize:13,fontWeight:700,cursor:ibanFarkDiger.trim()?"pointer":"default"},
+                  onClick:()=>ibanFarkDiger.trim()&&ibanFarkOnayla(ibanFarkDiger.trim())},"Onayla")),
+              btn({style:{width:"100%",padding:"11px 0",borderRadius:10,border:"1px solid var(--br)",
+                background:"#FFFFFF",color:"#86868B",fontSize:13,fontWeight:600,cursor:"pointer"},
+                onClick:()=>{setIbanFarkModal(null);setIbanFarkDiger("");}},"Vazgeç ("+ibanFarkModal.sahipAd+"'a kalsın)")
+            )
+          ),
           // ─── Modal B: Müşteri başka personelin ───
           baskaPersonelModal&&div({style:{position:"fixed",top:0,left:0,right:0,bottom:0,
             background:"rgba(0,0,0,.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,
@@ -12401,10 +12459,11 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
           h(OdemeGir,{renk:"var(--g)",label:"Ödeme Toplamı",kk:hKK,ib:hIB,nk:hNK,
             beklenen:hizTop, onSil:true,
             ibanPersoneller:aktifP.filter(p=>p.id!==aktifKullanici?.id),
-            ibanSecili:hIbanSec,
+            ibanSecili:_isManikurist ? (hIbanSec||anaPersonelId) : hIbanSec,
+            ibanBilgi:(_isManikurist && hIbanSebep && hIbanSec && String(hIbanSec)!==String(anaPersonelId)) ? ("Gerekçe: "+hIbanSebep) : "",
             onIbanSec:(pId,pAd)=>ibanPersonelSec("hiz",pId,pAd),
             notVal:hizOdemeNotu, onNotChange:setHizOdemeNotu,
-            onChange:(k,v)=>{if(k==="kk")setHKK(v);else if(k==="ib"){setHIB(v);if(!v)setHIbanSec("");}else setHNK(v);}}),
+            onChange:(k,v)=>{if(k==="kk")setHKK(v);else if(k==="ib"){setHIB(v);if(!v){setHIbanSec("");setHIbanSebep("");}}else setHNK(v);}}),
           (()=>{
             const satirlar = hizler.filter(x=>x.n && toN(x.listef)>0 && toN(x.f)>0).map(x=>{
               const liste = toN(x.listef);
