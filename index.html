@@ -10081,7 +10081,16 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
 
   // Ay değiştiğinde yeniden yükle (hydrate) gerekir — ref ile takip ediyoruz
   const girisHydrated = React.useRef(false);
-  React.useEffect(()=>{ girisHydrated.current = false; },[ayAnahtar]);
+  // Ay değişince: kullanıcı zaten uygulamanın içinde (veri yüklü) → o ayın kaydını hemen yükle,
+  // kayıt yoksa alanları BOŞALT (önceki ayın değerleri yeni aya taşınıp kaydedilmesin).
+  const girisIlkAy = React.useRef(true);
+  React.useEffect(()=>{
+    if(girisIlkAy.current){ girisIlkAy.current = false; return; }
+    const k = hesapSaglamaAylik[ayAnahtar] || {};
+    setGirisBankalarAy(k.kk||{}); setGirisBrutAy(k.brut||{});
+    setGirisIbanAy(String(k.iban||"")); setGirisNakitAy(String(k.nakit||""));
+    girisHydrated.current = true;
+  },[ayAnahtar]);
   // NOT: Sayfa/uygulama açılışında yerel depo veya Supabase'den veri GEÇ gelebilir (bu bileşen
   // veri henüz yüklenmeden mount olabilir). Bu yüzden sadece ayAnahtar değişince değil, veri
   // gerçekten elimize geçtiğinde (ilk kez tanımlı hale geldiğinde) de senkronize oluyoruz —
@@ -10101,8 +10110,11 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
   // basmadan sekme/sayfa değiştirilse, yenilense bile kaybolmasın. Günlük sekmedeki aynı mantık.
   // NOT: Bu sadece taslağı (kk/iban/nakit) saklar; komisyon dağıtımı SADECE "Kaydet" butonunda çalışır.
   React.useEffect(()=>{
-    if(!girisHydrated.current) return; // henüz hydrate olmadan (veri yüklenmeden) yazmayalım
     const girisBosMu = Object.keys(girisBankalarAy).length===0 && Object.keys(girisBrutAy).length===0 && !girisIbanAy && !girisNakitAy;
+    if(!girisHydrated.current){
+      if(girisBosMu || hesapSaglamaAylik[ayAnahtar]!==undefined) return;
+      girisHydrated.current = true;
+    }
     const mevcut = hesapSaglamaAylik[ayAnahtar];
     if(girisBosMu && !mevcut) return; // hiç kayıt yok, hiçbir şey de girilmemiş — boşuna taslak oluşturma
     const ayniMi = mevcut
@@ -10130,7 +10142,14 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
   const [hfFazlaOdenen, setHfFazlaOdenen] = React.useState(hfKayit.fazlaOdenen||{});
 
   const hfHydrated = React.useRef(false);
-  React.useEffect(()=>{ hfHydrated.current = false; },[ayAnahtar]);
+  const hfIlkAy = React.useRef(true);
+  React.useEffect(()=>{
+    if(hfIlkAy.current){ hfIlkAy.current = false; return; }
+    const m = (hesapSaglamaAylik[ayAnahtar]||{}).hesapFarki || {};
+    setHfNakit(String(m.nakit||"")); setHfBankalar(m.bankalar||{});
+    setHfIban(String(m.iban||"")); setHfFazlaOdenen(m.fazlaOdenen||{});
+    hfHydrated.current = true;
+  },[ayAnahtar]);
 
   React.useEffect(()=>{
     if(hfHydrated.current) return;
@@ -10146,8 +10165,13 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
 
   // Yazdıkça otomatik taslak kaydı (diğer alanlardaki aynı davranış)
   React.useEffect(()=>{
-    if(!hfHydrated.current) return; // henüz hydrate olmadan (veri yüklenmeden) yazmayalım
     const bosMu = !hfNakit && Object.keys(hfBankalar).length===0 && !hfIban && Object.keys(hfFazlaOdenen).length===0;
+    if(!hfHydrated.current){
+      // Bu ay için hiç kayıt yoksa hydrate hiç tamamlanmaz; kullanıcı yazmaya başladıysa veri çoktan
+      // yüklenmiştir — artık kaydetmeye başla (aksi halde girilenler yenilemede kaybolurdu).
+      if(bosMu || hesapSaglamaAylik[ayAnahtar]!==undefined) return;
+      hfHydrated.current = true;
+    }
     const mevcutHf = (hesapSaglamaAylik[ayAnahtar]||{}).hesapFarki;
     if(bosMu && !mevcutHf) return;
     const ayniMi = mevcutHf
@@ -10334,11 +10358,11 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
 
   // ── Ay sonu banka ekstresi + otomatik POS komisyonu (bağımsız, kendi giriş alanları) ──
   const manuelKK = Object.values(girisBankalarAy).reduce((s,v)=>s+toN(v),0);
-  const manuelIban = toN(girisIbanAy);
-  const manuelNakit = toN(girisNakitAy);
-  const manuelTop = manuelKK+manuelIban+manuelNakit;
-  const manuelGirildiMi = manuelKK>0 || manuelIban>0 || manuelNakit>0;
-  const manuelEslesti = manuelGirildiMi && Math.abs(manuelTop-sistemTop)<1;
+  // İban/Havale ve Nakit artık elle girilmez: ay boyunca günlük sağlamalara ("Gerçek Veriler")
+  // girilen tutarların toplamından otomatik gelir (Günlük POS toplamıyla aynı kaynak).
+  const manuelIban = otoIban;
+  const manuelNakit = otoNakit;
+  const manuelGirildiMi = manuelKK>0 || Object.values(girisBrutAy).some(v=>toN(v)>0);
 
   // Banka bazında: o ay boyunca günlük girilen toplam + ekstre + komisyon (fark)
   const bankaAdlari = (bankalar||[]).map(b=>typeof b==="string"?b:(b&&b.ad)).filter(Boolean);
@@ -10365,6 +10389,9 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
   // Toplam brüt farkı yalnızca brüt girilmiş bankaların günlük toplamıyla kıyaslanır (girilmemiş banka fark sayılmaz)
   const topSistemBrutGirilen = bankaSatirlari.filter(x=>x.brut>0).reduce((s,x)=>s+x.girisToplam,0);
   const topBrutFark = topBrut - topSistemBrutGirilen;
+  // Kontrol toplamı: Günlük POS toplamı + İban/Havale + Nakit → sistemin hesapladığı toplamla karşılaştırılır
+  const manuelTop = topSistemPos + manuelIban + manuelNakit;
+  const manuelEslesti = (topSistemPos+manuelIban+manuelNakit)>0 && Math.abs(manuelTop-sistemTop)<1;
   const topBrutDurum = topBrut>0 ? (Math.abs(topBrutFark)>=1 || bankaSatirlari.some(x=>x.brutDurum==="fark") ? "fark" : "ok") : "bos";
 
   const kaydetAylik = () => {
@@ -10382,6 +10409,7 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
     }
 
     setHesapSaglamaAylik(p=>({...p,[ayAnahtar]:{
+      ...(p[ayAnahtar]||{}), // Elimizdeki Nakit (hesapFarki) gibi aynı aya ait diğer kayıtlar korunur
       ay:ayAnahtar, kk:{...girisBankalarAy}, brut:{...girisBrutAy}, iban:manuelIban, nakit:manuelNakit,
       sistemKK, sistemIban, sistemNakit, tumEslesti:manuelEslesti,
       kayitTarihi:TODAY(), saat:new Date().toTimeString().slice(0,5),
@@ -10909,25 +10937,32 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
           )
         ),
 
-        // İban / Nakit (ay sonu sağlaması için — değişmedi)
-        div({style:{marginTop:16,padding:"12px 12px 4px",background:"rgba(0,0,0,.025)",borderRadius:12}},
-          div({style:{fontSize:10.5,fontWeight:800,letterSpacing:1,textTransform:"uppercase",color:"var(--di)",marginBottom:8}},"Diğer ödeme tipleri (ay sonu)"),
-          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"center",marginBottom:8}},
-            div({style:{fontSize:13.5,color:"var(--mu)"}},"🏦 İban/Havale"),
-            inp({className:"fi",style:{margin:0},type:"number",tutar:true,inputMode:"decimal",placeholder:"0",
-              value:girisIbanAy, onChange:e=>setGirisIbanAy(e.target.value)})),
-          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"center",marginBottom:8}},
-            div({style:{fontSize:13.5,color:"var(--mu)"}},"💵 Nakit"),
-            inp({className:"fi",style:{margin:0},type:"number",tutar:true,inputMode:"decimal",placeholder:"0",
-              value:girisNakitAy, onChange:e=>setGirisNakitAy(e.target.value)}))
-        ),
-        manuelGirildiMi && div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
-          padding:"8px 10px",margin:"10px 0",borderRadius:8,
-          background:manuelEslesti?"rgba(50,140,100,.1)":"rgba(224,60,60,.1)",
-          border:"1px solid "+(manuelEslesti?"rgba(50,140,100,.3)":"rgba(224,60,60,.3)")}},
-          div({style:{fontSize:12.5,color:"var(--tx)"}},"Girilen net toplam (bankalar + İban + Nakit): "+fmt(manuelTop)),
-          h("span",{style:{fontSize:12,fontWeight:600,color:manuelEslesti?"var(--gr)":"#e06060"}},
-            manuelEslesti?"✓ Eşleşiyor":"✕ Fark: "+((manuelTop-sistemTop)>0?"+":"")+fmt(manuelTop-sistemTop))
+        // İban / Nakit — günlük sağlamalardan otomatik
+        (()=>{
+          const oto = (ikon, ad, v) => div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"center",marginBottom:8}},
+            div({style:{fontSize:13.5,color:"var(--mu)"}},ikon+" "+ad),
+            div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"9px 12px",borderRadius:10,
+              background:"#fff",border:"1px solid var(--br)"}},
+              span({style:{fontSize:10,fontWeight:700,color:"var(--g)",background:"rgba(0,113,227,.08)",padding:"2px 7px",borderRadius:20,letterSpacing:.4,whiteSpace:"nowrap"}},"OTOMATİK"),
+              span({style:{fontSize:15,fontWeight:700,color:"var(--tx)",whiteSpace:"nowrap"}},fmt(v))));
+          return div({style:{marginTop:16,padding:"12px 12px 4px",background:"rgba(0,0,0,.025)",borderRadius:12}},
+            div({style:{fontSize:10.5,fontWeight:800,letterSpacing:1,textTransform:"uppercase",color:"var(--di)",marginBottom:2}},"Diğer ödeme tipleri (ay sonu)"),
+            div({style:{fontSize:10.5,color:"var(--mu)",marginBottom:9}},"Ay boyunca günlük sağlamalara girilen tutarlardan otomatik doldurulur."+(eksikGunler.length>0?" ⚠ "+eksikGunler.length+" günün sağlaması eksik.":"")),
+            oto("🏦","İban/Havale",manuelIban),
+            oto("💵","Nakit",manuelNakit));
+        })(),
+        (topSistemPos+manuelIban+manuelNakit)>0 && div({style:{margin:"10px 0",borderRadius:10,overflow:"hidden",
+          border:"1px solid "+(manuelEslesti?"rgba(50,140,100,.3)":"rgba(224,60,60,.3)"),
+          background:manuelEslesti?"rgba(50,140,100,.07)":"rgba(224,60,60,.07)"}},
+          div({style:{padding:"8px 12px",fontSize:12,color:"var(--mu)",display:"flex",flexWrap:"wrap",gap:"2px 14px"}},
+            span(null,"Günlük POS ",h("strong",{style:{color:"var(--tx)"}},fmt(topSistemPos))),
+            span(null,"+ İban ",h("strong",{style:{color:"var(--tx)"}},fmt(manuelIban))),
+            span(null,"+ Nakit ",h("strong",{style:{color:"var(--tx)"}},fmt(manuelNakit)))),
+          div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"8px 12px",
+            borderTop:"1px solid "+(manuelEslesti?"rgba(50,140,100,.2)":"rgba(224,60,60,.2)")}},
+            div({style:{fontSize:13,color:"var(--tx)",fontWeight:700}},"Toplam: "+fmt(manuelTop)),
+            h("span",{style:{fontSize:12,fontWeight:700,color:manuelEslesti?"var(--gr)":"#e06060",textAlign:"right"}},
+              manuelEslesti?"✓ Sistem toplamıyla eşleşiyor":"✕ Sistemle fark: "+((manuelTop-sistemTop)>0?"+":"")+fmt(manuelTop-sistemTop)))
         ),
 
         btn({className:"btn-k",style:{width:"100%",marginTop:10},onClick:kaydetAylik},
