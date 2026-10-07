@@ -846,11 +846,82 @@ function el(tag, props, ...kids) {
 function div(props, ...kids) { return el('div', props, ...kids); }
 function span(props, ...kids) { return el('span', props, ...kids); }
 function btn(props, ...kids) { return el('button', props, ...kids); }
-function inp(props) { return el('input', props); }
+function inp(props) {
+  if(props && props.tutar){ const {tutar, ...r} = props; return h(TutarInput, r); }
+  return el('input', props);
+}
 function img(props) { return el('img', props); }
 function sel(props, ...kids) { return el('select', props, ...kids); }
 function opt(v, txt) { return el('option', {key:v, value:v}, txt||v); }
 function lbl(props, ...kids) { return el('label', props, ...kids); }
+
+// ── TutarInput: ₺ tutar alanları için yazarken binlik ayraçlı gösterim ─────────
+// Ekranda "437.751,26" görünür; onChange'e ise toN() ile uyumlu düz değer gider ("437751.26").
+// Böylece kaydedilen veriler ve tüm hesaplamalar eskisi gibi çalışır, sadece görünüm değişir.
+function tutarHamdan(ham){
+  // Ham değer ("437751.26", 1600, "12.") → Türkçe gösterim ("437.751,26", "1.600", "12,")
+  if(ham===null || ham===undefined) return "";
+  let t = String(ham).trim();
+  if(t==="") return "";
+  let neg = t.charAt(0)==="-"; if(neg) t=t.slice(1);
+  let [tam, ond] = t.split(".");
+  tam = (tam||"").replace(/\D/g,"").replace(/^0+(?=\d)/,"");
+  const tamF = tam.replace(/\B(?=(\d{3})+(?!\d))/g,".");
+  return (neg?"-":"") + (tamF||(ond!==undefined?"0":"")) + (ond!==undefined ? ","+ond.replace(/\D/g,"").slice(0,2) : "");
+}
+function tutarMetindenHam(metin){
+  // Kullanıcının yazdığı metin → ham değer. Virgül ondalıktır; nokta binlik ayraçtır.
+  // İstisna: virgül yoksa ve tek bir noktadan sonra 1-2 hane varsa ("12.5") nokta ondalık sayılır.
+  let t = String(metin||"").replace(/\s|₺/g,"");
+  const neg = t.charAt(0)==="-";
+  t = t.replace(/[^\d.,]/g,"");
+  let tam, ond;
+  if(t.indexOf(",")>=0){
+    const i = t.lastIndexOf(",");
+    tam = t.slice(0,i).replace(/[.,]/g,""); ond = t.slice(i+1).replace(/[.,]/g,"");
+  } else {
+    const noktalar = t.split(".").length-1;
+    const m = t.match(/^(\d*)\.(\d{0,2})$/);
+    if(noktalar===1 && m && m[2].length!==3 && !(m[2].length===0 && m[1].length===0)){ tam=m[1]; ond=m[2]; }
+    else { tam = t.replace(/\./g,""); ond = undefined; }
+  }
+  if(ond!==undefined) ond = ond.slice(0,2);
+  if(!tam && ond===undefined) return neg?"-":"";
+  return (neg?"-":"") + (tam||"0") + (ond!==undefined ? "."+ond : "");
+}
+const TutarInput = React.forwardRef(function TutarInput(props, disRef){
+  const {value, onChange, type, min, max, step, inputMode, ...rest} = props;
+  const icRef = React.useRef(null);
+  const imlecRef = React.useRef(null);
+  const [metin, setMetin] = React.useState(()=>tutarHamdan(value));
+  // Dışarıdan değer değişirse (form sıfırlama, hesaplanan alan vb.) gösterimi senkronla.
+  // Sayısal olarak aynıysa kullanıcının yazdığı ara hali ("12," gibi) koru.
+  React.useEffect(()=>{
+    const ham = tutarMetindenHam(metin);
+    const ayni = String(value??"")==="" ? (ham===""||ham==="-") : (ham!=="" && ham!=="-" && Math.abs(toN(ham)-toN(value))<1e-9);
+    if(!ayni) setMetin(tutarHamdan(value));
+  },[value]);
+  React.useLayoutEffect(()=>{
+    const el = icRef.current, hedef = imlecRef.current;
+    if(!el || hedef===null || document.activeElement!==el) return;
+    // İmleci, kendinden önceki rakam/virgül sayısını koruyarak yeniden yerleştir
+    let say=0, pos=metin.length;
+    if(hedef===0) pos=0;
+    else for(let i=0;i<metin.length;i++){ if(/[\d,\-]/.test(metin[i])) say++; if(say===hedef){ pos=i+1; break; } }
+    try{ el.setSelectionRange(pos,pos); }catch(e){}
+    imlecRef.current = null;
+  },[metin]);
+  const degisti = e => {
+    const girilen = e.target.value;
+    const imlec = e.target.selectionStart==null ? girilen.length : e.target.selectionStart;
+    imlecRef.current = (girilen.slice(0,imlec).match(/[\d,\-]/g)||[]).length;
+    const ham = tutarMetindenHam(girilen);
+    setMetin(tutarHamdan(ham==="-"?"":ham) || (ham==="-"?"-":""));
+    if(onChange) onChange({target:{value:ham==="-"?"":ham, name:rest.name}, currentTarget:{value:ham==="-"?"":ham}, preventDefault(){}, stopPropagation(){}});
+  };
+  const refAta = el => { icRef.current = el; if(typeof disRef==="function") disRef(el); else if(disRef) disRef.current = el; };
+  return h("input", {...rest, ref:refAta, type:"text", inputMode:"decimal", autoComplete:"off", value:metin, onChange:degisti});
+});
 
 // ── Toast ─────────────────────────────────────────────────────────────
 function Toast({toast}) {
@@ -890,7 +961,7 @@ const OdemeGir = React.memo(function OdemeGir({renk, kk, ib, nk, onChange, label
         div({key:k,style:{background:"var(--bg)",border:"1px solid var(--br)",borderRadius:11,padding:"10px 6px",textAlign:"center",position:"relative",overflow:"hidden"}},
           div({style:{height:26,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:5,color:"var(--g)"}},ODEME_IKON[k]),
           div({style:{fontSize:11,color:"var(--mu)",textTransform:"uppercase",letterSpacing:1,marginBottom:5}},lb),
-          inp({type:"number",inputMode:"numeric",placeholder:"0",value:v,readOnly:true,
+          inp({type:"number",tutar:true,inputMode:"numeric",placeholder:"0",value:v,readOnly:true,
             // Toplam ödeme alanları otomatik hesaplanır; elle düzenlenemez.
             onChange:()=>{},
             style:{width:"100%",background:"transparent",border:"none",
@@ -4131,7 +4202,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     // Birim Fiyat
                     div({style:{padding:"4px 5px",textAlign:"center",borderRight:"1px solid var(--br)"}},
                       arsivDuzMod
-                        ? h("input",{type:"number",min:"0",step:"0.01",
+                        ? h(TutarInput,{type:"number",min:"0",step:"0.01",
                             style:{width:"100%",border:"1px solid rgba(0,113,227,.4)",borderRadius:6,
                               padding:"4px 5px",fontSize:12,textAlign:"center",background:"var(--bg2)",color:"var(--tx)"},
                             value:u._birimF,
@@ -4324,11 +4395,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     ),
                     kalici&&div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}},
                       div(null,lbl({className:"fl"},"Alış Fiyatı (₺)"),
-                        inp({className:"fi",type:"number",placeholder:"0",value:arsivYeniUrunEkle.bp||"",
+                        inp({className:"fi",type:"number",tutar:true,placeholder:"0",value:arsivYeniUrunEkle.bp||"",
                           onChange:e=>setArsivYeniUrunEkle(p=>({...p,bp:e.target.value}))})
                       ),
                       div(null,lbl({className:"fl"},"Satış Fiyatı (₺) *"),
-                        inp({className:"fi",type:"number",placeholder:"0",value:arsivYeniUrunEkle.sp||"",
+                        inp({className:"fi",type:"number",tutar:true,placeholder:"0",value:arsivYeniUrunEkle.sp||"",
                           onChange:e=>setArsivYeniUrunEkle(p=>({...p,sp:e.target.value}))})
                       )
                     ),
@@ -4749,7 +4820,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                   ),
                   div({style:{flex:"1 1 90px"}},
                     lbl({className:"fl"},"Birim F. (₺)"),
-                    inp({className:"fi",type:"number",placeholder:"0",value:mkSarfFiyat,
+                    inp({className:"fi",type:"number",tutar:true,placeholder:"0",value:mkSarfFiyat,
                       onChange:e=>setMkSarfFiyat(e.target.value)})
                   ),
                   div({style:{flex:"1 1 70px"}},
@@ -4844,7 +4915,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         textAlign:"center",wordBreak:"break-all",lineHeight:1.3}},u.barkod),
                       // Birim Fiyat (input - tam hücre)
                       div({style:celInp},
-                        inp({style:cinp,type:"number",inputMode:"decimal",placeholder:"0",value:u.birimF,
+                        inp({style:cinp,type:"number",tutar:true,inputMode:"decimal",placeholder:"0",value:u.birimF,
                           onChange:e=>setMkUrunler(p=>p.map((x,j)=>j===i?{...x,birimF:e.target.value}:x))})),
                       // Adet (input - tam hücre) + fark bildirme ikonu
                       div({style:celInp},
@@ -5259,11 +5330,11 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
             ),
             div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}},
               div(null,lbl({className:"fl"},"Alış Fiyatı (₺)"),
-                inp({className:"fi",type:"number",placeholder:"0",value:mkYeniUrunEkle.bp||"",
+                inp({className:"fi",type:"number",tutar:true,placeholder:"0",value:mkYeniUrunEkle.bp||"",
                   onChange:e=>setMkYeniUrunEkle(p=>({...p,bp:e.target.value}))})
               ),
               div(null,lbl({className:"fl"},"Satış Fiyatı (₺) *"),
-                inp({className:"fi",type:"number",placeholder:"0",value:mkYeniUrunEkle.sp||"",
+                inp({className:"fi",type:"number",tutar:true,placeholder:"0",value:mkYeniUrunEkle.sp||"",
                   onChange:e=>setMkYeniUrunEkle(p=>({...p,sp:e.target.value}))})
               )
             ),
@@ -5357,7 +5428,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:16,marginBottom:12}},
             div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},"💰 Kâr Hesaplama"),
             lbl({className:"fl"},"Satış Fiyatı (₺)"),
-            inp({className:"fi",type:"number",inputMode:"decimal",placeholder:"Kaça satarsınız?",
+            inp({className:"fi",type:"number",tutar:true,inputMode:"decimal",placeholder:"Kaça satarsınız?",
               value:sdSatisFiyat,onChange:e=>setSdSatisFiyat(e.target.value)}),
             sf>0&&div({style:{marginTop:12,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
               div({style:{background:"var(--bg)",borderRadius:10,padding:12,textAlign:"center"}},
@@ -5483,7 +5554,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                     ),
                     div(null,
                       div({style:{fontSize:11,color:"var(--mu)",marginBottom:4,letterSpacing:1,textTransform:"uppercase"}},"Alış Fiyatı"),
-                      inp({className:"fi",type:"number",min:"0",step:"0.01",value:sdDuzAlisF,
+                      inp({className:"fi",type:"number",tutar:true,min:"0",step:"0.01",value:sdDuzAlisF,
                         onChange:e=>setSdDuzAlisF(e.target.value)})
                     ),
                     div(null,
@@ -6902,7 +6973,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           ),
           div({style:{marginBottom:12}},
             lbl({className:"fl"},"Devir Borç Tutarı (₺)"),
-            inp({className:"fi",type:"number",style:{fontSize:13},placeholder:"0",value:acilisTutar,onChange:e=>setAcilisTutar(e.target.value)})
+            inp({className:"fi",type:"number",tutar:true,style:{fontSize:13},placeholder:"0",value:acilisTutar,onChange:e=>setAcilisTutar(e.target.value)})
           ),
           div({style:{marginBottom:12}},
             lbl({className:"fl"},"Devir Tarihi"),
@@ -6963,7 +7034,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           ),
           div({style:{marginBottom:12}},
             lbl({className:"fl"},"Toplam Tutar (₺, KDV dahil)"),
-            inp({className:"fi",type:"number",style:{fontSize:13},placeholder:"0",value:borcKaydiTutar,onChange:e=>setBorcKaydiTutar(e.target.value)})
+            inp({className:"fi",type:"number",tutar:true,style:{fontSize:13},placeholder:"0",value:borcKaydiTutar,onChange:e=>setBorcKaydiTutar(e.target.value)})
           ),
           div({style:{marginBottom:16}},
             lbl({className:"fl"},"Fatura Görseli (opsiyonel)"),
@@ -7556,7 +7627,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         opt("EFT","🏧 EFT"),opt("Çek","📝 Çek"),opt("Senet","📋 Senet"),opt("Diğer","Diğer")))
                   ),
                   div({style:{marginBottom:10}},lbl({className:"fl"},"Ödenen Tutar (₺)"),
-                    inp({className:"fi",type:"number",inputMode:"decimal",placeholder:"0",
+                    inp({className:"fi",type:"number",tutar:true,inputMode:"decimal",placeholder:"0",
                       value:cariOdeTutar,onChange:e=>setCariOdeTutar(e.target.value)}),
                     kalan>0&&div({style:{fontSize:11,color:"var(--mu)",marginTop:4}},
                       "Kalan: "+fmt(kalan),
@@ -8109,7 +8180,7 @@ function OduncModul({oduncler,setOduncler:setOduncler_,komsular,setKomsular:setK
                       fontSize:15,padding:"3px 5px",textAlign:"center",outline:"none"},
                     onChange:e=>setOduncUrun(p=>p.map((x,j)=>j===i?{...x,miktar:parseInt(e.target.value)||1}:x))}),
                   oduncMod==="al"&&div({style:{fontSize:12,color:"var(--mu)"}},"Birim ₺:"),
-                  oduncMod==="al"&&h("input",{type:"number",min:0,value:u.deger,
+                  oduncMod==="al"&&h(TutarInput,{type:"number",min:0,value:u.deger,
                     style:{width:66,background:"var(--bg)",border:"1px solid var(--br)",
                       borderRadius:6,color:"var(--tx)",fontSize:15,padding:"3px 5px",textAlign:"center",outline:"none"},
                     onChange:e=>setOduncUrun(p=>p.map((x,j)=>j===i?{...x,deger:toN(e.target.value)}:x))}),
@@ -8208,7 +8279,7 @@ function OduncModul({oduncler,setOduncler:setOduncler_,komsular,setKomsular:setK
                   style:{width:48,background:"var(--bg)",border:"1px solid var(--br)",borderRadius:6,color:"var(--tx)",fontSize:15,padding:"3px 5px",textAlign:"center",outline:"none"},
                   onChange:e=>setKapatSec(p=>({...p,miktar:parseInt(e.target.value)||1}))}),
                 div({style:{fontSize:12,color:"var(--mu)"}},"Birim ₺:"),
-                h("input",{type:"number",min:0,value:kapatSec.deger,
+                h(TutarInput,{type:"number",min:0,value:kapatSec.deger,
                   style:{width:64,background:"var(--bg)",border:"1px solid var(--br)",borderRadius:6,color:"var(--tx)",fontSize:15,padding:"3px 5px",textAlign:"center",outline:"none"},
                   onChange:e=>setKapatSec(p=>({...p,deger:toN(e.target.value)}))}),
                 btn({style:{background:"transparent",border:"none",color:"#c05050",fontSize:16,cursor:"pointer"},
@@ -8258,7 +8329,7 @@ function OduncModul({oduncler,setOduncler:setOduncler_,komsular,setKomsular:setK
                 h("input",{type:"number",min:1,className:"fi",value:duzMiktar,
                   onChange:e=>setDuzMiktar(parseInt(e.target.value)||1)})),
               od.yon==="al"&&div({style:{flex:1}},lbl({className:"fl"},"Birim Değer ₺"),
-                h("input",{type:"number",min:0,className:"fi",value:duzDeger,
+                h(TutarInput,{type:"number",min:0,className:"fi",value:duzDeger,
                   onChange:e=>setDuzDeger(toN(e.target.value))}))
             ),
             div({style:{marginBottom:14}},lbl({className:"fl"},"Tarih"),
@@ -8653,7 +8724,7 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
             h("input",{type:"date",className:"fi",value:giderFrm.tarih||"",
               onChange:e=>setGiderFrm(p=>({...p,tarih:e.target.value}))})),
           div(null,lbl({className:"fl"},"Tutar (₺) *"),
-            inp({className:"fi",type:"number",placeholder:"0",value:giderFrm.tutar||"",
+            inp({className:"fi",type:"number",tutar:true,placeholder:"0",value:giderFrm.tutar||"",
               onChange:e=>setGiderFrm(p=>({...p,tutar:e.target.value}))}))
         ),
         div({style:{marginBottom:10}},lbl({className:"fl"},"Kategori *"),
@@ -9320,7 +9391,7 @@ function VergiMuhasebesiModul({vergiEvraklar, setVergiEvraklar, showToast}) {
             ),
             div({style:{flex:1}},
               lbl({className:"fl"},"Tutar (opsiyonel)"),
-              inp({className:"fi",type:"number",placeholder:"—",value:fTutar,onChange:e=>setFTutar(e.target.value)})
+              inp({className:"fi",type:"number",tutar:true,placeholder:"—",value:fTutar,onChange:e=>setFTutar(e.target.value)})
             )
           ),
           div({style:{marginBottom:12}},
@@ -9818,7 +9889,7 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
           (bankalar||[]).map(b=>
             div({key:b,style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"center",marginBottom:7}},
               div({style:{fontSize:14,color:"var(--mu)"}},(b)),
-              inp({className:"fi",style:{margin:0},type:"number",placeholder:"0",
+              inp({className:"fi",style:{margin:0},type:"number",tutar:true,placeholder:"0",
                 value:girisBankalar[b]||"",
                 onChange:e=>setGirisBankalar(p=>({...p,[b]:e.target.value}))})
             )
@@ -9839,7 +9910,7 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
           ),
           div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"center"}},
             div({style:{fontSize:14,color:"var(--mu)"}},"Toplam IBAN"),
-            inp({className:"fi",style:{margin:0},type:"number",placeholder:"0",
+            inp({className:"fi",style:{margin:0},type:"number",tutar:true,placeholder:"0",
               value:girisIban,onChange:e=>setGirisIban(e.target.value)})
           )
         ),
@@ -9852,7 +9923,7 @@ function HesapOzetiModul({tumK, bankalar, hesapSaglama, setHesapSaglama, showToa
           ),
           div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"center"}},
             div({style:{fontSize:14,color:"var(--mu)"}},"Kasadaki Nakit"),
-            inp({className:"fi",style:{margin:0},type:"number",placeholder:"0",
+            inp({className:"fi",style:{margin:0},type:"number",tutar:true,placeholder:"0",
               value:girisNakit,onChange:e=>setGirisNakit(e.target.value)})
           )
         ),
@@ -9989,6 +10060,18 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
   const [girisBrutAy, setGirisBrutAy] = React.useState(manuelKayit.brut||{});
   // Banka toplamına tıklanınca açılan günlük POS cirosu yan paneli (banka adı)
   const [posDetayBanka, setPosDetayBanka] = React.useState(null);
+  // Sistem Toplamı → Kredi Kartı banka dağılımı (tıklayınca açılır, dışarı tıklayınca kapanır)
+  const [kkDagilimAcik, setKkDagilimAcik] = React.useState(false);
+  const kkDagilimRef = React.useRef(null);
+  React.useEffect(()=>{
+    if(!kkDagilimAcik) return;
+    const disTik = e=>{ if(kkDagilimRef.current && !kkDagilimRef.current.contains(e.target)) setKkDagilimAcik(false); };
+    const esc = e=>{ if(e.key==="Escape") setKkDagilimAcik(false); };
+    document.addEventListener("mousedown", disTik);
+    document.addEventListener("touchstart", disTik, {passive:true});
+    window.addEventListener("keydown", esc);
+    return ()=>{ document.removeEventListener("mousedown", disTik); document.removeEventListener("touchstart", disTik); window.removeEventListener("keydown", esc); };
+  },[kkDagilimAcik]);
   React.useEffect(()=>{
     if(!posDetayBanka) return;
     const esc = e=>{ if(e.key==="Escape") setPosDetayBanka(null); };
@@ -10341,17 +10424,42 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
     div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:12}},
       div({style:{fontSize:12,color:"var(--g)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}},
         "💻 Sistem Toplamı — "+ayEt+" "+yil),
-      satir("💳 Kredi Kartı", sistemKK),
-      bankaOzet.length>0 && div({style:{margin:"2px 0 6px 10px",padding:"6px 9px",
-        background:"var(--bg3)",borderRadius:8}},
-        bankaOzet.map(({bad,girisToplam})=>
-          div({key:bad,style:{display:"flex",justifyContent:"space-between",padding:"2px 0",
-            fontSize:11.5,color:"var(--mu)"}},
-            div(null,bad), div({style:{fontWeight:600,color:"var(--tx)"}},fmt(girisToplam)))
-        ),
-        div({style:{fontSize:9.5,color:"var(--di)",marginTop:4,lineHeight:1.4}},
-          "Banka bazında dağılım, günlük 'Gerçek Veriler'e girdiğiniz tutarlardan hesaplanır — satış kayıtları hangi bankanın kullanıldığını tutmaz.")
-      ),
+      (()=>{
+        const dagilim = bankaSatirlari.filter(x=>x.girisToplam>0);
+        const tiklanir = dagilim.length>0;
+        return div({ref:kkDagilimRef,style:{margin:"0 -8px"}},
+          div({role:tiklanir?"button":undefined,tabIndex:tiklanir?0:undefined,
+            onClick:()=>tiklanir&&setKkDagilimAcik(a=>!a),
+            onKeyDown:e=>{ if(tiklanir&&(e.key==="Enter"||e.key===" ")){ e.preventDefault(); setKkDagilimAcik(a=>!a); } },
+            title:tiklanir?(kkDagilimAcik?"Banka dağılımını gizle":"Banka dağılımını göster"):undefined,
+            style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 8px",borderRadius:9,
+              fontSize:13,color:"var(--tx)",cursor:tiklanir?"pointer":"default",
+              background:kkDagilimAcik?"rgba(0,113,227,.07)":"transparent",transition:"background .15s"}},
+            div({style:{display:"flex",alignItems:"center",gap:7}},
+              span(null,"💳 Kredi Kartı"),
+              tiklanir && span({style:{fontSize:10.5,color:"var(--g)",fontWeight:600,background:"rgba(0,113,227,.08)",
+                padding:"1px 7px",borderRadius:20}},dagilim.length+" banka")),
+            div({style:{display:"flex",alignItems:"center",gap:8}},
+              div({style:{fontWeight:600}},fmt(sistemKK)),
+              tiklanir && span({style:{display:"inline-flex",color:"var(--g)",transition:"transform .2s",
+                transform:kkDagilimAcik?"rotate(180deg)":"rotate(0deg)"}},
+                h("svg",{width:14,height:14,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:2.4,strokeLinecap:"round",strokeLinejoin:"round"},
+                  h("polyline",{points:"6 9 12 15 18 9"}))))
+          ),
+          kkDagilimAcik && tiklanir && div({style:{margin:"4px 8px 8px 18px",padding:"8px 11px",
+            background:"var(--bg3)",borderRadius:9,borderLeft:"3px solid rgba(0,113,227,.35)"}},
+            dagilim.map(({bad,girisToplam})=>
+              div({key:bad,style:{display:"grid",gridTemplateColumns:"1fr auto 44px",gap:10,alignItems:"center",padding:"3px 0",fontSize:12,color:"var(--mu)"}},
+                div(null,bad),
+                div({style:{fontWeight:600,color:"var(--tx)"}},fmt(girisToplam)),
+                div({style:{fontSize:10.5,textAlign:"right",color:"var(--di)"}},
+                  sistemKK>0?"%"+Math.round(girisToplam/sistemKK*100):""))
+            ),
+            div({style:{fontSize:9.5,color:"var(--di)",marginTop:5,lineHeight:1.4}},
+              "Banka bazında dağılım, günlük 'Gerçek Veriler'e girdiğiniz tutarlardan hesaplanır — satış kayıtları hangi bankanın kullanıldığını tutmaz.")
+          )
+        );
+      })(),
       satir("🏦 İban/Havale", sistemIban),
       satir("💵 Nakit", sistemNakit),
       div({style:{display:"flex",justifyContent:"space-between",padding:"8px 0 0",marginTop:6,
@@ -10586,13 +10694,13 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
             }).map(bad=>
               div({key:bad,style:{display:"grid",gridTemplateColumns:"1fr 100px",gap:6,alignItems:"center",padding:"3px 0"}},
                 div({style:{fontSize:12,color:"var(--tx)"}},bad),
-                inp({className:"fi",style:{margin:0,padding:"5px 6px",textAlign:"right"},type:"number",inputMode:"decimal",placeholder:"0",
+                inp({className:"fi",style:{margin:0,padding:"5px 6px",textAlign:"right"},type:"number",tutar:true,inputMode:"decimal",placeholder:"0",
                   value:hfBankalar[bad]||"", onChange:e=>setHfBankalar(p=>({...p,[bad]:e.target.value}))})
               )
             ),
             div({style:{display:"grid",gridTemplateColumns:"1fr 100px",gap:6,alignItems:"center",padding:"3px 0"}},
               div({style:{fontSize:12,color:"var(--tx)"}},"💵 Nakit"),
-              inp({className:"fi",style:{margin:0,padding:"5px 6px",textAlign:"right"},type:"number",inputMode:"decimal",placeholder:"0",
+              inp({className:"fi",style:{margin:0,padding:"5px 6px",textAlign:"right"},type:"number",tutar:true,inputMode:"decimal",placeholder:"0",
                 value:hfNakit, onChange:e=>setHfNakit(e.target.value)})
             ),
             hfFazlaOdenenListesi.length>0 && div({style:{marginTop:6,paddingTop:8,borderTop:"1px dashed var(--br)"}},
@@ -10601,7 +10709,7 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
                 div({key:p.id,style:{marginBottom:4}},
                   div({style:{display:"grid",gridTemplateColumns:"1fr 100px",gap:6,alignItems:"center",padding:"3px 0"}},
                     div({style:{fontSize:12,color:"var(--tx)"}},"👤 "+p.ad),
-                    inp({className:"fi",style:{margin:0,padding:"5px 6px",textAlign:"right"},type:"number",inputMode:"decimal",
+                    inp({className:"fi",style:{margin:0,padding:"5px 6px",textAlign:"right"},type:"number",tutar:true,inputMode:"decimal",
                       placeholder:String(Math.round(p.hesaplananFazla)),
                       value:hfFazlaOdenen[p.id]||"", onChange:e=>setHfFazlaOdenen(prev=>({...prev,[p.id]:e.target.value}))})
                   ),
@@ -10693,7 +10801,7 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
         borderRadius:12,padding:"10px 11px",minWidth:0,display:"flex",flexDirection:"column",justifyContent:"center",
         gap:3,minHeight:76,transition:"border-color .15s, background .15s, box-shadow .15s",...(ekStil||{})}},...cocuk);
       const etiket = (t,renk) => div({style:{fontSize:9.5,fontWeight:700,letterSpacing:.9,textTransform:"uppercase",color:renk,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},t);
-      const girdi = (val,onCh,renk) => inp({className:"fi",type:"number",inputMode:"decimal",placeholder:"0",value:val||"",onChange:onCh,
+      const girdi = (val,onCh,renk) => inp({className:"fi",type:"number",tutar:true,inputMode:"decimal",placeholder:"0",value:val||"",onChange:onCh,
         style:{margin:0,padding:"5px 8px",fontSize:16,fontWeight:700,color:renk,background:"rgba(255,255,255,.75)",
           border:"1px solid rgba(0,0,0,.08)",borderRadius:8,textAlign:"right",width:"100%",minWidth:0}});
       const durumRozet = (d, fark) => d==="ok"
@@ -10806,11 +10914,11 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
           div({style:{fontSize:10.5,fontWeight:800,letterSpacing:1,textTransform:"uppercase",color:"var(--di)",marginBottom:8}},"Diğer ödeme tipleri (ay sonu)"),
           div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"center",marginBottom:8}},
             div({style:{fontSize:13.5,color:"var(--mu)"}},"🏦 İban/Havale"),
-            inp({className:"fi",style:{margin:0},type:"number",inputMode:"decimal",placeholder:"0",
+            inp({className:"fi",style:{margin:0},type:"number",tutar:true,inputMode:"decimal",placeholder:"0",
               value:girisIbanAy, onChange:e=>setGirisIbanAy(e.target.value)})),
           div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"center",marginBottom:8}},
             div({style:{fontSize:13.5,color:"var(--mu)"}},"💵 Nakit"),
-            inp({className:"fi",style:{margin:0},type:"number",inputMode:"decimal",placeholder:"0",
+            inp({className:"fi",style:{margin:0},type:"number",tutar:true,inputMode:"decimal",placeholder:"0",
               value:girisNakitAy, onChange:e=>setGirisNakitAy(e.target.value)}))
         ),
         manuelGirildiMi && div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
@@ -12559,7 +12667,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                         },
                         style:{flexShrink:0,width:44,minHeight:34,background:toN(deger)>0?"linear-gradient(135deg,var(--g),var(--gd))":"var(--bg3)",border:"1.5px solid "+(toN(deger)>0?"var(--g)":"var(--br)"),borderRadius:7,color:toN(deger)>0?"var(--bg)":"var(--mu)",fontSize:9.5,fontWeight:toN(deger)>0?800:600,padding:"2px 1px",cursor:"pointer",lineHeight:1.05}},ad),
                       div({style:{position:"relative",flex:1,minWidth:0}},
-                        inp({type:"number",inputMode:"numeric",value:deger||"",placeholder:"0",
+                        inp({type:"number",tutar:true,inputMode:"numeric",value:deger||"",placeholder:"0",
                           onChange:e=>hSet(h.id,alan,e.target.value),
                           style:{width:"100%",minWidth:0,height:34,textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:14,color:"var(--tx)",fontWeight:700,padding:"4px 16px 4px 4px",background:hizmetBolumStili.serviceBoxBackground||"var(--bg3)",border:"1px solid "+(hizmetBolumStili.serviceBoxBorderColor||"var(--br)"),borderRadius:6,boxSizing:"border-box"}}),
                         toN(deger)>0&&btn({type:"button",title:"Temizle",
@@ -12747,7 +12855,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
             ),
             div({style:{display:"flex",flexDirection:"column",gap:5,justifyContent:"space-between"}},
               div({style:{position:"relative"}},
-                inp({type:"number",inputMode:"numeric",className:"fi",value:u.sf,
+                inp({type:"number",tutar:true,inputMode:"numeric",className:"fi",value:u.sf,
                   onChange:e=>uSet(u.id,"sf",e.target.value),
                   style:{height:38,textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:16,color:genelToplamBolumStili.titleColor||"var(--g)",fontWeight:700,padding:"6px 20px 6px 4px"}}),
                 toN(u.sf)>0&&btn({type:"button",title:"Fiyatı temizle",
@@ -12779,7 +12887,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                     },
                     style:{flexShrink:0,width:32,minHeight:30,background:toN(deger)>0?"linear-gradient(135deg,var(--g),var(--gd))":"var(--bg3)",border:"1.5px solid "+(toN(deger)>0?"var(--g)":"var(--br)"),borderRadius:7,color:toN(deger)>0?"var(--bg)":"var(--mu)",fontSize:9,fontWeight:toN(deger)>0?800:600,padding:"2px 1px",cursor:"pointer",lineHeight:1.05}},ad),
                   div({style:{position:"relative",flex:1,minWidth:0}},
-                    inp({type:"number",inputMode:"numeric",value:deger||"",placeholder:"0",
+                    inp({type:"number",tutar:true,inputMode:"numeric",value:deger||"",placeholder:"0",
                       onChange:e=>uSet(u.id,alan,e.target.value),
                       style:{width:"100%",minWidth:0,height:30,textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:13,color:"var(--tx)",fontWeight:700,padding:"3px 14px 3px 3px",background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:6,boxSizing:"border-box"}}),
                     toN(deger)>0&&btn({type:"button",title:"Temizle",
@@ -14077,7 +14185,7 @@ function MaasFormulEditoru({formul, onChange, tumPersoneller}) {
       // Tip'e göre alanlar
       bilesenForm.tip==="sabit"&&div({style:{marginBottom:10}},
         lbl({className:"fl"},"Sabit Tutar (₺)"),
-        inp({className:"fi",type:"number",placeholder:"15000",
+        inp({className:"fi",type:"number",tutar:true,placeholder:"15000",
           value:bilesenForm.tutar||"",
           onChange:e=>setBilesenForm(p=>({...p,tutar:e.target.value}))})
       ),
@@ -14089,7 +14197,7 @@ function MaasFormulEditoru({formul, onChange, tumPersoneller}) {
       ),
       bilesenForm.tip==="musteriBasi"&&div({style:{marginBottom:10}},
         lbl({className:"fl"},"Müşteri Başı Tutar (₺)"),
-        inp({className:"fi",type:"number",placeholder:"50",
+        inp({className:"fi",type:"number",tutar:true,placeholder:"50",
           value:bilesenForm.tutar||"",
           onChange:e=>setBilesenForm(p=>({...p,tutar:e.target.value}))})
       ),
@@ -14104,13 +14212,13 @@ function MaasFormulEditoru({formul, onChange, tumPersoneller}) {
         div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
           div(null,
             lbl({className:"fl"},"Eşik (Aşılacak Değer)"),
-            inp({className:"fi",type:"number",placeholder:"50000",
+            inp({className:"fi",type:"number",tutar:true,placeholder:"50000",
               value:bilesenForm.esikTutar||"",
               onChange:e=>setBilesenForm(p=>({...p,esikTutar:e.target.value}))})
           ),
           div(null,
             lbl({className:"fl"},"Prim Tutarı (₺)"),
-            inp({className:"fi",type:"number",placeholder:"2000",
+            inp({className:"fi",type:"number",tutar:true,placeholder:"2000",
               value:bilesenForm.primTutar||"",
               onChange:e=>setBilesenForm(p=>({...p,primTutar:e.target.value}))})
           )
@@ -14130,9 +14238,9 @@ function MaasFormulEditoru({formul, onChange, tumPersoneller}) {
           lbl({className:"fl"},"Kademeler"),
           (bilesenForm.kademeler||[]).map((k,i)=>
             div({key:i,style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:6,marginBottom:6,alignItems:"center"}},
-              inp({className:"fi",type:"number",placeholder:"Başlangıç",value:k.baslangic||0,style:{margin:0,fontSize:12,padding:"7px 9px"},
+              inp({className:"fi",type:"number",tutar:true,placeholder:"Başlangıç",value:k.baslangic||0,style:{margin:0,fontSize:12,padding:"7px 9px"},
                 onChange:e=>setBilesenForm(p=>({...p,kademeler:p.kademeler.map((x,j)=>j===i?{...x,baslangic:e.target.value}:x)}))}),
-              inp({className:"fi",type:"number",placeholder:"Bitiş (boş=sonsuz)",value:k.bitis||"",style:{margin:0,fontSize:12,padding:"7px 9px"},
+              inp({className:"fi",type:"number",tutar:true,placeholder:"Bitiş (boş=sonsuz)",value:k.bitis||"",style:{margin:0,fontSize:12,padding:"7px 9px"},
                 onChange:e=>setBilesenForm(p=>({...p,kademeler:p.kademeler.map((x,j)=>j===i?{...x,bitis:e.target.value}:x)}))}),
               inp({className:"fi",type:"number",placeholder:"Oran %",value:k.oran||"",style:{margin:0,fontSize:12,padding:"7px 9px"},
                 onChange:e=>setBilesenForm(p=>({...p,kademeler:p.kademeler.map((x,j)=>j===i?{...x,oran:e.target.value}:x)}))}),
@@ -14925,7 +15033,7 @@ function PersonelMaasGorunum({personel, tumK, onChange, showToast, tumPersonelle
             inp({className:"fi",placeholder:"Not (opsiyonel)",style:{margin:0,fontSize:12.5,padding:"8px 9px"},
               value:yeniAvansForm.not||"",
               onChange:e=>setYeniAvansForm(p=>({...p,not:e.target.value}))}),
-            inp({className:"fi",type:"number",inputMode:"decimal",placeholder:"Tutar",
+            inp({className:"fi",type:"number",tutar:true,inputMode:"decimal",placeholder:"Tutar",
               style:{margin:0,fontSize:12.5,padding:"8px 9px",textAlign:"right",fontWeight:700,color:"#FF9F0A"},
               value:yeniAvansForm.tutar||"",
               onChange:e=>setYeniAvansForm(p=>({...p,tutar:e.target.value}))})
@@ -15208,7 +15316,7 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
               opt("","Yöntem seçin"),
               ODEME_TIPLERI.map(function(k){return opt(k,k);})
             ),
-            h("input",{className:"fi",type:"number",inputMode:"decimal",
+            h(TutarInput,{className:"fi",type:"number",inputMode:"decimal",
               placeholder:"Tutar (₺)",style:{fontFamily:FONT,fontSize:13},
               value:odm.tutar||"",
               onChange:function(e){
@@ -15318,7 +15426,7 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
           ),
           div(null,
             lbl({className:"fl",style:{fontFamily:FONT}},"Tutar (₺) *"),
-            inp({className:"fi",type:"number",inputMode:"decimal",placeholder:"0",value:yeniGider.tutar||"",
+            inp({className:"fi",type:"number",tutar:true,inputMode:"decimal",placeholder:"0",value:yeniGider.tutar||"",
               style:{fontFamily:FONT},
               onChange:function(e){setYeniGider(function(p){return Object.assign({},p,{tutar:e.target.value});}); }})
           )
@@ -15378,7 +15486,7 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
               ),
               div(null,
                 lbl({className:"fl",style:{fontFamily:FONT}},"Tutar (₺) *"),
-                inp({className:"fi",type:"number",inputMode:"decimal",placeholder:"0",value:kalem.tutar||"",
+                inp({className:"fi",type:"number",tutar:true,inputMode:"decimal",placeholder:"0",value:kalem.tutar||"",
                   style:{fontFamily:FONT},
                   onChange:function(e){kalemGuncelle(ki,{tutar:e.target.value});}})
               )
@@ -23703,7 +23811,7 @@ if(DB) dbUpsertAyar("tema",tema);
               ),
               div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
                 div(null,lbl({className:"fl"},"Çıkış Tarihi"),inp({className:"fi",type:"date",value:surec.cikisTarihi,onChange:e=>alanGuncelle("cikisTarihi",e.target.value),disabled:!!aktifSurec})),
-                div(null,lbl({className:"fl"},"Son Brüt Ücret (₺)"),inp({className:"fi",type:"number",placeholder:"Örn. 25000",value:surec.sonBrutUcret,onChange:e=>alanGuncelle("sonBrutUcret",e.target.value)}))
+                div(null,lbl({className:"fl"},"Son Brüt Ücret (₺)"),inp({className:"fi",type:"number",tutar:true,placeholder:"Örn. 25000",value:surec.sonBrutUcret,onChange:e=>alanGuncelle("sonBrutUcret",e.target.value)}))
               ),
               div({style:{marginBottom:10}},
                 lbl({className:"fl"},"Not (isteğe bağlı)"),
@@ -23722,9 +23830,9 @@ if(DB) dbUpsertAyar("tema",tema);
               div({style:{fontSize:12,color:"var(--di)",marginBottom:10}},"İhbar süresi önerisi (İş Kanunu md.17): "+ihbarOnerisi+" hafta"),
               div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:6}},
                 div(null,lbl({className:"fl"},"İhbar Süresi (hafta)"),inp({className:"fi",type:"number",placeholder:String(ihbarOnerisi),value:surec.ihbarSuresiHafta,onChange:e=>alanGuncelle("ihbarSuresiHafta",e.target.value)})),
-                div(null,lbl({className:"fl"},"Kıdem Tazminatı (₺)"),inp({className:"fi",type:"number",placeholder:"Elle girin",value:surec.kidemTazminati,onChange:e=>alanGuncelle("kidemTazminati",e.target.value)}))
+                div(null,lbl({className:"fl"},"Kıdem Tazminatı (₺)"),inp({className:"fi",type:"number",tutar:true,placeholder:"Elle girin",value:surec.kidemTazminati,onChange:e=>alanGuncelle("kidemTazminati",e.target.value)}))
               ),
-              div(null,lbl({className:"fl"},"İhbar Tazminatı (₺, varsa)"),inp({className:"fi",type:"number",placeholder:"Elle girin",value:surec.ihbarTazminati,onChange:e=>alanGuncelle("ihbarTazminati",e.target.value)})),
+              div(null,lbl({className:"fl"},"İhbar Tazminatı (₺, varsa)"),inp({className:"fi",type:"number",tutar:true,placeholder:"Elle girin",value:surec.ihbarTazminati,onChange:e=>alanGuncelle("ihbarTazminati",e.target.value)})),
               div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:10}},
                 div(null,lbl({className:"fl"},"Ödeme Şekli"),
                   sel({className:"fi",value:surec.odemeSekli||"",onChange:e=>alanGuncelle("odemeSekli",e.target.value)},
@@ -25842,7 +25950,7 @@ if(DB) dbUpsertAyar("tema",tema);
             ),
             div(null,
               lbl({className:"fl"},"Liste Fiyatı (₺)"),
-              inp({className:"fi",type:"number",placeholder:"0",value:hizDuzIdx.fiyat,onChange:e=>setHizDuzIdx(p=>({...p,fiyat:e.target.value}))})
+              inp({className:"fi",type:"number",tutar:true,placeholder:"0",value:hizDuzIdx.fiyat,onChange:e=>setHizDuzIdx(p=>({...p,fiyat:e.target.value}))})
             )
           ),
           div({className:"btn-r"},
@@ -25874,7 +25982,7 @@ if(DB) dbUpsertAyar("tema",tema);
               inp({className:"fi",placeholder:"Hizmet adı...",value:yeniHizAd,
                 onChange:e=>setYeniHizAd(e.target.value)})),
             div(null,lbl({className:"fl"},"Liste Fiyatı (₺)"),
-              inp({className:"fi",type:"number",placeholder:"0",value:yeniHizFiyat,
+              inp({className:"fi",type:"number",tutar:true,placeholder:"0",value:yeniHizFiyat,
                 onChange:e=>setYeniHizFiyat(e.target.value)}))
           ),
           div({className:"btn-r"},
@@ -25926,7 +26034,7 @@ if(DB) dbUpsertAyar("tema",tema);
             ),
             div(null,
               lbl({className:"fl"},"Liste Fiyatı (₺)"),
-              inp({className:"fi",type:"number",placeholder:"0",value:hizDuzIdx.fiyat,onChange:e=>setHizDuzIdx(p=>({...p,fiyat:e.target.value}))})
+              inp({className:"fi",type:"number",tutar:true,placeholder:"0",value:hizDuzIdx.fiyat,onChange:e=>setHizDuzIdx(p=>({...p,fiyat:e.target.value}))})
             )
           ),
           div({className:"btn-r"},
@@ -25958,7 +26066,7 @@ if(DB) dbUpsertAyar("tema",tema);
               inp({className:"fi",placeholder:"Hizmet adı...",value:yeniHizAd,
                 onChange:e=>setYeniHizAd(e.target.value)})),
             div(null,lbl({className:"fl"},"Liste Fiyatı (₺)"),
-              inp({className:"fi",type:"number",placeholder:"0",value:yeniHizFiyat,
+              inp({className:"fi",type:"number",tutar:true,placeholder:"0",value:yeniHizFiyat,
                 onChange:e=>setYeniHizFiyat(e.target.value)}))
           ),
           div({className:"btn-r"},
@@ -26175,12 +26283,12 @@ if(DB) dbUpsertAyar("tema",tema);
           div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}},
             div(null,
               lbl({className:"fl"},"Alış Fiyatı (₺)"),
-              inp({className:"fi",type:"number",placeholder:"0",value:urunDuzData.bp||urunDuzData.ap||"",
+              inp({className:"fi",type:"number",tutar:true,placeholder:"0",value:urunDuzData.bp||urunDuzData.ap||"",
                 onChange:e=>setUrunDuzData(p=>({...p,bp:e.target.value,ap:e.target.value}))})
             ),
             div(null,
               lbl({className:"fl"},"Satış Fiyatı (₺)"+(urunDuzData.tip==="sarf"?"":" *")),
-              inp({className:"fi",type:"number",placeholder:"0",value:urunDuzData.sp||"",
+              inp({className:"fi",type:"number",tutar:true,placeholder:"0",value:urunDuzData.sp||"",
                 onChange:e=>setUrunDuzData(p=>({...p,sp:e.target.value}))})
             )
           ),
