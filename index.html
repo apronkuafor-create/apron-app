@@ -9985,6 +9985,16 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
   const [girisBankalarAy, setGirisBankalarAy] = React.useState(manuelKayit.kk||{});
   const [girisIbanAy, setGirisIbanAy] = React.useState(String(manuelKayit.iban||""));
   const [girisNakitAy, setGirisNakitAy] = React.useState(String(manuelKayit.nakit||""));
+  // Ekstredeki BRÜT tutarlar (banka bazında, elle girilir) — günlük POS toplamıyla karşılaştırılır
+  const [girisBrutAy, setGirisBrutAy] = React.useState(manuelKayit.brut||{});
+  // Banka toplamına tıklanınca açılan günlük POS cirosu yan paneli (banka adı)
+  const [posDetayBanka, setPosDetayBanka] = React.useState(null);
+  React.useEffect(()=>{
+    if(!posDetayBanka) return;
+    const esc = e=>{ if(e.key==="Escape") setPosDetayBanka(null); };
+    window.addEventListener("keydown", esc);
+    return ()=>window.removeEventListener("keydown", esc);
+  },[posDetayBanka]);
 
   // Ay değiştiğinde yeniden yükle (hydrate) gerekir — ref ile takip ediyoruz
   const girisHydrated = React.useRef(false);
@@ -10000,6 +10010,7 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
     setGirisBankalarAy(kayit.kk||{});
     setGirisIbanAy(String(kayit.iban||""));
     setGirisNakitAy(String(kayit.nakit||""));
+    setGirisBrutAy(kayit.brut||{});
     girisHydrated.current = true;
   },[ayAnahtar, hesapSaglamaAylik]);
 
@@ -10008,19 +10019,20 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
   // NOT: Bu sadece taslağı (kk/iban/nakit) saklar; komisyon dağıtımı SADECE "Kaydet" butonunda çalışır.
   React.useEffect(()=>{
     if(!girisHydrated.current) return; // henüz hydrate olmadan (veri yüklenmeden) yazmayalım
-    const girisBosMu = Object.keys(girisBankalarAy).length===0 && !girisIbanAy && !girisNakitAy;
+    const girisBosMu = Object.keys(girisBankalarAy).length===0 && Object.keys(girisBrutAy).length===0 && !girisIbanAy && !girisNakitAy;
     const mevcut = hesapSaglamaAylik[ayAnahtar];
     if(girisBosMu && !mevcut) return; // hiç kayıt yok, hiçbir şey de girilmemiş — boşuna taslak oluşturma
     const ayniMi = mevcut
       && JSON.stringify(mevcut.kk||{})===JSON.stringify(girisBankalarAy)
+      && JSON.stringify(mevcut.brut||{})===JSON.stringify(girisBrutAy)
       && String(mevcut.iban||"")===String(girisIbanAy)
       && String(mevcut.nakit||"")===String(girisNakitAy);
     if(ayniMi) return;
     setHesapSaglamaAylik(p=>({...p, [ayAnahtar]: {
       ...(p[ayAnahtar]||{}), ay:ayAnahtar,
-      kk:{...girisBankalarAy}, iban:girisIbanAy, nakit:girisNakitAy
+      kk:{...girisBankalarAy}, brut:{...girisBrutAy}, iban:girisIbanAy, nakit:girisNakitAy
     }}));
-  },[girisBankalarAy, girisIbanAy, girisNakitAy]);
+  },[girisBankalarAy, girisBrutAy, girisIbanAy, girisNakitAy]);
 
   // ── HESAP FARKI (bağımsız) ──────────────────────────────────────────────
   // Bu bölüm, sekmedeki diğer alanlardan (Ay Sonu Banka Ekstresi girişlerinden) veri
@@ -10247,28 +10259,47 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
 
   // Banka bazında: o ay boyunca günlük girilen toplam + ekstre + komisyon (fark)
   const bankaAdlari = (bankalar||[]).map(b=>typeof b==="string"?b:(b&&b.ad)).filter(Boolean);
-  const bankaOzet = bankaAdlari.map(bad=>{
+  // girisToplam = ay boyu günlük girilen POS tutarları (sistem), brut = ekstredeki brüt (elle),
+  // ekstre = ekstredeki NET (elle). Komisyon = (brüt girildiyse brüt, yoksa sistem toplamı) − net.
+  const bankaSatirlari = bankaAdlari.map(bad=>{
     const gunlukGirisler = yapilanlar.map(g=>({tarih:g.tarih, tutar:toN((g.kayit.kk||{})[bad])})).filter(x=>x.tutar>0);
     const girisToplam = gunlukGirisler.reduce((s,x)=>s+x.tutar,0);
+    const brut = toN(girisBrutAy[bad]);
     const ekstre = toN(girisBankalarAy[bad]);
-    const komisyon = (girisToplam>0 && ekstre>0) ? Math.max(0, girisToplam-ekstre) : 0;
-    return {bad, gunlukGirisler, girisToplam, ekstre, komisyon};
-  }).filter(x=>x.girisToplam>0 || x.ekstre>0);
+    const taban = brut>0 ? brut : girisToplam;
+    const komisyon = (taban>0 && ekstre>0) ? Math.max(0, taban-ekstre) : 0;
+    const yuzde = (taban>0 && ekstre>0) ? (komisyon/taban)*100 : null;
+    const brutDurum = brut>0 ? (Math.abs(brut-girisToplam)<1 ? "ok" : "fark") : "bos";
+    return {bad, gunlukGirisler, girisToplam, brut, ekstre, komisyon, yuzde, brutDurum};
+  });
+  const bankaOzet = bankaSatirlari.filter(x=>x.girisToplam>0 || x.ekstre>0 || x.brut>0);
   const toplamKomisyon = bankaOzet.reduce((s,x)=>s+x.komisyon,0);
+  const topSistemPos = bankaSatirlari.reduce((s,x)=>s+x.girisToplam,0);
+  const topBrut = bankaSatirlari.reduce((s,x)=>s+x.brut,0);
+  const topNet = bankaSatirlari.reduce((s,x)=>s+x.ekstre,0);
+  const topKomTaban = bankaSatirlari.filter(x=>x.ekstre>0).reduce((s,x)=>s+(x.brut>0?x.brut:x.girisToplam),0);
+  const topYuzde = topKomTaban>0 ? (toplamKomisyon/topKomTaban)*100 : null;
+  // Toplam brüt farkı yalnızca brüt girilmiş bankaların günlük toplamıyla kıyaslanır (girilmemiş banka fark sayılmaz)
+  const topSistemBrutGirilen = bankaSatirlari.filter(x=>x.brut>0).reduce((s,x)=>s+x.girisToplam,0);
+  const topBrutFark = topBrut - topSistemBrutGirilen;
+  const topBrutDurum = topBrut>0 ? (Math.abs(topBrutFark)>=1 || bankaSatirlari.some(x=>x.brutDurum==="fark") ? "fark" : "ok") : "bos";
 
   const kaydetAylik = () => {
     if(!manuelGirildiMi){ showToast("Gerçek tutarları girin","uy"); return; }
 
     // Aynı tutarlarla daha önce zaten işlendiyse (komisyon gidere yazıldıysa), yanlışlıkla
     // tekrar basılırsa aynı giderleri tekrar dağıtıp üzerine yazmasın.
-    const yeniSnapshot = JSON.stringify({kk:girisBankalarAy, iban:manuelIban, nakit:manuelNakit});
+    const brutVar = Object.values(girisBrutAy).some(v=>toN(v)>0);
+    const yeniSnapshot = JSON.stringify(brutVar
+      ? {kk:girisBankalarAy, iban:manuelIban, nakit:manuelNakit, brut:girisBrutAy}
+      : {kk:girisBankalarAy, iban:manuelIban, nakit:manuelNakit});
     if(manuelKayit.komisyonIslendi && manuelKayit.komisyonSnapshot===yeniSnapshot){
       showToast("Bu ay zaten bu tutarlarla kaydedilmiş — tekrar işlenmedi","uy");
       return;
     }
 
     setHesapSaglamaAylik(p=>({...p,[ayAnahtar]:{
-      ay:ayAnahtar, kk:{...girisBankalarAy}, iban:manuelIban, nakit:manuelNakit,
+      ay:ayAnahtar, kk:{...girisBankalarAy}, brut:{...girisBrutAy}, iban:manuelIban, nakit:manuelNakit,
       sistemKK, sistemIban, sistemNakit, tumEslesti:manuelEslesti,
       kayitTarihi:TODAY(), saat:new Date().toTimeString().slice(0,5),
       komisyonIslendi:true, komisyonSnapshot:yeniSnapshot
@@ -10648,69 +10679,212 @@ function AylikHesapOzeti({tumK, bankalar, hesapSaglama, hesapSaglamaAylik, setHe
     ),
 
     // Ay sonu banka ekstresi + otomatik POS komisyonu
-    div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14,marginBottom:12}},
-      div({style:{fontSize:12,color:"var(--g)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}},
-        "🏦 Ay Sonu Banka Ekstresi → Otomatik POS Komisyonu"),
-      div({style:{fontSize:11.5,color:"var(--mu)",marginBottom:10,lineHeight:1.5}},
-        "Oran girmenize gerek yok. Banka ekstresinden, o bankanın bu ay hesabınıza yatırdığı NET tutarı girin. Sistem, o ay boyunca günlük 'Gerçek Veriler'e girdiğiniz banka tutarları toplamından bu neti çıkarıp aradaki farkı POS komisyonu olarak günlere hacim oranlı dağıtıp gidere yazar."),
-      (bankalar||[]).map((b,i)=>
-        div({key:i,style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"center",marginBottom:7}},
-          div({style:{fontSize:14,color:"var(--mu)"}},b),
-          inp({className:"fi",style:{margin:0},type:"number",inputMode:"decimal",placeholder:"0",
-            value:girisBankalarAy[b]||"",
-            onChange:e=>setGirisBankalarAy(p=>({...p,[b]:e.target.value}))})
-        )
-      ),
-      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"center",marginBottom:7}},
-        div({style:{fontSize:14,color:"var(--mu)"}},"🏦 İban/Havale"),
-        inp({className:"fi",style:{margin:0},type:"number",inputMode:"decimal",placeholder:"0",
-          value:girisIbanAy, onChange:e=>setGirisIbanAy(e.target.value)})
-      ),
-      div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"center",marginBottom:10}},
-        div({style:{fontSize:14,color:"var(--mu)"}},"💵 Nakit"),
-        inp({className:"fi",style:{margin:0},type:"number",inputMode:"decimal",placeholder:"0",
-          value:girisNakitAy, onChange:e=>setGirisNakitAy(e.target.value)})
-      ),
-      manuelGirildiMi && div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
-        padding:"8px 10px",marginBottom:10,borderRadius:8,
-        background:manuelEslesti?"rgba(50,140,100,.1)":"rgba(224,60,60,.1)",
-        border:"1px solid "+(manuelEslesti?"rgba(50,140,100,.3)":"rgba(224,60,60,.3)")}},
-        div({style:{fontSize:12.5,color:"var(--tx)"}},"Girilen toplam: "+fmt(manuelTop)),
-        h("span",{style:{fontSize:12,fontWeight:600,color:manuelEslesti?"var(--gr)":"#e06060"}},
-          manuelEslesti?"✓ Eşleşiyor":"✕ Fark: "+((manuelTop-sistemTop)>0?"+":"")+fmt(manuelTop-sistemTop))
-      ),
+    (()=>{
+      const fmtTL = v => Number(v||0).toLocaleString("tr-TR",{maximumFractionDigits:2})+" ₺";
+      const fmtY = v => v===null ? "—" : "%"+(Math.round(v*100)/100).toLocaleString("tr-TR",{minimumFractionDigits:2,maximumFractionDigits:2});
+      const RENK = {
+        sis:{bg:"linear-gradient(160deg,#EEF4FF 0%,#E3EDFF 100%)",br:"rgba(0,113,227,.22)",tx:"#0b4fa3",lb:"#3c6db3"},
+        ok:{bg:"rgba(52,199,89,.10)",br:"rgba(40,160,80,.45)",tx:"#1b7a3c",lb:"#2a8a4a"},
+        fark:{bg:"rgba(255,59,48,.07)",br:"rgba(224,60,60,.45)",tx:"#c0302a",lb:"#c0302a"},
+        bos:{bg:"#FFFFFF",br:"var(--br)",tx:"var(--tx)",lb:"var(--mu)"},
+        kom:{bg:"linear-gradient(160deg,#FFF6EC 0%,#FFEEDB 100%)",br:"rgba(230,120,20,.28)",tx:"#b85a00",lb:"#a8641a"}
+      };
+      const kutu = (r, ekStil, ...cocuk) => div({className:"bx-kutu",style:{background:r.bg,border:"1.5px solid "+r.br,
+        borderRadius:12,padding:"10px 11px",minWidth:0,display:"flex",flexDirection:"column",justifyContent:"center",
+        gap:3,minHeight:76,transition:"border-color .15s, background .15s, box-shadow .15s",...(ekStil||{})}},...cocuk);
+      const etiket = (t,renk) => div({style:{fontSize:9.5,fontWeight:700,letterSpacing:.9,textTransform:"uppercase",color:renk,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},t);
+      const girdi = (val,onCh,renk) => inp({className:"fi",type:"number",inputMode:"decimal",placeholder:"0",value:val||"",onChange:onCh,
+        style:{margin:0,padding:"5px 8px",fontSize:16,fontWeight:700,color:renk,background:"rgba(255,255,255,.75)",
+          border:"1px solid rgba(0,0,0,.08)",borderRadius:8,textAlign:"right",width:"100%",minWidth:0}});
+      const durumRozet = (d, fark) => d==="ok"
+        ? div({style:{fontSize:10.5,fontWeight:700,color:RENK.ok.tx}},"✓ Günlük kayıtla uyuşuyor")
+        : d==="fark"
+          ? div({style:{fontSize:10.5,fontWeight:700,color:RENK.fark.tx}},"✕ Uyuşmuyor · "+(fark>0?"+":"")+fmtTL(fark))
+          : div({style:{fontSize:10.5,color:"var(--di)"}},"Ekstreden girin");
 
-      // Banka bazlı komisyon önizlemesi
-      bankaOzet.length>0 && div({style:{marginBottom:10,padding:"10px 11px",background:"rgba(37,99,168,.05)",
-        border:"1px solid rgba(37,99,168,.18)",borderRadius:9}},
-        div({style:{fontSize:11,fontWeight:700,color:"var(--g)",letterSpacing:.8,textTransform:"uppercase",marginBottom:8}},
-          "💳 Hesaplanacak POS Komisyonu"),
-        bankaOzet.map(({bad,girisToplam,ekstre,komisyon})=>
-          div({key:bad,style:{marginBottom:8,paddingBottom:8,borderBottom:"1px solid rgba(0,0,0,.06)"}},
-            div({style:{fontSize:12.5,color:"var(--tx)",fontWeight:600,marginBottom:3}},bad),
-            div({style:{display:"flex",justifyContent:"space-between",fontSize:11.5,color:"var(--mu)"}},
-              div(null,"Günlük girişler toplamı: "+fmt(girisToplam)),
-              div(null,"Ekstre: "+(ekstre>0?fmt(ekstre):"—"))
-            ),
-            ekstre>0 && div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:2}},
-              div({style:{fontSize:12,color:"var(--tx)"}},"Komisyon"),
-              div({style:{display:"flex",alignItems:"center",gap:6}},
-                girisToplam>0 && h("span",{style:{fontSize:10.5,fontWeight:600,color:"var(--mu)",
-                  background:"rgba(0,0,0,.05)",borderRadius:6,padding:"1px 6px"}},
-                  "%"+(Math.round((komisyon/girisToplam)*1000)/10)),
-                div({style:{fontSize:13,fontWeight:700,color:komisyon>0?"#e06060":"var(--mu)"}},fmt(komisyon))
-              )
+      const sutunBaslik = (t, alt) => div({style:{padding:"0 4px"}},
+        div({style:{fontSize:10.5,fontWeight:800,letterSpacing:1,textTransform:"uppercase",color:"var(--di)"}},t),
+        div({style:{fontSize:10,color:"var(--mu)",marginTop:1}},alt));
+
+      const detay = posDetayBanka ? bankaSatirlari.find(x=>x.bad===posDetayBanka) : null;
+
+      return div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:16,padding:16,marginBottom:12,
+        boxShadow:"0 1px 3px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.04)"}},
+        h("style",null,
+          ".bx-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}"
+          +".bx-sis{cursor:pointer}.bx-sis:hover{box-shadow:0 4px 14px rgba(0,113,227,.18);border-color:rgba(0,113,227,.5)!important}"
+          +".bx-sis:active{transform:scale(.99)}"
+          +"@media(max-width:620px){.bx-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.bx-bas{display:none!important}}"
+          +"@keyframes bxKay{from{transform:translateX(100%)}to{transform:translateX(0)}}"
+          +"@keyframes bxSol{from{opacity:0}to{opacity:1}}"),
+
+        // Başlık
+        div({style:{display:"flex",alignItems:"center",gap:10,marginBottom:6}},
+          div({style:{width:34,height:34,borderRadius:10,background:"rgba(0,113,227,.1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0}},"🏦"),
+          div({style:{minWidth:0}},
+            div({style:{fontSize:12,color:"var(--g)",letterSpacing:1.5,textTransform:"uppercase",fontWeight:700}},"Ay Sonu Banka Ekstresi → Otomatik POS Komisyonu"),
+            div({style:{fontSize:11,color:"var(--mu)",marginTop:1}},ayEt.charAt(0).toUpperCase()+ayEt.slice(1)+" "+yil))
+        ),
+        div({style:{fontSize:11.5,color:"var(--mu)",margin:"0 0 14px",lineHeight:1.55}},
+          "Soldaki mavi kutu, ay boyunca günlük girilen POS tutarlarının toplamıdır (tıklayınca gün gün dökümü açılır). Ekstredeki ",
+          h("strong",null,"Brüt")," ve ",h("strong",null,"Net")," tutarları girin; brüt, günlük kayıtlarla uyuşuyorsa yeşil, uyuşmuyorsa kırmızı görünür. Komisyon = Brüt − Net (brüt girilmezse günlük toplam esas alınır) ve günlere hacim oranında gider olarak dağıtılır."),
+
+        // Sütun başlıkları
+        div({className:"bx-grid bx-bas",style:{marginBottom:6}},
+          sutunBaslik("Günlük POS Toplamı","Sistem · tıkla → döküm"),
+          sutunBaslik("Ekstre Brüt","Elle girilir"),
+          sutunBaslik("Ekstre Net","Elle girilir"),
+          sutunBaslik("Komisyon","Tutar · oran")),
+
+        bankaSatirlari.length===0 && div({style:{fontSize:13,color:"var(--mu)",textAlign:"center",padding:14}},"Tanımlı banka yok"),
+
+        // Banka satırları
+        bankaSatirlari.map(x=>{
+          const br = RENK[x.brutDurum];
+          return div({key:x.bad,style:{marginBottom:12}},
+            div({style:{display:"flex",alignItems:"center",gap:7,margin:"0 2px 6px"}},
+              div({style:{width:6,height:6,borderRadius:3,background:"var(--g)"}}),
+              div({style:{fontSize:13,fontWeight:700,color:"var(--tx)"}},x.bad),
+              x.gunlukGirisler.length>0 && div({style:{fontSize:10.5,color:"var(--mu)"}},"· "+x.gunlukGirisler.length+" gün")),
+            div({className:"bx-grid"},
+              // 1) Sistem toplamı — tıklanabilir
+              h("div",{className:"bx-kutu bx-sis",role:"button",tabIndex:0,title:x.bad+" günlük POS cirolarını göster",
+                  onClick:()=>setPosDetayBanka(x.bad),
+                  onKeyDown:e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); setPosDetayBanka(x.bad); } },
+                  style:{background:RENK.sis.bg,border:"1.5px solid "+RENK.sis.br,borderRadius:12,padding:"10px 11px",minWidth:0,
+                    display:"flex",flexDirection:"column",justifyContent:"center",gap:3,minHeight:76,transition:"box-shadow .15s, border-color .15s"}},
+                  etiket("Günlük POS",RENK.sis.lb),
+                  div({style:{fontSize:17,fontWeight:800,color:RENK.sis.tx,letterSpacing:"-.3px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},fmtTL(x.girisToplam)),
+                  div({style:{fontSize:10.5,color:RENK.sis.lb,fontWeight:600}},"Dökümü gör ›")),
+              // 2) Ekstre brüt — elle
+              kutu(br,{},
+                etiket("Ekstre Brüt",br.lb),
+                girdi(girisBrutAy[x.bad], e=>setGirisBrutAy(p=>({...p,[x.bad]:e.target.value})), br.tx),
+                durumRozet(x.brutDurum, x.brut-x.girisToplam)),
+              // 3) Ekstre net — elle
+              kutu(x.ekstre>0?{...RENK.bos,br:"rgba(0,0,0,.14)"}:RENK.bos,{},
+                etiket("Ekstre Net",RENK.bos.lb),
+                girdi(girisBankalarAy[x.bad], e=>setGirisBankalarAy(p=>({...p,[x.bad]:e.target.value})), "var(--tx)"),
+                div({style:{fontSize:10.5,color:"var(--di)"}},"Hesaba yatan")),
+              // 4) Komisyon
+              kutu(RENK.kom,{},
+                etiket("Komisyon",RENK.kom.lb),
+                div({style:{fontSize:17,fontWeight:800,color:x.komisyon>0?RENK.kom.tx:"var(--mu)",letterSpacing:"-.3px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},
+                  x.ekstre>0?fmtTL(x.komisyon):"—"),
+                x.yuzde!==null
+                  ? div({style:{display:"inline-flex",alignSelf:"flex-start",fontSize:11,fontWeight:800,padding:"1px 8px",borderRadius:20,
+                      background:"rgba(230,120,20,.14)",color:RENK.kom.tx}},fmtY(x.yuzde))
+                  : div({style:{fontSize:10.5,color:"var(--di)"}},"Net girilince hesaplanır"))
             )
+          );
+        }),
+
+        // Toplam satırı
+        bankaSatirlari.length>0 && div({style:{marginTop:4,paddingTop:12,borderTop:"2px dashed var(--br)"}},
+          div({style:{fontSize:11,fontWeight:800,letterSpacing:1.2,textTransform:"uppercase",color:"var(--tx)",margin:"0 2px 6px"}},"Σ Toplam"),
+          div({className:"bx-grid"},
+            kutu({...RENK.sis,bg:"#0b4fa3",br:"#0b4fa3"},{},
+              etiket("Günlük POS",  "rgba(255,255,255,.75)"),
+              div({style:{fontSize:17,fontWeight:800,color:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},fmtTL(topSistemPos))),
+            kutu(topBrutDurum==="ok"?{bg:"#1f8a4c",br:"#1f8a4c"}:(topBrutDurum==="fark"?{bg:"#c8362f",br:"#c8362f"}:{bg:"#6E6E73",br:"#6E6E73"}),{},
+              etiket("Ekstre Brüt","rgba(255,255,255,.78)"),
+              div({style:{fontSize:17,fontWeight:800,color:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},topBrut>0?fmtTL(topBrut):"—"),
+              div({style:{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.9)"}},
+                topBrutDurum==="ok"?"✓ Girilenler uyuşuyor":(topBrutDurum==="fark"?"✕ Fark: "+(topBrutFark>0?"+":"")+fmtTL(topBrutFark):"Girilmedi"))),
+            kutu({bg:"#1D1D1F",br:"#1D1D1F"},{},
+              etiket("Ekstre Net","rgba(255,255,255,.7)"),
+              div({style:{fontSize:17,fontWeight:800,color:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},topNet>0?fmtTL(topNet):"—")),
+            kutu({bg:"#c25e00",br:"#c25e00"},{},
+              etiket("Toplam Komisyon","rgba(255,255,255,.78)"),
+              div({style:{fontSize:17,fontWeight:800,color:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},toplamKomisyon>0?fmtTL(toplamKomisyon):"—"),
+              div({style:{display:"inline-flex",alignSelf:"flex-start",fontSize:11,fontWeight:800,padding:"1px 8px",borderRadius:20,background:"rgba(255,255,255,.2)",color:"#fff"}},fmtY(topYuzde)))
           )
         ),
-        toplamKomisyon>0 && div({style:{display:"flex",justifyContent:"space-between",paddingTop:2,
-          fontSize:13.5,fontWeight:700,color:"#e06060"}},
-          div(null,"Toplam Komisyon (gidere yazılacak)"), div(null,fmt(toplamKomisyon)))
-      ),
 
-      btn({className:"btn-k",style:{width:"100%"},onClick:kaydetAylik},
-        hesapSaglamaAylik[ayAnahtar] ? "Ay Sonu Kaydını Güncelle" : "Ay Sonu Kaydını Kaydet")
-    ),
+        // İban / Nakit (ay sonu sağlaması için — değişmedi)
+        div({style:{marginTop:16,padding:"12px 12px 4px",background:"rgba(0,0,0,.025)",borderRadius:12}},
+          div({style:{fontSize:10.5,fontWeight:800,letterSpacing:1,textTransform:"uppercase",color:"var(--di)",marginBottom:8}},"Diğer ödeme tipleri (ay sonu)"),
+          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"center",marginBottom:8}},
+            div({style:{fontSize:13.5,color:"var(--mu)"}},"🏦 İban/Havale"),
+            inp({className:"fi",style:{margin:0},type:"number",inputMode:"decimal",placeholder:"0",
+              value:girisIbanAy, onChange:e=>setGirisIbanAy(e.target.value)})),
+          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"center",marginBottom:8}},
+            div({style:{fontSize:13.5,color:"var(--mu)"}},"💵 Nakit"),
+            inp({className:"fi",style:{margin:0},type:"number",inputMode:"decimal",placeholder:"0",
+              value:girisNakitAy, onChange:e=>setGirisNakitAy(e.target.value)}))
+        ),
+        manuelGirildiMi && div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
+          padding:"8px 10px",margin:"10px 0",borderRadius:8,
+          background:manuelEslesti?"rgba(50,140,100,.1)":"rgba(224,60,60,.1)",
+          border:"1px solid "+(manuelEslesti?"rgba(50,140,100,.3)":"rgba(224,60,60,.3)")}},
+          div({style:{fontSize:12.5,color:"var(--tx)"}},"Girilen net toplam (bankalar + İban + Nakit): "+fmt(manuelTop)),
+          h("span",{style:{fontSize:12,fontWeight:600,color:manuelEslesti?"var(--gr)":"#e06060"}},
+            manuelEslesti?"✓ Eşleşiyor":"✕ Fark: "+((manuelTop-sistemTop)>0?"+":"")+fmt(manuelTop-sistemTop))
+        ),
+
+        btn({className:"btn-k",style:{width:"100%",marginTop:10},onClick:kaydetAylik},
+          hesapSaglamaAylik[ayAnahtar] ? "Ay Sonu Kaydını Güncelle" : "Ay Sonu Kaydını Kaydet"),
+
+        // ── Yan panel: bankanın günlük POS ciroları ──
+        detay && ReactDOM.createPortal(
+          div({onClick:()=>setPosDetayBanka(null),
+            style:{position:"fixed",inset:0,zIndex:3000,background:"rgba(15,20,30,.38)",backdropFilter:"blur(2px)",
+              animation:"bxSol .18s ease",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+            div({onClick:e=>e.stopPropagation(),
+              style:{position:"absolute",top:0,right:0,bottom:0,width:"min(400px,92vw)",background:"#FBFBFD",
+                boxShadow:"-12px 0 40px rgba(0,0,0,.18)",display:"flex",flexDirection:"column",animation:"bxKay .22s cubic-bezier(.2,.8,.2,1)"}},
+              // Başlık
+              div({style:{padding:"18px 18px 14px",background:"linear-gradient(160deg,#0b4fa3,#0071E3)",color:"#fff",flexShrink:0}},
+                div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}},
+                  div({style:{minWidth:0}},
+                    div({style:{fontSize:10.5,letterSpacing:1.4,textTransform:"uppercase",opacity:.8,fontWeight:700}},"Günlük POS Ciroları"),
+                    div({style:{fontSize:19,fontWeight:800,marginTop:2}},detay.bad),
+                    div({style:{fontSize:12,opacity:.85,marginTop:1}},ayEt.charAt(0).toUpperCase()+ayEt.slice(1)+" "+yil)),
+                  btn({onClick:()=>setPosDetayBanka(null),"aria-label":"Kapat",
+                    style:{background:"rgba(255,255,255,.18)",border:"none",color:"#fff",width:32,height:32,borderRadius:9,fontSize:16,cursor:"pointer",flexShrink:0}},"✕")),
+                div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginTop:14}},
+                  div(null,
+                    div({style:{fontSize:10.5,opacity:.8,textTransform:"uppercase",letterSpacing:1}},"Ay toplamı"),
+                    div({style:{fontSize:24,fontWeight:800,letterSpacing:"-.5px"}},fmtTL(detay.girisToplam))),
+                  div({style:{fontSize:12,opacity:.85}},detay.gunlukGirisler.length+" gün"))
+              ),
+              // Liste
+              div({style:{flex:1,overflow:"auto",padding:"8px 10px"}},
+                detay.gunlukGirisler.length===0
+                  ? div({style:{padding:30,textAlign:"center",color:"var(--mu)",fontSize:13}},"Bu ay bu bankaya ait günlük POS girişi yok.")
+                  : (()=>{
+                      const enBuyuk = Math.max(...detay.gunlukGirisler.map(g=>g.tutar));
+                      return detay.gunlukGirisler.map(g=>{
+                        const d = new Date(g.tarih+"T12:00:00");
+                        const gunAd = d.toLocaleDateString("tr-TR",{weekday:"long"});
+                        return div({key:g.tarih,style:{display:"grid",gridTemplateColumns:"44px 1fr auto",gap:10,alignItems:"center",
+                          padding:"9px 8px",borderBottom:"1px solid rgba(0,0,0,.05)"}},
+                          div({style:{width:44,height:44,borderRadius:10,background:"rgba(0,113,227,.08)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
+                            div({style:{fontSize:16,fontWeight:800,color:"#0b4fa3",lineHeight:1}},String(d.getDate())),
+                            div({style:{fontSize:9,color:"#3c6db3",textTransform:"uppercase",fontWeight:700,marginTop:2}},d.toLocaleDateString("tr-TR",{month:"short"}))),
+                          div({style:{minWidth:0}},
+                            div({style:{fontSize:13,fontWeight:600,color:"var(--tx)"}},fmtT(g.tarih)),
+                            div({style:{fontSize:11,color:"var(--mu)",textTransform:"capitalize"}},gunAd),
+                            div({style:{height:4,borderRadius:2,background:"rgba(0,113,227,.1)",marginTop:5,overflow:"hidden"}},
+                              div({style:{height:"100%",width:(enBuyuk>0?Math.max(4,g.tutar/enBuyuk*100):0)+"%",background:"#0071E3",borderRadius:2}}))),
+                          div({style:{fontSize:14,fontWeight:800,color:"var(--tx)",whiteSpace:"nowrap"}},fmtTL(g.tutar)));
+                      });
+                    })()
+              ),
+              // Alt özet
+              div({style:{flexShrink:0,borderTop:"1px solid var(--br)",padding:"12px 16px",background:"#fff"}},
+                [["Günlük POS toplamı",fmtTL(detay.girisToplam),"var(--tx)"],
+                 ["Ekstre brüt",detay.brut>0?fmtTL(detay.brut):"—",detay.brutDurum==="ok"?RENK.ok.tx:(detay.brutDurum==="fark"?RENK.fark.tx:"var(--mu)")],
+                 ["Ekstre net",detay.ekstre>0?fmtTL(detay.ekstre):"—","var(--tx)"],
+                 ["Komisyon",detay.ekstre>0?fmtTL(detay.komisyon)+"  ("+fmtY(detay.yuzde)+")":"—",RENK.kom.tx]
+                ].map(([a,b,c])=>div({key:a,style:{display:"flex",justifyContent:"space-between",fontSize:12.5,padding:"3px 0"}},
+                  div({style:{color:"var(--mu)"}},a), div({style:{fontWeight:700,color:c}},b))),
+                div({style:{fontSize:10.5,color:"var(--di)",textAlign:"center",marginTop:8}},"Kapatmak için boş alana dokunun")
+              )
+            )
+          ), document.body)
+      );
+    })(),
 
     // Eksik günlere hızlı erişim
     eksikGunler.length>0 && div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:14}},
