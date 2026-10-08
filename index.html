@@ -7514,6 +7514,32 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
               const gecmisOdemeler=secGrup.kayitlar.flatMap(k=>(k.odemeler||[]).map(o=>({...o,_kayit:k})));
               const topOdenen=gecmisOdemeler.reduce((s,o)=>s+toN(o.tutar),0);
               const kalan=odenecek-topOdenen;
+              // ── Toplu ödeme dağıtımı: seçili faturanın kalanından fazla ödenirse, fazlası aynı
+              // tedarikçinin diğer AÇIK faturalarına en eski faturadan başlayarak otomatik dağıtılır.
+              const r2=x=>Math.round(x*100)/100;
+              const gTarihi=g=>{const k=g.kayitlar[0]; return k.faturaTarih||k.tarih||"";};
+              const tedAnahtar=(secFatura.tedarikci||"").trim().toLowerCase();
+              const digerAcikFaturalar = tedAnahtar ? gruplar.filter(g=>g!==secGrup
+                  && (g.kayitlar[0].tedarikci||"").trim().toLowerCase()===tedAnahtar
+                  && gOdenecek(g)-gOdenen(g)>0.009)
+                .sort((a,b)=>gTarihi(a).localeCompare(gTarihi(b))) : [];
+              const dagitimHesapla = toplam => {
+                const parcalar=[]; let kalanPara=r2(toplam);
+                const ilk=r2(Math.min(kalanPara, Math.max(0,kalan)));
+                parcalar.push({g:secGrup, tutar:ilk, ana:true}); kalanPara=r2(kalanPara-ilk);
+                for(const g of digerAcikFaturalar){
+                  if(kalanPara<=0.009) break;
+                  const gk=r2(gOdenecek(g)-gOdenen(g));
+                  const x=r2(Math.min(kalanPara,gk));
+                  parcalar.push({g, tutar:x, tamami:x>=gk-0.009, gKalan:gk}); kalanPara=r2(kalanPara-x);
+                }
+                const artan = kalanPara>0.009 ? kalanPara : 0;
+                if(artan) parcalar[0].tutar=r2(parcalar[0].tutar+artan); // tüm faturalar kapandıysa artan seçili faturada fazla ödeme olarak kalır
+                return {parcalar:parcalar.filter(x=>x.tutar>0.009), artan};
+              };
+              const girilenTutar=toN(cariOdeTutar);
+              const topluMu = !cariOdeDuzenleId && girilenTutar>kalan+0.009 && digerAcikFaturalar.length>0;
+              const dagitim = topluMu ? dagitimHesapla(girilenTutar) : null;
               return div(null,
                 // Fatura özeti başlığı
                 div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,
@@ -7569,6 +7595,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                           if(d.kisi) parcalar.push(d.kisi);
                           if(d.kart) parcalar.push(d.kart);
                           if(d.taksit) parcalar.push(d.taksit+" Taksit");
+                          if(od.topluId) parcalar.push("🔗 Toplu ödeme "+fmt(od.topluToplam||0));
                           return parcalar.length>0&&div({style:{fontSize:11,color:"var(--mu)",marginTop:1}},parcalar.join(" · "));
                         })(),
                         od.not&&div({style:{fontSize:11,color:"var(--di)",marginTop:1}},od.not)
@@ -7590,6 +7617,17 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                           }},"✏"),
                         btn({style:{background:"transparent",border:"none",color:"#c05050",fontSize:13,cursor:"pointer"},
                           onClick:()=>{
+                            if(od.topluId){
+                              const parcaSay=mkArsiv.reduce((s,ar)=>s+(ar.odemeler||[]).filter(x=>x.topluId===od.topluId).length,0);
+                              if(!window.confirm("Bu ödeme, "+fmt(od.topluToplam||od.tutar)+" tutarındaki toplu ödemenin parçası ("+parcaSay+" faturaya dağıtılmıştı).\n\nTüm parçalar birlikte silinsin mi?")) return;
+                              const yeniArsivT=mkArsiv.map(ar=>(ar.odemeler||[]).some(x=>x.topluId===od.topluId)
+                                ?{...ar,odemeler:(ar.odemeler||[]).filter(x=>x.topluId!==od.topluId)}:ar);
+                              setMkArsiv(yeniArsivT);
+                              if(cariOdeDuzenleId&&String(cariOdeDuzenleId).indexOf(od.topluId)===0) setCariOdeDuzenleId(null);
+                              try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsivT));}catch(e){}
+                              showToast("Toplu ödeme ("+parcaSay+" parça) silindi","uy");
+                              return;
+                            }
                             const yeniArsiv=mkArsiv.map(ar=>ar===od._kayit
                               ?{...ar,odemeler:(ar.odemeler||[]).filter(x=>x.id!==od.id)}:ar);
                             setMkArsiv(yeniArsiv);
@@ -7634,6 +7672,24 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       btn({style:{background:"transparent",border:"none",color:"var(--g)",fontSize:11,cursor:"pointer",
                         marginLeft:8,textDecoration:"underline"},
                         onClick:()=>setCariOdeTutar(String(Math.round(kalan)))},"Tamamını öde")
+                    ),
+                    // Fazla ödeme → diğer faturalara dağıtım önizlemesi
+                    topluMu && div({style:{marginTop:10,borderRadius:10,overflow:"hidden",border:"1px solid rgba(0,113,227,.25)",background:"rgba(0,113,227,.04)"}},
+                      div({style:{padding:"9px 12px",fontSize:12,fontWeight:700,color:"var(--g)",borderBottom:"1px solid rgba(0,113,227,.15)"}},
+                        "🔗 Bu ödeme "+dagitim.parcalar.length+" faturaya dağıtılacak"),
+                      dagitim.parcalar.map((pc,i)=>{
+                        const k=pc.g.kayitlar[0];
+                        return div({key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"7px 12px",
+                          borderBottom:i<dagitim.parcalar.length-1?"1px solid rgba(0,0,0,.05)":"none"}},
+                          div({style:{minWidth:0}},
+                            div({style:{fontSize:12.5,color:"var(--tx)",fontWeight:pc.ana?700:500}},
+                              (pc.ana?"Bu fatura · ":"")+(k.kayitTuru==="acilis"?"Devir / Açılış":(k.faturaN||"—"))),
+                            div({style:{fontSize:10.5,color:"var(--mu)"}},
+                              fmtT(k.faturaTarih||k.tarih)+(pc.ana?"":(pc.tamami?" · tamamı kapanır":" · kısmi — kalan "+fmt(r2(pc.gKalan-pc.tutar)))))),
+                          div({style:{fontSize:13,fontWeight:700,color:"#50b880",whiteSpace:"nowrap"}},fmt(pc.tutar)));
+                      }),
+                      dagitim.artan>0 && div({style:{padding:"7px 12px",fontSize:11.5,color:"#c07a10",background:"rgba(224,160,60,.08)",borderTop:"1px solid rgba(224,160,60,.25)"}},
+                        "⚠ Tedarikçinin tüm faturaları kapanıyor; artan "+fmt(dagitim.artan)+" bu faturada fazla ödeme (alacak) olarak kalır.")
                     )
                   ),
                   // ── Ödeme tipine özel detay alanları ──
@@ -7722,24 +7778,44 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                         const duzenlenen = gecmisOdemeler.find(o=>o.id===cariOdeDuzenleId);
                         if(!duzenlenen){ showToast("Ödeme bulunamadı","uy"); return; }
                         const guncelOdeme={id:cariOdeDuzenleId,tarih:cariOdeTarih,tip:cariOdeTip,
-                          tutar:toN(cariOdeTutar),not:cariOdeNot,detay};
+                          tutar:toN(cariOdeTutar),not:cariOdeNot,detay,
+                          ...(duzenlenen.topluId?{topluId:duzenlenen.topluId,topluToplam:duzenlenen.topluToplam,topluAnaFatura:duzenlenen.topluAnaFatura}:{})};
                         yeniArsiv=mkArsiv.map(ar=>ar===duzenlenen._kayit
                           ?{...ar,odemeler:(ar.odemeler||[]).map(o=>o.id===cariOdeDuzenleId?guncelOdeme:o)}:ar);
                         setCariOdeDuzenleId(null);
                       } else {
-                        const yeniOdeme={id:uid(),tarih:cariOdeTarih,tip:cariOdeTip,
-                          tutar:toN(cariOdeTutar),not:cariOdeNot,detay};
                         // Ödeme, gruptaki ilk kayda (Satılabilen ve Sarf birleşikse ilk bulunan kayda) işlenir;
                         // grup toplamı zaten tüm kayıtların ödemeler'i toplanarak hesaplandığı için sonuç doğru kalır.
-                        yeniArsiv=mkArsiv.map(ar=>ar===secFatura
-                          ?{...ar,odemeler:[...(ar.odemeler||[]),yeniOdeme]}:ar);
+                        if(topluMu){
+                          // Toplu ödeme: her faturaya ayrı ödeme kaydı, hepsi aynı topluId ile birbirine bağlı
+                          const topluId="toplu-"+uid();
+                          const anaFaturaAd=secFatura.faturaN||"seçili fatura";
+                          const eklenecek=new Map();
+                          dagitim.parcalar.forEach((pc,i)=>{
+                            const od={id:topluId+"-"+i,tarih:cariOdeTarih,tip:cariOdeTip,tutar:pc.tutar,detay,
+                              topluId, topluToplam:r2(girilenTutar), topluAnaFatura:anaFaturaAd,
+                              not:pc.ana
+                                ? ((cariOdeNot?cariOdeNot+" · ":"")+"Toplu ödeme "+fmt(r2(girilenTutar))+" — "+fmt(r2(girilenTutar-pc.tutar))+" diğer faturalara aktarıldı")
+                                : ((cariOdeNot?cariOdeNot+" · ":"")+"Toplu ödemeden aktarıldı ("+anaFaturaAd+" ile ödenen "+fmt(r2(girilenTutar))+")")};
+                            eklenecek.set(pc.g.kayitlar[0], od);
+                          });
+                          yeniArsiv=mkArsiv.map(ar=>eklenecek.has(ar)
+                            ?{...ar,odemeler:[...(ar.odemeler||[]),eklenecek.get(ar)]}:ar);
+                        } else {
+                          const yeniOdeme={id:uid(),tarih:cariOdeTarih,tip:cariOdeTip,
+                            tutar:toN(cariOdeTutar),not:cariOdeNot,detay};
+                          yeniArsiv=mkArsiv.map(ar=>ar===secFatura
+                            ?{...ar,odemeler:[...(ar.odemeler||[]),yeniOdeme]}:ar);
+                        }
                       }
                       setMkArsiv(yeniArsiv);
                       setCariOdeTutar(""); setCariOdeNot("");
                       setCariOdeBanka(""); setCariOdeRefNo(""); setCariOdeNo(""); setCariOdeVade(""); setCariOdeKisi(""); setCariOdeGorsel([]);
                       setCariOdeKart(""); setCariOdeTaksit("");
                       try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeniArsiv));}catch(e){}
-                      showToast(cariOdeDuzenleId?"Ödeme güncellendi":(fmt(toN(cariOdeTutar))+" ödeme kaydedildi"));
+                      showToast(cariOdeDuzenleId?"Ödeme güncellendi":(topluMu
+                        ? fmt(r2(girilenTutar))+" ödeme "+dagitim.parcalar.length+" faturaya dağıtıldı ✓"
+                        : fmt(toN(cariOdeTutar))+" ödeme kaydedildi"));
                     }},cariOdeDuzenleId?"💾 Değişiklikleri Kaydet":(toN(cariOdeTutar)>0?"✅ Ödeme Kaydet":"Tutar Girin"))
                 ),
 
