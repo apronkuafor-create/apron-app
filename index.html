@@ -2639,17 +2639,31 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
         h("td",{style:{...tdS,color:"#3a3a3c",whiteSpace:"nowrap"}}, fmtT(g.tarih)),
         h("td",{style:tdS}, bitti ? span({style:{fontSize:12.5,color:"#2b5d3c",whiteSpace:"nowrap"}}, sonOdemeTarihi(g)?"Ödeme: "+fmtT(sonOdemeTarihi(g)):"—") : vadeEtiket(g)),
         h("td",{style:{...tdS,textAlign:"right",color:"#3a3a3c",whiteSpace:"nowrap"}}, fmt(g.tutar),
-          !bitti && g.odenen>0.009 && div({style:{fontSize:11,color:CARI_RENK.odeme}}, fmt(g.odenen)+" ödendi")),
+          null),
         h("td",{style:{...tdS,textAlign:"right",whiteSpace:"nowrap"}},
           bitti
             ? span({style:{fontSize:13,fontWeight:800,color:"#1f6b3b"}}, "✓ Ödeme Tamamlandı", yeni && span({style:{fontWeight:600,fontSize:11}}," · az önce"))
-            : span({style:{fontWeight:800,color:CARI_RENK.borc}}, fmt(g.kalan))),
+            : g.odenen>0.009
+              ? div({style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}},
+                  span({style:{fontSize:11.5,fontWeight:800,color:"#1f6b3b",background:"rgba(52,199,89,.16)",border:"1px solid rgba(46,125,79,.35)",padding:"2px 9px",borderRadius:20}},
+                    "Kısmi ödendi: "+fmt(g.odenen)),
+                  span({style:{fontWeight:800,color:CARI_RENK.borc}}, "Kalan "+fmt(g.kalan)))
+              : span({style:{fontWeight:800,color:CARI_RENK.borc}}, fmt(g.kalan))),
         h("td",{style:{...tdS,textAlign:"right",whiteSpace:"nowrap"}},
           !g.acilisMi && btn({type:"button",title:"Fatura detayı (ürünler)",onClick:()=>onFaturaDetay(g.ar),
             style:{font:"inherit",fontSize:12,fontWeight:600,minHeight:34,padding:"0 10px",borderRadius:8,border:"1px solid var(--br)",background:"var(--bg2)",color:"#55555A",cursor:"pointer"}},"Detay")));
     };
     if(!tumu.length) return div({style:{padding:"12px 4px",fontSize:13.5,color:"var(--mu)"}},"Bu tedarikçiye ait fatura yok.");
+    const topFatura = cariR2(t.gruplar.reduce((s,g)=>s+g.tutar,0));
+    const topOdeme = cariR2(t.gruplar.reduce((s,g)=>s+g.odemeler.reduce((ss,o)=>ss+toN(o.tutar),0),0));
+    const ozetKutu = (baslik, deger, renk) => div({style:{flex:"1 1 150px",background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:10,padding:"8px 12px"}},
+      div({style:{fontSize:10.5,fontWeight:700,letterSpacing:.8,textTransform:"uppercase",color:"var(--mu)"}},baslik),
+      div({style:{fontSize:16,fontWeight:800,color:renk}},deger));
     return div({style:{display:"flex",flexDirection:"column",gap:6}},
+      div({style:{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}},
+        ozetKutu("Toplam fatura", fmt(topFatura), "var(--tx)"),
+        ozetKutu("Toplam ödenen", fmt(topOdeme), CARI_RENK.odeme),
+        t.alacak>0.009 ? ozetKutu("Fazla ödeme (alacak)", fmt(t.alacak), CARI_RENK.odeme) : ozetKutu("Kalan borç", fmt(t.borc), CARI_RENK.borc)),
       gizlenecek>0 && btn({type:"button",onClick:()=>setOdenenTumu(true),
         style:{font:"inherit",alignSelf:"flex-start",fontSize:12.5,fontWeight:600,background:"none",border:"none",color:"var(--g)",cursor:"pointer",textDecoration:"underline",minHeight:32,padding:0}},
         "Daha eski "+gizlenecek+" ödenmiş faturayı göster"),
