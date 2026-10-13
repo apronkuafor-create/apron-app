@@ -2452,6 +2452,7 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
   const [odemeTed, setOdemeTed] = React.useState(null); // tedarikçi adı
   const [yeniKapanan, setYeniKapanan] = React.useState({}); // {grupKey:true} — son ödemeyle kapanan faturalar (vurgulu)
   const [odenenTumu, setOdenenTumu] = React.useState(false);
+  const [tasinan, setTasinan] = React.useState(null); // {ted, e} — başka tedarikçiye taşınacak ödeme
 
   // ── Faturaları grupla (aynı tedarikçi + aynı fatura no = tek fatura; devir kayıtları ayrı) ──
   const gruplar = [];
@@ -2504,6 +2505,7 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
         const g = sirali[i];
         const al = cariR2(Math.min(x, g.tutar-g.odenen));
         g.odenen = cariR2(g.odenen+al); x = cariR2(x-al);
+        if(al>0.009) g.sonKatkiTarihi = od.tarih; // bu faturaya en son ödeme düşen tarih
         if(g.tutar-g.odenen<=0.009) g.kapanisTarihi = od.tarih;
       }
       if(x>0.009) artan = cariR2(artan+x);
@@ -2570,6 +2572,37 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
   const tdS = {padding:"11px 8px",borderTop:"1px solid var(--br)",fontSize:13.5,verticalAlign:"middle"};
 
   // ── Hareket geçmişi (ekstre) ──
+  // ── Ödeme silme / başka tedarikçiye taşıma ──
+  // Bir ödeme satırı (toplu ödemeyse tüm parçaları) tek işlem olarak ele alınır.
+  const parcaSil = (arsiv, e) => {
+    const sil = new Set(e.parcalar.map(p=>p._kayit && p.id ? p._kayit : null).filter(Boolean));
+    const idler = new Set(e.parcalar.map(p=>p.id));
+    return arsiv.map(ar=> sil.has(ar) ? {...ar, odemeler:(ar.odemeler||[]).filter(o=>!idler.has(o.id))} : ar);
+  };
+  const odemeSil = e => {
+    if(!window.confirm(fmtT(e.tarih)+" tarihli "+fmt(e.odeme)+" ödeme silinsin mi?\n\nBu işlem geri alınamaz.")) return;
+    onArsivKaydet(parcaSil(mkArsiv, e));
+    showToast(fmt(e.odeme)+" ödeme silindi","uy");
+  };
+  const odemeTasi = (hedefTed) => {
+    if(!tasinan) return;
+    const e = tasinan.e;
+    const hedef = (tedMap[hedefTed]||{gruplar:[]}).gruplar.slice().sort((a,b)=>(a.tarih||"").localeCompare(b.tarih||""));
+    // Hedef tedarikçide ödemenin bağlanacağı fatura: en eski AÇIK fatura (yoksa en eski fatura). Dağıtım zaten en eskiden yapılır.
+    const hedefGrup = hedef.find(g=>g.kalan>0.009) || hedef[0];
+    if(!hedefGrup){ showToast("Hedef tedarikçinin faturası yok","uy"); return; }
+    const o = e.o || {};
+    const yeniOd = {id:"tasi-"+uid(), tarih:e.tarih, tip:o.tip||"Nakit", tutar:cariR2(e.odeme), detay:o.detay||{}, not:o.not||"",
+      tasindi:{kaynak:tasinan.ted, tarih:bugun}};
+    const temiz = parcaSil(mkArsiv, e);
+    const hedefKayit = hedefGrup.kayitlar[0];
+    const yeni = temiz.map(ar=> ar===hedefKayit ? {...ar, odemeler:[...(ar.odemeler||[]), yeniOd]} : ar);
+    onArsivKaydet(yeni);
+    setTasinan(null);
+    setAcikTed(hedefTed); setGorunum("acik");
+    showToast(fmt(e.odeme)+" ödeme "+hedefTed+" tedarikçisine taşındı ✓");
+  };
+
   const hareketler = t => {
     const ev = [];
     t.gruplar.forEach(g=>{
@@ -2646,7 +2679,7 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
             : g.odenen>0.009
               ? div({style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}},
                   span({style:{fontSize:11.5,fontWeight:800,color:"#1f6b3b",background:"rgba(52,199,89,.16)",border:"1px solid rgba(46,125,79,.35)",padding:"2px 9px",borderRadius:20}},
-                    "Kısmi ödendi: "+fmt(g.odenen)),
+                    "Kısmi ödendi: "+fmt(g.odenen)+(g.sonKatkiTarihi?" · "+fmtT(g.sonKatkiTarihi):"")),
                   span({style:{fontWeight:800,color:CARI_RENK.borc}}, "Kalan "+fmt(g.kalan)))
               : span({style:{fontWeight:800,color:CARI_RENK.borc}}, fmt(g.kalan))),
         h("td",{style:{...tdS,textAlign:"right",whiteSpace:"nowrap"}},
@@ -2721,8 +2754,13 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
               h("td",{style:tdS}, e.tur==="odeme"?etiket("Ödeme",CARI_RENK.odemeBg,CARI_RENK.odeme):e.tur==="devir"?etiket("Devir",CARI_RENK.devirBg,CARI_RENK.devir):etiket("Fatura",CARI_RENK.borcBg,CARI_RENK.borc)),
               h("td",{style:tdS},
                 e.tur==="odeme"
-                  ? btn({type:"button",onClick:()=>onFaturaOdemeSayfasi(e.g.key),title:"Ödemeyi görüntüle / düzenle",
-                      style:{font:"inherit",background:"none",border:"none",padding:0,cursor:"pointer",fontWeight:700,fontSize:14,color:"var(--tx)",textAlign:"left"}},e.baslik)
+                  ? div({style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},
+                      btn({type:"button",onClick:()=>onFaturaOdemeSayfasi(e.g.key),title:"Ödemeyi görüntüle / düzenle",
+                        style:{font:"inherit",background:"none",border:"none",padding:0,cursor:"pointer",fontWeight:700,fontSize:14,color:"var(--tx)",textAlign:"left"}},e.baslik),
+                      btn({type:"button",onClick:()=>setTasinan({ted:t.ad,e}),title:"Bu ödemeyi başka bir tedarikçiye taşı",
+                        style:{font:"inherit",fontSize:11.5,fontWeight:600,minHeight:30,padding:"0 9px",borderRadius:7,border:"1px solid var(--br)",background:"var(--bg2)",color:"#55555A",cursor:"pointer"}},"Başka tedarikçiye taşı"),
+                      btn({type:"button",onClick:()=>odemeSil(e),title:"Bu ödemeyi sil","aria-label":"Ödemeyi sil",
+                        style:{font:"inherit",fontSize:11.5,fontWeight:600,minHeight:30,padding:"0 9px",borderRadius:7,border:"1px solid rgba(192,48,42,.35)",background:"rgba(192,48,42,.06)",color:CARI_RENK.gecik,cursor:"pointer"}},"Sil"))
                   : (e.tur==="fatura" ? faturaNoBtn(e.g) : span({style:{fontWeight:700}},e.baslik)),
                 e.alt && div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},e.alt)),
               h("td",{style:{...tdS,textAlign:"right",fontWeight:600,color:CARI_RENK.borc,whiteSpace:"nowrap"}},e.borc?fmt(e.borc):""),
@@ -2797,6 +2835,24 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
               gorunum==="acik" ? acikFaturalarGorunumu(t) : hareketGorunumu(t)));
         }),
     gorsel && h(CariGorselGoster,{gorseller:gorsel.gorseller, baslik:gorsel.baslik, onKapat:()=>setGorsel(null)}),
+    tasinan && ReactDOM.createPortal(
+      div({onClick:ev=>{ if(ev.target===ev.currentTarget) setTasinan(null); },
+        style:{position:"fixed",inset:0,zIndex:960,background:"rgba(20,22,26,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,boxSizing:"border-box"}},
+        div({role:"dialog","aria-label":"Ödemeyi başka tedarikçiye taşı",style:{background:"var(--bg2)",borderRadius:16,width:"100%",maxWidth:440,maxHeight:"85vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 20px 50px rgba(0,0,0,.25)",color:"var(--tx)"}},
+          div({style:{padding:"16px 18px",borderBottom:"1px solid var(--br)"}},
+            div({style:{fontSize:17,fontWeight:800}},"Ödemeyi başka tedarikçiye taşı"),
+            div({style:{fontSize:13,color:"var(--mu)",marginTop:4,lineHeight:1.5}},
+              fmtT(tasinan.e.tarih)+" · ",h("strong",{style:{color:CARI_RENK.odeme}},fmt(tasinan.e.odeme))," ödeme ",h("strong",null,tasinan.ted)," kaydından çıkarılıp seçtiğiniz tedarikçiye aktarılacak. Orada en eski faturadan başlayarak düşülür.")),
+          div({style:{overflowY:"auto",padding:"8px 10px",flex:1}},
+            tumTed.filter(x=>x.ad!==tasinan.ted).sort((a,b)=>a.ad.localeCompare(b.ad,"tr")).map(x=>
+              btn({key:x.ad,type:"button",onClick:()=>{ if(window.confirm(fmt(tasinan.e.odeme)+" ödeme “"+x.ad+"” tedarikçisine taşınsın mı?")) odemeTasi(x.ad); },
+                style:{font:"inherit",width:"100%",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,minHeight:48,padding:"8px 10px",marginBottom:4,borderRadius:10,border:"1px solid var(--br)",background:"var(--bg2)",cursor:"pointer",color:"var(--tx)"}},
+                span({style:{fontWeight:700,fontSize:14}},x.ad),
+                span({style:{fontSize:12.5,fontWeight:700,color:x.borc>0.009?CARI_RENK.borc:CARI_RENK.odeme,whiteSpace:"nowrap"}},x.borc>0.009?"Borç "+fmt(x.borc):"Borç yok"))),
+            tumTed.length<2 && div({style:{padding:16,fontSize:13,color:"var(--mu)"}},"Taşınabilecek başka tedarikçi yok.")),
+          div({style:{padding:"10px 18px",borderTop:"1px solid var(--br)",display:"flex",justifyContent:"flex-end"}},
+            btn({type:"button",onClick:()=>setTasinan(null),style:{font:"inherit",fontSize:14,fontWeight:600,minHeight:42,padding:"0 16px",borderRadius:10,border:"1px solid var(--br)",background:"var(--bg2)",color:"var(--tx)",cursor:"pointer"}},"Vazgeç")))
+      ), document.body),
     odemeTedObj && h(CariOdemePenceresi,{ted:odemeTedObj, mkArsiv, onArsivKaydet, showToast, onKapat:()=>setOdemeTed(null),
       onKaydedildi: kapananKeyler => {
         const m={}; kapananKeyler.forEach(k=>m[k]=true);
