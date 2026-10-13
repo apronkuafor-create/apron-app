@@ -2445,7 +2445,7 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
   const [filtre, setFiltre] = React.useState("borclu"); // borclu | tumu
   const [acikTed, setAcikTed] = React.useState(null);
   const [gorunum, setGorunum] = React.useState("acik"); // acik | hareket
-  const [donem, setDonem] = React.useState("tumu");    // ay | uc | tumu | aralik
+  const [donem, setDonem] = React.useState("yil");     // yil | ay | uc | tumu | aralik
   const [aralikBas, setAralikBas] = React.useState("");
   const [aralikBit, setAralikBit] = React.useState("");
   const [gorsel, setGorsel] = React.useState(null);     // {gorseller, baslik}
@@ -2472,21 +2472,57 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
     g.no = g.acilisMi ? "Devir / Açılış" : (a.faturaN||"Fatura No —");
     g.tutar = cariR2(g.kayitlar.reduce((s,k)=>s+(k.urunler||[]).reduce((ss,u)=>ss+(u.toplamF||0),0),0));
     g.odemeler = g.kayitlar.flatMap(k=>(k.odemeler||[]).map(o=>({...o,_kayit:k,_g:g})));
-    g.odenen = cariR2(g.odemeler.reduce((s,o)=>s+toN(o.tutar),0));
-    g.kalan = cariR2(g.tutar-g.odenen);
     g.konsinye = a.vade==="konsinye";
-    g.vadeSon = g.kalan>0.009 && !g.konsinye ? cariSonOdeme(a.faturaTarih||a.tarih, a.vade) : "";
+    const imgs=[]; g.kayitlar.forEach(k=>(Array.isArray(k.faturaImg)?k.faturaImg:[k.faturaImg]).filter(Boolean).forEach(im=>{ if(imgs.indexOf(im)===-1) imgs.push(im); }));
+    g.imgs = imgs;
+  });
+
+  // ── Ödemeleri faturalara dağıt (tedarikçi bazında, en eski faturadan başlayarak) ──
+  // Kural: Bir yıl içinde yapılan TÜM ödemeler, hangi faturaya kaydedilmiş olursa olsun tedarikçinin
+  // ödeme havuzunda toplanır ve tarih sırasıyla o an açık olan EN ESKİ faturadan düşülür. Yıl sonunda
+  // kapanmayan faturalar otomatik olarak yeni yıla DEVİR olur; yeni yılın ödemeleri önce onları kapatır.
+  // (Yıl yıl zincirleme yapıldığı için yıl değişince geçmiş yılın dağıtımı bozulmaz.)
+  // Kayıtlı veriler değişmez — bu yalnızca hesaplamadır.
+  const yilBas = bugun.slice(0,4)+"-01-01";
+  const tedAlacak = {};
+  const tedGrupListe = {};
+  gruplar.forEach(g=>{ (tedGrupListe[g.ted]=tedGrupListe[g.ted]||[]).push(g); });
+  Object.keys(tedGrupListe).forEach(ted=>{
+    const sirali = tedGrupListe[ted].slice().sort((a,b)=>(a.tarih||"").localeCompare(b.tarih||"") || ((b.acilisMi?1:0)-(a.acilisMi?1:0)));
+    const akis = [];
+    sirali.forEach(g=>{
+      g.odenen = 0; g.kapanisTarihi = "";
+      g.odemeler.forEach(o=>akis.push({tarih:o.tarih||g.tarih||"", tutar:toN(o.tutar)}));
+    });
+    akis.sort((a,b)=>(a.tarih||"").localeCompare(b.tarih||""));
+    let i=0, artan=0;
+    akis.forEach(od=>{
+      let x = cariR2(od.tutar);
+      while(x>0.009){
+        while(i<sirali.length && sirali[i].tutar-sirali[i].odenen<=0.009) i++;
+        if(i>=sirali.length) break;
+        const g = sirali[i];
+        const al = cariR2(Math.min(x, g.tutar-g.odenen));
+        g.odenen = cariR2(g.odenen+al); x = cariR2(x-al);
+        if(g.tutar-g.odenen<=0.009) g.kapanisTarihi = od.tarih;
+      }
+      if(x>0.009) artan = cariR2(artan+x);
+    });
+    if(artan>0.009) tedAlacak[ted] = artan;
+  });
+  gruplar.forEach(g=>{
+    g.kalan = cariR2(g.tutar-g.odenen);
+    g.vadeSon = g.kalan>0.009 && !g.konsinye ? cariSonOdeme(g.ar.faturaTarih||g.ar.tarih, g.ar.vade) : "";
     g.gunFarki = g.vadeSon ? Math.round((new Date(g.vadeSon+"T00:00:00")-new Date(bugun+"T00:00:00"))/86400000) : null;
     g.gecikti = g.vadeSon && g.vadeSon<bugun;
     g.yakinda = g.vadeSon && !g.gecikti && g.gunFarki<=7;
-    const imgs=[]; g.kayitlar.forEach(k=>(Array.isArray(k.faturaImg)?k.faturaImg:[k.faturaImg]).filter(Boolean).forEach(im=>{ if(imgs.indexOf(im)===-1) imgs.push(im); }));
-    g.imgs = imgs;
+    g.devirMi = g.kalan>0.009 && (g.tarih||"") < yilBas; // önceki yıldan devreden açık fatura
   });
 
   // ── Tedarikçi bazında topla ──
   const tedMap = {};
   gruplar.forEach(g=>{
-    if(!tedMap[g.ted]) tedMap[g.ted]={ad:g.ted, gruplar:[], borc:0, acik:0, geciken:0, enYakinVade:"", sonOdeme:""};
+    if(!tedMap[g.ted]) tedMap[g.ted]={ad:g.ted, gruplar:[], borc:0, acik:0, geciken:0, enYakinVade:"", sonOdeme:"", alacak:tedAlacak[g.ted]||0};
     const t=tedMap[g.ted]; t.gruplar.push(g);
     if(g.kalan>0.009){ t.borc=cariR2(t.borc+g.kalan); t.acik++; if(g.gecikti) t.geciken++;
       if(g.vadeSon && (!t.enYakinVade||g.vadeSon<t.enYakinVade)) t.enYakinVade=g.vadeSon; }
@@ -2559,6 +2595,7 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
     return ev;
   };
   const donemAraligi = () => {
+    if(donem==="yil") return [bugun.slice(0,4)+"-01-01", "9999-99-99"];
     if(donem==="ay") return [bugun.slice(0,8)+"01", bugun];
     if(donem==="uc"){ const d=new Date(); d.setMonth(d.getMonth()-3); return [isoTarih(d), bugun]; }
     if(donem==="aralik") return [aralikBas||"0000-00-00", aralikBit||"9999-99-99"];
@@ -2568,7 +2605,7 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
     const w = window.open("","_blank"); if(!w){ showToast("Yazdırma penceresi açılamadı (açılır pencere engelli olabilir)","uy"); return; }
     const esc = s => String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
     const [bas,bit]=donemAraligi();
-    const donemYazi = donem==="tumu"?"Tüm hareketler":(fmtT(bas.startsWith("0000")?"":bas)+" – "+fmtT(bit.startsWith("9999")?bugun:bit));
+    const donemYazi = donem==="tumu"?"Tüm hareketler":donem==="yil"?bugun.slice(0,4)+" yılı (önceki yıldan devirle)":(fmtT(bas.startsWith("0000")?"":bas)+" – "+fmtT(bit.startsWith("9999")?bugun:bit));
     w.document.write("<!doctype html><html lang='tr'><head><meta charset='utf-8'><title>"+esc(t.ad)+" — Cari Ekstre</title><style>"
       +"body{font-family:-apple-system,Segoe UI,Arial,sans-serif;padding:28px;color:#1d1d1f}h1{font-size:20px;margin:0 0 4px}"
       +".alt{color:#666;font-size:12px;margin-bottom:16px}table{width:100%;border-collapse:collapse;font-size:12.5px}"
@@ -2590,13 +2627,14 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
     const oncekiOdenen = ilkAcikIdx<0 ? tumu.length : ilkAcikIdx;
     const gizlenecek = odenenTumu ? 0 : Math.max(0, oncekiOdenen-3);
     const gorunen = tumu.filter((g,i)=> i>=gizlenecek || yeniKapanan[g.key]);
-    const sonOdemeTarihi = g => g.odemeler.reduce((m,o)=>(o.tarih||"")>m?(o.tarih||""):m,"");
+    const sonOdemeTarihi = g => g.kapanisTarihi || "";
     const satir = g => {
       const bitti = g.kalan<=0.009, yeni = !!yeniKapanan[g.key];
       const rk = satirRengi(g);
       const ilkHucre = {...tdS, borderLeft:"4px solid "+(rk?rk.sol:"transparent")};
       return h("tr",{key:g.key,style:{background:rk?rk.bg:"transparent",transition:"background .4s"}},
         h("td",{style:ilkHucre}, faturaNoBtn(g),
+          g.devirMi && span({title:"Önceki yıldan devreden, henüz kapanmamış fatura",style:{marginLeft:6,fontSize:10,fontWeight:700,color:CARI_RENK.devir,background:CARI_RENK.devirBg,borderRadius:4,padding:"1px 6px",whiteSpace:"nowrap"}},(g.tarih||"").slice(0,4)+" devri"),
           g.kayitlar.length>1 && span({style:{marginLeft:6,fontSize:10,fontWeight:700,color:"#8E5FE0",background:"rgba(142,95,224,.12)",borderRadius:4,padding:"1px 5px"}},"BİRLEŞİK")),
         h("td",{style:{...tdS,color:"#3a3a3c",whiteSpace:"nowrap"}}, fmtT(g.tarih)),
         h("td",{style:tdS}, bitti ? span({style:{fontSize:12.5,color:"#2b5d3c",whiteSpace:"nowrap"}}, sonOdemeTarihi(g)?"Ödeme: "+fmtT(sonOdemeTarihi(g)):"—") : vadeEtiket(g)),
@@ -2632,13 +2670,13 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
     const tum = hareketler(t);
     const [bas,bit] = donemAraligi();
     const once = tum.filter(e=>(e.tarih||"")<bas);
-    const devreden = (donem!=="tumu" && once.length) ? once[once.length-1].bakiye : null;
+    const devreden = (donem!=="tumu" && once.length && Math.abs(once[once.length-1].bakiye)>0.009) ? once[once.length-1].bakiye : null;
     const satirlar = tum.filter(e=>(e.tarih||"")>=bas && (e.tarih||"")<=bit);
     const topB = cariR2(satirlar.reduce((s,e)=>s+e.borc,0)), topO = cariR2(satirlar.reduce((s,e)=>s+e.odeme,0));
     const sonBakiye = satirlar.length ? satirlar[satirlar.length-1].bakiye : (devreden||0);
     return div({style:{display:"flex",flexDirection:"column",gap:10}},
       div({style:{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}},
-        cip(donem==="ay","Bu ay",()=>setDonem("ay")), cip(donem==="uc","Son 3 ay",()=>setDonem("uc")),
+        cip(donem==="yil","Bu yıl ("+bugun.slice(0,4)+")",()=>setDonem("yil")), cip(donem==="ay","Bu ay",()=>setDonem("ay")), cip(donem==="uc","Son 3 ay",()=>setDonem("uc")),
         cip(donem==="tumu","Tümü",()=>setDonem("tumu")), cip(donem==="aralik","Tarih aralığı",()=>setDonem("aralik")),
         donem==="aralik" && div({style:{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}},
           lbl({style:{fontSize:12,color:"var(--mu)"}},"Başlangıç ",inp({type:"date",className:"fi",value:aralikBas,onChange:e=>setAralikBas(e.target.value),style:{margin:0,width:150,display:"inline-block"}})),
@@ -2657,8 +2695,11 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
             h("th",{scope:"col",style:{...thS,textAlign:"right",paddingRight:14}},"Bakiye"))),
           h("tbody",null,
             devreden!==null && h("tr",null,
-              h("td",{style:{...tdS,paddingLeft:14}}),h("td",{style:tdS},etiket("Devreden",CARI_RENK.devirBg,CARI_RENK.devir)),
-              h("td",{style:{...tdS,color:"var(--mu)"}},"Dönem öncesi bakiye"),h("td",{style:tdS}),h("td",{style:tdS}),
+              h("td",{style:{...tdS,paddingLeft:14,color:"#3a3a3c",whiteSpace:"nowrap"}},donem==="yil"?fmtT(bugun.slice(0,4)+"-01-01"):""),
+              h("td",{style:tdS},etiket("Devir",CARI_RENK.devirBg,CARI_RENK.devir)),
+              h("td",{style:tdS}, span({style:{fontWeight:700}}, donem==="yil" ? (parseInt(bugun.slice(0,4))-1)+" yılından devreden bakiye" : "Dönem öncesinden devreden bakiye"),
+                div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},"Önceki dönemde kapanmayan faturaların kalanı")),
+              h("td",{style:tdS}),h("td",{style:tdS}),
               h("td",{style:{...tdS,textAlign:"right",fontWeight:800,paddingRight:14}},fmt(devreden))),
             satirlar.length===0 && h("tr",null,h("td",{colSpan:6,style:{...tdS,textAlign:"center",color:"var(--mu)",padding:20}},"Bu dönemde hareket yok")),
             satirlar.map((e,i)=>{ const rk = e.tur!=="odeme" ? satirRengi(e.g) : null; return h("tr",{key:i,style:{background:rk?rk.bg:"transparent"}},
@@ -2674,7 +2715,7 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
               h("td",{style:{...tdS,textAlign:"right",fontWeight:600,color:CARI_RENK.odeme,whiteSpace:"nowrap"}},e.odeme?fmt(e.odeme):""),
               h("td",{style:{...tdS,textAlign:"right",fontWeight:800,paddingRight:14,whiteSpace:"nowrap",color:e.bakiye<-0.009?CARI_RENK.odeme:"var(--tx)"}},fmt(e.bakiye))); })),
           h("tfoot",null,h("tr",{style:{background:"rgba(0,0,0,.025)"}},
-            h("th",{scope:"row",colSpan:3,style:{...thS,paddingLeft:14,borderTop:"2px solid var(--tx)",color:"var(--tx)"}},donem==="tumu"?"Toplam":"Dönem toplamı"),
+            h("th",{scope:"row",colSpan:3,style:{...thS,paddingLeft:14,borderTop:"2px solid var(--tx)",color:"var(--tx)"}},donem==="tumu"?"Toplam":donem==="yil"?bugun.slice(0,4)+" toplamı · güncel bakiye":"Dönem toplamı"),
             h("td",{style:{...tdS,borderTop:"2px solid var(--tx)",textAlign:"right",fontWeight:800,color:CARI_RENK.borc}},fmt(topB)),
             h("td",{style:{...tdS,borderTop:"2px solid var(--tx)",textAlign:"right",fontWeight:800,color:CARI_RENK.odeme}},fmt(topO)),
             h("td",{style:{...tdS,borderTop:"2px solid var(--tx)",textAlign:"right",fontWeight:800,fontSize:15,paddingRight:14,color:CARI_RENK.borc}},fmt(sonBakiye)))))),
@@ -2715,7 +2756,7 @@ function CariBorclarim({mkArsiv, onArsivKaydet, onFaturaOdemeSayfasi, onFaturaDe
           const renk = cariRozetRenk(t.ad);
           const altYazi = t.borc>0.009
             ? (t.acik+" açık fatura"+(t.geciken?" · "+t.geciken+" tanesinin vadesi geçti":t.enYakinVade?" · en yakın vade "+fmtT(t.enYakinVade):""))
-            : ("Borç yok"+(t.sonOdeme?" · son ödeme "+fmtT(t.sonOdeme):""));
+            : (t.alacak>0.009 ? "Tüm faturalar ödendi · "+fmt(t.alacak)+" fazla ödeme (alacak)" : "Borç yok"+(t.sonOdeme?" · son ödeme "+fmtT(t.sonOdeme):""));
           return div({key:t.ad,style:{background:"var(--bg2)",border:acik?"1.5px solid var(--g)":"1px solid "+(t.geciken?"rgba(192,48,42,.35)":"var(--br)"),
               borderRadius:16,marginBottom:10,overflow:"hidden",boxShadow:acik?"0 6px 20px rgba(0,60,140,.08)":"0 1px 3px rgba(0,0,0,.04)"}},
             btn({type:"button","aria-expanded":acik,onClick:()=>{ setAcikTed(acik?null:t.ad); setGorunum("acik"); setOdenenTumu(false); },
