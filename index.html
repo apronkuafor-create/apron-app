@@ -582,9 +582,67 @@ const _ayarYazimImza = (id, s) => {
 };
 const _ayarYakinYazim = (id, s) => s!==null && (_ayarSigGec[id]||[]).includes(s);
 const _ayarYaz = (id, deger) => {
+  if(id==="mkArsiv"){
+    // Mal Kabul arşivi: buluta yazmadan önce güncel "silinenler" listesini çek ve silinmiş faturaları ayıkla.
+    // Böylece eski veriyle açık kalmış başka bir cihaz/sekme, silinen faturayı geri yazamaz.
+    // Önce yerel listeyle HEMEN yaz (sayfa kapanırken de kaybolmasın), sonra buluttaki listeyle
+    // karşılaştır; başka cihazın sildiği bir fatura hâlâ duruyorsa düzeltilmiş halini tekrar yaz.
+    const ilk = mkArsivSilinenFiltre(deger);
+    _ayarYazimImza(id, _ayarImza(ilk));
+    const sonuc = dbUpsert("ayarlar",{id, deger:ilk},"isletme_id,id");
+    mkSilinenBuluttanAl().then(()=>{
+      const temiz = mkArsivSilinenFiltre(ilk);
+      if(temiz.length!==ilk.length){ _ayarYazimImza(id, _ayarImza(temiz)); dbUpsert("ayarlar",{id, deger:temiz},"isletme_id,id"); }
+    });
+    return sonuc;
+  }
   _ayarYazimImza(id, _ayarImza(deger));
   return dbUpsert("ayarlar",{id, deger},"isletme_id,id");
 };
+// ── Mal Kabul arşivi: kalıcı silme ("silinenler" listesi) ──────────────────
+// Arşiv buluta tek parça liste olarak yazıldığı için, eski veriyle açık kalmış başka bir cihaz/sekme
+// silinen faturayı geri yazabiliyordu. Silinen faturaların kimlikleri ayrı bir listede (yerel + bulut,
+// birleşerek büyür) tutulur; arşiv her yüklendiğinde ve her yazılmadan önce bu listeye göre temizlenir.
+const _MK_SIL_KEY = "apron_mk_arsiv_silinen";
+let _mkSilinen = null;
+function mkSilinenSet(){
+  if(!_mkSilinen){ _mkSilinen = new Set(); try{ (JSON.parse(localStorage.getItem(_MK_SIL_KEY)||"[]")||[]).forEach(i=>_mkSilinen.add(String(i))); }catch(e){} }
+  return _mkSilinen;
+}
+function mkSilinenYerelKaydet(){ try{ localStorage.setItem(_MK_SIL_KEY, JSON.stringify(Array.from(mkSilinenSet()))); }catch(e){} }
+async function mkSilinenBuluttanAl(){
+  if(!DB) return;
+  try{
+    const {data} = await DB.from("ayarlar").select("deger").eq("id","mkArsivSilinen").maybeSingle();
+    if(data && Array.isArray(data.deger)){ const st=mkSilinenSet(); data.deger.forEach(i=>st.add(String(i))); mkSilinenYerelKaydet(); }
+  }catch(e){}
+}
+function mkArsivSilinenFiltre(arr){
+  const st = mkSilinenSet();
+  return (Array.isArray(arr)?arr:[]).filter(x=>!(x && x.id && st.has(String(x.id))));
+}
+async function mkArsivSilindiIsaretle(ids){
+  const st = mkSilinenSet(); let degisti=false;
+  (ids||[]).filter(Boolean).forEach(i=>{ if(!st.has(String(i))){ st.add(String(i)); degisti=true; } });
+  if(!degisti) return;
+  mkSilinenYerelKaydet();
+  if(!DB) return;
+  await mkSilinenBuluttanAl(); // başka cihazların sildiklerini kaybetmemek için önce birleştir
+  _ayarYaz("mkArsivSilinen", Array.from(mkSilinenSet()));
+}
+// Kimliği olmayan (eski) arşiv kayıtlarına HER cihazda AYNI kimliği ver (içerikten türetilir);
+// rastgele kimlik verilirse bir cihazda silinen kaydı diğer cihaz tanıyamaz.
+function _mkHash(str){ let h=5381; for(let i=0;i<str.length;i++) h=((h*33)^str.charCodeAt(i))>>>0; return h.toString(36); }
+function mkArsivIdTamamla(arr){
+  const say = {};
+  return (Array.isArray(arr)?arr:[]).map(x=>{
+    if(!(x && typeof x==="object") || x.id) return x;
+    const imza = [(x.tedarikci||"").trim().toLowerCase(), x.faturaN||"", x.faturaTarih||x.tarih||"", x.kayitTuru||"",
+      Math.round((x.urunler||[]).reduce((t,u)=>t+(Number(u.toplamF)||0),0)*100)].join("|");
+    say[imza] = (say[imza]||0)+1;
+    return {...x, id:"h"+_mkHash(imza)+"-"+say[imza]};
+  });
+}
 // Aynı ayara hızlı ardışık yazımları topla; yalnızca son değeri buluta yaz (egress + realtime tasarrufu).
 // Yerel kayıt zaten anında yapılıyor; bulut yazımının ~1.5sn gecikmesi veri kaybettirmez.
 const _ayarDebounce = {};
@@ -3889,19 +3947,24 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   // Arşivi önce localStorage'dan, sonra Supabase'den yükle
   React.useEffect(()=>{
     // Eksik id'leri tamamla (eski kayıtlar id'siz olabilir) → silme/düzenleme id ile sağlam çalışsın
-    const _bfId = arr => (Array.isArray(arr)?arr:[]).map(x => (x && typeof x==="object" && !x.id) ? {...x, id: uid()} : x);
+    const _bfId = arr => mkArsivSilinenFiltre(mkArsivIdTamamla(arr)); // sabit kimlik + silinenleri ayıkla
     try{const a=JSON.parse(localStorage.getItem("apron_mk_arsiv")||"[]"); if(a.length){ const b=_bfId(a); setMkArsiv(b); try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(b));}catch(e){} } }catch(e){}
     try{const fh=JSON.parse(localStorage.getItem("apron_fatura_oku_hash")||"[]"); if(fh.length) setFaturaOkumaHash(fh);}catch(e){}
     // Supabase'den taze veriyi çek (localStorage'dan daha güncel olabilir)
     if(DB){
-      DB.from("ayarlar").select("deger").eq("id","mkArsiv").maybeSingle()
+      let _bulutTemizlenecek = null;
+      mkSilinenBuluttanAl().then(()=>DB.from("ayarlar").select("deger").eq("id","mkArsiv").maybeSingle())
         .then(({data})=>{
           // Mount sonrası yerelde silme/düzenleme yapıldıysa bayat bulutu UYGULAMA (silineni diriltmeyi önler)
           if(mkArsivKirliRef.current) return;
-          if(data && Array.isArray(data.deger)){ const b=_bfId(data.deger); setMkArsiv(b); try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(b));}catch(e){} }
+          if(data && Array.isArray(data.deger)){
+            const b=_bfId(data.deger); setMkArsiv(b); try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(b));}catch(e){}
+            // Bulutta silinmiş fatura kalmışsa (eski bir cihaz geri yazmışsa) temiz listeyi buluta geri yaz
+            if(b.length!==data.deger.length || data.deger.some(x=>x&&!x.id)) _bulutTemizlenecek = b;
+          }
         })
         .catch(()=>{})
-        .finally(()=>{ mkArsivYuklendiRef.current = true; });
+        .finally(()=>{ mkArsivYuklendiRef.current = true; if(_bulutTemizlenecek) dbUpsertAyar("mkArsiv", _bulutTemizlenecek); });
     } else {
       mkArsivYuklendiRef.current = true;
     }
@@ -4025,9 +4088,18 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
     }
   },[sipSecilenTedarikci]);
 
+  // Uygulamaya geri dönülünce (sekme/cihaz değişimi) başka cihazda silinen faturaları bu ekrandan da kaldır
+  React.useEffect(()=>{
+    const yenile = ()=>{ if(document.hidden) return;
+      mkSilinenBuluttanAl().then(()=>setMkArsiv(p=>{ const t=mkArsivSilinenFiltre(p); return t.length===p.length?p:t; })); };
+    document.addEventListener("visibilitychange", yenile); window.addEventListener("focus", yenile);
+    return ()=>{ document.removeEventListener("visibilitychange", yenile); window.removeEventListener("focus", yenile); };
+  },[]);
+
   // mkArsiv Supabase sync — boş dizi de yazılır (silince bulut da boşalır), ama ilk yükleme
   // bitmeden çalışmaz ki açılıştaki başlangıç [] buluttaki veriyi SİLMESİN.
   React.useEffect(()=>{
+    if((mkArsiv||[]).some(x=>x && typeof x==="object" && !x.id)){ setMkArsiv(p=>mkArsivIdTamamla(p)); return; } // her kayıt kalıcı silinebilsin diye kimlik
     if(!DB || !mkArsivYuklendiRef.current) return;
     dbUpsertAyar("mkArsiv", mkArsiv||[]);
     try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(mkArsiv||[]));}catch(e){}
@@ -4719,6 +4791,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       }
                       // id ile sil (id yoksa referansa düş); index'e güvenme → her zaman doğru kaydı siler
                       const yeni=mkArsiv.filter(x => ar.id ? x.id!==ar.id : x!==ar);
+                      if(ar.id) mkArsivSilindiIsaretle([ar.id]); // kalıcı: başka cihaz/eski sekme geri getiremez
                       setMkArsiv(yeni);try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(yeni));}catch(e){}
                       if(DB) dbUpsertAyar("mkArsiv", yeni); // otoriter, ANINDA bulut yazımı (guard/remount yarışına takılmaz)
                       if(arsivDonus&&arsivDonus.umSek){ setUmSek(arsivDonus.umSek); setArsivDonus(null); }
@@ -6152,8 +6225,8 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
                       const guncellendi=prev.map(ar=>{
                         if(ar.faturaN!==p.faturaN||ar.tarih!==p.tarih) return ar;
                         const yeniUrunler=ar.urunler.filter(uu=>uu.barkod!==p.barkod);
-                        // Faturada başka ürün kalmadıysa arşivden de sil
-                        if(yeniUrunler.length===0) return null;
+                        // Faturada başka ürün kalmadıysa arşivden de sil (kalıcı)
+                        if(yeniUrunler.length===0){ if(ar.id) mkArsivSilindiIsaretle([ar.id]); return null; }
                         return {...ar,urunler:yeniUrunler};
                       }).filter(Boolean);
                       try{localStorage.setItem("apron_mk_arsiv",JSON.stringify(guncellendi));}catch(ex){}
@@ -11623,7 +11696,7 @@ function BarkodTarayici({onOku, onKapat}) {
 }
 
 
-function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonText, onKaydet, onIptal, hizListeleri, hatirlatmalar, setHatirlatmalar, bolumStilleri, devirBildirim, setDevirBildirim, gotoMusteriKart, showToast, pGruplar, stokDB, isletme, onYeniMusteriAc}) {
+function KayitForm({gecmisKayitlar, ilk, musteriDB, personeller, aktifKullanici, baslik, buttonText, onKaydet, onIptal, hizListeleri, hatirlatmalar, setHatirlatmalar, bolumStilleri, devirBildirim, setDevirBildirim, gotoMusteriKart, showToast, pGruplar, stokDB, isletme, onYeniMusteriAc}) {
   const aktifP = personeller.filter(p=>p.rol==="personel"&&p.aktif);
   const _poz = aktifKullanici?.pozisyon||"";
   const _isManikurist = _poz==="Manikurist"||_poz==="Pedikürist"||_poz==="Pedikurist";
@@ -11684,6 +11757,31 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
     };
   };
   const [musteri,  setMusteri]  = useState(ilk?.musteri||"");
+  // ── Müşterinin son 3 ayda aynı hizmet için ödediği ortalama tutar (hizmet adı → {ort, adet, son}) ──
+  // Kaynak: tüm personelin kayıtları (bekleyen + gönderilmiş + geçmiş). Düzenlenen kaydın kendisi hariç.
+  const musteriHizOrt = React.useMemo(()=>{
+    const ad = normText((musteri||"").trim());
+    if(!ad) return {};
+    const sinir = new Date(); sinir.setMonth(sinir.getMonth()-3);
+    const sinirIso = isoTarih(sinir);
+    const gorulen = new Set(), top = {};
+    (gecmisKayitlar||[]).forEach(liste=>(Array.isArray(liste)?liste:[]).forEach(r=>{
+      if(!r || (ilk && ilk.id && String(r.id)===String(ilk.id))) return;
+      const key = r.id!=null ? String(r.id) : null;
+      if(key){ if(gorulen.has(key)) return; gorulen.add(key); }
+      if(normText((r.musteri||"").trim())!==ad) return;
+      if(!r.tarih || r.tarih<sinirIso) return;
+      (r.hizler||[]).forEach(x=>{
+        const n = x && (x.n||x.ad); const f = toN(x && x.f);
+        if(!n || f<=0) return;
+        const t = top[n] || (top[n]={toplam:0, adet:0, son:""});
+        t.toplam += f; t.adet++; if(r.tarih>t.son) t.son = r.tarih;
+      });
+    }));
+    const sonuc = {};
+    Object.keys(top).forEach(n=>{ sonuc[n] = {ort:Math.round(top[n].toplam/top[n].adet), adet:top[n].adet, son:top[n].son}; });
+    return sonuc;
+  },[musteri, gecmisKayitlar]);
   const [hizOdemeNotu, setHizOdemeNotu] = useState(ilk?.hizOdemeNotu||"");
   const [urunOdemeNotu, setUrunOdemeNotu] = useState(ilk?.urunOdemeNotu||"");
   const [tel,      setTel]      = useState(() => {
@@ -12998,6 +13096,11 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                       span(null,"Liste fiyatı"),
                       span({className:"theme-number",style:{fontSize:14,fontWeight:700,fontFamily:hizmetFont}},h.listef?fmt(h.listef):"—")
                     ),
+                    musteriHizOrt[h.n] && div({title:"Bu müşterinin son 3 ayda bu hizmet için ödediği ortalama. K.K / Iban / Nakit etiketine dokununca bu tutar yazılır.",
+                      style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6,margin:"1px -5px 0",padding:"4px 5px",borderRadius:7,background:"rgba(0,113,227,.07)"}},
+                      span({style:{color:"#0058B0",fontWeight:600}},"Müşteri ort. (3 ay · "+musteriHizOrt[h.n].adet+" işlem)"),
+                      span({className:"theme-number",style:{fontSize:14,fontWeight:800,color:"#0058B0",fontFamily:hizmetFont}},fmt(musteriHizOrt[h.n].ort))
+                    ),
                     (()=>{
                       const liste = toN(h.listef);
                       const gercek = toN(h.f);
@@ -13026,7 +13129,7 @@ function KayitForm({ilk, musteriDB, personeller, aktifKullanici, baslik, buttonT
                       btn({type:"button",title:ad+" — kalan tutarı doldur",
                         onClick:()=>{
                           // Etikete dokununca: liste fiyatına göre kalan tutarı bu ödeme türüne yazar (tek yöntemle ödemede hız için).
-                          const hedef = toN(h.listef);
+                          const hedef = musteriHizOrt[h.n] ? musteriHizOrt[h.n].ort : toN(h.listef); // önce müşterinin 3 aylık ortalaması
                           if(hedef<=0) return;
                           const digerler = (kod!=="kk"?toN(h.fkk):0)+(kod!=="ib"?toN(h.fib):0)+(kod!=="nk"?toN(h.fnk):0);
                           const kalan = Math.max(0, hedef - digerler);
@@ -19747,7 +19850,7 @@ if(DB) dbUpsertAyar("tema",tema);
     devUnuttum&&kul&&(()=>{
       const ds = eksikGunTarih || (()=>{ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; })();
       const dl = new Date(ds+"T12:00:00").toLocaleDateString("tr-TR",{day:"2-digit",month:"long",year:"numeric"});
-      return h(KayitForm,{bolumStilleri,ilk:{tarih:ds},musteriDB,personeller,aktifKullanici:kul,stokDB:stokKalanMap,isletme,
+      return h(KayitForm,{bolumStilleri,gecmisKayitlar:[records,gecmis,bekleyen],ilk:{tarih:ds},musteriDB,personeller,aktifKullanici:kul,stokDB:stokKalanMap,isletme,
         baslik:dl+" Tarihli Kayit",
         devirBildirim,setDevirBildirim,showToast,pGruplar,
         gotoMusteriKart:gotoMusteriKartGenel,
@@ -19835,7 +19938,7 @@ if(DB) dbUpsertAyar("tema",tema);
           ),
 
           // Adım: düzenleme formu
-          yonDuzForm.adim==="duzenle"&&h(KayitForm,{bolumStilleri,
+          yonDuzForm.adim==="duzenle"&&h(KayitForm,{bolumStilleri,gecmisKayitlar:[records,gecmis,bekleyen],
             ilk:yonDuzForm.kayit,
             musteriDB, personeller, aktifKullanici:kul, stokDB:stokKalanMap, isletme,
             baslik:"Kayıt Düzenle (Yönetici)",
@@ -20394,7 +20497,7 @@ if(DB) dbUpsertAyar("tema",tema);
     ),
 
     // Kayit formu
-    kayitForm&&h(KayitForm,{bolumStilleri,ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,stokDB:stokKalanMap,isletme,hizListeleri,buttonText:(kayitForm._yonBildirimId||kayitForm._talepOnayId)?"Güncelle ve Gönder":kayitForm._yonDirektDuzenle?"Güncelle":undefined,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null),hatirlatmalar,setHatirlatmalar,devirBildirim,setDevirBildirim,showToast,pGruplar,gotoMusteriKart:(mid)=>{setKayitForm(null);gotoMusteriKartGenel(mid);},onYeniMusteriAc:(taslak)=>{setYeniMusteriHata("");setYeniMusteriForm(taslak);}}),
+    kayitForm&&h(KayitForm,{bolumStilleri,gecmisKayitlar:[records,gecmis,bekleyen],ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,stokDB:stokKalanMap,isletme,hizListeleri,buttonText:(kayitForm._yonBildirimId||kayitForm._talepOnayId)?"Güncelle ve Gönder":kayitForm._yonDirektDuzenle?"Güncelle":undefined,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null),hatirlatmalar,setHatirlatmalar,devirBildirim,setDevirBildirim,showToast,pGruplar,gotoMusteriKart:(mid)=>{setKayitForm(null);gotoMusteriKartGenel(mid);},onYeniMusteriAc:(taslak)=>{setYeniMusteriHata("");setYeniMusteriForm(taslak);}}),
 
     // Personel ekle modal
     // ── İK Kritik Uyarı — zorunlu farkındalık ekranı (yönetici girişinde, süresi geçmiş/çok yakın işlemler için) ──
