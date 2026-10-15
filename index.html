@@ -3568,6 +3568,10 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const mkArsivKirliRef = React.useRef(false);    // mount sonrası yerel silme/düzenleme oldu mu → geç gelen bulut çekimi bunu EZMESİN (diriltmeyi önler)
   const [sdAramaF, setSdAramaF] = React.useState(""); // stok durumu arama
   const [sdSupheliFiltre, setSdSupheliFiltre] = React.useState(false); // sadece şüpheli (kataloğu olmayan/düşük fiyatlı) kayıtları göster
+  const [sdFiltre, setSdFiltre] = React.useState("tum"); // tum | az | tukenen | durgun | supheli
+  const [sdSirala, setSdSirala] = React.useState("ad"); // ad | stok | deger | gun
+  const [sdAcik, setSdAcik] = React.useState(null); // satırı açılan ürünün barkodu
+  const [sdFiyatPop, setSdFiyatPop] = React.useState(null); // {barkod,x,y} — "n fiyat" penceresi
   const [sdDurgunFiltre, setSdDurgunFiltre] = React.useState(false); // sadece durgun/yavaş satan stokları göster
   const [sdEnflasyonYillik, setSdEnflasyonYillik] = React.useState(31.75); // % yıllık TÜFE (TÜİK, Temmuz 2026) — güncellenebilir
   const [sdSupheliYoksay, setSdSupheliYoksay] = React.useState(()=>{
@@ -6402,9 +6406,31 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
         return o && o.kademe!=="taze";
       }).length;
       const listeOneri = filtredHam.map(u=>({...u, _oneri: fiyatOnerisi(u.barkod,u.kalan,u.birimF,u.satisF)}));
-      const filtred = sdDurgunFiltre
-        ? listeOneri.filter(u=>u._oneri && u._oneri.kademe!=="taze").sort((a,b)=>(b._oneri.gun||0)-(a._oneri.gun||0))
-        : (sdSupheliFiltre ? listeOneri.filter(u=>u._supheli) : listeOneri);
+      // Her ürün için durum + gün + bekleyen + stok değeri (tek satırda gösterilecek bilgiler)
+      listeOneri.forEach(u=>{
+        const _o=u._oneri;
+        u._gun = stoktaGun(u.barkod);
+        u._bekleyen = (u.partiler||[]).reduce((s2,p)=>s2+(toN(p.beklenenAdet)||0),0);
+        u._hariç = (u.toplamMaliyet>0 ? u.toplamMaliyet : (u.kalan||0)*(u.birimF||0));
+        u._dahil = u._hariç*(1+((u.kdvOran||20)/100));
+        u._durgun = !!(_o && _o.kademe!=="taze");
+        u._sadeceBedelsiz = (u.partiler||[]).length>0 && (u.partiler||[]).every(p=>p.bedelsiz);
+        u._durum = (u.kalan||0)<=0 ? "tukenen" : u._supheli ? "supheli" : (u.kalan||0)<=2 ? "az" : u._durgun ? "durgun" : u._sadeceBedelsiz ? "bedelsiz" : "normal";
+      });
+      const sdSay = {tum:listeOneri.length,
+        az:listeOneri.filter(u=>(u.kalan||0)>0&&(u.kalan||0)<=2).length,
+        tukenen:listeOneri.filter(u=>(u.kalan||0)<=0).length,
+        durgun:listeOneri.filter(u=>u._durgun).length,
+        supheli:listeOneri.filter(u=>u._supheli).length};
+      const filtred = listeOneri
+        .filter(u=> sdFiltre==="az" ? ((u.kalan||0)>0&&(u.kalan||0)<=2)
+          : sdFiltre==="tukenen" ? (u.kalan||0)<=0
+          : sdFiltre==="durgun" ? u._durgun
+          : sdFiltre==="supheli" ? u._supheli : true)
+        .sort((a,b)=> sdSirala==="stok" ? (a.kalan||0)-(b.kalan||0)
+          : sdSirala==="deger" ? b._dahil-a._dahil
+          : sdSirala==="gun" ? (b._gun||0)-(a._gun||0)
+          : (a.urunAd||"").localeCompare(b.urunAd||"","tr"));
       const topCesit=liste.length;
       const topAdet=liste.reduce((s,u)=>s+u.kalan,0);
       const topMaliyet=liste.reduce((s,u)=>s+u.toplamMaliyet,0);
@@ -6433,215 +6459,232 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
           )
         ),
 
-        // ── DASHBOARD ──
-        div({style:{background:"var(--bg2)",borderBottom:"2px solid var(--br)",padding:"12px 14px",flexShrink:0}},
-          div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}},
-            div({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:10,padding:"10px 12px"}},
-              div({style:{fontSize:10,color:"var(--mu)",letterSpacing:1,textTransform:"uppercase",marginBottom:4}},"Ürün Çeşidi / Toplam Adet"),
-              div({style:{display:"flex",gap:8,alignItems:"baseline"}},
-                div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:22,color:"var(--g)",fontWeight:700}},topCesit+" çeşit"),
-                div({style:{fontSize:13,color:"var(--mu)"}},"· "+topAdet+" adet")
-              )
-            ),
-            div({style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:10,padding:"10px 12px"}},
-              div({style:{fontSize:10,color:"var(--mu)",letterSpacing:1,textTransform:"uppercase",marginBottom:4}},"Maliyet / Satış Değeri"),
-              div({style:{display:"flex",gap:6,alignItems:"baseline",flexWrap:"wrap"}},
-                div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:16,color:"var(--mu)",fontWeight:600}},fmt(topMaliyet)),
-                div({style:{fontSize:12,color:"var(--di)"}},"/ "),
-                div({style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:16,color:"var(--g)",fontWeight:700}},fmt(topSatis))
-              )
-            )
-          ),
-          // Arama — barkod + isim + kamera
-          div(null,
-            h(UrunAramaBilesen,{
-              aramaVal:sdAramaF,
-              setAramaVal:setSdAramaF,
-              onEkle:u=>{
-                // Ürüne git: aramayı barkodla doldur (liste filtrelenip o ürüne scroll eder)
-                setSdAramaF(u.b);
-                // Kısa gecikmeyle scroll — DOM güncellendikten sonra
-                setTimeout(()=>{
-                  const el = document.getElementById("stok-satir-"+u.b);
-                  if(el) el.scrollIntoView({behavior:"smooth",block:"center"});
-                },120);
-              },
-              placeholder:"Ürün adı, barkod veya 📷 ile ara...",
-              stokDB: stokOzet,
-              gotoMod: true  // tam eşleşmede alan boşalmasın, sadece filtrelesin
-            })
-          ),
-          supheliSayisi>0&&div({style:{marginTop:8}},
-            btn({onClick:()=>setSdSupheliFiltre(v=>!v),
-              style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:7,
-                padding:"9px 12px",borderRadius:9,cursor:"pointer",fontSize:12.5,fontWeight:700,
-                border:sdSupheliFiltre?"1px solid rgba(255,149,0,.5)":"1px solid rgba(255,149,0,.3)",
-                background:sdSupheliFiltre?"rgba(255,149,0,.18)":"rgba(255,149,0,.08)",
-                color:"#E08600"}},
-              sdSupheliFiltre?"✕ Şüpheli Filtreyi Kapat":"⚠️ "+supheliSayisi+" Şüpheli Kayıt Var — Göster")
-          ),
-          div({style:{marginTop:8}},
-            btn({onClick:()=>setSdDurgunFiltre(v=>!v),
-              style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:7,
-                padding:"9px 12px",borderRadius:9,cursor:"pointer",fontSize:12.5,fontWeight:700,
-                border:sdDurgunFiltre?"1px solid rgba(192,80,80,.5)":"1px solid rgba(192,80,80,.3)",
-                background:sdDurgunFiltre?"rgba(192,80,80,.18)":"rgba(192,80,80,.08)",
-                color:"#c05050"}},
-              sdDurgunFiltre?"✕ Durgun Stok Filtreyi Kapat":
-                (durgunSayisi>0?"📉 "+durgunSayisi+" Yavaş/Durgun Ürün — Göster":"📉 Durgun Stok & Fiyat Önerileri"))
-          ),
-          sdDurgunFiltre && durgunSayisi===0 && div({style:{marginTop:6,padding:"9px 12px",borderRadius:9,
-            background:"rgba(52,199,89,.08)",border:"1px solid rgba(52,199,89,.25)",fontSize:11.5,color:"#1e9e46",textAlign:"center"}},
-            "✅ Şu an 30 günden eski, yavaş satan bir ürün görünmüyor."),
-          sdDurgunFiltre&&div({style:{marginTop:8,display:"flex",alignItems:"center",gap:8,fontSize:11.5,color:"var(--mu)"}},
-            div(null,"Yıllık enflasyon varsayımı (%):"),
-            inp({className:"fi",type:"number",style:{width:70,padding:"5px 8px",fontSize:12},
-              value:sdEnflasyonYillik,onChange:e=>setSdEnflasyonYillik(toN(e.target.value)||0)})
-          ),
-          (sdSupheliYoksay||[]).length>0&&div({style:{marginTop:6,textAlign:"center"}},
-            h("span",{style:{fontSize:11,color:"var(--di)"}},
-              (sdSupheliYoksay.length)+" ürün \"doğru\" olarak işaretlenmiş — "),
-            btn({onClick:()=>{
-              if(!confirm((sdSupheliYoksay.length)+" ürünün yoksayma işaretini kaldırmak istediğine emin misin? Hepsi tekrar şüpheli görünmeye başlayacak.")) return;
-              setSdSupheliYoksay([]);
-              try{localStorage.removeItem("apron_sd_supheli_yoksay");}catch(e){}
-            },style:{fontSize:11,color:"var(--g)",background:"none",border:"none",textDecoration:"underline",cursor:"pointer",padding:0}},"listeyi sıfırla")
-          )
-        ),
+        // ── İÇERİK (özet + araç çubuğu + tek satırlık ürün listesi; satıra tıklayınca ayrıntı açılır) ──
+        (()=>{
+          const fmtK = n=>Number(n||0).toLocaleString("tr-TR",{minimumFractionDigits:2,maximumFractionDigits:2})+" ₺";
+          const fatTed = {};
+          (mkArsiv||[]).forEach(ar=>{ const fn=(ar.faturaN||"").trim(); if(fn && ar.tedarikci && !fatTed[fn]) fatTed[fn]=ar.tedarikci; });
+          const dikkat = listeOneri.filter(u=>["tukenen","supheli","az","durgun"].includes(u._durum)).length;
+          const kart = {background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14};
+          const ozetKutu = (e,d,ek,renk)=>div({style:{...kart,padding:"12px 16px",minWidth:0}},
+            div({style:{fontSize:12.5,color:"var(--di)",fontWeight:600}},e),
+            div({style:{fontSize:(typeof window!=="undefined"&&window.innerWidth<640)?17:22,fontWeight:800,marginTop:4,color:renk||"var(--tx)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},d,
+              ek&&span({style:{fontSize:13,color:"var(--di)",fontWeight:600,marginLeft:6}},ek)));
+          const cip = (id,metin)=>{ const a=sdFiltre===id;
+            return btn({key:id,type:"button",onClick:()=>{ setSdFiltre(id); setSdAcik(null); },
+              style:{font:"inherit",fontSize:12.5,fontWeight:a?700:600,height:36,padding:"0 12px",borderRadius:20,cursor:"pointer",whiteSpace:"nowrap",
+                border:"1px solid "+(a?"var(--g)":"var(--br)"),background:a?"rgba(0,113,227,.08)":"var(--bg2)",color:a?"var(--g)":"#55555A"}},metin); };
+          const sutun = "28px minmax(220px,1fr) 100px 130px 110px 130px 84px 170px";
+          const rozet = (bg,renk,metin)=>span({style:{display:"inline-block",fontSize:12,fontWeight:700,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",background:bg,color:renk}},metin);
+          const durumRozet = u=>{
+            const o=u._oneri;
+            if(u._durum==="tukenen") return rozet("rgba(255,59,48,.12)","#b8261e","Tükendi");
+            if(u._durum==="supheli") return rozet("rgba(255,59,48,.12)","#b8261e","⚠ Şüpheli");
+            if(u._durum==="az") return rozet("rgba(255,59,48,.12)","#b8261e","Az kaldı");
+            if(u._durum==="durgun"){
+              const ad = o.kademe==="izlemede"?"İzlemede":o.kademe==="yavas"?"Yavaş satıyor":"Durgun";
+              return rozet("rgba(255,204,0,.25)","#8a6400",ad+(o.indirimYuzde?" · %"+o.indirimYuzde+" indirim":""));
+            }
+            if(u._durum==="bedelsiz") return rozet("#F0F0F3","#55555A","🎁 Bedelsiz");
+            return rozet("rgba(52,199,89,.15)","#1f7a3f","Normal");
+          };
+          const thS = {padding:"8px 10px",fontSize:11,fontWeight:700,color:"var(--mu)",textTransform:"uppercase",letterSpacing:.6,textAlign:"left",whiteSpace:"nowrap",background:"#FAFAFB"};
+          const tdS = {padding:"8px 10px",borderTop:"1px solid var(--br)",fontSize:12.5};
+          const kvSatir = (e,d,renk)=>div({style:{display:"flex",justifyContent:"space-between",gap:10,padding:"8px 0",borderBottom:"1px solid var(--br)",fontSize:13}},
+            span({style:{color:"var(--di)"}},e), h("b",{style:{fontWeight:800,color:renk||"var(--tx)",textAlign:"right"}},d));
+          const kucukBtn = (metin,onClick,kirmizi)=>btn({type:"button",onClick:e=>{e.stopPropagation(); onClick();},
+            style:{font:"inherit",height:34,padding:"0 12px",borderRadius:9,cursor:"pointer",fontSize:12.5,fontWeight:700,whiteSpace:"nowrap",
+              border:"1px solid "+(kirmizi?"#F3C4C1":"var(--br)"),background:"var(--bg2)",color:kirmizi?"#C9302C":"var(--tx)"}},metin);
 
-        // ── SİLME ARAÇ ÇUBUĞU ──
-        div({style:{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:"var(--bg)",borderBottom:"1px solid var(--br)",flexShrink:0,flexWrap:"wrap"}},
-          !sdSilMod
-            ? btn({onClick:()=>{setSdSilMod(true);setSdSecimSil({});},style:{background:"rgba(209,17,17,.1)",border:"1px solid rgba(209,17,17,.35)",borderRadius:9,color:"#d11",fontSize:13,fontWeight:700,padding:"7px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:6}},"🗑 Stok Sil")
-            : (()=>{
-                const secsay=Object.values(sdSecimSil).filter(Boolean).length;
-                const gorunenBarkod=filtred.map(u=>u.barkod);
-                const hepsiSecili=gorunenBarkod.length>0 && gorunenBarkod.every(b=>sdSecimSil[b]);
-                return [
-                  btn({key:"tum",onClick:()=>{ setSdSecimSil(prev=>{ const n={...prev}; if(hepsiSecili){ gorunenBarkod.forEach(b=>delete n[b]); } else { gorunenBarkod.forEach(b=>{n[b]=true;}); } return n; }); },
-                    style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,color:"var(--tx)",fontSize:12.5,fontWeight:700,padding:"7px 12px",cursor:"pointer"}}, hepsiSecili?"☑ Tümünü Bırak":"☐ Tümünü Seç"),
-                  span({key:"say",style:{fontSize:13,fontWeight:700,color:secsay>0?"#d11":"var(--mu)"}}, secsay+" seçili"),
-                  div({key:"sp",style:{flex:1}}),
-                  btn({key:"sil",disabled:secsay===0,onClick:()=>{ const bk=Object.keys(sdSecimSil).filter(b=>sdSecimSil[b]); const ad=bk.map(b=>(stokOzet[b]&&stokOzet[b].urunAd)||b); setSdTopluSilOnay({barkodlar:bk,adlar:ad}); },
-                    style:{background:secsay===0?"var(--bg3)":"linear-gradient(135deg,#FF453A,#C81E14)",border:"none",borderRadius:9,color:secsay===0?"var(--mu)":"#fff",fontSize:13,fontWeight:800,padding:"7px 16px",cursor:secsay===0?"default":"pointer"}}, "🗑 Sil ("+secsay+")"),
-                  btn({key:"vaz",onClick:()=>{setSdSilMod(false);setSdSecimSil({});},style:{background:"var(--bg3)",border:"1px solid var(--br)",borderRadius:9,color:"var(--mu)",fontSize:13,fontWeight:700,padding:"7px 14px",cursor:"pointer"}},"Vazgeç")
-                ];
-              })()
-        ),
-
-        // ── TABLO ──
-        div({style:{flex:1,overflowY:"auto",overflowX:"auto"}},
-          filtred.length===0
-            ?div({style:{textAlign:"center",padding:50,color:"var(--mu)"}},
-                div({style:{fontSize:40,marginBottom:12}},"📦"),
-                div({style:{fontSize:13}},q?"Sonuç bulunamadı":"Henüz stoğa ürün girilmemiş"))
-            :div({style:{minWidth:800}},
-              div({style:{display:"grid",gridTemplateColumns:"50px 100px 1fr 90px 60px 55px 80px 90px 95px",
-                background:"var(--bg3)",position:"sticky",top:0,zIndex:2,borderBottom:"2px solid var(--br)"}},
-                ["Sıra","Barkod","Ürün Adı","Birim F.","Adet","KDV%","KDV Tutar","KDV Hariç T.T.","KDV Dahil T.T."].map((lb2,ci)=>
-                  div({key:ci,style:{padding:"8px 5px",fontSize:10,color:"var(--g)",letterSpacing:1,
-                    fontWeight:700,textTransform:"uppercase",textAlign:"center",
-                    borderRight:ci<8?"1px solid var(--br)":"none"}},lb2)
+          const detay = u=>{
+            const o=u._oneri;
+            const partiler=(u.partiler||[]).slice().sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""));
+            const elde=partiler.filter(p=>(p.kalan||0)>0||(toN(p.beklenenAdet)||0)>0);
+            const gosterilen = elde.length?elde:partiler.slice(0,3);
+            const bekleyenVar = gosterilen.some(p=>(toN(p.beklenenAdet)||0)>0);
+            const kdvT = u._dahil-u._hariç;
+            const satisDeg = (u.kalan||0)*(u.satisF||0);
+            return div({style:{borderTop:"1px dashed #C9D8EC",background:"#F7FAFF",padding:"14px 16px 16px 44px",
+                display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:18},onClick:e=>e.stopPropagation()},
+              // Sol: partiler + uyarılar
+              div({style:{minWidth:0}},
+                div({style:{fontSize:13,fontWeight:800,marginBottom:8}},elde.length?"Partiler (elde kalan stoğun geldiği faturalar)":"Son girişler"),
+                div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,overflowX:"auto"}},
+                  h("table",{style:{width:"100%",borderCollapse:"collapse"}},
+                    h("thead",null,h("tr",null,
+                      ["Giriş","Fatura","Tedarikçi","Gelen","Kalan"].concat(bekleyenVar?["Bekleyen"]:[]).concat(["Alış F."]).map((b,bi)=>
+                        h("th",{key:bi,style:{...thS,textAlign:(b==="Gelen"||b==="Kalan"||b==="Bekleyen")?"center":b==="Alış F."?"right":"left"}},b)))),
+                    h("tbody",null,gosterilen.map((p,pi)=>h("tr",{key:pi},
+                      h("td",{style:tdS},fmtT(p.tarih)||"—"),
+                      h("td",{style:{...tdS,fontWeight:600}},p.tip==="acilis"?"Açılış / Devir":(p.faturaN||"—")),
+                      h("td",{style:tdS},p.tip==="acilis"?"—":(fatTed[(p.faturaN||"").trim()]||"—")),
+                      h("td",{style:{...tdS,textAlign:"center"}},p.adet??"—"),
+                      h("td",{style:{...tdS,textAlign:"center",fontWeight:800}},p.kalan??0),
+                      bekleyenVar&&h("td",{style:{...tdS,textAlign:"center",color:"#8a6400",fontWeight:700}},(toN(p.beklenenAdet)||0)>0?p.beklenenAdet:"—"),
+                      h("td",{style:{...tdS,textAlign:"right",whiteSpace:"nowrap"}},p.bedelsiz?"🎁 Bedelsiz":fmtK(p.alisF))
+                    )))
+                  )
+                ),
+                u._supheli&&div({style:{marginTop:12,background:"rgba(255,59,48,.06)",border:"1px solid rgba(255,59,48,.25)",borderRadius:12,padding:"10px 14px",
+                    display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}},
+                  span({style:{fontSize:13,color:"#b8261e",fontWeight:600}},"⚠ "+u._supheliSebep),
+                  kucukBtn("✓ Bu kayıt doğru",()=>{
+                    setSdSupheliYoksay(prev=>{ const yeni=[...new Set([...prev,u.barkod])];
+                      try{localStorage.setItem("apron_sd_supheli_yoksay",JSON.stringify(yeni));}catch(err){} return yeni; });
+                    showToast("Bu ürün artık şüpheli olarak işaretlenmeyecek");
+                  })),
+                u._durgun&&o&&div({style:{marginTop:12,background:"rgba(255,204,0,.14)",border:"1px solid rgba(224,168,0,.45)",borderRadius:12,padding:"12px 14px",fontSize:13,lineHeight:1.55}},
+                  h("b",{style:{color:"#8a6400"}},"⏳ "+o.gun+" gündür stokta. "),
+                  "Elde "+o.kalan+" adet, "+fmtK(o.bagliSermaye)+" sermaye bağlı. ",
+                  o.mevcutTukenmeGun!=null?"Bu hızla ~"+o.mevcutTukenmeGun+" günde biter. ":"Son 90 günde hiç satılmadı. ",
+                  o.yeniFiyat!=null&&span(null,"Öneri: satış fiyatını ",h("b",{style:{color:"#8a6400"}},fmtK(o.mevcutFiyat)+" → "+fmtK(o.yeniFiyat)),
+                    " yapın (%"+o.indirimYuzde+" indirim), ~"+o.yeniTukenmeGun+" günde satılır."),
+                  div({style:{display:"flex",alignItems:"center",gap:8,marginTop:8,fontSize:12,color:"var(--di)",flexWrap:"wrap"}},
+                    "Enflasyon (yıllık %) ",
+                    inp({className:"fi",type:"number",style:{width:64,height:30,padding:"0 8px",fontSize:12},onClick:e=>e.stopPropagation(),
+                      value:sdEnflasyonYillik,onChange:e=>setSdEnflasyonYillik(toN(e.target.value)||0)}),
+                    span(null,"→ reel değer kaybı ",h("b",{style:{color:"#b8261e"}},fmtK(o.reelKayip))))
                 )
               ),
-              filtred.map((u,i)=>{
-                const hariç=u.kalan*u.birimF;
-                const kdvT=hariç*((u.kdvOran||20)/100);
-                const dahil=hariç+kdvT;
-                const cel={borderRight:"1px solid var(--br)",display:"flex",alignItems:"center",
-                  justifyContent:"center",minHeight:44,padding:"6px 5px"};
-                const _secili = sdSilMod && !!sdSecimSil[u.barkod];
-                const oneri = u._oneri;
-                return div({key:u.barkod},
-                  div({id:"stok-satir-"+u.barkod, style:{display:"grid",
-                  gridTemplateColumns:"50px 100px 1fr 90px 60px 55px 80px 90px 95px",
-                  borderBottom:"1px solid var(--br)",
-                  background:_secili?"rgba(209,17,17,.14)":u._supheli?"rgba(255,149,0,.09)":u.kalan<=2?"rgba(192,80,80,.07)":i%2===0?"var(--bg)":"var(--bg2)",
-                  cursor:"pointer"},
-                  onClick:()=>{ if(sdSilMod){ setSdSecimSil(prev=>({...prev,[u.barkod]:!prev[u.barkod]})); } else { setUmSek("stokDetay");setSdSecili(u);setSdArama(u.urunAd); } }},
-                  div({style:{...cel,fontSize:12,color:"var(--di)"}}, sdSilMod?span({style:{fontSize:18,fontWeight:700,color:_secili?"#d11":"var(--di)"}}, _secili?"☑":"☐"):(i+1)),
-                  div({style:{...cel,fontSize:10,color:"var(--mu)",wordBreak:"break-all",lineHeight:1.3}},(u.barkod||"—")),
-                  div({style:{...cel,justifyContent:"flex-start",padding:"6px 8px",borderRight:"1px solid var(--br)",gap:8}},
-                    h(UrunResmi,{barkod:u.barkod, boyut:30, radius:6}),
-                    div(null,
-                      div({style:{fontSize:12,color:"var(--tx)",fontWeight:500,display:"flex",alignItems:"center",gap:5}},
-                        u._supheli&&span({title:u._supheliSebep,style:{fontSize:11}},"⚠️"),
-                        u.urunAd),
-                      div({style:{fontSize:10,color:"var(--di)"}},u.marka+(u.ml?" · "+u.ml:"")),
-                      u._supheli&&div({style:{display:"flex",alignItems:"center",gap:6,marginTop:2,flexWrap:"wrap"}},
-                        div({style:{fontSize:9,color:"#E08600",fontWeight:600}},u._supheliSebep),
-                        btn({onClick:(e)=>{
-                          e.stopPropagation();
-                          setSdSupheliYoksay(prev=>{
-                            const yeni=[...new Set([...prev,u.barkod])];
-                            try{localStorage.setItem("apron_sd_supheli_yoksay",JSON.stringify(yeni));}catch(err){}
-                            return yeni;
-                          });
-                          showToast("Bu ürün artık şüpheli olarak işaretlenmeyecek");
-                        },style:{fontSize:9,fontWeight:700,color:"#34C759",background:"rgba(52,199,89,.1)",
-                          border:"1px solid rgba(52,199,89,.3)",borderRadius:5,padding:"1px 6px",cursor:"pointer"}},"✕ Bu Doğru")
-                      )
-                    )
-                  ),
-                  div({style:{...cel,flexDirection:"column",gap:3,fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
-                    div({style:{fontSize:13,color:"var(--tx)"}},fmt(u.cokluFiyat?u.ortMaliyet:(u.birimF||0))),
-                    u.cokluFiyat&&span({title:u.fiyatKademeleri.map(k=>k.adet+" adet × "+fmt(k.fiyat)).join(" · ")+" — ortalama gösteriliyor, ayrıntı için ürüne tıklayın",
-                      style:{fontSize:9,fontWeight:800,padding:"2px 7px",borderRadius:20,
-                        background:"rgba(0,113,227,.16)",color:"#0071E3",border:"1px solid rgba(0,113,227,.4)",
-                        display:"inline-flex",alignItems:"center",gap:3,whiteSpace:"nowrap",cursor:"pointer",
-                        animation:"pulse 1.6s ease-in-out infinite"}},
-                      "🏷 "+u.fiyatKademeleri.length+" fiyat")
-                  ),
-                  div({style:{...cel,fontSize:14,color:u.kalan<=2?"#c05050":"var(--g)",fontWeight:700}},String(u.kalan??0)),
-                  div({style:{...cel,fontSize:12,color:"var(--mu)"}},(u.kdvOran||20)+"%"),
-                  div({style:{...cel,fontSize:12,color:"var(--mu)"}},fmt(kdvT)),
-                  div({style:{...cel,fontSize:13,color:"var(--tx)",fontWeight:500}},fmt(hariç)),
-                  div({style:{...cel,borderRight:"none",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:15,color:"var(--g)",fontWeight:700}},fmt(dahil))
-                  ),
-                  // ── Durgun Stok & Fiyat Önerisi paneli — sadece filtre açıkken, yaşlanmış ürünlerde ──
-                  sdDurgunFiltre && oneri && oneri.kademe!=="taze" && div({style:{padding:"12px 14px",
-                    background:"rgba(192,80,80,.05)",borderBottom:"2px solid var(--br)"}},
-                    div({style:{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}},
-                      h("span",{style:{fontSize:11,fontWeight:800,color:oneri.renk}},oneri.etiket),
-                      h("span",{style:{fontSize:11,color:"var(--mu)"}},oneri.gun+" gündür stokta")
-                    ),
-                    div({style:{fontSize:12,color:"var(--tx)",lineHeight:1.6,marginBottom:8}},
-                      "Bu üründen elinizde "+oneri.kalan+" adet var, "+fmt(oneri.bagliSermaye)+" sermaye bağlı. "+
-                      "Bu süre boyunca enflasyon (%"+sdEnflasyonYillik+" yıllık) nedeniyle yaklaşık ",
-                      h("b",{style:{color:"#c05050"}},fmt(oneri.reelKayip)),
-                      " reel değer kaybı oluştu."
-                    ),
-                    oneri.yeniFiyat!=null && div({style:{background:"var(--bg)",border:"1px solid var(--br)",borderRadius:10,padding:"10px 12px"}},
-                      div({style:{fontSize:12.5,fontWeight:700,color:"var(--tx)",marginBottom:6}},
-                        "💡 Öneri: Fiyatı "+fmt(oneri.mevcutFiyat)+" → ",
-                        h("span",{style:{color:"#1e9e46"}},fmt(oneri.yeniFiyat)),
-                        " yapın (%"+oneri.indirimYuzde+" indirim)"),
-                      div({style:{fontSize:11.5,color:"var(--mu)",lineHeight:1.6}},
-                        oneri.mevcutTukenmeGun!=null
-                          ? "Şu anki hızla tükenme süresi: ~"+oneri.mevcutTukenmeGun+" gün. "
-                          : "Son 90 günde hiç satış olmadı. ",
-                        "Bu fiyatla tahmini ~"+oneri.yeniTukenmeGun+" günde satılır. ",
-                        "Adet başı kâr "+fmt(oneri.yeniKarBirim)+"'ye düşer, kalan stoğun toplam kârı yaklaşık ",
-                        h("b",null,fmt(oneri.yeniToplamKar)),"."
-                      ),
-                      div({style:{fontSize:9.5,color:"var(--di)",marginTop:6,fontStyle:"italic"}},
-                        "* Satış hızı artışı tahminidir, ürüne göre değişebilir — kesin garanti değildir.")
-                    )
-                  )
-                );
-              })
-            )
-        ),
+              // Sağ: tutarlar + işlemler
+              div({style:{minWidth:0}},
+                div({style:{fontSize:13,fontWeight:800,marginBottom:8}},"Tutarlar"),
+                div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:12,padding:"2px 14px"}},
+                  kvSatir("Barkod",u.barkod||"—"),
+                  kvSatir("KDV oranı","%"+(u.kdvOran||20)),
+                  kvSatir("KDV hariç toplam",fmtK(u._hariç)),
+                  kvSatir("KDV tutarı",fmtK(kdvT)),
+                  kvSatir("KDV dahil toplam",fmtK(u._dahil)),
+                  u.satisF>0&&kvSatir("Satış değeri ("+(u.kalan||0)+" × "+fmtK(u.satisF)+")",fmtK(satisDeg)),
+                  u.satisF>0&&kvSatir("Tahmini kâr",fmtK(satisDeg-u._dahil),(satisDeg-u._dahil)>=0?"#1f7a3f":"#b8261e")
+                ),
+                div({style:{display:"flex",gap:8,marginTop:12,flexWrap:"wrap"}},
+                  kucukBtn("📊 Stok hareketleri",()=>{ setUmSek("stokDetay"); setSdSecili(u); setSdArama(u.urunAd); }),
+                  kucukBtn("🔢 Sayım yap",()=>setUmSek("sayim")),
+                  kucukBtn("Stok kaydını sil",()=>setSdTopluSilOnay({barkodlar:[u.barkod],adlar:[u.urunAd]}),true)
+                )
+              )
+            );
+          };
 
-        // ── FOOTER ──
-        div({style:{background:"var(--bg2)",borderTop:"1px solid var(--br)",padding:"9px 14px",
-          flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}},
-          div({style:{fontSize:12,color:"var(--mu)"}},filtred.length+" / "+topCesit+" ürün çeşidi"),
-          div({style:{display:"flex",gap:16}},
-            div({style:{fontSize:12,color:"var(--mu)"}},"Maliyet: ",h("span",{style:{color:"var(--tx)",fontWeight:600}},fmt(topMaliyet))),
-            div({style:{fontSize:12,color:"var(--g)",fontWeight:600}},"Satış: ",h("span",null,fmt(topSatis)))
-          )
-        ),
+          return div({style:{flex:1,overflowY:"auto",overflowX:"hidden",minHeight:0}},
+            div({style:{maxWidth:1240,margin:"0 auto",padding:"14px 14px 24px"}},
+              // Özet
+              div({style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:14}},
+                ozetKutu("Ürün çeşidi",String(topCesit),"· "+topAdet+" adet"),
+                ozetKutu("Maliyet değeri (KDV dahil)",fmtK(liste.reduce((t,u)=>t+(u.toplamMaliyet>0?u.toplamMaliyet:(u.kalan||0)*(u.birimF||0))*(1+((u.kdvOran||20)/100)),0))),
+                ozetKutu("Satış değeri",fmtK(topSatis)),
+                ozetKutu("Dikkat isteyen",String(dikkat),"ürün",dikkat>0?"#b8261e":"var(--tx)")
+              ),
+              // Araç çubuğu
+              div({style:{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:12}},
+                div({style:{flex:"1 1 280px",maxWidth:380,minWidth:0}},
+                  h(UrunAramaBilesen,{aramaVal:sdAramaF,setAramaVal:setSdAramaF,
+                    onEkle:u=>{ setSdAramaF(u.b); setSdAcik(u.b);
+                      setTimeout(()=>{ const el=document.getElementById("stok-satir-"+u.b); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },120); },
+                    placeholder:"Ürün adı, marka veya barkod ara", stokDB:stokOzet, gotoMod:true})
+                ),
+                cip("tum","Tümü "+sdSay.tum),
+                cip("az","Az kalan "+sdSay.az),
+                cip("tukenen","Tükenen "+sdSay.tukenen),
+                cip("durgun","Durgun "+sdSay.durgun),
+                cip("supheli","Şüpheli "+sdSay.supheli),
+                div({style:{flex:1}}),
+                sel({value:sdSirala,onChange:e=>setSdSirala(e.target.value),
+                  style:{height:36,padding:"0 10px",borderRadius:20,border:"1px solid var(--br)",background:"var(--bg2)",color:"#55555A",fontSize:12.5,fontWeight:600,cursor:"pointer"}},
+                  opt("ad","Sırala: Ürün adı"),opt("stok","Sırala: Stok (azdan çoğa)"),opt("deger","Sırala: Stok değeri"),opt("gun","Sırala: En uzun stokta")),
+                !sdSilMod&&btn({type:"button",onClick:()=>{setSdSilMod(true);setSdSecimSil({});setSdAcik(null);},
+                  style:{font:"inherit",height:36,padding:"0 12px",borderRadius:20,border:"1px solid var(--br)",background:"var(--bg2)",color:"#55555A",fontSize:12.5,fontWeight:700,cursor:"pointer"}},"☑ Seç")
+              ),
+              // Seçim (toplu silme) çubuğu
+              sdSilMod&&(()=>{
+                const secsay=Object.values(sdSecimSil).filter(Boolean).length;
+                const gorunen=filtred.map(u=>u.barkod);
+                const hepsi=gorunen.length>0&&gorunen.every(b=>sdSecimSil[b]);
+                const bs={font:"inherit",height:36,padding:"0 14px",borderRadius:9,fontSize:13,fontWeight:700,cursor:"pointer",border:"1px solid var(--br)",background:"var(--bg2)",color:"var(--tx)"};
+                return div({style:{...kart,display:"flex",alignItems:"center",gap:8,padding:"8px 12px",marginBottom:12,flexWrap:"wrap"}},
+                  btn({type:"button",style:bs,onClick:()=>setSdSecimSil(prev=>{ const n={...prev}; if(hepsi) gorunen.forEach(b=>delete n[b]); else gorunen.forEach(b=>{n[b]=true;}); return n; })},
+                    hepsi?"☑ Tümünü bırak":"☐ Tümünü seç"),
+                  span({style:{fontSize:13,fontWeight:700,color:secsay?"#C9302C":"var(--mu)"}},secsay+" seçili"),
+                  div({style:{flex:1}}),
+                  btn({type:"button",disabled:secsay===0,
+                    style:{...bs,border:"none",background:secsay?"#D93A30":"var(--bg3)",color:secsay?"#fff":"var(--mu)",cursor:secsay?"pointer":"default"},
+                    onClick:()=>{ const bk=Object.keys(sdSecimSil).filter(b=>sdSecimSil[b]); setSdTopluSilOnay({barkodlar:bk,adlar:bk.map(b=>(stokOzet[b]&&stokOzet[b].urunAd)||b)}); }},
+                    "🗑 Stok kaydını sil ("+secsay+")"),
+                  btn({type:"button",style:bs,onClick:()=>{setSdSilMod(false);setSdSecimSil({});}},"Vazgeç")
+                );
+              })(),
+              // Liste
+              div({style:{...kart,overflow:"hidden"}},
+                div({style:{overflowX:"auto"}},
+                  div({style:{minWidth:900}},
+                    div({style:{display:"grid",gridTemplateColumns:sutun,background:"#FAFAFB",padding:"0 8px"}},
+                      ["","Ürün","Stok","Alış F. (ort.)","Satış F.","Stok değeri","Stokta","Durum"].map((b,ci)=>
+                        div({key:ci,style:{padding:"9px 6px",fontSize:11,fontWeight:700,color:"var(--mu)",textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",
+                          textAlign:ci<=1?"left":ci>=6?"center":"right"}},b))
+                    ),
+                    filtred.length===0
+                      ? div({style:{textAlign:"center",padding:"40px 16px",color:"var(--mu)",fontSize:14,borderTop:"1px solid var(--br)"}},
+                          q?"Sonuç bulunamadı":sdFiltre!=="tum"?"Bu filtrede ürün yok":"Henüz stoğa ürün girilmemiş")
+                      : filtred.map(u=>{
+                        const acik = !sdSilMod && sdAcik===u.barkod;
+                        const secili = sdSilMod && !!sdSecimSil[u.barkod];
+                        const alis = u.cokluFiyat?u.ortMaliyet:(u.birimF||0);
+                        const hc = {padding:"8px 6px",minWidth:0};
+                        return div({key:u.barkod},
+                          div({id:"stok-satir-"+u.barkod,
+                              onClick:()=>{ if(sdSilMod) setSdSecimSil(prev=>({...prev,[u.barkod]:!prev[u.barkod]})); else setSdAcik(acik?null:u.barkod); },
+                              style:{display:"grid",gridTemplateColumns:sutun,alignItems:"center",padding:"0 8px",minHeight:56,cursor:"pointer",
+                                borderTop:"1px solid var(--br)",background:secili?"rgba(255,59,48,.10)":acik?"#F7FAFF":"transparent"}},
+                            div({style:{...hc,fontSize:sdSilMod?17:14,color:secili?"#C9302C":"var(--mu)",textAlign:"center"}},
+                              sdSilMod?(secili?"☑":"☐"):(acik?"⌃":"⌄")),
+                            div({style:hc},
+                              div({style:{fontSize:14,fontWeight:600,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis"}},u.urunAd||u.barkod),
+                              div({style:{fontSize:12,color:"var(--mu)",marginTop:2}},[u.marka,u.ml].filter(Boolean).join(" · ")||u.barkod)),
+                            div({style:{...hc,textAlign:"right",whiteSpace:"nowrap"}},
+                              span({style:{fontSize:15,fontWeight:800,color:(u.kalan||0)<=2?"#b8261e":"var(--tx)"}},String(u.kalan??0)),
+                              span({style:{fontSize:13,color:"var(--mu)",marginLeft:4}},"adet")),
+                            div({style:{...hc,textAlign:"right"}},
+                              h("b",{style:{fontSize:13.5,whiteSpace:"nowrap"}},fmtK(alis)),
+                              u.cokluFiyat&&div(null,btn({type:"button",title:"Elde farklı alış fiyatlarından stok var",
+                                onClick:e=>{ e.stopPropagation(); const rc=e.currentTarget.getBoundingClientRect(); setSdFiyatPop({barkod:u.barkod,x:rc.left,y:rc.bottom}); },
+                                style:{font:"inherit",background:"none",border:"none",padding:"2px 0",cursor:"pointer",color:"var(--g)",fontWeight:700,fontSize:12,
+                                  textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:3}},u.fiyatKademeleri.length+" fiyat"))),
+                            div({style:{...hc,textAlign:"right",fontSize:13.5,whiteSpace:"nowrap"}},u.satisF>0?fmtK(u.satisF):"—"),
+                            div({style:{...hc,textAlign:"right",fontSize:13.5,fontWeight:800,whiteSpace:"nowrap"}},fmtK(u._dahil)),
+                            div({style:{...hc,textAlign:"center",fontSize:13,color:"var(--mu)",whiteSpace:"nowrap"}},(u.kalan||0)>0&&u._gun!=null?u._gun+" gün":"—"),
+                            div({style:{...hc,textAlign:"center"}},durumRozet(u),
+                              u._bekleyen>0&&div({style:{fontSize:11.5,color:"var(--di)",marginTop:3}},"+"+u._bekleyen+" bekleniyor"))
+                          ),
+                          acik&&detay(u)
+                        );
+                      })
+                  )
+                )
+              ),
+              (sdSupheliYoksay||[]).length>0&&div({style:{marginTop:10,textAlign:"center",fontSize:12,color:"var(--di)"}},
+                sdSupheliYoksay.length+" ürün \"doğru\" olarak işaretli — ",
+                btn({type:"button",onClick:()=>{
+                  if(!confirm(sdSupheliYoksay.length+" ürünün işareti kaldırılsın mı? Hepsi tekrar şüpheli görünebilir.")) return;
+                  setSdSupheliYoksay([]); try{localStorage.removeItem("apron_sd_supheli_yoksay");}catch(e){}
+                },style:{font:"inherit",fontSize:12,color:"var(--g)",background:"none",border:"none",textDecoration:"underline",cursor:"pointer",padding:0}},"listeyi sıfırla"))
+            ),
+            // "n fiyat" penceresi — boş alana tıklayınca kapanır
+            sdFiyatPop&&stokOzet[sdFiyatPop.barkod]&&ReactDOM.createPortal(
+              div({style:{position:"fixed",inset:0,zIndex:2050},onClick:()=>setSdFiyatPop(null)},
+                (()=>{ const u=stokOzet[sdFiyatPop.barkod];
+                  return div({onClick:e=>e.stopPropagation(),
+                    style:{position:"fixed",left:Math.max(8,Math.min(sdFiyatPop.x,window.innerWidth-250)),top:Math.min(sdFiyatPop.y+6,window.innerHeight-220),
+                      width:236,background:"#fff",border:"1px solid var(--br)",borderRadius:12,boxShadow:"0 10px 30px rgba(0,0,0,.16)",padding:"10px 14px",fontSize:13}},
+                    div({style:{fontWeight:800,marginBottom:4}},"Elde "+u.fiyatKademeleri.length+" farklı alış fiyatı"),
+                    u.fiyatKademeleri.map((k,ki)=>div({key:ki,style:{display:"flex",justifyContent:"space-between",padding:"5px 0"}},
+                      span(null,k.adet+" adet"),h("b",null,fmtK(k.fiyat)))),
+                    div({style:{display:"flex",justifyContent:"space-between",padding:"8px 0 2px",marginTop:4,borderTop:"1px solid var(--br)"}},
+                      span(null,"Ortalama"),h("b",null,fmtK(u.ortMaliyet))));
+                })()),
+              document.body)
+          );
+        })(),
 
         // ── SİLME ONAY MODALI ──
         sdTopluSilOnay && div({style:{position:"fixed",inset:0,zIndex:2100,background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",padding:18},onClick:()=>setSdTopluSilOnay(null)},
