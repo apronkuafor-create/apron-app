@@ -11786,12 +11786,22 @@ function KayitForm({gecmisKayitlar, ilk, musteriDB, personeller, aktifKullanici,
       (r.hizler||[]).forEach(x=>{
         const n = x && (x.n||x.ad); const f = toN(x && x.f);
         if(!n || f<=0) return;
-        const t = top[n] || (top[n]={toplam:0, adet:0, son:""});
+        const t = top[n] || (top[n]={toplam:0, adet:0, son:"", kk:0, ib:0, nk:0});
         t.toplam += f; t.adet++; if(r.tarih>t.son) t.son = r.tarih;
+        // Ödeme yöntemi dağılımı: satırda K.K/Iban/Nakit ayrımı varsa onu, yoksa (eski kayıt) satırın veya kaydın tek ödeme tipini kullan
+        const kk=toN(x.fkk), ib=toN(x.fib), nk=toN(x.fnk);
+        if(kk+ib+nk>0){ t.kk+=kk; t.ib+=ib; t.nk+=nk; }
+        else { const od = x.odeme || varsayilanOdemeTipi(r.hizKK, r.hizIB, r.hizNK); if(od==="kk"||od==="ib"||od==="nk") t[od]+=f; }
       });
     }));
     const sonuc = {};
-    Object.keys(top).forEach(n=>{ sonuc[n] = {ort:Math.round(top[n].toplam/top[n].adet), adet:top[n].adet, son:top[n].son}; });
+    Object.keys(top).forEach(n=>{
+      const t=top[n], odT=t.kk+t.ib+t.nk;
+      const yuzde = odT>0 ? {kk:Math.round(t.kk/odT*100), ib:Math.round(t.ib/odT*100), nk:Math.round(t.nk/odT*100)} : null;
+      // En yüksek yüzdeli ödeme yöntemi (eşitlikte K.K → Iban → Nakit sırası)
+      const enCok = yuzde ? ["kk","ib","nk"].reduce((a,b)=>yuzde[b]>yuzde[a]?b:a,"kk") : "";
+      sonuc[n] = {ort:Math.round(t.toplam/t.adet), adet:t.adet, son:t.son, yuzde, enCok};
+    });
     return sonuc;
   },[musteri, gecmisKayitlar]);
   const [hizOdemeNotu, setHizOdemeNotu] = useState(ilk?.hizOdemeNotu||"");
@@ -12185,6 +12195,21 @@ function KayitForm({gecmisKayitlar, ilk, musteriDB, personeller, aktifKullanici,
     if(["fkk","fib","fnk"].includes(alan) && toN(val)>0) setHizmetOdemeUyariId(cur=>cur===id?"":cur);
     return next;
   });
+  // ── Müşteri ortalaması varsa: en yüksek yüzdeli ödeme kutusuna (K.K / Iban / Nakit) ortalama tutarı otomatik yaz.
+  // Her hizmet satırı için bir kez yapılır; kutularda zaten tutar varsa dokunulmaz. Son düzeltme elle yapılır.
+  const otoOdemeDolduRef = React.useRef(new Set());
+  React.useEffect(()=>{
+    (hizler||[]).forEach(h=>{
+      if(!h || !h.n) return;
+      const o = musteriHizOrt[h.n];
+      if(!o || !o.enCok || !(o.ort>0)) return;
+      const key = h.id+"|"+h.n;
+      if(otoOdemeDolduRef.current.has(key)) return;
+      otoOdemeDolduRef.current.add(key);
+      if(toN(h.fkk)>0 || toN(h.fib)>0 || toN(h.fnk)>0) return;
+      hSet(h.id, "f"+o.enCok, String(o.ort));
+    });
+  },[hizler, musteriHizOrt]);
 
   const uSil = id => setUrunler(p=>{
     const next = p.filter(x=>x.id!==id);
@@ -13112,6 +13137,15 @@ function KayitForm({gecmisKayitlar, ilk, musteriDB, personeller, aktifKullanici,
                       style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6,margin:"1px -5px 0",padding:"4px 5px",borderRadius:7,background:"rgba(0,113,227,.07)"}},
                       span({style:{color:"#0058B0",fontWeight:600}},"Müşteri ort. (3 ay · "+musteriHizOrt[h.n].adet+" işlem)"),
                       span({className:"theme-number",style:{fontSize:14,fontWeight:800,color:"#0058B0",fontFamily:hizmetFont}},fmt(musteriHizOrt[h.n].ort))
+                    ),
+                    musteriHizOrt[h.n] && musteriHizOrt[h.n].yuzde && div({title:"Bu müşterinin son 3 ayda bu hizmet için ödeme şekli dağılımı",
+                      style:{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",margin:"0 -5px",padding:"2px 5px"}},
+                      span({style:{color:"#6b7280",fontWeight:600,marginRight:2}},"Ödeme şekli:"),
+                      [["kk","K.K"],["ib","Iban"],["nk","Nakit"]].map(([k,ad])=>{
+                        const y=musteriHizOrt[h.n].yuzde[k], ust=musteriHizOrt[h.n].enCok===k;
+                        return span({key:k,style:{fontSize:12,fontWeight:ust?800:600,padding:"2px 8px",borderRadius:20,whiteSpace:"nowrap",
+                          background:ust?"rgba(0,113,227,.14)":"rgba(0,0,0,.05)",color:ust?"#0058B0":(y>0?"#4b5563":"#9ca3af")}},"%"+y+" "+ad);
+                      })
                     ),
                     (()=>{
                       const liste = toN(h.listef);
