@@ -11889,9 +11889,12 @@ function KayitForm({gecmisKayitlar, ilk, musteriDB, personeller, aktifKullanici,
       const yuzde = odT>0 ? {kk:Math.round(t.kk/odT*100), ib:Math.round(t.ib/odT*100), nk:Math.round(t.nk/odT*100)} : null;
       // En yüksek yüzdeli ödeme yöntemi (eşitlikte K.K → Iban → Nakit sırası)
       const enCok = yuzde ? ["kk","ib","nk"].reduce((a,b)=>yuzde[b]>yuzde[a]?b:a,"kk") : "";
-      // Ortalama en yakın 50 ₺'ye yuvarlanır (ör. 1.154 → 1.150); gerçek ortalama dökümde ayrıca gösterilir
+      // Ödeme kutusuna yazılacak tutar: en sık ödenen tutar (eşitlikte en son ödenen). Ortalama dökümde bilgi olarak durur.
       const gercekOrt = t.toplam/t.adet;
-      sonuc[n] = {ort:Math.round(gercekOrt/50)*50, gercekOrt, toplam:t.toplam, adet:t.adet, son:t.son, yuzde, enCok,
+      const sayim = {};
+      t.islemler.forEach(x=>{ const k=String(Math.round(x.f*100)/100); const c=sayim[k]||(sayim[k]={tutar:Math.round(x.f*100)/100,kez:0,son:""}); c.kez++; if((x.tarih||"")>c.son) c.son=x.tarih||""; });
+      const enSik = Object.values(sayim).sort((a,b)=>b.kez-a.kez || String(b.son).localeCompare(String(a.son)))[0];
+      sonuc[n] = {ort:enSik?enSik.tutar:Math.round(gercekOrt), sikKez:enSik?enSik.kez:0, gercekOrt, toplam:t.toplam, adet:t.adet, son:t.son, yuzde, enCok,
         islemler:t.islemler.slice().sort((a,b)=>(b.tarih||"").localeCompare(a.tarih||""))};
     });
     return sonuc;
@@ -13226,10 +13229,10 @@ function KayitForm({gecmisKayitlar, ilk, musteriDB, personeller, aktifKullanici,
                       span(null,"Liste fiyatı"),
                       span({className:"theme-number",style:{fontSize:14,fontWeight:700,fontFamily:hizmetFont}},h.listef?fmt(h.listef):"—")
                     ),
-                    musteriHizOrt[h.n] && div({title:"Dokunun: bu ortalamayı oluşturan işlemleri gösterir",
+                    musteriHizOrt[h.n] && div({title:"Dokunun: bu tutarı oluşturan işlemleri gösterir",
                       onClick:e=>{ e.stopPropagation(); setOrtDokum(h.n); },
                       style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6,margin:"1px -5px 0",padding:"4px 5px",borderRadius:7,background:"rgba(0,113,227,.07)",cursor:"pointer"}},
-                      span({style:{color:"#0058B0",fontWeight:600,textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:3}},"Müşteri ort. (3 ay · "+musteriHizOrt[h.n].adet+" işlem)"),
+                      span({style:{color:"#0058B0",fontWeight:600,textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:3}},"En sık ödenen (3 ay · "+musteriHizOrt[h.n].sikKez+"/"+musteriHizOrt[h.n].adet+" işlem)"),
                       span({className:"theme-number",style:{fontSize:14,fontWeight:800,color:"#0058B0",fontFamily:hizmetFont}},fmt(musteriHizOrt[h.n].ort))
                     ),
                     musteriHizOrt[h.n] && musteriHizOrt[h.n].yuzde && div({title:"Bu müşterinin son 3 ayda bu hizmet için ödeme şekli dağılımı",
@@ -13313,8 +13316,8 @@ function KayitForm({gecmisKayitlar, ilk, musteriDB, personeller, aktifKullanici,
                       span({style:{fontWeight:700,whiteSpace:"nowrap",color:toN(HIZ_LISTE_FIYAT[ortDokum])>0&&x.f<toN(HIZ_LISTE_FIYAT[ortDokum])?"#b8261e":"var(--tx)"}},tl(x.f))))),
                   div({style:{padding:"10px 16px 14px",borderTop:"1px solid var(--br)",background:"var(--bg3)",borderRadius:"0 0 14px 14px"}},
                     satir("Toplam ("+o.adet+" işlem)",tl(o.toplam)),
-                    satir("Gerçek ortalama",tl(Math.round(o.gercekOrt*100)/100)),
-                    satir("Kullanılan ortalama (50 ₺'ye yuvarlı)",tl(o.ort),true,"#0058B0"))
+                    satir("Ortalama (bilgi)",tl(Math.round(o.gercekOrt*100)/100)),
+                    satir("En sık ödenen tutar ("+o.sikKez+" kez) — kutuya yazılan",tl(o.ort),true,"#0058B0"))
                 );
               })()
             ), document.body),
