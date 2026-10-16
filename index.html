@@ -149,6 +149,62 @@ const fmtBuyuk = (n, boyut) => {
 };
 const toN   = v => { const x=parseFloat(String(v||0).replace(",",".")); return isNaN(x)?0:x; };
 const uid   = () => ""+(Date.now()+Math.floor(Math.random()*9999));
+// ══ STOK DEFTERİ (stok_defteri tablosu) ══════════════════════════════════════════
+// Stok artık "kalan" sayısı elle değiştirilerek değil, hareket satırlarıyla tutulur.
+// Her parti: bir oluşturma satırı (parti bilgileri aciklama'da JSON) + kalan değişim satırları (miktar ±).
+// Kalan = o partiye ait satırların miktar toplamı. Satırlar silinmez/değiştirilmez, yalnızca eklenir.
+const _sdSirali = o => { if(o===null||typeof o!=="object") return o; if(Array.isArray(o)) return o.map(_sdSirali);
+  const r={}; Object.keys(o).sort().forEach(k=>{ if(o[k]!==undefined) r[k]=_sdSirali(o[k]); }); return r; };
+const sdMeta = p => { const {kalan, ...m} = p||{}; return JSON.stringify(_sdSirali(m)); };
+let _sdSayac = 0;
+const sdSatirId = () => "sd_"+Date.now().toString(36)+"_"+(++_sdSayac).toString(36)+"_"+Math.random().toString(36).slice(2,7);
+const _sdYuvarla = n => Math.round(toN(n)*1000)/1000;
+// Satırlardan partileri üretir (eski stokPartiler dizisiyle birebir aynı biçim)
+const sdTuret = rows => {
+  const sirali = (rows||[]).filter(Boolean).slice().sort((a,b)=>
+    String(a.olusturma||"").localeCompare(String(b.olusturma||"")) || String(a.id).localeCompare(String(b.id)));
+  const m = new Map();
+  sirali.forEach(r=>{
+    const pid = r.parti_id!=null ? String(r.parti_id) : "";
+    if(!pid) return;
+    if(r.tip==="parti_sil"){ m.delete(pid); return; }
+    let p = m.get(pid);
+    if(!p){ p = {id:pid, barkod:r.barkod, urunAd:r.urun_ad||"", kalan:0}; m.set(pid,p); }
+    if(r.aciklama && String(r.aciklama).charAt(0)==="{"){
+      try{ const meta = JSON.parse(r.aciklama); const k = p.kalan;
+        Object.keys(p).forEach(x=>{ delete p[x]; }); Object.assign(p, meta, {id:pid, kalan:k}); }catch(e){}
+    }
+    p.kalan = _sdYuvarla(toN(p.kalan)+toN(r.miktar));
+  });
+  return Array.from(m.values());
+};
+// Eski ve yeni parti listesinin farkını hareket satırlarına çevirir
+const sdFark = (prev, next, sebep) => {
+  const satirlar = [];
+  const pm = new Map((prev||[]).filter(Boolean).map(p=>[String(p.id),p]));
+  const gorulen = new Set();
+  const zaman = new Date().toISOString();
+  const yap = (p, tip, miktar, meta) => ({
+    id:sdSatirId(), barkod:String(p.barkod||""), urun_ad:p.urunAd||"", marka:p.marka||"",
+    tip, miktar:_sdYuvarla(miktar), alis_f:toN(p.alisF), bedelsiz:!!p.bedelsiz, tarih:TODAY(),
+    kaynak:(sebep&&sebep.kaynak)||"", parti_id:String(p.id), aciklama:meta||"", olusturma:zaman });
+  (next||[]).forEach(n=>{
+    if(!n) return;
+    if(n.id==null || n.id==="") n.id = uid();
+    const k = String(n.id);
+    if(gorulen.has(k)) return; // aynı kimlik iki kez gelirse ilki geçerli
+    gorulen.add(k);
+    const o = pm.get(k);
+    if(!o){ satirlar.push(yap(n, (sebep&&sebep.girisTip) || (n.tip==="acilis"?"acilis":"giris"), n.kalan, sdMeta(n))); return; }
+    const dm = toN(n.kalan) - toN(o.kalan);
+    const metaDegisti = sdMeta(n)!==sdMeta(o);
+    if(Math.abs(dm)<1e-9 && !metaDegisti) return;
+    const tip = (sebep&&sebep.tip) || (Math.abs(dm)<1e-9 ? "bilgi" : (dm<0 ? "cikis" : "duzeltme"));
+    satirlar.push(yap(n, tip, dm, metaDegisti?sdMeta(n):""));
+  });
+  pm.forEach((o,k)=>{ if(!gorulen.has(k)) satirlar.push(yap(o, "parti_sil", -toN(o.kalan), "")); });
+  return satirlar;
+};
 
 // ── ÜRÜN RESMİ: küçültme + Supabase Storage'a yükleme + görüntüleme ──────────
 // Not: "urun-resimleri" adında PUBLIC bir Supabase Storage bucket'ı önceden
@@ -1715,18 +1771,19 @@ function BulutDurumu({yukluGonderilmis,yukluToplam}){
     try{
       // 1) Supabase tablolarını temizle
       const _sifirSorun = {};
-      for(const _t of ["kayitlar","stok","stok_hareketleri"]){
+      for(const _t of ["kayitlar","stok","stok_hareketleri","stok_defteri"]){
         try{ const {error}=await DB.from(_t).delete().neq("id","___hepsi___"); if(error) _sifirSorun[_t]="silme reddedildi ("+(error.message||error.code||"izin/RLS")+")"; }
         catch(e){ _sifirSorun[_t]="silme hatası"; }
       }
       // Silme GERÇEKTEN oldu mu? Bulutta kalan satır sayısını doğrula (RLS DELETE engelini yakalar).
-      for(const _t of ["kayitlar","stok","stok_hareketleri"]){
+      for(const _t of ["kayitlar","stok","stok_hareketleri","stok_defteri"]){
         try{ const {count,error}=await DB.from(_t).select("id",{count:"exact",head:true}); if(!error && (Number(count)||0)>0) _sifirSorun[_t]=(_sifirSorun[_t]?_sifirSorun[_t]+"; ":"")+(Number(count)||0)+" kayıt hâlâ bulutta"; }
         catch(e){}
       }
       // 2) ayarlar'daki stok partileri ve hareketleri boşalt
       try{ await DB.from("ayarlar").upsert({id:"stokPartiler",deger:[]},{onConflict:"isletme_id,id"}); }catch(e){}
       try{ await DB.from("ayarlar").upsert({id:"hareketler",deger:[]},{onConflict:"isletme_id,id"}); }catch(e){}
+      try{ localStorage.removeItem("apron_stok_defteri"); }catch(e){}
       // 3) localStorage'daki ilgili alanları temizle (diğer her şey korunur)
       try{
         const l=JSON.parse(localStorage.getItem("apron_v3")||"{}");
@@ -3118,7 +3175,7 @@ function CariOdemePenceresi({ted, mkArsiv, onArsivKaydet, showToast, onKapat, on
 
 
 function UrunMuhasebe({
-  stokPartiler,setStokPartiler,stokDB,setStokDB,
+  stokPartiler,setStokPartiler,stokDB,setStokDB,stokDefterAktif,stokDefterGecis,
   gecmisStokKayitlari,setGecmisStokKayitlari,
   oduncler,setOduncler,komsular,setKomsular,kullanimlar,setKullanimlar,stokHar,setStokHar,
   stokGirisForm,setStokGirisForm,stokGirisUrun,setStokGirisUrun,
@@ -3568,6 +3625,7 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
   const mkArsivKirliRef = React.useRef(false);    // mount sonrası yerel silme/düzenleme oldu mu → geç gelen bulut çekimi bunu EZMESİN (diriltmeyi önler)
   const [sdAramaF, setSdAramaF] = React.useState(""); // stok durumu arama
   const [sdSupheliFiltre, setSdSupheliFiltre] = React.useState(false); // sadece şüpheli (kataloğu olmayan/düşük fiyatlı) kayıtları göster
+  const [sdGecis, setSdGecis] = React.useState(null); // deftere geçiş: null | "calisiyor" | sonuç nesnesi
   const [sdFiltre, setSdFiltre] = React.useState("tum"); // tum | az | tukenen | durgun | supheli
   const [sdSirala, setSdSirala] = React.useState("ad"); // ad | stok | deger | gun
   const [sdAcik, setSdAcik] = React.useState(null); // satırı açılan ürünün barkodu
@@ -6569,6 +6627,35 @@ const [umSekLocal, setUmSekLocal] = React.useState(aktifSekme||"ozet");
 
           return div({style:{flex:1,overflowY:"auto",overflowX:"hidden",minHeight:0}},
             div({style:{maxWidth:1240,margin:"0 auto",padding:"14px 14px 24px"}},
+              // Stok defterine geçiş bandı (yalnızca geçiş yapılmadıysa ya da sonuç gösterilecekse)
+              (!stokDefterAktif || (sdGecis && typeof sdGecis==="object")) && (()=>{
+                const sonuc = (sdGecis && typeof sdGecis==="object") ? sdGecis : null;
+                const calisiyor = sdGecis==="calisiyor";
+                const iyi = sonuc && sonuc.ok;
+                const renk = iyi ? ["rgba(52,199,89,.10)","rgba(52,199,89,.45)","#1f7a3f"] : sonuc ? ["rgba(255,59,48,.06)","rgba(255,59,48,.35)","#b8261e"] : ["rgba(0,113,227,.06)","rgba(0,113,227,.30)","#0058B0"];
+                return div({style:{background:renk[0],border:"1px solid "+renk[1],borderRadius:14,padding:"12px 16px",marginBottom:14}},
+                  div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}},
+                    div({style:{minWidth:0,flex:"1 1 320px"}},
+                      div({style:{fontSize:14.5,fontWeight:800,color:renk[2]}},
+                        iyi ? "✓ Stok defterine geçildi" : sonuc ? "⚠ Geçiş yapılmadı" : "📒 Stok defterine geçiş"),
+                      div({style:{fontSize:12.5,color:"var(--di)",marginTop:3,lineHeight:1.5}},
+                        iyi ? (sonuc.zatenAktif ? "Geçiş daha önce başka bir cihazdan yapılmış; bu cihaz da defteri kullanıyor."
+                              : (sonuc.urun+" ürün, "+sonuc.parti+" parti, toplam "+Number(sonuc.adet||0).toLocaleString("tr-TR")+" adet aktarıldı ve ürün ürün karşılaştırıldı: birebir tuttu. Bundan sonra stok her işlemi satır satır kaydeder."))
+                        : sonuc ? (sonuc.hata||"Bilinmeyen hata")
+                        : "Mevcut stoğunuz yeni deftere aktarılır ve ürün ürün karşılaştırılır. Rakamlar birebir tutmazsa geçiş yapılmaz, stoğunuz eskisi gibi kalır. Geçiş sırasında diğer cihazlarda stok işlemi yapmayın.")),
+                    iyi
+                      ? btn({type:"button",onClick:()=>setSdGecis(null),style:{font:"inherit",height:36,padding:"0 14px",borderRadius:9,border:"1px solid var(--br)",background:"var(--bg2)",fontSize:13,fontWeight:700,cursor:"pointer"}},"Tamam")
+                      : btn({type:"button",disabled:calisiyor,
+                          onClick:async()=>{ setSdGecis("calisiyor"); const sn = await stokDefterGecis(); setSdGecis(sn||{ok:false,hata:"Yanıt alınamadı"}); },
+                          style:{font:"inherit",height:40,padding:"0 18px",borderRadius:10,border:"none",background:calisiyor?"rgba(0,113,227,.25)":"var(--g)",color:"#fff",fontSize:14,fontWeight:700,cursor:calisiyor?"default":"pointer",whiteSpace:"nowrap"}},
+                          calisiyor ? "⏳ Aktarılıyor..." : sonuc ? "Tekrar dene" : "Geçişi Başlat")
+                  ),
+                  sonuc && !sonuc.ok && (sonuc.farklar||[]).length>0 && div({style:{marginTop:10,background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:10,padding:"6px 12px",maxHeight:220,overflowY:"auto"}},
+                    div({style:{fontSize:12,fontWeight:700,color:"var(--mu)",padding:"4px 0"}},"Tutmayan ürünler ("+sonuc.farklar.length+")"),
+                    sonuc.farklar.slice(0,50).map((f,i)=>div({key:i,style:{display:"flex",justifyContent:"space-between",gap:10,fontSize:12.5,padding:"5px 0",borderTop:"1px solid var(--br)"}},
+                      span(null,f.ad+" · "+f.barkod), span({style:{fontWeight:700,whiteSpace:"nowrap"}},"eski "+f.eski+" / defter "+f.yeni))))
+                );
+              })(),
               // Özet
               div({style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:14}},
                 ozetKutu("Ürün çeşidi",String(topCesit),"· "+topAdet+" adet"),
@@ -16386,7 +16473,51 @@ function App() {
   const [hizSilMod, setHizSilMod] = useState(false); // Hizmet Satışları personel-seç sayfasında silme modu
   const [hizSilSecim, setHizSilSecim] = useState({}); // {personelId:true}
   const [stokHar, setStokHar]         = useState([]); // hareket geçmişi
-  const [stokPartiler, setStokPartiler] = useState([]); // {id,barkod,urunAd,marka,adet,kalan,alisF,tarih,faturaN,tip}
+  const [stokPartilerHam, setStokPartilerHam] = useState([]); // ESKİ yapı (yalnızca deftere geçişten önce kullanılır)
+  // ── Stok defteri ──
+  const [stokDefteri, setStokDefteri] = useState(()=>{ try{ const l=JSON.parse(localStorage.getItem("apron_stok_defteri")||"null"); return Array.isArray(l)?l:[]; }catch(e){ return []; } });
+  const [stokDefterAktif, setStokDefterAktif] = useState(()=>{ try{ return localStorage.getItem("apron_stok_defter_aktif")==="1"; }catch(e){ return false; } });
+  const [stokDefterYuklendi, setStokDefterYuklendi] = useState(()=>{ try{ return !!localStorage.getItem("apron_stok_defteri"); }catch(e){ return false; } });
+  const sdAktifRef = React.useRef(stokDefterAktif); sdAktifRef.current = stokDefterAktif;
+  const sdYuklendiRef = React.useRef(stokDefterYuklendi); sdYuklendiRef.current = stokDefterYuklendi;
+  const sdSatirRef = React.useRef(stokDefteri);              // satırların ana kopyası (anında güncellenir)
+  const sdIdRef = React.useRef(new Set(stokDefteri.map(x=>String(x.id))));
+  const sdOnbellekRef = React.useRef({satirlar:null, partiler:[]});
+  const sdSebepRef = React.useRef(null);                     // {tip,kaynak} — o anki stok işleminin sebebi
+  const sdKuyrukRef = React.useRef([]);                      // defter yüklenmeden gelen işlemler
+  const sdPartilerSimdi = () => {
+    const c = sdOnbellekRef.current;
+    if(c.satirlar===sdSatirRef.current) return c.partiler;
+    const p = sdTuret(sdSatirRef.current); sdOnbellekRef.current = {satirlar:sdSatirRef.current, partiler:p}; return p;
+  };
+  const sdEkle = React.useCallback((rows)=>{
+    const yeni = (rows||[]).filter(x=>x && x.id!=null && !sdIdRef.current.has(String(x.id)));
+    if(!yeni.length) return;
+    yeni.forEach(x=>sdIdRef.current.add(String(x.id)));
+    sdSatirRef.current = [...sdSatirRef.current, ...yeni];
+    setStokDefteri(sdSatirRef.current);
+  },[]);
+  const stokDefterPartiler = React.useMemo(()=>sdTuret(stokDefteri),[stokDefteri]);
+  const stokPartiler = stokDefterAktif ? stokDefterPartiler : stokPartilerHam;
+  const _sdUygula = (v, sebep) => {
+    const prev = sdPartilerSimdi();
+    const kopya = prev.map(p=>({...p}));           // çağıran tarafın yerinde değiştirmesine karşı kopya
+    const next = typeof v==="function" ? v(kopya) : v;
+    if(!Array.isArray(next)) return;
+    const rows = sdFark(prev, next, sebep);
+    if(!rows.length) return;
+    sdEkle(rows);
+    dbUpsert("stok_defteri", rows, "isletme_id,id");
+  };
+  // Tüm ekranlar stoğu bununla değiştirir: geçişten önce eski yapıya, sonra deftere yazar
+  const setStokPartiler = React.useCallback((v)=>{
+    if(!sdAktifRef.current){ setStokPartilerHam(v); return; }
+    const sebep = sdSebepRef.current;
+    if(!sdYuklendiRef.current){ sdKuyrukRef.current.push({v, sebep}); return; }
+    _sdUygula(v, sebep);
+  },[]);
+  // Bir stok işlemini sebebiyle (ör. hangi satış) birlikte kaydeder
+  const stokSebepIle = (sebep, fn) => { const eski=sdSebepRef.current; sdSebepRef.current=sebep; try{ return fn(); } finally{ sdSebepRef.current=eski; } };
   // Kayıt Formu stok rozeti, Stok Durumu ekranıyla AYNI kaynağı kullansın diye parti kalanlarını barkod bazında topla.
   const stokKalanMap = React.useMemo(()=>{
     const m={};
@@ -16773,7 +16904,7 @@ function App() {
     // başka bir cihazda (örn. PC'de) yapılmış bir silme/güncellemeyi sessizce geri almasını önler.
     // Bu izin, sadece GERÇEK bulut verisi geldiğinde (aşağıdaki realtime/ilk-yükleme handler'ında)
     // veya kullanıcı gerçek bir stok işlemi yaptığında verilir.
-    if(local.stokPartiler?.length) { setStokPartiler(local.stokPartiler); }
+    if(local.stokPartiler?.length) { setStokPartilerHam(local.stokPartiler); }
     if(local._bildirimTemizlendi && local.hatirlatmalar?.length){
       // Buluttan önce gelmiş olabilecek veriyi silmeden birleştir (bulut kazanır)
       setHatirlatmalar(prev=>{ const m={}; local.hatirlatmalar.forEach(h=>{ if(h&&h.id!=null) m[String(h.id)]=hatNorm(h); }); (prev||[]).forEach(h=>{ if(h&&h.id!=null){ const k=String(h.id); m[k]=m[k]?hatBirlestir(m[k],h):hatNorm(h); } }); return Object.values(m); });
@@ -16867,7 +16998,10 @@ ayarlarRaw.forEach(a=>{ try {
   if(a.id==="bankaKom" && a.deger && typeof a.deger==="object" && !Array.isArray(a.deger)) setBankaKom(prev=>({...prev, ...a.deger}));
   if(a.id==="stokPartiler" && Array.isArray(a.deger)) {
     stokPartilerYuklendi.current=true;
-    setStokPartiler(a.deger); // Bulut tek doğru kaynak: yereldeki (silinmiş olabilecek) eski partilerle birleştirme yapılmaz
+    setStokPartilerHam(a.deger); // Bulut tek doğru kaynak: yereldeki (silinmiş olabilecek) eski partilerle birleştirme yapılmaz
+  }
+  if(a.id==="stokDefterAktif" && a.deger && a.deger.aktif===true) {
+    setStokDefterAktif(true); try{ localStorage.setItem("apron_stok_defter_aktif","1"); }catch(e){}
   }
   if(a.id==="hareketler" && Array.isArray(a.deger)) {
     setHareketler(a.deger); // Bulut tek doğru kaynak: yereldeki eski/silinmiş kayıtlarla birleştirme yapılmaz
@@ -17143,7 +17277,93 @@ if(DB) dbUpsertAyar("tema",tema);
   },[vergiEvraklar]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("ibanBildirimler",ibanBildirimler); },[ibanBildirimler]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("giderKategoriler",giderKategoriler); },[giderKategoriler]);
-  useEffect(()=>{ if(yukleniyor||!DB||!stokPartilerYuklendi.current) return; dbUpsertAyar("stokPartiler",stokPartiler); },[stokPartiler]);
+  useEffect(()=>{ if(stokDefterAktif||yukleniyor||!DB||!stokPartilerYuklendi.current) return; dbUpsertAyar("stokPartiler",stokPartiler); },[stokPartiler]);
+  // ── Stok defteri: buluttan yükle + canlı takip + yerel kopya ──
+  useEffect(()=>{
+    if(!DB) return;
+    let iptal=false, interval=null, ch=null;
+    const hepsiniYukle = async () => {
+      const tum=[]; let bas=0;
+      while(true){
+        const {data,error} = await DB.from("stok_defteri").select("*").order("olusturma",{ascending:true}).order("id",{ascending:true}).range(bas,bas+999);
+        if(error) return false;
+        (data||[]).forEach(x=>tum.push(x));
+        if(!data || data.length<1000) break;
+        bas+=1000;
+      }
+      if(iptal) return true;
+      sdEkle(tum);
+      if(!sdYuklendiRef.current){ sdYuklendiRef.current=true; setStokDefterYuklendi(true); }
+      // defter yüklenmeden bekleyen işlemleri sırayla uygula
+      const k=sdKuyrukRef.current; sdKuyrukRef.current=[];
+      k.forEach(is=>_sdUygula(is.v, is.sebep));
+      return true;
+    };
+    hepsiniYukle();
+    try{
+      ch = DB.channel("stok_defteri_ch")
+        .on("postgres_changes",{event:"INSERT",schema:"public",table:"stok_defteri"},payload=>{ if(payload&&payload.new) sdEkle([payload.new]); })
+        .subscribe((status,err)=>{ if(err||status==="CHANNEL_ERROR"||status==="TIMED_OUT"){ try{DB.removeChannel(ch);}catch(e){} interval=setInterval(hepsiniYukle,15000); } });
+    }catch(e){ interval=setInterval(hepsiniYukle,15000); }
+    return ()=>{ iptal=true; try{ if(ch) DB.removeChannel(ch); }catch(e){} if(interval) clearInterval(interval); };
+  },[]);
+  useEffect(()=>{
+    try{ const j=JSON.stringify(stokDefteri); if(j.length<3500000) localStorage.setItem("apron_stok_defteri", j); }catch(e){}
+  },[stokDefteri]);
+  // ── Deftere geçiş: mevcut stoğu aktar, karşılaştır, tutuyorsa geçişi tamamla ──
+  const stokDefterGecis = async () => {
+    if(!DB) return {ok:false, hata:"İnternet bağlantısı yok. Geçiş için bağlantı gerekli."};
+    try{
+      const ak = await DB.from("ayarlar").select("deger").eq("id","stokDefterAktif").maybeSingle();
+      if(ak.data && ak.data.deger && ak.data.deger.aktif===true){
+        setStokDefterAktif(true); try{ localStorage.setItem("apron_stok_defter_aktif","1"); }catch(e){}
+        return {ok:true, zatenAktif:true};
+      }
+      const {data,error} = await DB.from("ayarlar").select("deger").eq("id","stokPartiler").maybeSingle();
+      if(error) return {ok:false, hata:"Buluttaki stok okunamadı: "+(error.message||"")};
+      const kaynak = (data && Array.isArray(data.deger)) ? data.deger : (stokPartilerHam||[]);
+      // Kimliği olmayan / tekrar eden partilere sabit kimlik ver (tekrar denenirse aynı kimlik çıkar)
+      const gor = new Set();
+      const partiler = kaynak.filter(Boolean).map((p,i)=>{
+        let id = (p.id!=null && p.id!=="") ? String(p.id) : "";
+        if(!id || gor.has(id)) id = "aktp_"+i+"_"+String(p.barkod||"");
+        gor.add(id); return {...p, id, kalan:_sdYuvarla(p.kalan)};
+      });
+      const taban = Date.now() - partiler.length - 5000;
+      const rows = partiler.map((p,i)=>({
+        id:"ac_"+p.id, barkod:String(p.barkod||""), urun_ad:p.urunAd||"", marka:p.marka||"",
+        tip:"aktarim", miktar:_sdYuvarla(p.kalan), alis_f:toN(p.alisF), bedelsiz:!!p.bedelsiz,
+        tarih:TODAY(), kaynak:"aktarim", parti_id:p.id, aciklama:sdMeta(p), olusturma:new Date(taban+i).toISOString() }));
+      for(let i=0;i<rows.length;i+=400){
+        const {error:e2} = await DB.from("stok_defteri").upsert(rows.slice(i,i+400),{onConflict:"isletme_id,id"});
+        if(e2) return {ok:false, hata:"Deftere yazılamadı: "+(e2.message||"")};
+      }
+      // Buluttan geri oku ve karşılaştır
+      const tum=[]; let bas=0;
+      while(true){
+        const {data:d3,error:e3} = await DB.from("stok_defteri").select("*").order("olusturma",{ascending:true}).order("id",{ascending:true}).range(bas,bas+999);
+        if(e3) return {ok:false, hata:"Defter geri okunamadı: "+(e3.message||"")};
+        (d3||[]).forEach(x=>tum.push(x)); if(!d3 || d3.length<1000) break; bas+=1000;
+      }
+      const turetilen = sdTuret(tum);
+      const top = arr => { const m={}; arr.forEach(p=>{ const b=String(p.barkod||""); if(!m[b]) m[b]={ad:p.urunAd||b, adet:0, parti:0}; m[b].adet=_sdYuvarla(m[b].adet+toN(p.kalan)); m[b].parti++; }); return m; };
+      const eski = top(partiler), yeni = top(turetilen);
+      const farklar = [];
+      new Set([...Object.keys(eski),...Object.keys(yeni)]).forEach(b=>{
+        const e=eski[b]||{adet:0,parti:0,ad:(yeni[b]||{}).ad||b}, y=yeni[b]||{adet:0,parti:0};
+        if(Math.abs(e.adet-y.adet)>1e-6 || e.parti!==y.parti) farklar.push({barkod:b, ad:e.ad, eski:e.adet, yeni:y.adet});
+      });
+      const bilgiFarki = partiler.filter(p=>{ const t=turetilen.find(x=>String(x.id)===String(p.id)); return !t || sdMeta(t)!==sdMeta(p); }).length;
+      if(farklar.length || bilgiFarki) return {ok:false, farklar, bilgiFarki, hata:"Karşılaştırma tutmadı; geçiş yapılmadı. Stoğunuz eskisi gibi çalışmaya devam ediyor."};
+      const {error:e4} = await DB.from("ayarlar").upsert({id:"stokDefterAktif", deger:{aktif:true, tarih:new Date().toISOString(), partiSayisi:partiler.length}},{onConflict:"isletme_id,id"});
+      if(e4) return {ok:false, hata:"Geçiş işareti kaydedilemedi: "+(e4.message||"")};
+      sdEkle(tum);
+      sdYuklendiRef.current=true; setStokDefterYuklendi(true);
+      sdAktifRef.current=true; setStokDefterAktif(true);
+      try{ localStorage.setItem("apron_stok_defter_aktif","1"); }catch(e){}
+      return {ok:true, urun:Object.keys(eski).length, parti:partiler.length, adet:Object.values(eski).reduce((s2,x)=>s2+x.adet,0)};
+    }catch(e){ return {ok:false, hata:"Beklenmeyen hata: "+(e&&e.message||e)}; }
+  };
   useEffect(()=>{ if(yukleniyor||!DB||!hareketler.length) return; dbUpsertAyar("hareketler",hareketler); },[hareketler]);
   // Ödünç/Komşu/İşyeri Kullanımı — önceden yalnızca localStorage'a yazılıyordu, buluta hiç gitmiyordu (cihazlar arası kaybolma sebebi buydu)
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("oduncler",oduncler); },[oduncler]);
@@ -18272,7 +18492,7 @@ if(DB) dbUpsertAyar("tema",tema);
     const barkodlar = Object.keys(farklar);
     if(!barkodlar.length) return;
     stokPartilerYuklendi.current = true;
-    setStokPartiler(prev=>stokPartiFarkUygula(prev, farklar));
+    stokSebepIle({tip:"satis_duzeltme", kaynak:"kayit:"+(yeniKayit.id||oncekiKayit.id||"")}, ()=>setStokPartiler(prev=>stokPartiFarkUygula(prev, farklar)));
     const sonrakiStokDB = {...(stokDB||{})};
     barkodlar.forEach(b=>{
       sonrakiStokDB[b] = Math.max(0, toN(sonrakiStokDB[b])-toN(farklar[b]));
@@ -18530,7 +18750,7 @@ if(DB) dbUpsertAyar("tema",tema);
         if(!u.b || !toN(u.qty)) return;
         let kalan = Math.max(0, toN(u.qty) - toN(u.siparisAdet)); // ön sipariş adedi stoktan düşülmez
         if(kalan<=0) return;
-        setStokPartiler(p => {
+        stokSebepIle({tip:"satis", kaynak:"kayit:"+kayit.id}, ()=>setStokPartiler(p => {
           const yeni = [...p];
           for(let i=0; i<yeni.length && kalan>0; i++) {
             if(yeni[i].barkod === u.b && yeni[i].kalan > 0) {
@@ -18540,7 +18760,7 @@ if(DB) dbUpsertAyar("tema",tema);
             }
           }
           return yeni;
-        });
+        }));
       });
     });
     setGecmis(p=>[...myBekleyen.map(r=>({...r,gonderildi:true})),...p]);
@@ -18720,7 +18940,7 @@ if(DB) dbUpsertAyar("tema",tema);
     if(dus<=0) return;
     // Teslim edilen adet fiziksel stoktan (FIFO) düşülür — bu birimler müşteriye gidiyor.
     stokPartilerYuklendi.current = true;
-    setStokPartiler(prev=>stokPartiFarkUygula(prev, {[sip.barkod]: dus}));
+    stokSebepIle({tip:"on_siparis_teslim", kaynak:"siparis:"+id}, ()=>setStokPartiler(prev=>stokPartiFarkUygula(prev, {[sip.barkod]: dus})));
     setStokDB(p=>({...p,[sip.barkod]:Math.max(0,toN(p[sip.barkod])-dus)}));
     const yeniKalan = kalan - dus;
     const yeniDurum = yeniKalan<=0 ? "karsilandi" : "bekliyor";
@@ -25504,7 +25724,7 @@ if(DB) dbUpsertAyar("tema",tema);
             }),
 
             muhSek==="urunMuhasebe"&&h(UrunMuhasebe,{
-              stokPartiler,setStokPartiler,stokDB,setStokDB,
+              stokPartiler,setStokPartiler,stokDB,setStokDB,stokDefterAktif,stokDefterGecis,
               gecmisStokKayitlari,setGecmisStokKayitlari,
               onSiparisler,onSiparisKarsila,onSiparisKarsilamalariGeriAl,
               triggerUrunRender,
