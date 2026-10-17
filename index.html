@@ -12312,18 +12312,23 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
   // Her hizmet satırı için bir kez yapılır; kutularda zaten tutar varsa dokunulmaz. Son düzeltme elle yapılır.
   const otoOdemeDolduRef = React.useRef(new Set());
   const [ortDokum, setOrtDokum] = useState(null); // döküm penceresi açık olan hizmet adı
+  // Otomatik doldurma işareti satırın kendisinde tutulur (_oto = "hizmet|müşteri"):
+  // hizmet ya da müşteri değişince, satır silinip yeniden eklenince veya panel yeniden açılınca tekrar doldurur;
+  // kullanıcı kutuyu elle silerse aynı hizmet+müşteri için bir daha zorla doldurmaz.
   React.useEffect(()=>{
+    const ad = normText((musteri||"").trim());
+    if(!ad) return;
     (hizler||[]).forEach(h=>{
       if(!h || !h.n) return;
       const o = musteriHizOrt[h.n];
       if(!o || !o.enCok || !(o.ort>0)) return;
-      const key = h.id+"|"+h.n;
-      if(otoOdemeDolduRef.current.has(key)) return;
-      otoOdemeDolduRef.current.add(key);
-      if(toN(h.fkk)>0 || toN(h.fib)>0 || toN(h.fnk)>0) return;
+      const key = h.n+"|"+ad;
+      if(h._oto===key) return;
+      if(toN(h.fkk)>0 || toN(h.fib)>0 || toN(h.fnk)>0){ setHizler(p=>p.map(x=>x.id===h.id?{...x,_oto:key}:x)); return; }
       hSet(h.id, "f"+o.enCok, String(o.ort));
+      setHizler(p=>p.map(x=>x.id===h.id?{...x,_oto:key}:x));
     });
-  },[hizler, musteriHizOrt]);
+  },[hizler, musteriHizOrt, musteri]);
 
   const uSil = id => setUrunler(p=>{
     const next = p.filter(x=>x.id!==id);
