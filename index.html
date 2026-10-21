@@ -134,7 +134,7 @@ const TODAY = () => { const d=new Date(); return d.getFullYear()+"-"+String(d.ge
 // Yerel tarih bileşenlerinden (saat dilimi kaymasına karşı güvenli) ISO tarih string'i üretir.
 const isoTarih = (d) => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
 const SAAT  = () => new Date().toTimeString().slice(0,5);
-const fmtT  = d => { if(!d) return ""; const p=(d+"").split("-"); return p.length===3 ? p[2]+"."+p[1]+"."+p[0] : d; };
+const fmtT  = d => { if(!d) return ""; const p=(d+"").slice(0,10).split("-"); return p.length===3 ? p[2]+"."+p[1]+"."+p[0] : d; };
 const fmt   = n => Number(n||0).toLocaleString("tr-TR") + " \u20ba";
 // Öne çıkan/büyük tutarlar için: küsüratı (kuruş) ana rakamdan daha küçük ve soluk gösterir
 const fmtBuyuk = (n, boyut) => {
@@ -2071,7 +2071,7 @@ function HizmetMuhasebeOzet({tumK, personeller, pGruplar}){
   );
 }
 
-function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, onAnaPanel, onGeri, isletme, onKayitlarSil, onDevSil}){
+function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, onAnaPanel, onGeri, isletme, onKayitlarSil, onDevSil, onDevKarar}){
   const seciliP = personeller.find(p=>p.id===muhAlt) || null;
   const [filAy, setFilAy] = React.useState("");
   const [filYil, setFilYil] = React.useState(new Date().getFullYear().toString());
@@ -2314,7 +2314,7 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
 
     // ── FİLTRE ──
     h("div",{style:{background:"var(--bg2)",borderBottom:"1px solid var(--br)",
-      padding:"8px 14px",flexShrink:0,maxWidth:860,width:"100%",boxSizing:"border-box",alignSelf:"center"}},
+      padding:"8px 24px",flexShrink:0,maxWidth:1400,width:"100%",boxSizing:"border-box",alignSelf:"center"}},
       h("div",{style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:17,
         color:"var(--g)",fontWeight:700,marginBottom:8}},"✂️ "+seciliP.ad),
       h("div",{style:{display:"flex",gap:8}},
@@ -2331,7 +2331,7 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
       )
     ),
 
-    h("div",{style:{padding:"0 14px 10px",maxWidth:860,width:"100%",boxSizing:"border-box",alignSelf:"center"}},
+    h("div",{style:{padding:"0 24px 10px",maxWidth:1400,width:"100%",boxSizing:"border-box",alignSelf:"center"}},
       !hmSilMod
         ? h("div",{style:{display:"flex",gap:8}},
             h("button",{onClick:()=>{ setHmSilMod(true); setHmSecim({}); },
@@ -2373,7 +2373,7 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
     ),
 
     // ── TABLO ──
-    h("div",{style:{flex:1,overflowY:"auto",overflowX:"auto",maxWidth:860,width:"100%",boxSizing:"border-box",padding:"0 14px 40px",alignSelf:"center"}},
+    h("div",{style:{flex:1,overflowY:"auto",overflowX:"auto",maxWidth:1400,width:"100%",boxSizing:"border-box",padding:"0 24px 40px",alignSelf:"center"}},
       h("table",{style:{width:"100%",borderCollapse:"collapse"}},
 
         h("thead",null,
@@ -2390,7 +2390,7 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
         h("tbody",null,
           satirlar.length===0
             ? h("tr",null,
-                h("td",{colSpan:6,style:{padding:"48px 20px",textAlign:"center",color:"var(--mu)"}},
+                h("td",{colSpan:7,style:{padding:"48px 20px",textAlign:"center",color:"var(--mu)"}},
                   h("div",{style:{fontSize:32,opacity:0.3,marginBottom:8}},"📋"),
                   h("div",{style:{fontSize:13}},"Bu dönemde kayıt yok")
                 ))
@@ -2437,7 +2437,7 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
                       )
                     ),
                   devDetay===s.tarih && h("tr",{key:s.tarih+"_detay"},
-                    h("td",{colSpan:6,style:{padding:"14px 16px",background:"rgba(192,80,80,.04)",
+                    h("td",{colSpan:7,style:{padding:"14px 16px",background:"rgba(192,80,80,.04)",
                       borderBottom:"1px solid var(--br)"}},
                       h("div",{style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",
                         fontSize:13,lineHeight:1.7,color:"var(--tx)"}},
@@ -2465,7 +2465,15 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
                           background:"rgba(30,158,70,.06)",border:"1px solid rgba(30,158,70,.2)",
                           borderRadius:8,padding:"8px 10px"}},
                           "✓ Bu devamsızlık yönetici tarafından onaylandı."
-                        )
+                        ),
+                        // Kararı değiştir / geri al
+                        onDevKarar && seciliP && h("div",{style:{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}},
+                          [["onaylandi","✓ Onayla","#1e9e46"],["onaysiz","✕ Onaylama","#c05050"],["bekliyor","↩ Kararı geri al (bekliyor)","#2563a8"]]
+                            .filter(([d])=>d!==(durum||"bekliyor") && !(d==="bekliyor" && !durum))
+                            .map(([d,ad,renk])=>h("button",{key:d,type:"button",
+                              onClick:()=>onDevKarar(seciliP.id, s.tarih, d),
+                              style:{fontSize:12,fontWeight:700,padding:"6px 12px",borderRadius:8,cursor:"pointer",
+                                border:"1px solid "+renk+"55",background:renk+"12",color:renk}},ad)))
                       )
                     )
                   )
@@ -16621,6 +16629,36 @@ function App() {
     dbUpsertAyar("stokBaslangicTarihi", {tarih:v});
   };
   const stokOncesiKayit = (k) => !!(stokBaslangicRef.current && k && (k.tarih||"") && String(k.tarih) < stokBaslangicRef.current);
+  // ── Devamsızlık onay kararı (onaylandi / onaysiz / bekliyor=geri al): tek yerden, buluta da yazar ──
+  const devamsizlikKarar = (b, durum) => {
+    if(!b) return;
+    const sid = b.ekstra?.manKulId; const t10 = String(b.tarih||"").slice(0,10);
+    if(!sid || !t10) return;
+    const ac = durum==="onaylandi" ? (b.mesaj||"") : durum==="onaysiz" ? (b.mesaj||"")+" (onaysiz)" : (b.mesaj||"")+" (Onay Bekliyor)";
+    const yeniEkstra = {...(b.ekstra||{}), durum};
+    if(DB && b.id) DB.from("yon_bildirim_merkezi").update({ekstra:yeniEkstra, okundu:durum!=="bekliyor"}).eq("id",b.id).then(()=>{});
+    setYonBildirimMerkezi(p=>p.map(x=>x.id===b.id?{...x,ekstra:yeniEkstra,okundu:durum!=="bekliyor"}:x));
+    setDevDB(p=>{ const y={...p}; if(String(b.tarih)!==t10) delete y[b.tarih+"_"+sid]; y[t10+"_"+sid]=ac; return y; });
+    dbUpsert("devamsizliklar",[{staff_id:sid, tarih:t10, aciklama:ac}],"isletme_id,staff_id,tarih");
+  };
+  // Hizmet Satışları ekranından karar değiştirme (bildirim bulunursa onu da günceller)
+  const devamsizlikKararTarih = (staffId, tarih, durum) => {
+    const t10 = String(tarih||"").slice(0,10);
+    const b = (yonBildirimMerkezi||[]).find(x=>x && x.tip==="devamsizlik_onay" && String(x.ekstra?.manKulId)===String(staffId) && String(x.tarih||"").slice(0,10)===t10);
+    if(b){ devamsizlikKarar(b, durum); return; }
+    const eski = String((devDB||{})[t10+"_"+staffId]||"");
+    const temiz = eski.replace(/\s*\((onay_bekliyor|Onay Bekliyor|bekliyor|onaylandi|onaysiz)\)/g,"").trim();
+    devamsizlikKarar({id:null, tarih:t10, mesaj:temiz, ekstra:{manKulId:staffId}}, durum);
+  };
+  // Eski hatadan kalan saatli tarih anahtarlarını (2026-10-11T00:00:00+00:00_id) düzelt
+  useEffect(()=>{
+    const bozuk = Object.keys(devDB||{}).filter(k=>{ const t=k.split("_")[0]; return t.length>10 && /^\d{4}-\d{2}-\d{2}T/.test(t); });
+    if(!bozuk.length) return;
+    setDevDB(p=>{ const y={...p};
+      bozuk.forEach(k=>{ const i=k.indexOf("_"); const t10=k.slice(0,10), sid=k.slice(i+1); const v=y[k]; delete y[k]; y[t10+"_"+sid]=v;
+        dbUpsert("devamsizliklar",[{staff_id:sid, tarih:t10, aciklama:v}],"isletme_id,staff_id,tarih"); });
+      return y; });
+  },[devDB]);
   const stokSebepIle = (sebep, fn) => { const eski=sdSebepRef.current; sdSebepRef.current=sebep; try{ return fn(); } finally{ sdSebepRef.current=eski; } };
   // Kayıt Formu stok rozeti, Stok Durumu ekranıyla AYNI kaynağı kullansın diye parti kalanlarını barkod bazında topla.
   const stokKalanMap = React.useMemo(()=>{
@@ -25661,29 +25699,24 @@ if(DB) dbUpsertAyar("tema",tema);
                           btn({style:{flex:1,padding:"9px 0",borderRadius:8,border:"1px solid rgba(52,199,89,.35)",
                             background:"rgba(52,199,89,.1)",color:"#248A3D",fontSize:13,fontWeight:700,cursor:"pointer"},
                             onClick:()=>{
-                              // Devamsızlığı onaylı olarak güncelle (durum ekstra JSON içinde tutulur — tabloda ayrı bir durum sütunu yok)
-                              const yeniEkstra = {...(b.ekstra||{}), durum:"onaylandi"};
-                              DB.from("yon_bildirim_merkezi").update({ekstra:yeniEkstra,okundu:true}).eq("id",b.id).then(()=>{});
-                              setYonBildirimMerkezi(p=>p.map(x=>x.id===b.id?{...x,ekstra:yeniEkstra,okundu:true}:x));
-                              setDevDB(p=>({...p,[b.tarih+"_"+(b.ekstra?.manKulId)]: b.mesaj}));
+                              devamsizlikKarar(b,"onaylandi");
                               showToast((b.ekstra?.manKulAd||"Personel")+" devamsızlığı onaylandı","ba");
                             }},"✓ Onayla"),
                           btn({style:{flex:1,padding:"9px 0",borderRadius:8,border:"1px solid rgba(224,96,96,.35)",
                             background:"rgba(224,96,96,.08)",color:"#e06060",fontSize:13,fontWeight:700,cursor:"pointer"},
                             onClick:()=>{
-                              const yeniEkstra = {...(b.ekstra||{}), durum:"onaysiz"};
-                              DB.from("yon_bildirim_merkezi").update({ekstra:yeniEkstra,okundu:true}).eq("id",b.id).then(()=>{});
-                              setYonBildirimMerkezi(p=>p.map(x=>x.id===b.id?{...x,ekstra:yeniEkstra,okundu:true}:x));
-                              setDevDB(p=>({...p,[b.tarih+"_"+(b.ekstra?.manKulId)]: b.mesaj+" (onaysiz)"}));
+                              devamsizlikKarar(b,"onaysiz");
                               showToast((b.ekstra?.manKulAd||"Personel")+" devamsızlığı onaylanmadı — kayıt tutuldu","uy");
                             }},"✕ Onaylama")
                         )
                       ),
                       b.tip==="devamsizlik_onay" && b.ekstra?.durum==="onaylandi" && div({style:{fontSize:12,color:"#248A3D",padding:"6px 0",display:"flex",alignItems:"center",gap:6}},
-                        h("span",null,"✓"),"Devamsızlık onaylandı"
+                        h("span",null,"✓"),"Devamsızlık onaylandı", btn({type:"button",onClick:()=>{ devamsizlikKarar(b,"bekliyor"); showToast("Karar geri alındı — yeniden onay bekliyor","ba"); },
+                          style:{marginLeft:"auto",fontSize:12,fontWeight:700,padding:"4px 10px",borderRadius:7,border:"1px solid var(--br)",background:"var(--bg2)",color:"var(--g)",cursor:"pointer"}},"↩ Kararı geri al")
                       ),
                       b.tip==="devamsizlik_onay" && b.ekstra?.durum==="onaysiz" && div({style:{fontSize:12,color:"#e06060",padding:"6px 0",display:"flex",alignItems:"center",gap:6}},
-                        h("span",null,"✕"),"Onaylanmadı — devamsızlık kaydedildi"
+                        h("span",null,"✕"),"Onaylanmadı — devamsızlık kaydedildi", btn({type:"button",onClick:()=>{ devamsizlikKarar(b,"bekliyor"); showToast("Karar geri alındı — yeniden onay bekliyor","ba"); },
+                          style:{marginLeft:"auto",fontSize:12,fontWeight:700,padding:"4px 10px",borderRadius:7,border:"1px solid var(--br)",background:"var(--bg2)",color:"var(--g)",cursor:"pointer"}},"↩ Kararı geri al")
                       ),
                       // ── Gün Sonu Bildirimi: sadece İncele → modal içinden Onayla (körlemesine onay engellendi) ──
                       b.tip==="gunSonu_bildirim" && !b.okundu && div({style:{display:"flex",gap:8,width:"100%"}},
@@ -25838,7 +25871,7 @@ if(DB) dbUpsertAyar("tema",tema);
 
             // Hizmet Satışları — personel seçildi (ID geldi)
             muhSek==="hizmetMuhasebe"&&muhAlt&&muhAlt!=="hizmetOzet"&&muhAlt!=="hizmetSatislari"&&h(HizmetMuhasebe,{
-              tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, isletme, onKayitlarSil:kayitlarSil, onDevSil:devKayitlariSil,
+              tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, isletme, onKayitlarSil:kayitlarSil, onDevSil:devKayitlariSil, onDevKarar:devamsizlikKararTarih,
               onAnaPanel:()=>{ setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); setMuhSek(""); setMuhAlt(""); setMuhAltAcik(""); setHesapFull(false); setVergiFull(false); },
               onGeri:()=>{ setMuhAlt("hizmetSatislari"); setMuhAltAcik("hizmetSatislari"); }
             }),
