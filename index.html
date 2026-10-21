@@ -12002,6 +12002,9 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
   // Müşteri kaydetme akışı modalları
   const [kendiMusteriModal, setKendiMusteriModal] = useState(null); // {musteri:{...}}
   const [baskaPersonelModal, setBaskaPersonelModal] = useState(null); // {musteri:{...}}
+  // Yalnızca ad (veya yalnızca telefon) eşleşirse: "aynı kişi mi, sadece isim benzerliği mi?" sorusu
+  const [benzerMusteriModal, setBenzerMusteriModal] = useState(null); // {musteri:{...}}
+  const [musteriFarkliKisi, setMusteriFarkliKisi] = useState(!!ilk?.musteriFarkliKisi); // kullanıcı "farklı kişi" dedi
   // Manikürist akıllı öneri akışı: bildirim hedef seçim modal'ı
   const [manikuristBildirimSec, setManikuristBildirimSec] = useState(null); // {ad, hedefId}
   const [hizmetOdemeUyariId, setHizmetOdemeUyariId] = useState("");
@@ -12097,7 +12100,27 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
     }
     const mevcut = musteriSistemdekiKayit();
     if(mevcut){
-      // Sahibine göre dallan: kendi müşterisi mi, başka personelin mi?
+      // Ad VE telefon birebir aynıysa kesin aynı kişidir → sahip kontrolü. Yalnızca biri eşleşiyorsa önce sor.
+      const telNo = temizTelefonRakam(tel), mTel = temizTelefonRakam(mevcut.tel);
+      const tamEslesme = normText(mevcut.ad)===normText(musteri) && telNo && mTel && telNo===mTel;
+      if(!tamEslesme){
+        setMusteriKaydet(false); setMusteriKaydetUyari("");
+        setBenzerMusteriModal({musteri:mevcut});
+        return;
+      }
+      musteriSahipKontrol(mevcut);
+      return;
+    }
+    setMusteriKaydetUyari("");
+    setMusteriFarkliKisi(false);
+    setMusteriKaydet(true);
+    // Not: ayrı bir "Yeni Müşteri" formu artık açılmıyor. İşaretlenen bu ziyaret gün sonunda
+    // gönderildiğinde, müşteri ad/telefon bilgisiyle otomatik olarak sisteme kaydediliyor
+    // (bkz. musteriHavuzunaEkle) — bu formu doldurmaya gerek kalmıyor.
+  };
+  // Aynı kişi olduğu kesinleşince: kendi müşterisi mi, başka personelin mi?
+  const musteriSahipKontrol = (mevcut) => {
+    {
       const benimId = String(aktifKullanici?.id||"");
       const sahipId = String(mevcut.sahipId||"");
       setMusteriKaydet(false);
@@ -12107,13 +12130,7 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
       } else {
         setBaskaPersonelModal({musteri:mevcut});
       }
-      return;
     }
-    setMusteriKaydetUyari("");
-    setMusteriKaydet(true);
-    // Not: ayrı bir "Yeni Müşteri" formu artık açılmıyor. İşaretlenen bu ziyaret gün sonunda
-    // gönderildiğinde, müşteri ad/telefon bilgisiyle otomatik olarak sisteme kaydediliyor
-    // (bkz. musteriHavuzunaEkle) — bu formu doldurmaya gerek kalmıyor.
   };
   const formMusteriTemizle = () => {
     // Tek X butonu iki alanı birlikte temizler.
@@ -12128,6 +12145,8 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
     setFarkliSahipSahipBilgi(null);
   };
 
+  const farkliKisiIlkRef = useRef(true);
+  useEffect(()=>{ if(farkliKisiIlkRef.current){ farkliKisiIlkRef.current=false; return; } if(musteriFarkliKisi){ setMusteriFarkliKisi(false); setMusteriKaydet(false); } },[musteri, tel]);
   useEffect(() => {
     // Müşteri adı ve telefon tamamen boşalırsa sistem kaydı işareti otomatik kalkar.
     if(!musteri.trim() && !temizTelefonRakam(tel) && musteriKaydet) {
@@ -12501,7 +12520,8 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
       _talepOnayId: ilk?._talepOnayId || "",
       _yonDirektDuzenle: ilk?._yonDirektDuzenle || false,
       // Müşteri sistem kaydı tercihi: burada sadece işaret tutulur; gerçek müşteri kaydı gün sonunda yapılır.
-      musteriKaydet: !!musteriKaydet
+      musteriKaydet: !!musteriKaydet,
+      musteriFarkliKisi: !!(musteriKaydet && musteriFarkliKisi)
     });
   };
 
@@ -13014,6 +13034,41 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
                 onClick:()=>{setIbanFarkModal(null);setIbanFarkDiger("");}},"Vazgeç ("+ibanFarkModal.sahipAd+"'a kalsın)")
             )
           ),
+          // ─── Benzer müşteri: yalnızca ad (ya da yalnızca telefon) eşleşiyor ───
+          benzerMusteriModal && ReactDOM.createPortal(
+            div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,
+                fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},
+              onClick:e=>{ if(e.target===e.currentTarget) setBenzerMusteriModal(null); }},
+              (()=>{
+                const m = benzerMusteriModal.musteri||{};
+                const mTel = temizTelefonRakam(m.tel);
+                const telGizli = mTel ? ("•••• "+mTel.slice(-2)) : "kayıtlı telefon yok";
+                const adAyni = normText(m.ad)===normText(musteri);
+                const benim = String(m.sahipId||"")===String(aktifKullanici?.id||"");
+                const bs = {width:"100%",border:"none",borderRadius:11,fontSize:14.5,fontWeight:800,padding:"12px",cursor:"pointer",lineHeight:1.3};
+                return div({style:{background:"#FBFBFD",borderRadius:16,padding:22,maxWidth:400,width:"100%",boxShadow:"0 18px 50px rgba(0,0,0,.22)"}},
+                  div({style:{fontSize:30,textAlign:"center",marginBottom:6}},"👥"),
+                  div({style:{fontSize:15.5,fontWeight:800,textAlign:"center",color:"#1D1D1F",marginBottom:8}},
+                    adAyni?"Aynı isimde bir müşteri var":"Bu telefonla kayıtlı bir müşteri var"),
+                  div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"10px 14px",fontSize:13.5,lineHeight:1.6,marginBottom:10}},
+                    div(null,"👤 ",h("b",null,m.ad||"—")),
+                    div(null,"📞 ",telGizli),
+                    div(null,"🧑‍💼 ",benim?"Sizin müşteriniz":((m.sahipAd||"Başka bir personel")+" müşterisi"))),
+                  div({style:{fontSize:13,color:"#6e6e73",textAlign:"center",marginBottom:14,lineHeight:1.5}},
+                    "Kaydettiğiniz kişi bu müşteri mi, yoksa sadece "+(adAyni?"isim":"telefon")+" benzerliği mi var?"),
+                  div({style:{display:"flex",flexDirection:"column",gap:8}},
+                    btn({type:"button",style:{...bs,background:"linear-gradient(135deg,#0A84FF,#0058B0)",color:"#fff"},
+                      onClick:()=>{ setBenzerMusteriModal(null); setMusteriKaydetUyari(""); setMusteriFarkliKisi(true); setMusteriKaydet(true); }},
+                      "Farklı kişi — yeni müşteri olarak kaydet",
+                      div({style:{fontSize:11.5,fontWeight:600,opacity:.9,marginTop:2}},"Sadece "+(adAyni?"isim":"telefon")+" benzerliği var")),
+                    btn({type:"button",style:{...bs,background:"#fff",color:"#1D1D1F",border:"1px solid rgba(0,0,0,.12)"},
+                      onClick:()=>{ setBenzerMusteriModal(null); musteriSahipKontrol(m); }},
+                      "Evet, aynı kişi"),
+                    btn({type:"button",style:{...bs,background:"transparent",color:"#8e8e93",fontWeight:700},
+                      onClick:()=>setBenzerMusteriModal(null)},"Vazgeç")
+                  ));
+              })()),
+            document.body),
           // ─── Modal B: Müşteri başka personelin ───
           baskaPersonelModal&&div({style:{position:"fixed",top:0,left:0,right:0,bottom:0,
             background:"rgba(0,0,0,.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,
@@ -18781,9 +18836,12 @@ if(DB) dbUpsertAyar("tema",tema);
     if(!kayit?.musteriKaydet || !kayit?.musteri || !String(kayit.musteri).trim()) return;
     const ad = String(kayit.musteri||"").trim();
     const telNo = String(kayit.tel||"").trim();
-    const mevcut = musteriDB.find(m =>
-      normText(m.ad) === normText(ad) || (telNo && String(m.tel||"").trim() === telNo)
-    );
+    // "Farklı kişi" onaylandıysa asla mevcut biriyle birleştirme; değilse iki tarafta da telefon varsa ayırt edici telefondur
+    const _t = x => String(x||"").replace(/\D/g,"").slice(-10);
+    const mevcut = kayit.musteriFarkliKisi ? null : musteriDB.find(m => {
+      if(telNo && _t(m.tel)) return _t(m.tel) === _t(telNo);
+      return normText(m.ad) === normText(ad) || (telNo && _t(m.tel) === _t(telNo));
+    });
     if(!mevcut){
       const ym = {id:uid(), ad, tel:telNo, sahipId:kayit.staffId||kul.id, sahipAd:kayit.staffAd||kul.ad, ilkGiris:kayit.tarih||TODAY()};
       setMusteriDB(p=>[...p, ym]);
