@@ -535,7 +535,8 @@ const gorselYukle = async (fileOrBlob, adOnerisi, secenek) => {
 const MF_AYAR_ID = "musteriFotolar";
 const ZF_ON = "ziyaretFoto_";
 const FD_LS = "apron_foto_depo", FD_BEK_LS = "apron_foto_depo_bekleyen";
-const fotoShardMi = id => id===MF_AYAR_ID || String(id||"").startsWith(ZF_ON);
+const MEK_ID = "musteriEkBilgi"; // müşteri tablosunda sütunu olmayan ek bilgiler (e-posta, ek telefonlar, meslek, adres...)
+const fotoShardMi = id => id===MF_AYAR_ID || id===MEK_ID || String(id||"").startsWith(ZF_ON);
 const _mfTel = v => String(v||"").replace(/\D/g,"").slice(-10);
 const _zfAd = v => String(v||"").toLocaleLowerCase("tr-TR").replace(/\s+/g," ").trim();
 const _fdOku = (k) => { try{ const v=JSON.parse(localStorage.getItem(k)||"{}"); return (v&&typeof v==="object"&&!Array.isArray(v))?v:{}; }catch(e){ return {}; } };
@@ -679,6 +680,67 @@ const musteriFotoKaydet = (id, foto, tel) => {
   _fdBildir(); _fdBulutaYaz();
   gorselleriTemizle(eskiler);
 };
+// ── Müşteri ek bilgileri ──
+// "musteriler" tablosunda yalnızca ad/tel/doğum tarihi/cinsiyet/adres/notlar sütunları var; formdaki diğer alanlar
+// (e-posta, ek telefonlar, meslek, il/ilçe, tercihler, alerji...) önceden yalnızca cihazda kalıp yenilemede kayboluyordu.
+// Artık ayarlar tablosunda müşteri id'sine göre saklanır ve tüm cihazlarda görünür.
+const MEK_ALANLAR = ["email","telefonlar","meslek","il","ilce","hizmetTercihleri","alerji","tipNotu","ozelTarihler"];
+const _mekDolu = v => Array.isArray(v) ? v.some(t=>t && String(t.numara||"").trim()) : (v!==undefined && v!==null && String(v).trim()!=="");
+const musteriEkAl = (id) => id!=null ? ((_fdVeri[MEK_ID]||{})[String(id)] || null) : null;
+const musteriEkKaydet = (id, kaynak) => {
+  if(id==null) return;
+  const ek = {};
+  if(kaynak) MEK_ALANLAR.forEach(k=>{ if(_mekDolu(kaynak[k])) ek[k] = kaynak[k]; });
+  const yeni = Object.keys(ek).length ? ek : null;
+  if(_ayarImza(yeni)===_ayarImza(musteriEkAl(id))) return;
+  _fdAyarla(MEK_ID, String(id), yeni);
+  _fdBildir(); _fdBulutaYaz();
+};
+// Müşteri kaydı + ek bilgileri (kayıttaki dolu alan önceliklidir)
+const musteriTam = (m) => {
+  if(!m) return m;
+  const ek = musteriEkAl(m.id);
+  if(!ek) return m;
+  const r = {...m};
+  MEK_ALANLAR.forEach(k=>{ if(!_mekDolu(r[k]) && _mekDolu(ek[k])) r[k] = ek[k]; });
+  return r;
+};
+// Listelerde arama: ad, telefon (tüm numaraları; 0/90 önekinden bağımsız) veya e-posta
+const _aramaTel = v => { let d=String(v||"").replace(/\D/g,""); if(d.length===12 && d.startsWith("90")) d=d.slice(2); if(d.length===11 && d.startsWith("0")) d=d.slice(1); return d; };
+const musteriAramaEslesir = (m, q) => {
+  const ham = String(q||"").trim();
+  if(!ham) return true;
+  const mt = musteriTam(m);
+  if(normText(mt.ad).includes(normText(ham))) return true;
+  const e = String(mt.email||"").toLocaleLowerCase("tr-TR");
+  if(e && e.includes(ham.toLocaleLowerCase("tr-TR"))) return true;
+  let qd = String(ham).replace(/\D/g,"");
+  if(qd.length>=3 && !/[a-zA-ZçğıöşüÇĞİÖŞÜ@]/.test(ham)){
+    qd = qd.replace(/^90(?=\d{3})/,"").replace(/^0/,"");
+    const nolar = [mt.tel, ...(Array.isArray(mt.telefonlar)?mt.telefonlar.map(t=>t&&t.numara):[])].map(_aramaTel).filter(Boolean);
+    if(nolar.some(n=>n.includes(qd))) return true;
+  }
+  return false;
+};
+const musteriAdSirala = (a,b) => String(a.ad||"").trim().localeCompare(String(b.ad||"").trim(), "tr", {sensitivity:"base"});
+// Arama kutusu (personel ve yönetici müşteri listeleri)
+function MusteriAramaKutusu({deger, onDegis, bulunan, toplam}){
+  return h("div",{style:{marginBottom:12}},
+    h("div",{style:{position:"relative"}},
+      h("span",{"aria-hidden":true,style:{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:15,opacity:.55,pointerEvents:"none"}},"🔍"),
+      h("input",{type:"search",className:"fi",value:deger,placeholder:"İsim, telefon veya e-posta ile ara",
+        "aria-label":"Müşteri ara",autoComplete:"off",
+        style:{paddingLeft:36,paddingRight:deger?38:12,width:"100%",boxSizing:"border-box"},
+        onChange:e=>onDegis(e.target.value),
+        onKeyDown:e=>{ if(e.key==="Escape") onDegis(""); }}),
+      deger && h("button",{type:"button","aria-label":"Aramayı temizle",onClick:()=>onDegis(""),
+        style:{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",width:28,height:28,borderRadius:14,
+          border:"none",background:"rgba(0,0,0,.08)",color:"#555",fontSize:15,lineHeight:1,cursor:"pointer",padding:0}},"×")
+    ),
+    deger && h("div",{style:{fontSize:12,color:"var(--mu)",marginTop:6}},
+      bulunan ? bulunan+" / "+toplam+" müşteri bulundu" : "Eşleşen müşteri bulunamadı")
+  );
+}
 // ── Ziyaret (öncesi/sonrası) fotoğrafları ──
 // Dönen yapı: {o, s} (her biri {u,k} ya da null) ve g: hatırlatmada müşteriye gönderilmesine onay var mı
 const ziyaretFotoAl = (kayitId) => {
@@ -17202,6 +17264,8 @@ function App() {
   const [records, setRecords]         = useState([]);
   const [bekleyen, setBekleyen]       = useState([]);
   const [musteriDB, setMusteriDB]     = useState([]);
+  const [musteriAraP, setMusteriAraP] = useState(""); // personel → Müşterilerim araması
+  const [musteriAraY, setMusteriAraY] = useState(""); // yönetici → Listeler → Müşteriler araması
   const [hatSablonSecim, setHatSablonSecim] = useState({}); // hatırlatma id → seçili mesaj metni
   const [hatFotoSecim, setHatFotoSecim] = useState({}); // hatırlatma id → fotoğraf eklensin mi (personelin bu gönderim için seçimi)
   useFotoDeposu(); // müşteri/ziyaret fotoğrafları değişince (başka cihaz dahil) ekran güncellensin
@@ -17419,6 +17483,12 @@ function App() {
   const [stokGirisTip, setStokGirisTip] = useState("giris"); // giris/baslangic
   const [stokDetay, setStokDetay]     = useState(null);
   const [hatirlatmalar, setHatirlatmalar] = useState([]);
+  // Bu cihazda girilmiş ama bulutta karşılığı olmayan müşteri ek bilgilerini (e-posta, ek telefon vb.) kalıcı depoya aktar
+  useEffect(()=>{
+    (musteriDB||[]).forEach(m=>{
+      if(m && m.id && !musteriEkAl(m.id) && MEK_ALANLAR.some(k=>_mekDolu(m[k]))) musteriEkKaydet(m.id, m);
+    });
+  },[musteriDB]);
   // Sunucu WhatsApp'tan otomatik gönderdiyse hatırlatmayı burada da gönderildi say (elle ikinci kez gönderilmesin)
   const _waGunlukRef = waGunluk();
   useEffect(()=>{
@@ -17600,7 +17670,8 @@ function App() {
   // Personel "Yeni Müşteri" formu (Müşterilerim sekmesinde)
   const [yeniMusteriForm, setYeniMusteriForm] = useState(null); // null | {ad,telefonlar,...}
   // Mevcut bir müşteriyi düzenlemek için formu doldurup açar (Yönetici ve Personel tarafında ortak)
-  const musteriDuzenleAc = (m) => {
+  const musteriDuzenleAc = (m0) => {
+    const m = musteriTam(m0);
     setYeniMusteriForm({
       id: m.id,
       ad: m.ad||"",
@@ -22172,6 +22243,7 @@ if(DB) dbUpsertAyar("tema",tema);
                 };
                 setMusteriDB(p=>p.map(x=>x.id===guncel.id?guncel:x));
                 setMusteriKart(p=>p?.id===guncel.id?guncel:p);
+                musteriEkKaydet(guncel.id, guncel);
                 if(_fU(f.foto)!==musteriFotoAl(guncel.id, guncel.tel)) musteriFotoKaydet(guncel.id, f.foto||null, guncel.tel);
                 dbGnc("musteriler",{ad:guncel.ad,tel:guncel.tel,sahip_id:guncel.sahipId,sahip_ad:guncel.sahipAd,
                   dogum_tarihi:guncel.dogumTarihi,cinsiyet:guncel.cinsiyet,adres:guncel.adres,notlar:guncel.notlar},guncel.id);
@@ -22238,6 +22310,7 @@ if(DB) dbUpsertAyar("tema",tema);
                 ilkGiris: TODAY()
               };
               setMusteriDB(p=>[...p, yeni]);
+              musteriEkKaydet(yeni.id, yeni);
               if(f.foto) musteriFotoKaydet(yeni.id, f.foto, yeni.tel);
               try {
                 if(typeof dbEkle==="function"){
@@ -22542,7 +22615,8 @@ if(DB) dbUpsertAyar("tema",tema);
       ),
       // Müşterilerim
       psek==="musterilerim"&&(()=>{
-        const myMusteriler = musteriDB.filter(m=>String(m.sahipId||"")===String(kul.id||""));
+        const myMusterilerTum = musteriDB.filter(m=>String(m.sahipId||"")===String(kul.id||"")).slice().sort(musteriAdSirala);
+        const myMusteriler = myMusterilerTum.filter(m=>musteriAramaEslesir(m, musteriAraP));
         const benimId = String(kul?.id||"");
         // ── Devir bildirimleri (bu sekmeye taşındı) ──
         const benimDevirBildirimlerim = (devirBildirim||[]).filter(b => {
@@ -22954,7 +23028,7 @@ if(DB) dbUpsertAyar("tema",tema);
           ),
           div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,gap:10}},
             div({style:{fontSize:15,fontWeight:700,color:"var(--tx)",letterSpacing:"-.2px"}},
-              myMusteriler.length+" müşteri"),
+              myMusterilerTum.length+" müşteri"),
             btn({style:{
               background:"#0071E3",border:"none",color:"#FFFFFF",
               fontSize:13,fontWeight:600,letterSpacing:"-.1px",
@@ -22983,7 +23057,10 @@ if(DB) dbUpsertAyar("tema",tema);
                 });
               }},"+ Yeni Kayıt")
           ),
-          myMusteriler.length===0
+          myMusterilerTum.length>0&&h(MusteriAramaKutusu,{deger:musteriAraP,onDegis:setMusteriAraP,bulunan:myMusteriler.length,toplam:myMusterilerTum.length}),
+          myMusterilerTum.length>0&&myMusteriler.length===0
+            ?div({style:{textAlign:"center",padding:"28px 20px",color:"var(--mu)",fontSize:13}},"\""+musteriAraP.trim()+"\" ile eşleşen müşteri yok")
+          :myMusteriler.length===0
             ?div({style:{textAlign:"center",padding:"40px 20px",color:"var(--mu)"}},
                 div({style:{fontSize:40,marginBottom:8}},"👤"),
                 div({style:{fontSize:13,letterSpacing:2,textTransform:"uppercase"}},"Kayıtlı müşteri yok"),
@@ -23009,7 +23086,7 @@ if(DB) dbUpsertAyar("tema",tema);
                       onClick:()=>{setMDuzenleId(mDuzenleId===m.id?null:m.id);setMDuzenleNot(m.notlar||"");}},
                       mDuzenleId===m.id?"✕":m.notlar?"📝":"+ Not"),
                     btn({style:{background:"transparent",border:"1px solid #3a1010",borderRadius:8,color:"#c05050",fontSize:12,padding:"5px 9px",cursor:"pointer"},
-                      onClick:()=>{ if(window.confirm("\""+(m.ad||"Bu müşteri")+"\" kalıcı olarak silinsin mi?")){ setMusteriDB(p=>p.filter(x=>x.id!==m.id)); dbSil("musteriler",m.id); musteriFotoKaydet(m.id,"",m.tel); } }},"🗑️")
+                      onClick:()=>{ if(window.confirm("\""+(m.ad||"Bu müşteri")+"\" kalıcı olarak silinsin mi?")){ setMusteriDB(p=>p.filter(x=>x.id!==m.id)); dbSil("musteriler",m.id); musteriFotoKaydet(m.id,"",m.tel); musteriEkKaydet(m.id,null); } }},"🗑️")
                   )
                 ),
                 mDuzenleId===m.id&&div(null,
@@ -23074,7 +23151,7 @@ if(DB) dbUpsertAyar("tema",tema);
           ),
           // ─── Müşteri Detay Modal — Hizmet Geçmişi (Akordeon) ───
           musteriDetayId&&(()=>{
-            const m = musteriDB.find(x=>x.id===musteriDetayId);
+            const m = musteriTam(musteriDB.find(x=>x.id===musteriDetayId));
             if(!m) return null;
             const temizT = v => String(v||"").replace(/\D/g,"");
             const musTel = temizT(m.tel);
@@ -28376,6 +28453,7 @@ if(DB) dbUpsertAyar("tema",tema);
       setMusteriDB(p=>p.filter(m=>m.id!==musteriSilOnay.id));
       dbSil("musteriler",musteriSilOnay.id);
       musteriFotoKaydet(musteriSilOnay.id,"",musteriSilOnay.tel);
+      musteriEkKaydet(musteriSilOnay.id,null);
       if(musteriKart?.id===musteriSilOnay.id) setMusteriKart(null);
       // Müşteri tamamen silindiğinde ona ait saç kesimi hatırlatmasını da temizle (yerel + bulut)
       setHatirlatmalar(p=>{
@@ -28509,10 +28587,13 @@ if(DB) dbUpsertAyar("tema",tema);
     ),
 
     // Müşteri listesi
+    musteriDB.length>0&&h(MusteriAramaKutusu,{deger:musteriAraY,onDegis:setMusteriAraY,
+      bulunan:musteriDB.filter(m=>musteriAramaEslesir(m, musteriAraY)).length,toplam:musteriDB.length}),
     musteriDB.length===0
     ?div({className:"bos"},div({style:{fontSize:42,marginBottom:9}},"👤"),div({style:{fontSize:13,letterSpacing:2}},"Henüz müşteri kaydı yok"))
-    :musteriDB.map(m=>({...m,ziyaret:tumK.filter(r=>r.musteri===m.ad)}))
-    .sort((a,b)=>b.ziyaret.length-a.ziyaret.length)
+    :musteriDB.filter(m=>musteriAramaEslesir(m, musteriAraY))
+    .slice().sort(musteriAdSirala)
+    .map(m=>({...m,ziyaret:tumK.filter(r=>r.musteri===m.ad)}))
     .map(m=>
     div({key:m.id,style:{background:"var(--bg2)",border:"1px solid var(--br)",
       borderRadius:13,padding:13,marginBottom:9}},
