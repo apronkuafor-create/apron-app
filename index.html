@@ -999,14 +999,63 @@ const hatirlatmaFotoMetni = (mesaj, url) => {
   const i = String(mesaj||"").lastIndexOf("\n\n");
   return i>0 ? mesaj.slice(0,i)+ek+mesaj.slice(i) : (mesaj||"")+ek;
 };
+// ── Logolu gönderim: logoyu WhatsApp balonunun üstünde ince duran beyaz bir şeride yerleştirir ──
+// WhatsApp resmi kendi oranında gösterir; kare/yüksek bir logo balonda çok yer kaplar. Logo, kenarlarındaki boşluk
+// kırpılıp 3:1 oranlı beyaz zemine ortalanır (daha geniş oranlar WhatsApp önizlemesinde kırpılabiliyor).
+// Beyaz zemin: WhatsApp resmi JPEG'e çevirdiği için şeffaf zemin karanlık modda siyaha dönüp logoyu yok edebilir.
+const _logoSeritOnbellek = {};
+const logoSeridiHazirla = (kaynak) => {
+  if(!kaynak) return Promise.resolve(null);
+  if(_logoSeritOnbellek[kaynak]) return _logoSeritOnbellek[kaynak];
+  const is = new Promise((res) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try{
+        const W = img.naturalWidth||img.width, H = img.naturalHeight||img.height;
+        // 1) Logoyu beyaz zemine çiz ve dolu (beyaz olmayan) alanın sınırlarını bul
+        const c0 = document.createElement("canvas"); c0.width = W; c0.height = H;
+        const x0 = c0.getContext("2d"); x0.fillStyle="#fff"; x0.fillRect(0,0,W,H); x0.drawImage(img,0,0);
+        let minX=W, minY=H, maxX=-1, maxY=-1;
+        try{
+          const d = x0.getImageData(0,0,W,H).data;
+          for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+            const i=(y*W+x)*4;
+            if(d[i]<235 || d[i+1]<235 || d[i+2]<235){ if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y; }
+          }
+        }catch(e){ /* başka alan adından gelen logo: kırpmadan devam */ }
+        if(maxX<0){ minX=0; minY=0; maxX=W-1; maxY=H-1; }
+        const kw = maxX-minX+1, kh = maxY-minY+1;
+        // 2) 1200×400 beyaz şerit; logo yüksekliğin ~%62'sini, genişliğin en fazla %70'ini kaplar
+        const SW = 1200, SH = 400;
+        const olcek = Math.min((SH*0.62)/kh, (SW*0.70)/kw);
+        const lw = Math.round(kw*olcek), lh = Math.round(kh*olcek);
+        const c = document.createElement("canvas"); c.width = SW; c.height = SH;
+        const x = c.getContext("2d"); x.fillStyle="#fff"; x.fillRect(0,0,SW,SH);
+        x.imageSmoothingEnabled = true; x.imageSmoothingQuality = "high";
+        x.drawImage(c0, minX, minY, kw, kh, Math.round((SW-lw)/2), Math.round((SH-lh)/2), lw, lh);
+        res(c.toDataURL("image/jpeg", 0.92));
+      }catch(e){ res(kaynak); }
+    };
+    img.onerror = () => res(kaynak);
+    img.src = kaynak;
+  });
+  _logoSeritOnbellek[kaynak] = is;
+  return is;
+};
+// Logo zaten görselde olduğu için metnin sonundaki "APRON" imzası tekrar etmesin
+const hatImzasiz = (m) => String(m||"").replace(/\n\n\*[^*\n]+\*\s*$/,"").replace(/\n\n(apron)\s*$/i,"");
 // Paylaşım menüsüyle fotoğrafı DOSYA olarak (tam kalite) + mesajla gönderir. true: gönderildi, null: vazgeçildi, false: desteklenmiyor
-const fotoIleMesajPaylas = async (url, metin) => {
+const fotoIleMesajPaylas = async (url, metin, dosyaAdi) => {
   try{
     if(!navigator.share) return false;
+    // Bazı telefonlarda WhatsApp resimle birlikte gelen metni düşürebiliyor: yedek olarak panoya da kopyala
+    try{ if(navigator.clipboard && metin) await navigator.clipboard.writeText(metin); }catch(e){}
     let dosya = null;
     try{
       const blob = url.startsWith("data:") ? _dataUrlToBlob(url) : await (await fetch(url)).blob();
-      dosya = new File([blob], "son-sac-kesimi.jpg", {type: blob.type||"image/jpeg"});
+      const tip = blob.type||"image/jpeg", uz = /png/.test(tip)?"png":/webp/.test(tip)?"webp":"jpg";
+      dosya = new File([blob], (dosyaAdi||"son-sac-kesimi")+"."+uz, {type: tip});
     }catch(e){ dosya = null; }
     if(dosya && navigator.canShare && navigator.canShare({files:[dosya]})){
       await navigator.share({files:[dosya], text:metin});
@@ -1015,6 +1064,182 @@ const fotoIleMesajPaylas = async (url, metin) => {
     return false;
   }catch(e){ return e && e.name==="AbortError" ? null : false; }
 };
+// ── Saç kesimi hatırlatma mesajları (elle gönderim) ──
+// Yapı: dinginlik/arınma temalı bir açılış cümlesi → müşteriye kısa, yalnızca hatırlatma amaçlı bilgi → APRON imzası.
+// Çağrı ("bizi arayın", "yanıt verin" vb.) ve satış/fiyat çağrışımı yoktur. Açılışlar WhatsApp'ta italik (_..._),
+// imza kalın (*...*) görünür. Değişkenler: ad (Ad Soyad), tarih (gg.aa.yyyy), gun (geçen gün)
+const HAT_ACILISLAR = [
+  "Şehrin ve içinde taşıdıklarının sizin payınıza ayırdığı yüklerden kurtulmak için sessizliğe ve arınmaya ihtiyacınız var.",
+  "Günün telaşı omuzlarınızda biriktikçe, kendinize ayıracağınız sakin bir saat her şeyden daha kıymetli hale gelir.",
+  "Bazen yenilenmek, yalnızca birkaç sakin dakika ve özenli bir dokunuşla başlar.",
+  "Kalabalığın ve gürültünün ortasında, kendinizle baş başa kalacağınız bir molayı hak ediyorsunuz.",
+  "Her yeni gün sizden bir şeyler alıp götürürken, kendinize dönmek için küçük bir durak gerekir.",
+  "Aynadaki yansımanız iç dünyanızın sessiz bir aynasıdır; ona iyi bakmak, kendinize iyi bakmaktır.",
+  "Yorgun düşünceleri ve günün ağırlığını geride bırakmak için bazen tek ihtiyacınız tazelenmektir.",
+  "Zamanın hızla aktığı bu şehirde, durup kendinizi dinlemek en değerli ritüeldir.",
+];
+const HAT_GOVDELER = [
+  v => `Sayın ${v.ad},\nSon saç kesiminizin üzerinden ${v.gun} gün geçti (${v.tarih}). Yeni kesim zamanınızın geldiğini hatırlatmak isteriz.`,
+  v => `Değerli ${v.ad},\n${v.tarih} tarihindeki saç kesiminizden bu yana ${v.gun} gün geçti. Saç kesimi zamanınızın yaklaştığını hatırlatmak isteriz.`,
+  v => `Sayın ${v.ad},\nSaçlarınıza en son ${v.tarih} tarihinde dokunduk; aradan ${v.gun} gün geçti. Bu, yeni kesim zamanınızın geldiğine dair küçük bir hatırlatmadır.`,
+  v => `Değerli ${v.ad},\nSon ziyaretinizin üzerinden ${v.gun} gün geçti (${v.tarih}). Saçlarınızın tazelenme zamanının geldiğini hatırlatmak isteriz.`,
+];
+const _hatImza = (isletmeAd) => "*" + String(isletmeAd||"APRON").toLocaleUpperCase("tr-TR") + "*";
+// Eski kullanım uyumu: tam metni üreten fonksiyonlar listesi (sayı ve sıra için)
+const HAT_SABLONLARI = HAT_ACILISLAR.map((acilis, i) => v =>
+  `_${acilis}_\n\n${HAT_GOVDELER[i % HAT_GOVDELER.length](v)}\n\n${_hatImza(v.isletme)}`);
+const HAT_FOTO_SATIRI = "📸 Son saç kesiminiz";
+// "AYŞE YILMAZ" / "ayşe yılmaz" → "Ayşe Yılmaz"
+const adBicim = s => String(s||"").trim().replace(/\s+/g," ").split(" ").map(p=>p ? p.charAt(0).toLocaleUpperCase("tr-TR")+p.slice(1).toLocaleLowerCase("tr-TR") : p).join(" ");
+const _hatMusteriAnahtar = h2 => { const t=_mfTel(h2&&h2.tel); return t.length>=7 ? "t"+t : "a"+_zfAd(h2&&h2.musteriAd); };
+const _hatHash = s => { let x=0; for(const c of String(s)) x=(x*31+c.charCodeAt(0))>>>0; return x; };
+// Kart ilk açıldığında seçilecek metin: hatırlatmaya göre sabit, ama müşterinin bir önceki mesajıyla aynı değil
+const hatVarsayilanSablon = (h2) => {
+  const n = HAT_SABLONLARI.length;
+  const son = hatSonSablonAl(h2);
+  let i = _hatHash(h2 && h2.id) % n;
+  if(son!==undefined && i===son) i = (i+1) % n;
+  return i;
+};
+const hatSonrakiSablon = (h2, i) => {
+  const n = HAT_SABLONLARI.length, son = hatSonSablonAl(h2);
+  let j = (i+1) % n;
+  if(son!==undefined && j===son && n>2) j = (j+1) % n;
+  return j;
+};
+// Mesaj metnini üretir; tarih/gün bilinmiyorsa (çok eski kayıt) orijinal mesaj kullanılır
+const hatMesajUret = (h2, idx, {hizmetTarihi, isletmeAd, ustaAd}) => {
+  if(!hizmetTarihi || (h2.tip && h2.tip!=="sacKesimi")) return null;
+  const bas = new Date(hizmetTarihi+"T12:00:00"), bugun = new Date(TODAY()+"T12:00:00");
+  const gun = Math.max(1, Math.round((bugun-bas)/86400000));
+  const ad = adBicim(h2.musteriAd) || "Misafirimiz";
+  const usta = adBicim(String(ustaAd||"").split(" ")[0]);
+  const f = HAT_SABLONLARI[((idx%HAT_SABLONLARI.length)+HAT_SABLONLARI.length)%HAT_SABLONLARI.length];
+  return f({ad, ilkAd:ad.split(" ")[0], tarih:fmtT(hizmetTarihi), gun, isletme:"APRON", usta});
+};
+// ── WhatsApp otomatik hatırlatma (WhatsApp Business Cloud API + Supabase zamanlanmış fonksiyon) ──
+// Gönderimi sunucudaki "hatirlatma-whatsapp" fonksiyonu yapar; uygulama yalnızca ayarı tutar ve durumu gösterir.
+const WA_AYAR_ID = "waOtomatik", WA_GUNLUK_ID = "waOtomatikGunluk", WA_FOTO_SECIM_ID = "waHatFotoSecim", HAT_SON_ID = "hatSonSablon";
+const WA_VARSAYILAN = {aktif:false, saat:10, fotoGonder:true, sablon:"sac_kesimi_hatirlatma", sablonFoto:"sac_kesimi_hatirlatma_foto", dil:"tr"};
+const waShardMi = id => id===WA_AYAR_ID || id===WA_GUNLUK_ID || id===WA_FOTO_SECIM_ID || id===HAT_SON_ID;
+const _waLsOku = (k, v) => { try{ const x=JSON.parse(localStorage.getItem(k)||"null"); return (x&&typeof x==="object"&&!Array.isArray(x))?x:v; }catch(e){ return v; } };
+let _wa = {
+  [WA_AYAR_ID]: {...WA_VARSAYILAN, ..._waLsOku("apron_wa_ayar", {})},
+  [WA_GUNLUK_ID]: _waLsOku("apron_wa_gunluk", {}),
+  [WA_FOTO_SECIM_ID]: _waLsOku("apron_wa_foto_secim", {}),
+  [HAT_SON_ID]: _waLsOku("apron_hat_son_sablon", {}),
+};
+const _waLsAnahtar = {[WA_AYAR_ID]:"apron_wa_ayar",[WA_GUNLUK_ID]:"apron_wa_gunluk",[WA_FOTO_SECIM_ID]:"apron_wa_foto_secim",[HAT_SON_ID]:"apron_hat_son_sablon"};
+const _waBildir = (id) => { lsSetJSON(_waLsAnahtar[id], _wa[id]); _fdDinle.forEach(f=>{ try{ f(); }catch(e){} }); };
+const waBulutUygula = (id, deger) => {
+  const d = (deger && typeof deger==="object" && !Array.isArray(deger)) ? deger : {};
+  const yeni = id===WA_AYAR_ID ? {...WA_VARSAYILAN, ...d} : d;
+  if(_ayarImza(yeni)===_ayarImza(_wa[id])) return;
+  _wa = {..._wa, [id]: yeni}; _waBildir(id);
+};
+const waAyar = () => _wa[WA_AYAR_ID];
+const waGunluk = () => _wa[WA_GUNLUK_ID] || {};
+const waAyarKaydet = (degisiklik) => {
+  _wa = {..._wa, [WA_AYAR_ID]: {...waAyar(), ...degisiklik}}; _waBildir(WA_AYAR_ID);
+  _ayarYazimImza(WA_AYAR_ID, _ayarImza(_wa[WA_AYAR_ID]));
+  return dbUpsert("ayarlar", {id:WA_AYAR_ID, deger:_wa[WA_AYAR_ID]}, "isletme_id,id");
+};
+// Karttaki "fotoğraf eklensin mi" seçimi otomatik gönderimde de geçerli olsun diye buluta yazılır
+const waFotoSecimAl = (hatId) => _wa[WA_FOTO_SECIM_ID][String(hatId)];
+const waFotoSecimKaydet = (hatId, deger) => {
+  const s = {..._wa[WA_FOTO_SECIM_ID], [String(hatId)]: !!deger};
+  _wa = {..._wa, [WA_FOTO_SECIM_ID]: s}; _waBildir(WA_FOTO_SECIM_ID);
+  dbUpsertAyar(WA_FOTO_SECIM_ID, s);
+};
+// Müşteriye en son hangi metnin gönderildiği (aynı müşteriye arka arkaya aynı mesaj gitmesin; cihazlar arası ortak)
+const hatSonSablonAl = (h2) => { const v=_wa[HAT_SON_ID][_hatMusteriAnahtar(h2)]; return typeof v==="number" ? v : undefined; };
+const hatSonSablonKaydet = (h2, idx) => {
+  const yeni = {..._wa[HAT_SON_ID], [_hatMusteriAnahtar(h2)]: idx};
+  _wa = {..._wa, [HAT_SON_ID]: yeni}; _waBildir(HAT_SON_ID);
+  dbUpsertAyar(HAT_SON_ID, yeni);
+};
+// Bir hatırlatmanın otomatik gönderim durumu (karta yazılacak metin + renk)
+const waHatDurum = (h2) => {
+  const a = waAyar();
+  const g = waGunluk()[String(h2.id)];
+  if(g && g.durum==="gonderildi") return {renk:"#1f8a4c", metin:"🤖 WhatsApp'tan otomatik gönderildi"+(g.zaman?" · "+new Date(g.zaman).toLocaleString("tr-TR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"")};
+  if(!a.aktif) return null;
+  if(g && g.durum==="hata"){
+    const bitti = Number(g.deneme||0) >= 3;
+    return {renk:"#c0392b", metin:"⚠️ Otomatik gönderilemedi"+(g.hata?": "+g.hata:"")+(bitti?" — lütfen elle gönderin.":" — tekrar denenecek ("+(g.deneme||1)+"/3).")};
+  }
+  const t = String(h2.gonderiTarih||"").slice(0,10);
+  const s = String(a.saat).padStart(2,"0")+":00";
+  if(t && t > TODAY()) return {renk:"#2563a8", metin:"🤖 "+fmtT(t)+" saat "+s+" civarı otomatik gönderilecek"};
+  const simdiSaat = new Date().getHours();
+  return {renk:"#2563a8", metin:"🤖 "+(simdiSaat >= 21 ? "Yarın saat "+s+" civarı" : simdiSaat < a.saat ? "Bugün saat "+s+" civarı" : "Bir saat içinde")+" otomatik gönderilecek"};
+};
+// Yönetici → Ayarlar → WhatsApp Otomatik
+function WaOtomatikPanel({showToast}){
+  useFotoDeposu();
+  const a = waAyar();
+  const son = waGunluk()._son;
+  const kayitlar = Object.entries(waGunluk()).filter(([k])=>k!=="_son")
+    .sort((x,y)=>String(y[1].zaman||"").localeCompare(String(x[1].zaman||""))).slice(0,15);
+  const kart = {background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:16,marginBottom:12,boxShadow:"0 1px 6px rgba(0,0,0,.04)"};
+  const baslik = {fontSize:12,fontWeight:700,color:"#0071E3",letterSpacing:1.4,textTransform:"uppercase",marginBottom:10};
+  const satir = {display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,padding:"10px 0",borderTop:"1px solid rgba(0,0,0,.06)"};
+  const anahtar = (acik, onClick) => h("button",{type:"button",role:"switch","aria-checked":acik,onClick,
+    style:{width:50,height:30,borderRadius:15,border:"none",padding:3,cursor:"pointer",flexShrink:0,
+      background:acik?"#34C759":"#d1d1d6",transition:"background .2s",display:"flex",justifyContent:acik?"flex-end":"flex-start"}},
+    h("span",{style:{width:24,height:24,borderRadius:12,background:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,.3)"}}));
+  const kaydet = (d, mesaj) => { waAyarKaydet(d); if(mesaj && showToast) showToast(mesaj,"ba"); };
+  return h("div",{style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+    h("div",{style:kart},
+      h("div",{style:baslik},"💬 WhatsApp Otomatik Hatırlatma"),
+      h("div",{style:{fontSize:13,color:"#3a3a3c",lineHeight:1.55,marginBottom:6}},
+        "Açıkken, zamanı gelen saç kesimi hatırlatmaları işletmenizin WhatsApp Business numarasından kendiliğinden gönderilir. Uygulamanın açık olması gerekmez. Gönderilen hatırlatma listeden düşer."),
+      h("div",{style:satir},
+        h("div",null,
+          h("div",{style:{fontSize:14.5,fontWeight:600,color:"#1D1D1F"}},"Otomatik gönderim"),
+          h("div",{style:{fontSize:12,color:"#86868B",marginTop:2}},a.aktif?"Açık":"Kapalı — hatırlatmalar elle gönderilir")),
+        anahtar(!!a.aktif, ()=>kaydet({aktif:!a.aktif}, !a.aktif?"Otomatik gönderim açıldı":"Otomatik gönderim kapatıldı"))
+      ),
+      h("div",{style:satir},
+        h("div",null,
+          h("div",{style:{fontSize:14.5,fontWeight:600,color:"#1D1D1F"}},"Gönderim saati"),
+          h("div",{style:{fontSize:12,color:"#86868B",marginTop:2}},"Zamanı gelen mesajlar bu saatten itibaren gider (21:00'den sonra gönderilmez)")),
+        h("select",{className:"fi",value:String(a.saat),style:{width:96,flexShrink:0},
+          onChange:e=>kaydet({saat:Number(e.target.value)},"Gönderim saati "+e.target.value+":00 olarak ayarlandı")},
+          [9,10,11,12,13,14,15,16,17,18,19,20].map(s=>h("option",{key:s,value:String(s)},String(s).padStart(2,"0")+":00")))
+      ),
+      h("div",{style:satir},
+        h("div",null,
+          h("div",{style:{fontSize:14.5,fontWeight:600,color:"#1D1D1F"}},"Son kesim fotoğrafını ekle"),
+          h("div",{style:{fontSize:12,color:"#86868B",marginTop:2}},"Yalnızca ziyarette \"müşteriye gönderilsin\" onayı verilmiş fotoğraflar eklenir")),
+        anahtar(a.fotoGonder!==false, ()=>kaydet({fotoGonder:a.fotoGonder===false}))
+      ),
+      h("div",{style:{...satir,display:"block"}},
+        h("div",{style:{fontSize:12,color:"#86868B",marginBottom:4}},"Son çalışma"),
+        son
+          ? h("div",{style:{fontSize:13,color:"#1D1D1F"}},new Date(son.zaman).toLocaleString("tr-TR",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})+" · "+son.gonderilen+" gönderildi"+(son.hatali?" · "+son.hatali+" hata":""))
+          : h("div",{style:{fontSize:13,color:"#b45309"}},"Sunucu henüz çalışmadı. Kurulum tamamlanınca burada görünecek.")
+      )
+    ),
+    kayitlar.length>0 && h("div",{style:kart},
+      h("div",{style:baslik},"Son otomatik gönderimler"),
+      kayitlar.map(([id,g])=>h("div",{key:id,style:{display:"flex",justifyContent:"space-between",gap:10,fontSize:12.5,padding:"7px 0",borderTop:"1px solid rgba(0,0,0,.05)"}},
+        h("span",{style:{color:g.durum==="gonderildi"?"#1f8a4c":"#c0392b",fontWeight:600,flexShrink:0}},g.durum==="gonderildi"?(g.foto?"✓ 📸":"✓"):"⚠️"),
+        h("span",{style:{flex:1,color:"#3a3a3c",minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}},h("strong",{style:{fontWeight:600,color:"#1D1D1F"}},(g.ad||"Müşteri")+" "),g.durum==="hata"?"· "+(g.hata||"Hata"):"· Gönderildi"),
+        h("span",{style:{color:"#86868B",flexShrink:0}},g.zaman?new Date(g.zaman).toLocaleString("tr-TR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"")
+      ))
+    ),
+    h("details",{style:kart},
+      h("summary",{style:{fontSize:13.5,fontWeight:600,color:"#1D1D1F",cursor:"pointer"}},"Gelişmiş: mesaj şablonları"),
+      h("div",{style:{fontSize:12,color:"#86868B",margin:"8px 0 10px",lineHeight:1.5}},
+        "Meta'da onaylanan şablon adlarıyla aynı olmalıdır. Kurulum rehberindeki adları kullandıysanız değiştirmeyin."),
+      [["sablon","Fotoğrafsız şablon"],["sablonFoto","Fotoğraflı şablon"],["dil","Dil kodu"]].map(([k,lb])=>
+        h("div",{key:k,style:{marginBottom:9}},
+          h("label",{style:{fontSize:11,letterSpacing:1,textTransform:"uppercase",color:"#86868B",fontWeight:600,display:"block",marginBottom:4}},lb),
+          h("input",{className:"fi",defaultValue:a[k]||"",onBlur:e=>{ const v=e.target.value.trim(); if(v && v!==a[k]) kaydet({[k]:v},"Kaydedildi"); }})))
+    )
+  );
+}
 const dbEkle = (t,r) => {
   if(!DB){ skEkle({op:"insert",t,r}); return Promise.resolve(false); }
   return DB.from(t).insert(r).then(({error})=>{ if(error){ skEkle({op:"insert",t,r}); return false; } return true; })
@@ -12990,7 +13215,7 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
         gonderiTarih:gonTarih.getFullYear()+"-"+String(gonTarih.getMonth()+1).padStart(2,"0")+"-"+String(gonTarih.getDate()).padStart(2,"0"),
         gonderildi:false,
         tip:"sacKesimi",
-        mesaj:"Merhaba Sayın "+musteri+", son saç kesiminizi "+fmtT(formTarih||TODAY())+" tarihinde yapmıştık. Üzerinden "+mesajGunSayisi+" gün geçti. Saçınızın uzama hızını ve kesim hassasiyetinizi göz önünde bulundurarak, saç kesimi zamanınızın geldiğini düşünüyoruz. Randevu için lütfen bizi arayın. 💈\n\n"+(isletme?.ad||"Apron"),
+        mesaj:"Merhaba Sayın "+musteri+", son saç kesiminizi "+fmtT(formTarih||TODAY())+" tarihinde yapmıştık. Üzerinden "+mesajGunSayisi+" gün geçti. Saç kesimi zamanınızın geldiğini hatırlatmak isteriz.\n\n*APRON*",
         olusturma:Date.now()
       };
       setHatirlatmalar(p=>{
@@ -16977,6 +17202,7 @@ function App() {
   const [records, setRecords]         = useState([]);
   const [bekleyen, setBekleyen]       = useState([]);
   const [musteriDB, setMusteriDB]     = useState([]);
+  const [hatSablonSecim, setHatSablonSecim] = useState({}); // hatırlatma id → seçili mesaj metni
   const [hatFotoSecim, setHatFotoSecim] = useState({}); // hatırlatma id → fotoğraf eklensin mi (personelin bu gönderim için seçimi)
   useFotoDeposu(); // müşteri/ziyaret fotoğrafları değişince (başka cihaz dahil) ekran güncellensin
   const [devDB, setDevDB]             = useState({});
@@ -17193,6 +17419,20 @@ function App() {
   const [stokGirisTip, setStokGirisTip] = useState("giris"); // giris/baslangic
   const [stokDetay, setStokDetay]     = useState(null);
   const [hatirlatmalar, setHatirlatmalar] = useState([]);
+  // Sunucu WhatsApp'tan otomatik gönderdiyse hatırlatmayı burada da gönderildi say (elle ikinci kez gönderilmesin)
+  const _waGunlukRef = waGunluk();
+  useEffect(()=>{
+    const g = _waGunlukRef || {};
+    setHatirlatmalar(p=>{
+      let degisti = false;
+      const n = (p||[]).map(x=>{
+        const e = x && g[String(x.id)];
+        if(x && !x.gonderildi && e && e.durum==="gonderildi"){ degisti = true; return {...x, gonderildi:true, gonderildiTarih:String(e.zaman||"").slice(0,10)||TODAY()}; }
+        return x;
+      });
+      return degisti ? n : p;
+    });
+  },[_waGunlukRef, hatirlatmalar.length]);
   const [ibanBildirimler, setIbanBildirimler] = useState([]); // [{id,kayitId,manKulId,manKulAd,hedefId,hedefAd,musteriAd,hizmetAd,tutar,tarih,durum}]
   const [randevular, setRandevular]       = useState([]); // [{id,staffId,staffAd,musteriAd,tel,tarih,saat,notlar,iptal}]
   const [randevuForm, setRandevuForm]     = useState(null);
@@ -17595,6 +17835,7 @@ function App() {
         const ayarlarRaw = await dbAl("ayarlar");
 ayarlarRaw.forEach(a=>{ try {
   if(a && fotoShardMi(a.id)){ fdBulutUygula(a.id, a.deger); return; }
+  if(a && waShardMi(a.id)){ waBulutUygula(a.id, a.deger); return; }
   if(!a.deger||!Object.keys(a.deger).length) return;
   try{ _ayarYazimImza(a.id, _ayarImza(a.deger)); }catch(eSig){} // ilk yüklenen değerin imzası -> ilk yankı bastırılır
   if(a.id==="tema") setTema(a.deger);
@@ -18029,6 +18270,8 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("kullanimlar",kullanimlar); },[kullanimlar]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("ozlukDosyalari",ozlukDosyalari); },[ozlukDosyalari]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("izinKayitlari",izinKayitlari); },[izinKayitlari]);
+  // Logolu gönderim için şeridi önceden hazırla (paylaşım menüsü dokunuştan hemen sonra açılabilsin)
+  useEffect(()=>{ try{ logoSeridiHazirla((isletme&&isletme.logo)||LOGO); }catch(e){} },[isletme&&isletme.logo]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("cikisIslemleri",cikisIslemleri); },[cikisIslemleri]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("resmiTatilKayitlari",resmiTatilKayitlari); },[resmiTatilKayitlari]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("uyariKayitlari",uyariKayitlari); },[uyariKayitlari]);
@@ -18171,6 +18414,7 @@ if(DB) dbUpsertAyar("tema",tema);
     const ayarUygula = (a) => {
       if(!a || !a.id) return;
       if(fotoShardMi(a.id)){ fdBulutUygula(a.id, a.deger); return; }
+      if(waShardMi(a.id)){ waBulutUygula(a.id, a.deger); return; }
       // 1) Kendi (yakın) yazdığımız değerin realtime yankısıysa erken çık — üst üste hızlı
       //    yazmalarda gecikmeli/bayat yankılar da bu pencerede yakalanır (ping-pong/titreme önlenir).
       const _s = _ayarImza(a.deger);
@@ -22625,23 +22869,36 @@ if(DB) dbUpsertAyar("tema",tema);
               // Son ziyaretin "sonrası" fotoğrafı (yoksa öncesi) — hatırlatmaya eklenir
               const sonFoto = musteriSonZiyaretFoto({tel:h2.tel, ad:h2.musteriAd, tarih:hizmetTarihiStr});
               // Varsayılan: yalnızca ziyarette "müşteriye gönderilsin" onayı verildiyse eklenir. Fotoğraf yoksa mesaj aynen gider.
-              const fotoEkli = !!(sonFoto && sonFoto.url) && (hatFotoSecim[h2.id]!==undefined ? !!hatFotoSecim[h2.id] : !!sonFoto.g);
+              const _secim = hatFotoSecim[h2.id]!==undefined ? hatFotoSecim[h2.id] : waFotoSecimAl(h2.id);
+              const fotoEkli = !!(sonFoto && sonFoto.url) && (_secim!==undefined ? !!_secim : !!sonFoto.g);
+              const otoDurum = waHatDurum(h2);
+              const sablonNo = hatSablonSecim[h2.id]!==undefined ? hatSablonSecim[h2.id] : hatVarsayilanSablon(h2);
+              const _uretilen = hatMesajUret(h2, sablonNo, {hizmetTarihi:hizmetTarihiStr, isletmeAd:isletme?.ad, ustaAd:h2.staffAd});
+              const mesajMetni = _uretilen || gunGuncelMesaj();
+              // Fotoğraf satırını imzadan hemen önceye ekler
+              const fotoSatiriEkle = (m, ek) => { const i=m.lastIndexOf("\n\n"); return i>0 ? m.slice(0,i)+"\n\n"+ek+m.slice(i) : m+"\n\n"+ek; };
+              const gonderildiKaydet = () => { if(_uretilen) hatSonSablonKaydet(h2, sablonNo); };
               const linkliFoto = fotoEkli && _fotoBulutUrlMi(sonFoto.url);
               const gonderildiIsaretle = () => {
                 setHatirlatmalar(p=>p.map(x=>x.id===h2.id?{...x,gonderildi:true,gonderildiTarih:TODAY()}:x));
                 dbUpsert("hatirlatmalar",{...h2,gonderildi:true,gonderildiTarih:TODAY()},"isletme_id,id");
               };
               const telFmt = () => { const raw=String(h2.tel||"").replace(/[^0-9]/g,""); return raw.startsWith("90")?raw:raw.startsWith("0")?"90"+raw.slice(1):"90"+raw; };
-              const paylasimDestekli = fotoEkli && typeof navigator!=="undefined" && !!navigator.share && !!navigator.canShare;
+              // Paylaşım menüsü: onaylı fotoğraf varsa fotoğrafla, yoksa APRON logosuyla birlikte gönderir
+              const paylasimDestekli = typeof navigator!=="undefined" && !!navigator.share && !!navigator.canShare;
               return div({key:h2.id,style:{background:"var(--bg3)",borderRadius:9,padding:"10px 12px",marginBottom:8}},
                 div({style:{fontSize:15,color:"var(--tx)",fontWeight:500,marginBottom:4}},"💇 "+h2.musteriAd),
                 h2.tel&&div({style:{fontSize:13,color:"#5a7a9a",marginBottom:4}},"📞 "+h2.tel),
                 div({style:{fontSize:12,color:"var(--mu)",marginBottom:6}},"Hatırlatma: "+fmtT(h2.gonderiTarih)),
+                otoDurum&&div({style:{fontSize:12,fontWeight:600,color:otoDurum.renk,marginBottom:6,lineHeight:1.4}},otoDurum.metin),
                 div({style:{fontSize:13,color:"#7a9aba",background:"rgba(37,99,168,.05)",
                   borderRadius:7,padding:"7px 9px",marginBottom:8,lineHeight:1.5,whiteSpace:"pre-line"}},
-                  h2.mesaj,
-                  fotoEkli&&div({style:{marginTop:8,paddingTop:8,borderTop:"1px dashed rgba(37,99,168,.25)",color:"#2563a8",fontWeight:500}},
-                    "En son saç kesiminizde böyle yapmıştık 👇")
+                  fotoEkli ? fotoSatiriEkle(mesajMetni, HAT_FOTO_SATIRI) : mesajMetni
+                ),
+                _uretilen&&div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:-3,marginBottom:9}},
+                  div({style:{fontSize:11.5,color:"var(--mu)"}},"Mesaj "+(((sablonNo%HAT_SABLONLARI.length)+HAT_SABLONLARI.length)%HAT_SABLONLARI.length+1)+" / "+HAT_SABLONLARI.length),
+                  btn({type:"button",style:{padding:"5px 10px",borderRadius:8,border:"1px solid rgba(37,99,168,.3)",background:"rgba(37,99,168,.06)",color:"#2563a8",fontSize:12,fontWeight:600,cursor:"pointer"},
+                    onClick:()=>setHatSablonSecim(p=>({...p,[h2.id]:hatSonrakiSablon(h2, sablonNo)}))},"🔄 Başka metin")
                 ),
                 sonFoto&&sonFoto.url&&div({style:{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"8px 9px",borderRadius:8,
                   background:fotoEkli?"rgba(37,99,168,.06)":"transparent",border:"1px solid "+(fotoEkli?"rgba(37,99,168,.2)":"var(--br)")}},
@@ -22654,7 +22911,7 @@ if(DB) dbUpsertAyar("tema",tema);
                         : (sonFoto.g ? "Mesaja eklenmeyecek" : "Müşteri onayı işaretlenmemiş — fotoğrafsız gönderilecek"))
                   ),
                   h("label",{style:{display:"flex",alignItems:"center",gap:5,fontSize:12,color:"var(--tx)",cursor:"pointer",flexShrink:0}},
-                    h("input",{type:"checkbox",checked:fotoEkli,onChange:e=>{ const kapali=!e.target.checked; setHatFotoSecim(p=>({...p,[h2.id]:!kapali})); }}),
+                    h("input",{type:"checkbox",checked:fotoEkli,onChange:e=>{ const kapali=!e.target.checked; setHatFotoSecim(p=>({...p,[h2.id]:!kapali})); waFotoSecimKaydet(h2.id, !kapali); }}),
                     "Ekle")
                 ),
                 div({style:{display:"flex",gap:8,flexWrap:"wrap"}},
@@ -22664,28 +22921,28 @@ if(DB) dbUpsertAyar("tema",tema);
                         color:"#25d366",fontSize:14,cursor:"pointer",
                         display:"flex",alignItems:"center",justifyContent:"center",gap:6},
                         onClick:()=>{
-                          const metin = linkliFoto ? hatirlatmaFotoMetni(gunGuncelMesaj(), sonFoto.url) : gunGuncelMesaj();
+                          const metin = linkliFoto ? fotoSatiriEkle(mesajMetni, HAT_FOTO_SATIRI+"\n"+sonFoto.url) : mesajMetni;
                           window.open("https://wa.me/"+telFmt()+"?text="+encodeURIComponent(metin),"_blank");
+                          gonderildiKaydet();
                           gonderildiIsaretle();
                         }},
                         "WhatsApp Gönder")
                     :div({style:{flex:1,padding:"9px 0",borderRadius:8,
                         background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",
                         color:"#c05050",fontSize:13,textAlign:"center"}},"Telefon numarası yok"),
-                  paylasimDestekli&&btn({title:"Fotoğrafı dosya olarak paylaş (WhatsApp'ta kişiyi siz seçersiniz)",
+                  paylasimDestekli&&btn({title:fotoEkli?"Fotoğrafla birlikte paylaş (WhatsApp'ta kişiyi siz seçersiniz)":"APRON logosuyla birlikte paylaş (WhatsApp'ta kişiyi siz seçersiniz)",
                     style:{flex:1,minWidth:130,padding:"9px 0",borderRadius:8,
                       background:"rgba(37,99,168,.10)",border:"1px solid rgba(37,99,168,.3)",
                       color:"#2563a8",fontSize:14,cursor:"pointer",
                       display:"flex",alignItems:"center",justifyContent:"center",gap:6},
                     onClick:async()=>{
-                      const metin = gunGuncelMesaj();
-                      const i = metin.lastIndexOf("\n\n");
-                      const fotoluMetin = i>0 ? metin.slice(0,i)+"\n\nEn son saç kesiminizde böyle yapmıştık 📸"+metin.slice(i) : metin+"\n\nEn son saç kesiminizde böyle yapmıştık 📸";
-                      const ok = await fotoIleMesajPaylas(sonFoto.url, fotoluMetin);
-                      if(ok===true){ gonderildiIsaretle(); showToast("Gönderildi olarak işaretlendi","ba"); }
+                      const ok = fotoEkli
+                        ? await fotoIleMesajPaylas(sonFoto.url, fotoSatiriEkle(mesajMetni, HAT_FOTO_SATIRI))
+                        : await fotoIleMesajPaylas(await logoSeridiHazirla((isletme&&isletme.logo)||LOGO), hatImzasiz(mesajMetni), "apron");
+                      if(ok===true){ gonderildiKaydet(); gonderildiIsaretle(); showToast("Gönderildi olarak işaretlendi","ba"); }
                       else if(ok===false) showToast("Bu cihaz fotoğraf paylaşımını desteklemiyor — WhatsApp Gönder'i kullanın","uy");
                     }},
-                    "📷 Fotoğrafla Gönder"),
+                    fotoEkli?"📷 Fotoğrafla Gönder":"🖼 Logolu Gönder"),
                   btn({style:{padding:"9px 12px",borderRadius:8,
                     background:"transparent",border:"1px solid var(--br)",
                     color:"var(--di)",fontSize:13,cursor:"pointer"},
@@ -26352,6 +26609,7 @@ if(DB) dbUpsertAyar("tema",tema);
             ["rgba(200,100,0,.13)","🏢","İşletme",null,()=>{setAsek("ayarlar");setAySek("isletme");}],
             // Gruplar — ekip → yeşil
             ["rgba(40,160,80,.13)","👥","Gruplar",null,()=>{setAsek("ayarlar");setAySek("gruplar");}],
+            ["rgba(37,211,102,.15)","💬","WhatsApp Otomatik",null,()=>{setAsek("ayarlar");setAySek("whatsapp");}],
             ["rgba(255,59,48,.13)","🔐","Güvenlik",null,()=>{setAsek("ayarlar");setAySek("guvenlik");}],
             ["rgba(40,130,90,.13)","🗂️","Yedekleme",null,()=>{setAsek("ayarlar");setAySek("yedekleme");}],
           ].map(([bg,ikon,lb,altSek,fn],i)=>
@@ -28762,6 +29020,7 @@ if(DB) dbUpsertAyar("tema",tema);
           ),
     ),
 
+    aySek==="whatsapp"&&h(WaOtomatikPanel,{showToast}),
     aySek==="guvenlik"&&div({style:{padding:"0",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
     div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:14,padding:18,marginBottom:14}},
     div({style:{fontSize:12,fontWeight:700,color:"var(--g)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:16}},"ŞİFRE İŞLEMLERİ"),
