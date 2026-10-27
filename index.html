@@ -619,7 +619,7 @@ const _fdIndeks = () => {
     if(!shard.startsWith(ZF_ON)) return;
     const sh=_fdVeri[shard]||{};
     Object.keys(sh).forEach(k=>{
-      const d=sh[k]; if(!d||(!_fU(d.o)&&!_fU(d.s))) return;
+      const d=sh[k]; if(!d||(!zfSayi(d.o)&&!zfSayi(d.s))) return;
       const e={...d, kayitId:k, shard};
       zKayit[k]=e;
       if(d.t) (zTel[d.t]=zTel[d.t]||[]).push(e);
@@ -742,13 +742,27 @@ function MusteriAramaKutusu({deger, onDegis, bulunan, toplam}){
   );
 }
 // ── Ziyaret (öncesi/sonrası) fotoğrafları ──
-// Dönen yapı: {o, s} (her biri {u,k} ya da null) ve g: hatırlatmada müşteriye gönderilmesine onay var mı
+// Saç kesimini tam göstermek için öncesi ve sonrası ayrı ayrı 5 açıdan çekilir.
+// Saklama: o / s = {on, sag, sol, arka, tepe} (her biri {u,k}); eski tek fotoğraflı kayıtlar "Ön" açısı sayılır.
+const ZF_ACILAR = [["on","Ön"],["sag","Sağ"],["sol","Sol"],["arka","Arka"],["tepe","Tepe"]];
+const _zfSet = (x) => {
+  if(!x) return {};
+  if(typeof x==="string" || x.u) { const f=_fNesne(x); return f ? {on:f} : {}; }
+  const r = {}; ZF_ACILAR.forEach(([k])=>{ const f=_fNesne(x[k]); if(f) r[k]=f; }); return r;
+};
+const zfSayi = (x) => Object.keys(_zfSet(x)).length;
+const zfIlk = (x) => { const s=_zfSet(x); for(const [k] of ZF_ACILAR) if(s[k]) return s[k]; return null; };
+const zfSirali = (x) => { const s=_zfSet(x); return ZF_ACILAR.filter(([k])=>s[k]).map(([k,ad])=>({...s[k], aci:k, ad})); };
+const _zfUrller = (x) => Object.values(_zfSet(x)).flatMap(f=>[_fU(f),_fK(f)]).filter(Boolean);
+const _zfSlot = (set, k, f) => { const r = {..._zfSet(set)}; if(f) r[k] = _fNesne(f); else delete r[k]; return r; };
+// Dönen yapı: {o:{açı:{u,k}}, s:{...}, g: hatırlatmada müşteriye gönderilmesine onay var mı}
 const ziyaretFotoAl = (kayitId) => {
   if(kayitId==null) return null;
   const e = _fdIndeks().zKayit[String(kayitId)];
-  return e ? {o:_fNesne(e.o), s:_fNesne(e.s), g:!!e.g} : null;
+  return e ? {o:_zfSet(e.o), s:_zfSet(e.s), g:!!e.g} : null;
 };
-const _zfDuz = (f) => ({o:_fNesne(f&&f.o), s:_fNesne(f&&f.s), g:!!(f&&f.g)});
+const ziyaretFotoVarMi = (kayitId) => { const f=ziyaretFotoAl(kayitId); return !!(f && (zfSayi(f.o)||zfSayi(f.s))); };
+const _zfDuz = (f) => ({o:_zfSet(f&&f.o), s:_zfSet(f&&f.s), g:!!(f&&f.g)});
 // foto: {o, s, g}; ikisi de boşsa kayıt silinir. bilgi: {tel, ad, tarih}
 const ziyaretFotoKaydet = (kayitId, foto, bilgi) => {
   if(kayitId==null) return;
@@ -757,12 +771,11 @@ const ziyaretFotoKaydet = (kayitId, foto, bilgi) => {
   const tarih = String((bilgi&&bilgi.tarih) || (mevcut&&mevcut.d) || TODAY()).slice(0,10);
   const shard = mevcut ? mevcut.shard : ZF_ON + tarih.slice(0,7);
   const f = _zfDuz(foto);
-  const eskiler = [];
-  if(mevcut){
-    ["o","s"].forEach(a=>{ if(mevcut[a] && _fU(mevcut[a])!==_fU(f[a])) eskiler.push(_fU(mevcut[a]), _fK(mevcut[a])); });
-  }
-  if(!f.o && !f.s) _fdAyarla(shard, kayitId, null);
-  else _fdAyarla(shard, kayitId, {o:f.o, s:f.s, g:f.g?1:0,
+  // Artık kullanılmayan görselleri buluttan sil
+  const yeniler = new Set([..._zfUrller(f.o), ..._zfUrller(f.s)]);
+  const eskiler = mevcut ? [..._zfUrller(mevcut.o), ..._zfUrller(mevcut.s)].filter(u=>!yeniler.has(u)) : [];
+  if(!zfSayi(f.o) && !zfSayi(f.s)) _fdAyarla(shard, kayitId, null);
+  else _fdAyarla(shard, kayitId, {o:zfSayi(f.o)?f.o:null, s:zfSayi(f.s)?f.s:null, g:f.g?1:0,
     t:_mfTel(bilgi&&bilgi.tel) || (mevcut&&mevcut.t) || "",
     a:_zfAd(bilgi&&bilgi.ad) || (mevcut&&mevcut.a) || "",
     d:tarih});
@@ -774,10 +787,11 @@ const ziyaretFotoGuncelle = (kayitId, foto, bilgi) => {
   if(kayitId==null || !foto) return;
   const m = _zfDuz(ziyaretFotoAl(kayitId));
   const f = _zfDuz(foto);
-  if(_fU(m.o)===_fU(f.o) && _fU(m.s)===_fU(f.s) && m.g===f.g) return;
+  if(_ayarImza(m)===_ayarImza(f)) return;
   ziyaretFotoKaydet(kayitId, f, bilgi);
 };
-// Müşterinin en son ziyaret fotoğrafı (öncelik: verilen tarihteki ziyaret, sonra en yeni). Sonrası tercih edilir.
+// Müşterinin en son ziyaret fotoğrafları (öncelik: verilen tarihteki ziyaret, sonra en yeni). Sonrası tercih edilir.
+// url/kucuk: kapak (ilk açı, genelde "Ön"); hepsi: o gruptaki tüm açılar
 const musteriSonZiyaretFoto = ({tel, ad, tarih}) => {
   const ix = _fdIndeks();
   const t = _mfTel(tel);
@@ -785,10 +799,12 @@ const musteriSonZiyaretFoto = ({tel, ad, tarih}) => {
   if(!liste.length && ad) liste = ix.zAd[_zfAd(ad)] || [];
   if(!liste.length) return null;
   const sirali = liste.slice().sort((x,y)=>String(y.d||"").localeCompare(String(x.d||"")));
-  const e = (tarih && sirali.find(x=>x.d===tarih && x.s)) || sirali.find(x=>x.s) || sirali[0];
+  const e = (tarih && sirali.find(x=>x.d===tarih && zfSayi(x.s))) || sirali.find(x=>zfSayi(x.s)) || sirali[0];
   if(!e) return null;
-  const foto = _fNesne(e.s) || _fNesne(e.o);
-  return foto ? {url:foto.u, kucuk:foto.k, sonrasi:!!_fU(e.s), tarih:e.d||"", kayitId:e.kayitId, g:!!e.g} : null;
+  const sonrasi = zfSayi(e.s) > 0;
+  const grup = sonrasi ? e.s : e.o;
+  const kapak = zfIlk(grup);
+  return kapak ? {url:kapak.u, kucuk:kapak.k, hepsi:zfSirali(grup), sonrasi, tarih:e.d||"", kayitId:e.kayitId, g:!!e.g} : null;
 };
 const _fotoBulutUrlMi = u => /^https?:\/\//.test(String(u||""));
 // ── Görsel hazırlama: kalite korunur, boyut makul tutulur ──
@@ -957,7 +973,7 @@ function MusteriFoto({id, tel, ad, boyut=52, yaricap, duzenle=false, butonlar=fa
 // ── Ziyaret öncesi/sonrası fotoğraf kutusu ──
 // Boşken "+ Öncesi" kutusu; doluyken küçük önizleme. Dokununca tam boy (Değiştir / Kaldır).
 // deger: {u,k} | url | null ; onDegis({u,k} | null)
-function FotoKutusu({etiket, deger, onDegis, duzenle=true, gen=96, formModu=false}){
+function FotoKutusu({etiket, deger, onDegis, duzenle=true, gen=96, formModu=false, esnek=false, yukDis=false, onAc}){
   const [yuk, setYuk] = useState(false);
   const [buyuk, setBuyuk] = useState(false);
   const ref = useRef(null);
@@ -975,25 +991,29 @@ function FotoKutusu({etiket, deger, onDegis, duzenle=true, gen=96, formModu=fals
   };
   const yuks = Math.round(gen*4/3);
   const kucukBtn = {padding:"7px 13px",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer",border:"none",background:"#fff",color:"#0071E3"};
+  const ac = () => { if(onAc) onAc(); else setBuyuk(true); };
+  const yukleniyor = yuk || yukDis;
   return h(Fragment,null,
-    h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",gap:4,flexShrink:0}},
+    h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",gap:esnek?3:4,flexShrink:0,minWidth:0,width:esnek?"100%":undefined}},
       h("div",{
         role:"button", tabIndex:0, "aria-label":(foto?etiket+" fotoğrafını büyüt":etiket+" fotoğrafı ekle"),
-        style:{position:"relative",width:gen,height:yuks,borderRadius:10,overflow:"hidden",
+        style:{position:"relative",borderRadius:esnek?8:10,overflow:"hidden",
+          ...(esnek ? {width:"100%",aspectRatio:"3 / 4"} : {width:gen,height:yuks}),
           border:foto?"1px solid rgba(0,0,0,.10)":"1.5px dashed rgba(0,113,227,.45)",
           background:foto?"#000":"rgba(0,113,227,.05)",
           display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,
           cursor: foto ? "zoom-in" : (duzenle ? "pointer" : "default"), color:"#0071E3"},
-        onClick:(e)=>{ e.stopPropagation(); if(foto) setBuyuk(true); else if(duzenle) sec(); },
-        onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); if(foto) setBuyuk(true); else if(duzenle) sec(); } }},
+        onClick:(e)=>{ e.stopPropagation(); if(yukleniyor) return; if(foto) ac(); else if(duzenle) sec(); },
+        onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); if(foto) ac(); else if(duzenle) sec(); } }},
         foto
           ? h("img",{src:foto.k,alt:etiket,loading:"lazy",decoding:"async",style:{width:"100%",height:"100%",objectFit:"cover",display:"block"}})
           : (duzenle
-              ? h(Fragment,null, h("span",{style:{fontSize:Math.round(gen*0.24),lineHeight:1}},"📷"), h("span",{style:{fontSize:11,fontWeight:600}},"+ "+etiket))
+              ? (esnek ? h("span",{style:{fontSize:18,lineHeight:1,fontWeight:300}},"+")
+                       : h(Fragment,null, h("span",{style:{fontSize:Math.round(gen*0.24),lineHeight:1}},"📷"), h("span",{style:{fontSize:11,fontWeight:600}},"+ "+etiket)))
               : h("span",{style:{fontSize:11,color:"var(--di)"}},"—")),
-        yuk && h("div",{style:{position:"absolute",inset:0,background:"rgba(0,0,0,.5)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600}},"Yükleniyor…")
+        yukleniyor && h("div",{style:{position:"absolute",inset:0,background:"rgba(0,0,0,.5)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:esnek?16:12,fontWeight:600}},esnek?"…":"Yükleniyor…")
       ),
-      h("div",{style:{fontSize:10.5,fontWeight:700,letterSpacing:.8,textTransform:"uppercase",color:"#86868B"}},etiket),
+      h("div",{style:{fontSize:esnek?10:10.5,fontWeight:700,letterSpacing:esnek?.3:.8,textTransform:"uppercase",color:"#86868B",whiteSpace:"nowrap"}},etiket),
       duzenle && h("input",{ref,type:"file",accept:"image/*",style:{display:"none"},onChange:dosyaSecildi,onClick:e=>e.stopPropagation()})
     ),
     buyuk && foto && ReactDOM.createPortal(
@@ -1021,37 +1041,156 @@ function FotoGonderOnayi({isaretli, onDegis, kucuk=false}){
     )
   );
 }
-// Form modu: değer dışarıdan ({o,s,g}) yönetilir
-function ZiyaretFotoAlani({deger, onDegis, gen=96}){
-  const d = deger||{};
-  return h("div",null,
-    h("div",{style:{display:"flex",gap:12,alignItems:"flex-start"}},
-      h(FotoKutusu,{etiket:"Öncesi",deger:d.o,gen,formModu:true,onDegis:f=>onDegis({...d,o:f})}),
-      h(FotoKutusu,{etiket:"Sonrası",deger:d.s,gen,formModu:true,onDegis:f=>onDegis({...d,s:f})})
+// Bir grup (Öncesi ya da Sonrası) için 5 açılı sıra. "Toplu ekle" ile birden çok fotoğraf seçilip boş açılara sırayla yerleşir.
+function ZiyaretFotoGrubu({baslik, grup, set, duzenle, formModu, onSlot, onAc, kompakt=false}){
+  const [yukleniyor, setYukleniyor] = useState({}); // açı → true
+  const [ilerleme, setIlerleme] = useState("");
+  const topluRef = useRef(null);
+  const s = _zfSet(set);
+  const sayi = Object.keys(s).length;
+  const bosAcilar = ZF_ACILAR.filter(([k])=>!s[k]).map(([k])=>k);
+  const topluSecildi = async (e) => {
+    const dosyalar = Array.from(e.target.files||[]);
+    e.target.value = "";
+    if(!dosyalar.length) return;
+    const hedef = bosAcilar.slice(0, dosyalar.length);
+    if(dosyalar.length > hedef.length) window.alert(hedef.length+" boş açı var; ilk "+hedef.length+" fotoğraf eklenecek. Diğer açıları değiştirmek için ilgili kutuya dokunun.");
+    setYukleniyor(p=>{ const r={...p}; hedef.forEach(k=>r[k]=true); return r; });
+    let hata = 0;
+    for(let i=0;i<hedef.length;i++){
+      setIlerleme((i+1)+" / "+hedef.length+" yükleniyor…");
+      try { onSlot(grup, hedef[i], await ziyaretFotoHazirla(dosyalar[i])); }
+      catch(err){ hata++; }
+      setYukleniyor(p=>{ const r={...p}; delete r[hedef[i]]; return r; });
+    }
+    setIlerleme("");
+    if(hata) window.alert(hata+" fotoğraf eklenemedi. İnternet bağlantınızı kontrol edip o açılara tekrar ekleyin.");
+  };
+  return h("div",{style:{marginBottom:kompakt?8:12}},
+    h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6}},
+      h("div",{style:{fontSize:kompakt?10.5:11.5,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:grup==="s"?"#1f7a4c":"#86868B"}},
+        baslik, h("span",{style:{fontWeight:600,color:"#a0a0a5",marginLeft:6,letterSpacing:0}},sayi+"/5")),
+      duzenle && bosAcilar.length>0 && h("button",{type:"button",disabled:!!ilerleme,
+        style:{padding:kompakt?"3px 8px":"5px 10px",borderRadius:8,border:"1px solid rgba(0,113,227,.35)",background:"rgba(0,113,227,.07)",
+          color:"#0071E3",fontSize:kompakt?11:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"},
+        onClick:(e)=>{ e.stopPropagation(); topluRef.current && topluRef.current.click(); }},
+        ilerleme || (sayi===0 ? "📷 Toplu ekle" : "📷 Kalanları ekle")),
+      duzenle && h("input",{ref:topluRef,type:"file",accept:"image/*",multiple:true,style:{display:"none"},onChange:topluSecildi,onClick:e=>e.stopPropagation()})
     ),
-    (_fU(d.o)||_fU(d.s)) && h(FotoGonderOnayi,{isaretli:d.g,onDegis:g=>onDegis({...d,g})})
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(5, minmax(0, 1fr))",gap:kompakt?5:7,maxWidth:kompakt?300:420}},
+      ZF_ACILAR.map(([k,ad])=>h(FotoKutusu,{key:k,etiket:ad,deger:s[k]||null,duzenle,formModu,esnek:true,
+        yukDis:!!yukleniyor[k],onAc:()=>onAc(grup,k),onDegis:f=>onSlot(grup,k,f)}))
+    )
   );
 }
+// Tam ekran görüntüleyici: açılar arasında geçiş (← →, kaydırma) ve aynı açıda Öncesi ↔ Sonrası karşılaştırma
+function ZiyaretFotoGoruntuleyici({deger, baslangic, duzenle, formModu, onSlot, onKapat}){
+  const [grup, setGrup] = useState(baslangic.grup);
+  const [aci, setAci] = useState(baslangic.aci);
+  const [yuk, setYuk] = useState(false);
+  const ref = useRef(null);
+  const dokunus = useRef(null);
+  const o = _zfSet(deger.o), s = _zfSet(deger.s);
+  const set = grup==="o" ? o : s;
+  const foto = set[aci] || null;
+  const doluAcilar = ZF_ACILAR.filter(([k])=>set[k]).map(([k])=>k);
+  const git = (yon) => {
+    if(!doluAcilar.length) return;
+    const i = doluAcilar.indexOf(aci);
+    setAci(doluAcilar[(i<0?0:i+yon+doluAcilar.length)%doluAcilar.length]);
+  };
+  useEffect(()=>{
+    const f = (e) => { if(e.key==="ArrowRight") git(1); else if(e.key==="ArrowLeft") git(-1); else if(e.key==="Escape") onKapat(); };
+    window.addEventListener("keydown", f); return ()=>window.removeEventListener("keydown", f);
+  });
+  const degistirSecildi = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if(!file) return;
+    setYuk(true);
+    try { const yeni = await ziyaretFotoHazirla(file); if(formModu) formGorseliBirak(foto); onSlot(grup, aci, yeni); }
+    catch(err){ window.alert("Fotoğraf eklenemedi: "+((err&&err.message)||err)); }
+    finally { setYuk(false); }
+  };
+  const aciAdi = (ZF_ACILAR.find(([k])=>k===aci)||[])[1]||"";
+  const sekme = (aktif) => ({padding:"6px 12px",borderRadius:16,border:"none",fontSize:12.5,fontWeight:600,cursor:"pointer",
+    background:aktif?"#fff":"rgba(255,255,255,.14)",color:aktif?"#111":"#fff"});
+  const kucukBtn = {padding:"7px 13px",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer",border:"none",background:"#fff",color:"#0071E3"};
+  return ReactDOM.createPortal(
+    h("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,.94)",zIndex:100000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"14px 12px",gap:12},
+      onClick:(e)=>{ e.stopPropagation(); onKapat(); }},
+      // Öncesi / Sonrası geçişi
+      h("div",{style:{display:"flex",gap:6,background:"rgba(255,255,255,.08)",padding:4,borderRadius:20},onClick:e=>e.stopPropagation()},
+        h("button",{type:"button",style:sekme(grup==="o"),onClick:()=>setGrup("o")},"Öncesi"+(zfSayi(o)?" ("+zfSayi(o)+")":"")),
+        h("button",{type:"button",style:sekme(grup==="s"),onClick:()=>setGrup("s")},"Sonrası"+(zfSayi(s)?" ("+zfSayi(s)+")":""))
+      ),
+      // Fotoğraf + oklar
+      h("div",{style:{position:"relative",display:"flex",alignItems:"center",justifyContent:"center",width:"100%",maxWidth:640,minHeight:200},
+        onClick:e=>e.stopPropagation(),
+        onTouchStart:e=>{ dokunus.current = e.touches[0].clientX; },
+        onTouchEnd:e=>{ const x0=dokunus.current; dokunus.current=null; if(x0==null) return; const dx=e.changedTouches[0].clientX-x0; if(Math.abs(dx)>45) git(dx<0?1:-1); }},
+        doluAcilar.length>1 && h("button",{type:"button","aria-label":"Önceki açı",onClick:()=>git(-1),
+          style:{position:"absolute",left:0,zIndex:2,width:40,height:40,borderRadius:20,border:"none",background:"rgba(255,255,255,.18)",color:"#fff",fontSize:22,cursor:"pointer"}},"‹"),
+        foto
+          ? h(TamBoyGorsel,{key:grup+aci,foto,alt:(grup==="o"?"Öncesi":"Sonrası")+" · "+aciAdi,stil:{..._buyukGorselStil,maxHeight:"62vh",maxWidth:"min(86vw,560px)"}})
+          : h("div",{style:{color:"rgba(255,255,255,.6)",fontSize:14,padding:"70px 20px",textAlign:"center"}},
+              (grup==="o"?"Öncesi":"Sonrası")+" · "+aciAdi+" fotoğrafı yok"),
+        yuk && h("div",{style:{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:600,background:"rgba(0,0,0,.4)"}},"Yükleniyor…"),
+        doluAcilar.length>1 && h("button",{type:"button","aria-label":"Sonraki açı",onClick:()=>git(1),
+          style:{position:"absolute",right:0,zIndex:2,width:40,height:40,borderRadius:20,border:"none",background:"rgba(255,255,255,.18)",color:"#fff",fontSize:22,cursor:"pointer"}},"›")
+      ),
+      // Açı seçimi
+      h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"center"},onClick:e=>e.stopPropagation()},
+        ZF_ACILAR.map(([k,ad])=>h("button",{key:k,type:"button",onClick:()=>setAci(k),
+          style:{...sekme(aci===k),opacity:set[k]||aci===k?1:.45,padding:"5px 11px"}},ad))
+      ),
+      h("div",{style:{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"},onClick:e=>e.stopPropagation()},
+        duzenle && h("button",{type:"button",style:kucukBtn,onClick:()=>ref.current&&ref.current.click()},foto?"📷 Değiştir":"📷 Ekle"),
+        duzenle && foto && h("button",{type:"button",style:{...kucukBtn,color:"#c0392b"},
+          onClick:()=>{ if(window.confirm((grup==="o"?"Öncesi":"Sonrası")+" · "+aciAdi+" fotoğrafı kaldırılsın mı?")){ if(formModu) formGorseliBirak(foto); onSlot(grup, aci, null); } }},"Kaldır"),
+        h("button",{type:"button",style:{...kucukBtn,background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.3)",color:"#fff"},onClick:onKapat},"Kapat"),
+        duzenle && h("input",{ref,type:"file",accept:"image/*",style:{display:"none"},onChange:degistirSecildi})
+      )
+    ), document.body);
+}
+// Öncesi + Sonrası grupları, onay kutusu ve görüntüleyici
+function ZiyaretFotoPaneli({deger, onSlot, onOnay, duzenle=true, formModu=false, kompakt=false}){
+  const [goster, setGoster] = useState(null); // {grup, aci}
+  const d = deger || {};
+  const varMi = zfSayi(d.o) || zfSayi(d.s);
+  return h("div",{onClick:e=>e.stopPropagation()},
+    h(ZiyaretFotoGrubu,{baslik:"Öncesi",grup:"o",set:d.o,duzenle,formModu,onSlot,kompakt,onAc:(g,k)=>setGoster({grup:g,aci:k})}),
+    h(ZiyaretFotoGrubu,{baslik:"Sonrası",grup:"s",set:d.s,duzenle,formModu,onSlot,kompakt,onAc:(g,k)=>setGoster({grup:g,aci:k})}),
+    varMi && duzenle && h(FotoGonderOnayi,{kucuk:kompakt,isaretli:d.g,onDegis:onOnay}),
+    varMi && !duzenle && d.g && h("div",{style:{fontSize:11,color:"var(--mu)",marginTop:4}},"✓ Hatırlatmada gönderilebilir"),
+    goster && h(ZiyaretFotoGoruntuleyici,{deger:d,baslangic:goster,duzenle,formModu,onSlot,onKapat:()=>setGoster(null)})
+  );
+}
+// Form modu: değer dışarıdan ({o,s,g}) yönetilir; onDegis bir state ayarlayıcısıdır (fonksiyonel güncelleme destekler)
+function ZiyaretFotoAlani({deger, onDegis}){
+  return h(ZiyaretFotoPaneli,{deger,formModu:true,
+    onSlot:(g,k,f)=>onDegis(p=>({...(p||{}), [g]:_zfSlot((p||{})[g], k, f)})),
+    onOnay:(gv)=>onDegis(p=>({...(p||{}), g:gv}))});
+}
 // Depo modu: bir ziyaret kaydının fotoğraflarını gösterir/düzenler. Fotoğraf yoksa ve düzenleme kapalıysa hiçbir şey çizmez.
-function ZiyaretFotolari({kayit, duzenle=true, gen=64, baslik=true}){
+function ZiyaretFotolari({kayit, duzenle=true, baslik=true}){
   useFotoDeposu();
   const [acik, setAcik] = useState(false);
   if(!kayit || kayit.id==null) return null;
-  const f = ziyaretFotoAl(kayit.id) || {o:null,s:null,g:false};
-  const var_ = !!(f.o||f.s);
-  if(!var_ && !duzenle) return null;
-  const kaydet = (yeni) => ziyaretFotoKaydet(kayit.id, yeni, {tel:kayit.tel, ad:kayit.musteri, tarih:kayit.tarih});
-  if(!var_ && !acik) return h("button",{type:"button",
+  const f = ziyaretFotoAl(kayit.id) || {o:{},s:{},g:false};
+  const varMi = zfSayi(f.o) || zfSayi(f.s);
+  if(!varMi && !duzenle) return null;
+  const bilgi = {tel:kayit.tel, ad:kayit.musteri, tarih:kayit.tarih};
+  // Her güncellemede depodaki en güncel hali okunur (aynı anda birden çok açı yüklenirken birbirini ezmesin)
+  const guncel = () => ziyaretFotoAl(kayit.id) || {o:{},s:{},g:false};
+  if(!varMi && !acik) return h("button",{type:"button",
     style:{marginTop:6,padding:"5px 10px",borderRadius:8,border:"1px dashed rgba(0,113,227,.45)",background:"rgba(0,113,227,.05)",color:"#0071E3",fontSize:12,fontWeight:600,cursor:"pointer"},
     onClick:(e)=>{ e.stopPropagation(); setAcik(true); }},"📷 Öncesi / Sonrası ekle");
   return h("div",{style:{marginTop:8},onClick:e=>e.stopPropagation()},
-    baslik && h("div",{style:{fontSize:10.5,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"var(--mu)",marginBottom:5}},"📸 Öncesi / Sonrası"),
-    h("div",{style:{display:"flex",gap:10}},
-      h(FotoKutusu,{etiket:"Öncesi",deger:f.o,gen,duzenle,onDegis:x=>kaydet({...f,o:x})}),
-      h(FotoKutusu,{etiket:"Sonrası",deger:f.s,gen,duzenle,onDegis:x=>kaydet({...f,s:x})})
-    ),
-    var_ && duzenle && h(FotoGonderOnayi,{kucuk:true,isaretli:f.g,onDegis:g=>kaydet({...f,g})}),
-    var_ && !duzenle && f.g && h("div",{style:{fontSize:11,color:"var(--mu)",marginTop:4}},"✓ Hatırlatmada gönderilebilir")
+    baslik && h("div",{style:{fontSize:10.5,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"var(--mu)",marginBottom:6}},"📸 Öncesi / Sonrası"),
+    h(ZiyaretFotoPaneli,{deger:f,duzenle,kompakt:true,
+      onSlot:(g,k,x)=>{ const c=guncel(); ziyaretFotoKaydet(kayit.id, {...c,[g]:_zfSlot(c[g],k,x)}, bilgi); },
+      onOnay:(gv)=>{ const c=guncel(); ziyaretFotoKaydet(kayit.id, {...c,g:gv}, bilgi); }})
   );
 }
 // Hatırlatma mesajına "en son saç kesiminiz" fotoğraf satırını ekler (imzadan önce)
@@ -1108,22 +1247,34 @@ const logoSeridiHazirla = (kaynak) => {
 // Logo zaten görselde olduğu için metnin sonundaki "APRON" imzası tekrar etmesin
 const hatImzasiz = (m) => String(m||"").replace(/\n\n\*[^*\n]+\*\s*$/,"").replace(/\n\n(apron)\s*$/i,"");
 // Paylaşım menüsüyle fotoğrafı DOSYA olarak (tam kalite) + mesajla gönderir. true: gönderildi, null: vazgeçildi, false: desteklenmiyor
-const fotoIleMesajPaylas = async (url, metin, dosyaAdi) => {
+// Paylaşılacak görselleri önceden dosyaya çevirip saklar: paylaşım menüsü telefonlarda yalnızca dokunuştan hemen
+// sonra açılabildiği için, düğmeye basıldığında indirme beklenmesin (kart görünür görünmez hazırlanır).
+const _paylasimDosya = {};
+const paylasimDosyasi = (url, dosyaAdi) => {
+  if(!url) return Promise.resolve(null);
+  if(!_paylasimDosya[url]) _paylasimDosya[url] = (async()=>{
+    const blob = url.startsWith("data:") ? _dataUrlToBlob(url) : await (await fetch(url)).blob();
+    const tip = blob.type||"image/jpeg", uz = /png/.test(tip)?"png":/webp/.test(tip)?"webp":"jpg";
+    return new File([blob], (dosyaAdi||"son-sac-kesimi")+"."+uz, {type: tip});
+  })().catch(()=>{ delete _paylasimDosya[url]; return null; });
+  return _paylasimDosya[url];
+};
+// Paylaşım menüsüyle bir ya da birden çok görseli (ör. 5 açı) DOSYA olarak + mesajla gönderir.
+// true: gönderildi, null: vazgeçildi, false: desteklenmiyor
+const fotoIleMesajPaylas = async (urller, metin, dosyaAdi) => {
   try{
     if(!navigator.share) return false;
     // Bazı telefonlarda WhatsApp resimle birlikte gelen metni düşürebiliyor: yedek olarak panoya da kopyala
     try{ if(navigator.clipboard && metin) await navigator.clipboard.writeText(metin); }catch(e){}
-    let dosya = null;
-    try{
-      const blob = url.startsWith("data:") ? _dataUrlToBlob(url) : await (await fetch(url)).blob();
-      const tip = blob.type||"image/jpeg", uz = /png/.test(tip)?"png":/webp/.test(tip)?"webp":"jpg";
-      dosya = new File([blob], (dosyaAdi||"son-sac-kesimi")+"."+uz, {type: tip});
-    }catch(e){ dosya = null; }
-    if(dosya && navigator.canShare && navigator.canShare({files:[dosya]})){
-      await navigator.share({files:[dosya], text:metin});
-      return true;
-    }
-    return false;
+    const liste = (Array.isArray(urller) ? urller : [urller]).filter(Boolean);
+    const ad = dosyaAdi || "son-sac-kesimi";
+    const dosyalar = (await Promise.all(liste.map((u,i)=>paylasimDosyasi(u, liste.length>1 ? ad+"-"+(i+1) : ad)))).filter(Boolean);
+    if(!dosyalar.length || !navigator.canShare) return false;
+    // Çoklu paylaşımı desteklemeyen cihazda yalnızca ilk (kapak) görsel gönderilir
+    const gidecek = navigator.canShare({files:dosyalar}) ? dosyalar : (navigator.canShare({files:[dosyalar[0]]}) ? [dosyalar[0]] : null);
+    if(!gidecek) return false;
+    await navigator.share({files:gidecek, text:metin});
+    return true;
   }catch(e){ return e && e.name==="AbortError" ? null : false; }
 };
 // ── Saç kesimi hatırlatma mesajları (elle gönderim) ──
@@ -12749,7 +12900,8 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
   const [hizmetSaati, setHizmetSaati] = useState(ilk?.hizmetSaati || new Date().toTimeString().slice(0,5));
   const [musteriKaydet, setMusteriKaydet] = useState(!!ilk?.musteriKaydet);
   const [hatirlatmaSec, setHatirlatmaSec] = useState(false);
-  const [ziyaretFoto, setZiyaretFoto] = useState(()=> (ilk?.id && ziyaretFotoAl(ilk.id)) || {o:null,s:null,g:false});
+  const [fotoAlanAcik, setFotoAlanAcik] = useState(false); // fotoğraf alanı varsayılan kapalı; başlığa dokununca açılır
+  const [ziyaretFoto, setZiyaretFoto] = useState(()=> (ilk?.id && ziyaretFotoAl(ilk.id)) || {o:{},s:{},g:false});
   const [mevcutHatirlatma, setMevcutHatirlatma] = useState(null);
   const [hatirlatmaUyari, setHatirlatmaUyari] = useState(false);
   const [hatirlatmaGun, setHatirlatmaGun] = useState("20"); // kaç gün sonra gönderilsin (öneri 20, personel değiştirir)
@@ -13683,18 +13835,35 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
         musteriKaydetUyari&&div({style:{margin:"7px 0 10px",padding:"9px 11px",borderRadius:9,
           background:"rgba(180,60,0,.15)",border:"1px solid rgba(200,80,0,.3)",
           color:"var(--tx)",fontSize:13,lineHeight:1.45}},musteriKaydetUyari),
-        // ── Ziyaret fotoğrafları: Öncesi / Sonrası ──
-        div({style:{borderRadius:13,border:"1.5px solid",marginTop:6,marginBottom:6,padding:"12px 14px",
-          borderColor:(_fU(ziyaretFoto.o)||_fU(ziyaretFoto.s))?"rgba(37,99,168,.32)":"rgba(0,0,0,.08)",
-          background:(_fU(ziyaretFoto.o)||_fU(ziyaretFoto.s))?"rgba(37,99,168,.04)":"rgba(248,249,251,.9)"}},
-          div({style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,marginBottom:10}},
-            div({style:{fontSize:14,fontWeight:600,letterSpacing:"-.1px",color:"#2d3748"}},"📸 Öncesi / Sonrası Fotoğrafı"),
-            div({style:{fontSize:11,color:"#718096"}},"İsteğe bağlı")
-          ),
-          h(ZiyaretFotoAlani,{deger:ziyaretFoto,onDegis:setZiyaretFoto,gen:92}),
-          !(_fU(ziyaretFoto.o)||_fU(ziyaretFoto.s)) && div({style:{fontSize:11.5,color:"#718096",marginTop:9,lineHeight:1.45}},
-            "Fotoğraf eklemek zorunlu değildir. Eklenirse yalnızca müşteri onay verdiğinde hatırlatma mesajında gönderilir.")
-        ),
+        // ── Ziyaret fotoğrafları: Öncesi / Sonrası (kapalı başlık; dokununca açılır) ──
+        (()=>{
+          const oS = zfSayi(ziyaretFoto.o), sS = zfSayi(ziyaretFoto.s), dolu = (oS+sS)>0;
+          const ozet = dolu ? "Öncesi "+oS+"/5 · Sonrası "+sS+"/5" : "İsteğe bağlı";
+          return div({style:{borderRadius:13,border:"1.5px solid",marginTop:6,marginBottom:6,overflow:"hidden",
+            borderColor:dolu||fotoAlanAcik?"rgba(37,99,168,.32)":"rgba(0,0,0,.08)",
+            background:dolu||fotoAlanAcik?"rgba(37,99,168,.04)":"rgba(248,249,251,.9)",transition:"border-color .22s"}},
+            h("button",{type:"button","aria-expanded":fotoAlanAcik,
+              title:"Ön, sağ, sol, arka ve tepeden öncesi/sonrası fotoğrafı ekleyin",
+              onClick:()=>setFotoAlanAcik(v=>!v),
+              style:{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 14px",border:"none",background:"transparent",cursor:"pointer",textAlign:"left",font:"inherit"}},
+              h("span",{style:{fontSize:17,lineHeight:1}},"📸"),
+              h("span",{style:{flex:1,minWidth:0}},
+                h("span",{style:{display:"block",fontSize:14,fontWeight:600,letterSpacing:"-.1px",color:dolu?"#1a4d8f":"#2d3748"}},"Öncesi / Sonrası Fotoğrafları"),
+                h("span",{style:{display:"block",fontSize:12,color:dolu?"#4a7ab5":"#718096",marginTop:1}},ozet)),
+              // Kapalıyken eklenmiş fotoğraflardan küçük bir önizleme
+              !fotoAlanAcik && dolu && h("span",{style:{display:"flex",flexShrink:0}},
+                [...zfSirali(ziyaretFoto.s), ...zfSirali(ziyaretFoto.o)].slice(0,3).map((f,i)=>
+                  h("img",{key:i,src:f.k,alt:"",style:{width:26,height:34,objectFit:"cover",borderRadius:5,border:"2px solid #fff",marginLeft:i?-8:0,boxShadow:"0 1px 3px rgba(0,0,0,.2)"}}))),
+              h("span",{"aria-hidden":true,style:{fontSize:14,color:"#86868B",flexShrink:0,transition:"transform .2s",transform:fotoAlanAcik?"rotate(180deg)":"none"}},"▾")
+            ),
+            fotoAlanAcik && div({style:{padding:"4px 14px 13px",borderTop:"1px solid rgba(37,99,168,.10)"}},
+              div({style:{height:8}}),
+              h(ZiyaretFotoAlani,{deger:ziyaretFoto,onDegis:setZiyaretFoto}),
+              !dolu && div({style:{fontSize:11.5,color:"#718096",marginTop:4,lineHeight:1.45}},
+                "Ön, sağ, sol, arka ve tepeden çekilebilir; hepsini birden seçmek için \"Toplu ekle\"yi kullanın. Fotoğraf eklemek zorunlu değildir.")
+            )
+          );
+        })(),
         musteri.trim()&&!_isManikurist&&div({style:{
           borderRadius:13,border:"1.5px solid",marginTop:6,
           borderColor:hatirlatmaSec?"rgba(37,99,168,.32)":"rgba(0,0,0,.08)",
@@ -18342,7 +18511,7 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("ozlukDosyalari",ozlukDosyalari); },[ozlukDosyalari]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("izinKayitlari",izinKayitlari); },[izinKayitlari]);
   // Logolu gönderim için şeridi önceden hazırla (paylaşım menüsü dokunuştan hemen sonra açılabilsin)
-  useEffect(()=>{ try{ logoSeridiHazirla((isletme&&isletme.logo)||LOGO); }catch(e){} },[isletme&&isletme.logo]);
+  useEffect(()=>{ try{ logoSeridiHazirla((isletme&&isletme.logo)||LOGO).then(u=>u&&paylasimDosyasi(u,"apron")); }catch(e){} },[isletme&&isletme.logo]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("cikisIslemleri",cikisIslemleri); },[cikisIslemleri]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("resmiTatilKayitlari",resmiTatilKayitlari); },[resmiTatilKayitlari]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("uyariKayitlari",uyariKayitlari); },[uyariKayitlari]);
@@ -22960,6 +23129,7 @@ if(DB) dbUpsertAyar("tema",tema);
               const telFmt = () => { const raw=String(h2.tel||"").replace(/[^0-9]/g,""); return raw.startsWith("90")?raw:raw.startsWith("0")?"90"+raw.slice(1):"90"+raw; };
               // Paylaşım menüsü: onaylı fotoğraf varsa fotoğrafla, yoksa APRON logosuyla birlikte gönderir
               const paylasimDestekli = typeof navigator!=="undefined" && !!navigator.share && !!navigator.canShare;
+              if(paylasimDestekli && fotoEkli) sonFoto.hepsi.forEach((x,i)=>paylasimDosyasi(x.u, "son-sac-kesimi-"+(i+1)));
               return div({key:h2.id,style:{background:"var(--bg3)",borderRadius:9,padding:"10px 12px",marginBottom:8}},
                 div({style:{fontSize:15,color:"var(--tx)",fontWeight:500,marginBottom:4}},"💇 "+h2.musteriAd),
                 h2.tel&&div({style:{fontSize:13,color:"#5a7a9a",marginBottom:4}},"📞 "+h2.tel),
@@ -22978,7 +23148,7 @@ if(DB) dbUpsertAyar("tema",tema);
                   background:fotoEkli?"rgba(37,99,168,.06)":"transparent",border:"1px solid "+(fotoEkli?"rgba(37,99,168,.2)":"var(--br)")}},
                   h(FotoKutusu,{etiket:sonFoto.sonrasi?"Sonrası":"Öncesi",deger:{u:sonFoto.url,k:sonFoto.kucuk},duzenle:false,gen:54,onDegis:()=>{}}),
                   div({style:{flex:1,minWidth:0}},
-                    div({style:{fontSize:12.5,fontWeight:600,color:"var(--tx)"}},"Son kesim fotoğrafı"+(sonFoto.tarih?" · "+fmtT(sonFoto.tarih):"")),
+                    div({style:{fontSize:12.5,fontWeight:600,color:"var(--tx)"}},"Son kesim"+(sonFoto.sonrasi?" (sonrası)":" (öncesi)")+" · "+sonFoto.hepsi.length+" fotoğraf"+(sonFoto.tarih?" · "+fmtT(sonFoto.tarih):"")),
                     div({style:{fontSize:11.5,color:"var(--mu)",marginTop:2,lineHeight:1.4}},
                       fotoEkli
                         ? (linkliFoto ? "Mesaja fotoğraf bağlantısıyla eklenecek" : "Bu fotoğraf yalnızca bu cihazda — paylaşım menüsüyle gönderin")
@@ -23011,7 +23181,7 @@ if(DB) dbUpsertAyar("tema",tema);
                       display:"flex",alignItems:"center",justifyContent:"center",gap:6},
                     onClick:async()=>{
                       const ok = fotoEkli
-                        ? await fotoIleMesajPaylas(sonFoto.url, fotoSatiriEkle(mesajMetni, HAT_FOTO_SATIRI))
+                        ? await fotoIleMesajPaylas(sonFoto.hepsi.map(x=>x.u), fotoSatiriEkle(mesajMetni, HAT_FOTO_SATIRI))
                         : await fotoIleMesajPaylas(await logoSeridiHazirla((isletme&&isletme.logo)||LOGO), hatImzasiz(mesajMetni), "apron");
                       if(ok===true){ gonderildiKaydet(); gonderildiIsaretle(); showToast("Gönderildi olarak işaretlendi","ba"); }
                       else if(ok===false) showToast("Bu cihaz fotoğraf paylaşımını desteklemiyor — WhatsApp Gönder'i kullanın","uy");
@@ -23247,7 +23417,7 @@ if(DB) dbUpsertAyar("tema",tema);
                             div({style:{display:"flex",alignItems:"center",gap:8}},
                               div({style:{fontSize:13,fontWeight:600,color:"#1D1D1F",letterSpacing:"-.1px"}},trF(t)),
                               gunKayitlari.length>1&&span({style:{fontSize:11,color:"#86868B",background:"rgba(0,0,0,.05)",padding:"1px 6px",borderRadius:6}},gunKayitlari.length+" kayıt"),
-                              gunKayitlari.some(r=>{ const zf=ziyaretFotoAl(r.id); return zf&&(zf.o||zf.s); })&&span({title:"Fotoğraf var",style:{fontSize:12}},"📸")
+                              gunKayitlari.some(r=>ziyaretFotoVarMi(r.id))&&span({title:"Fotoğraf var",style:{fontSize:12}},"📸")
                             ),
                             div({style:{display:"flex",alignItems:"center",gap:8}},
                               toplamGun>0&&span({style:{fontSize:12,color:"#1D1D1F",fontWeight:600}},fmt(toplamGun)),
@@ -23275,7 +23445,7 @@ if(DB) dbUpsertAyar("tema",tema);
                                     toN(r.uIB)>0&&span({style:{color:"#3a3a3c"}},"🏦 ürün "+fmt(r.uIB)),
                                     toN(r.uNK)>0&&span({style:{color:"#3a3a3c"}},"💵 ürün "+fmt(r.uNK))
                                   ),
-                                  h(ZiyaretFotolari,{kayit:r,gen:64})
+                                  h(ZiyaretFotolari,{kayit:r})
                                 )),
                                 // Manikürist kayıtları (alt blok - tutar gri, "size yazılmadı" tonunda)
                                 manikuristKayitlar.length>0&&div({key:"mk",style:{
@@ -23294,7 +23464,7 @@ if(DB) dbUpsertAyar("tema",tema);
                                       toN(r.hizIB)>0&&span({style:{color:"#3a3a3c"}},"🏦 "+fmt(r.hizIB)),
                                       toN(r.hizNK)>0&&span({style:{color:"#3a3a3c"}},"💵 "+fmt(r.hizNK))
                                     ),
-                                    h(ZiyaretFotolari,{kayit:r,gen:56})
+                                    h(ZiyaretFotolari,{kayit:r})
                                   ))
                                 )
                               ].filter(Boolean);
@@ -28573,7 +28743,7 @@ if(DB) dbUpsertAyar("tema",tema);
                 );
               })
             ),
-            h(ZiyaretFotolari,{kayit:r,gen:64}),
+            h(ZiyaretFotolari,{kayit:r}),
             div({style:{display:"flex",gap:4,marginTop:6}},
               kk>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:20,border:"1px solid var(--br)",color:"var(--mu)"}},"💳 "+fmt(kk)),
               ib>0&&h("span",{style:{fontSize:11,padding:"2px 6px",borderRadius:20,border:"1px solid var(--br)",color:"var(--mu)"}},"🏦 "+fmt(ib)),
