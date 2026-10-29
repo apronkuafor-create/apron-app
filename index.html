@@ -1389,6 +1389,19 @@ const menuSiraKaydet = (menu, idler) => {
   _wa = {..._wa, [LISTE_SIRA_ID]: yeni}; _waBildir(LISTE_SIRA_ID);
   dbUpsertAyar(LISTE_SIRA_ID, yeni);
 };
+// Liste içi sıralama: dizide i'inci öğeyi yon (-1 yukarı / +1 aşağı) kadar kaydırır
+const diziTasi = (arr, i, yon) => { const a=(arr||[]).slice(); const j=i+yon; if(i<0||j<0||j>=a.length) return a; const t=a[i]; a[i]=a[j]; a[j]=t; return a; };
+// Satırın solundaki küçük ↑/↓ okları (satır tıklamasını tetiklemez)
+function SiraOklari({i, n, onTasi, ad}){
+  const ok = (aktif, yon, isaret, etiket) => h("button",{type:"button","aria-label":(ad?ad+" ":"")+etiket,title:etiket,disabled:!aktif,
+    onClick:(e)=>{ e.stopPropagation(); if(aktif) onTasi(yon); },
+    style:{width:26,height:19,padding:0,border:"1px solid "+(aktif?"rgba(0,113,227,.3)":"rgba(0,0,0,.07)"),
+      borderRadius:yon<0?"6px 6px 2px 2px":"2px 2px 6px 6px",background:aktif?"rgba(0,113,227,.07)":"transparent",
+      color:aktif?"#0071E3":"#c7c7cc",fontSize:11,lineHeight:1,cursor:aktif?"pointer":"default",
+      display:"flex",alignItems:"center",justifyContent:"center"}},isaret);
+  return h("div",{style:{display:"flex",flexDirection:"column",gap:2,flexShrink:0},onClick:e=>e.stopPropagation()},
+    ok(i>0, -1, "▲", "yukarı taşı"), ok(i<n-1, 1, "▼", "aşağı taşı"));
+}
 // Bir hatırlatmanın otomatik gönderim durumu (karta yazılacak metin + renk)
 const waHatDurum = (h2) => {
   const a = waAyar();
@@ -28685,6 +28698,7 @@ if(DB) dbUpsertAyar("tema",tema);
           marginBottom: hizDuzIdx?.liste==="manikurist"&&hizDuzIdx?.idx===i ? 0 : 6,
           background:"var(--bg2)",borderRadius: hizDuzIdx?.liste==="manikurist"&&hizDuzIdx?.idx===i ? "10px 10px 0 0" : 10,
           border:"1px solid var(--br)",borderBottom: hizDuzIdx?.liste==="manikurist"&&hizDuzIdx?.idx===i ? "none":undefined}},
+          h(SiraOklari,{i,n:hizListeleri.manikurist.length,ad:(typeof hz==="object"?hz.ad:hz),onTasi:y=>{setHizDuzIdx(null);setHizListeleri(p=>({...p,manikurist:diziTasi(p.manikurist,i,y)}));}}),
           div({style:{flex:1}},
             div({style:{fontSize:15,color:"var(--tx)"}},(typeof hz==="object"?hz.ad:hz)),
             HIZ_LISTE_FIYAT[(typeof hz==="object"?hz.ad:hz)]&&
@@ -28769,6 +28783,7 @@ if(DB) dbUpsertAyar("tema",tema);
           marginBottom: hizDuzIdx?.liste==="ustaKalfa"&&hizDuzIdx?.idx===i ? 0 : 6,
           background:"var(--bg2)",borderRadius: hizDuzIdx?.liste==="ustaKalfa"&&hizDuzIdx?.idx===i ? "10px 10px 0 0" : 10,
           border:"1px solid var(--br)",borderBottom: hizDuzIdx?.liste==="ustaKalfa"&&hizDuzIdx?.idx===i ? "none":undefined}},
+          h(SiraOklari,{i,n:(hizListeleri.ustaKalfa||[]).length,ad:(typeof hz==="object"?hz.ad:hz),onTasi:y=>{setHizDuzIdx(null);setHizListeleri(p=>({...p,ustaKalfa:diziTasi((p.ustaKalfa||[]),i,y)}));}}),
           div({style:{flex:1}},
             div({style:{fontSize:15,color:"var(--tx)"}},(typeof hz==="object"?hz.ad:hz)),
             HIZ_LISTE_FIYAT[(typeof hz==="object"?hz.ad:hz)]&&
@@ -28845,7 +28860,7 @@ if(DB) dbUpsertAyar("tema",tema);
     // Ürün Listesi
      aySek==="listeler"&&ayListeSek==="ürün"&&(()=>{
     // Dinamik marka listesi - URUN_DB'den + eklenmiş markalar
-    const markaListesi = [...new Set([...URUN_DB.filter(u=>u.tip!=="sarf").map(u=>u.m), ...ekMarkalar])].filter(m=>m&&m!=="__SARF__").sort();
+    const markaListesi = menuSirala("urunMarkalari", [...new Set([...URUN_DB.filter(u=>u.tip!=="sarf").map(u=>u.m), ...ekMarkalar])].filter(m=>m&&m!=="__SARF__").sort(), x=>x);
     const _uQ = (urunListeArama||"").trim();
     const _uOneri = _uQ.length>=2
       ? URUN_DB.filter(u=>{ const q=normText(_uQ); return normText(u.a).includes(q)||u.b.includes(_uQ); }).slice(0,8)
@@ -29133,12 +29148,14 @@ if(DB) dbUpsertAyar("tema",tema);
     ),
 
     // ── Satılabilen Ürünler ──
-    urunListeSek==="satilabilen"&&markaListesi.map(marka=>{
+    urunListeSek==="satilabilen"&&markaListesi.map((marka,mi)=>{
+      const markaOklari = h(SiraOklari,{i:mi,n:markaListesi.length,ad:marka+" markası",onTasi:y=>menuSiraKaydet("urunMarkalari", diziTasi(markaListesi, mi, y))});
       const mUrunler = URUN_DB.filter(u=>u.m===marka && u.tip!=="sarf");
       if(mUrunler.length===0) return div({key:marka,style:{marginBottom:8}},
         div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
           padding:"8px 12px",background:"var(--bg2)",borderRadius:9,border:"1px solid var(--br)"}},
-          div({style:{fontSize:13,color:"#9a7a3a",letterSpacing:2,textTransform:"uppercase"}},marka),
+          div({style:{display:"flex",alignItems:"center",gap:8}}, markaOklari,
+            div({style:{fontSize:13,color:"#9a7a3a",letterSpacing:2,textTransform:"uppercase"}},marka)),
           div({style:{fontSize:12,color:"var(--di)"}},"Ürün yok"),
           btn({style:{background:"transparent",border:"none",color:"#c05050",fontSize:13,cursor:"pointer"},
             onClick:()=>setEkMarkalar(p=>p.filter(m=>m!==marka))},"✕")
@@ -29147,7 +29164,8 @@ if(DB) dbUpsertAyar("tema",tema);
       return div({key:marka,style:{marginBottom:16}},
         div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",
           marginBottom:8,paddingBottom:5,borderBottom:"1px solid var(--br)"}},
-          div({style:{fontSize:12,color:"#9a7a3a",letterSpacing:2,textTransform:"uppercase"}},marka),
+          div({style:{display:"flex",alignItems:"center",gap:8}}, markaOklari,
+            div({style:{fontSize:12,color:"#9a7a3a",letterSpacing:2,textTransform:"uppercase"}},marka)),
           div({style:{display:"flex",alignItems:"center",gap:8}},
             div({style:{fontSize:12,color:"var(--di)"}},mUrunler.length+" ürün"),
             btn({style:{fontSize:11,padding:"3px 9px",borderRadius:6,border:"1px solid rgba(37,99,168,.3)",
@@ -29155,13 +29173,21 @@ if(DB) dbUpsertAyar("tema",tema);
               onClick:()=>{setMarkaTopluModal(marka);setMarkaTopluCarpan("2");}},"💰 Toplu Fiyat")
           )
         ),
-        mUrunler.map(u=>
+        mUrunler.map((u,ui)=>
           div({key:u.b,id:"ul-"+u.b,style:{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",
             marginBottom:4,borderRadius:9,cursor:"pointer",
             background:urunListeHighlight===u.b?"rgba(52,199,89,.12)":"var(--bg2)",
             border:"1px solid "+(urunListeHighlight===u.b?"#34C759":urunDuzId===u.b?"#6a5010":"var(--bg3)"),
             transition:"background .4s,border-color .4s"},
             onClick:()=>{setUrunDuzId(u.b);setUrunDuzData({...u});}},
+            h(SiraOklari,{i:ui,n:mUrunler.length,ad:u.a,onTasi:y=>{
+              // Aynı markadaki komşu ürünle ana üründe (URUN_DB) yer değiştir — sıra her yerde ve tüm cihazlarda geçerli olur
+              const komsu = mUrunler[ui+y]; if(!komsu) return;
+              const a1 = URUN_DB.findIndex(x=>x.b===u.b), a2 = URUN_DB.findIndex(x=>x.b===komsu.b);
+              if(a1<0||a2<0) return;
+              const t = URUN_DB[a1]; URUN_DB[a1] = URUN_DB[a2]; URUN_DB[a2] = t;
+              triggerUrunRender();
+            }}),
             h(UrunResmi,{barkod:u.b,boyut:38,radius:8}),
             div({style:{flex:1,minWidth:0}},
               div({style:{fontSize:14,color:"var(--tx)"}},u.a),
@@ -29267,6 +29293,7 @@ if(DB) dbUpsertAyar("tema",tema);
             marginBottom:duzAcik?0:6,background:"var(--bg2)",
             borderRadius:duzAcik?"10px 10px 0 0":10,border:"1px solid var(--br)",
             borderBottom:duzAcik?"none":undefined}},
+            h(SiraOklari,{i:i,n:tumKat.length,ad:k,onTasi:function(y){setGiderDuzIdx(null);setTumKat(function(p){return diziTasi(p,i,y);});}}),
             div({style:{flex:1,fontSize:15,color:"var(--tx)",fontFamily:"'Inter',-apple-system,sans-serif"}},k),
             duzAcik
               ? btn({style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(160,40,40,.2)",borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
@@ -29350,6 +29377,7 @@ if(DB) dbUpsertAyar("tema",tema);
       const bad = typeof b==="string"?b:(b&&b.ad)||"";
       return div({key:i,style:{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",
         marginBottom:8,background:"var(--bg2)",borderRadius:10,border:"1px solid var(--br)"}},
+        h(SiraOklari,{i,n:bankalar.length,ad:bad,onTasi:y=>setBankalar(p=>diziTasi(p,i,y))}),
         div({style:{flex:1,fontSize:15,color:"var(--tx)",fontWeight:600}},bad),
         btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",borderRadius:6,
           color:"#c05050",fontSize:13,padding:"5px 11px",cursor:"pointer"},
@@ -29759,6 +29787,7 @@ if(DB) dbUpsertAyar("tema",tema);
           borderRadius: duzAcik ? "10px 10px 0 0" : 10,
           border:"1px solid var(--br)",
           borderBottom: duzAcik ? "none" : undefined}},
+          h(SiraOklari,{i,n:tedarikciler.length,ad,onTasi:y=>{setTedarikciDuzIdx(null);setTedarikciler(p=>diziTasi(p,i,y));}}),
           div({style:{flex:1,minWidth:0}},
             div({style:{fontSize:15,color:"var(--tx)",fontWeight:500}},ad),
             (typeof t!=="string"&&(t.tel||t.yetkiliAd||(t.markalar||[]).length>0))&&div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},
@@ -29862,6 +29891,7 @@ if(DB) dbUpsertAyar("tema",tema);
           borderRadius: duzAcik ? "10px 10px 0 0" : 10,
           border:"1px solid var(--br)",
           borderBottom: duzAcik ? "none" : undefined}},
+          h(SiraOklari,{i,n:pozisyonlar.length,ad:poz,onTasi:y=>{setPozisyonDuzIdx(null);setPozisyonlar(p=>diziTasi(p,i,y));}}),
           div({style:{flex:1,fontSize:15,color:"var(--tx)",fontWeight:500}},poz),
           duzAcik
             ? btn({style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(160,40,40,.2)",borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
