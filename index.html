@@ -1389,18 +1389,111 @@ const menuSiraKaydet = (menu, idler) => {
   _wa = {..._wa, [LISTE_SIRA_ID]: yeni}; _waBildir(LISTE_SIRA_ID);
   dbUpsertAyar(LISTE_SIRA_ID, yeni);
 };
-// Liste içi sıralama: dizide i'inci öğeyi yon (-1 yukarı / +1 aşağı) kadar kaydırır
-const diziTasi = (arr, i, yon) => { const a=(arr||[]).slice(); const j=i+yon; if(i<0||j<0||j>=a.length) return a; const t=a[i]; a[i]=a[j]; a[j]=t; return a; };
-// Satırın solundaki küçük ↑/↓ okları (satır tıklamasını tetiklemez)
-function SiraOklari({i, n, onTasi, ad}){
-  const ok = (aktif, yon, isaret, etiket) => h("button",{type:"button","aria-label":(ad?ad+" ":"")+etiket,title:etiket,disabled:!aktif,
-    onClick:(e)=>{ e.stopPropagation(); if(aktif) onTasi(yon); },
-    style:{width:26,height:19,padding:0,border:"1px solid "+(aktif?"rgba(0,113,227,.3)":"rgba(0,0,0,.07)"),
-      borderRadius:yon<0?"6px 6px 2px 2px":"2px 2px 6px 6px",background:aktif?"rgba(0,113,227,.07)":"transparent",
-      color:aktif?"#0071E3":"#c7c7cc",fontSize:11,lineHeight:1,cursor:aktif?"pointer":"default",
-      display:"flex",alignItems:"center",justifyContent:"center"}},isaret);
-  return h("div",{style:{display:"flex",flexDirection:"column",gap:2,flexShrink:0},onClick:e=>e.stopPropagation()},
-    ok(i>0, -1, "▲", "yukarı taşı"), ok(i<n-1, 1, "▼", "aşağı taşı"));
+// Liste içi sıralama: dizide i'inci öğeyi d adım kaydırır (d<0 yukarı, d>0 aşağı); aradaki öğeler bir kayar
+const diziTasi = (arr, i, d) => {
+  const a = (arr||[]).slice();
+  if(i<0 || i>=a.length) return a;
+  const j = Math.max(0, Math.min(a.length-1, i+d));
+  if(j===i) return a;
+  const [x] = a.splice(i,1); a.splice(j,0,x);
+  return a;
+};
+// ── Sürükle-bırak tutamacı (⠿) ──
+// Tutamaçtan basılı tutup çekince satır parmakla/fareyle birlikte hareket eder, diğer satırlar yer açar;
+// bırakınca onTasi(fark) çağrılır. Aynı "grup" değerini taşıyan tutamaçlar aynı listenin satırlarıdır.
+// Satır: tutamacın en yakın [data-surukle-satir=grup] atası, yoksa doğrudan ebeveyni.
+// Klavyeden: tutamaca odaklanıp ↑ / ↓ ile de taşınabilir.
+const _surukleSatir = (el, grup) => (el.closest && el.closest('[data-surukle-satir="'+grup+'"]')) || el.parentElement;
+const _kaydirilabilirAta = (el) => {
+  for(let p=el && el.parentElement; p && p!==document.body; p=p.parentElement){
+    const oy = getComputedStyle(p).overflowY;
+    if((oy==="auto"||oy==="scroll") && p.scrollHeight>p.clientHeight+2) return p;
+  }
+  return null;
+};
+function SiraOklari({i, n, onTasi, ad, grup="liste"}){
+  const basla = (e) => {
+    if(n<2) return;
+    if(e.button!==undefined && e.button!==0) return;
+    e.preventDefault(); e.stopPropagation();
+    const tut = e.currentTarget;
+    const tumTutamaclar = Array.from(document.querySelectorAll('[data-surukle-tutamac="'+String(grup).replace(/["\\]/g,"\\$&")+'"]'));
+    const satirlar = tumTutamaclar.map(t=>_surukleSatir(t, grup));
+    const benim = _surukleSatir(tut, grup);
+    const bas = satirlar.indexOf(benim);
+    if(bas<0) return;
+    const kutular = satirlar.map(s=>s.getBoundingClientRect());
+    const kap = _kaydirilabilirAta(benim);
+    const scrollBas = () => kap ? kap.scrollTop : window.scrollY;
+    const y0 = e.clientY, s0 = scrollBas();
+    const yuk = kutular[bas].height + (kutular[bas+1] ? Math.max(0, kutular[bas+1].top - kutular[bas].bottom) : (kutular[bas-1] ? Math.max(0, kutular[bas].top - kutular[bas-1].bottom) : 6));
+    let hedef = bas, sonY = e.clientY, oto = null;
+    benim.style.position = "relative"; benim.style.zIndex = "50";
+    benim.style.boxShadow = "0 10px 28px rgba(0,0,0,.22)"; benim.style.transition = "box-shadow .15s";
+    benim.style.background = benim.style.background || "var(--bg2)";
+    satirlar.forEach((s,k)=>{ if(k!==bas) s.style.transition = "transform .18s ease"; });
+    try{ tut.setPointerCapture && tut.setPointerCapture(e.pointerId); }catch(_){}
+    document.body.style.userSelect = "none";
+    const guncelle = () => {
+      const dy = (sonY - y0) + (scrollBas() - s0);
+      benim.style.transform = "translateY("+dy+"px) scale(1.02)";
+      // Parmağın (imlecin) konumu, satırın başına (aşağı) ya da sonuna (yukarı) ~40 px girince yer değişir —
+      // böylece uzun bloklarda (ör. çok ürünlü markalar) da doğal çalışır
+      const parmak = y0 + dy;
+      let h2 = bas;
+      for(let k=0;k<kutular.length;k++){
+        if(k===bas) continue;
+        const pay = Math.min(kutular[k].height/2, 40);
+        if(k>bas && parmak > kutular[k].top + pay) h2 = Math.max(h2, k);
+        if(k<bas && parmak < kutular[k].bottom - pay) h2 = Math.min(h2, k);
+      }
+      hedef = h2;
+      satirlar.forEach((s,k)=>{
+        if(k===bas) return;
+        let kay = 0;
+        if(bas<hedef && k>bas && k<=hedef) kay = -yuk;
+        if(bas>hedef && k>=hedef && k<bas) kay = yuk;
+        s.style.transform = kay ? "translateY("+kay+"px)" : "";
+      });
+    };
+    const otoKaydir = () => {
+      const H = window.innerHeight, kenar = 70;
+      const r = kap ? kap.getBoundingClientRect() : {top:0, bottom:H};
+      let v = 0;
+      if(sonY < r.top + kenar) v = -Math.ceil((r.top + kenar - sonY)/6);
+      else if(sonY > r.bottom - kenar) v = Math.ceil((sonY - (r.bottom - kenar))/6);
+      if(v){ if(kap) kap.scrollTop += v; else window.scrollBy(0, v); guncelle(); }
+      oto = requestAnimationFrame(otoKaydir);
+    };
+    const hareket = (ev) => { sonY = ev.clientY; guncelle(); };
+    const bitir = () => {
+      window.removeEventListener("pointermove", hareket);
+      window.removeEventListener("pointerup", bitir);
+      window.removeEventListener("pointercancel", bitir);
+      if(oto) cancelAnimationFrame(oto);
+      document.body.style.userSelect = "";
+      satirlar.forEach(s=>{ s.style.transform=""; s.style.transition=""; });
+      benim.style.position=""; benim.style.zIndex=""; benim.style.boxShadow="";
+      if(hedef!==bas) onTasi(hedef - bas);
+    };
+    window.addEventListener("pointermove", hareket);
+    window.addEventListener("pointerup", bitir);
+    window.addEventListener("pointercancel", bitir);
+    oto = requestAnimationFrame(otoKaydir);
+  };
+  return h("div",{
+    "data-surukle-tutamac":grup, role:"button", tabIndex:0,
+    "aria-label":(ad?ad+" — ":"")+"sürükleyerek taşı (klavyede ↑ ↓)", title:"Basılı tutup sürükleyin",
+    onPointerDown:basla,
+    onClick:e=>e.stopPropagation(),
+    onKeyDown:(e)=>{
+      if(e.key==="ArrowUp" && i>0){ e.preventDefault(); onTasi(-1); }
+      else if(e.key==="ArrowDown" && i<n-1){ e.preventDefault(); onTasi(1); }
+    },
+    style:{width:28,alignSelf:"stretch",minHeight:36,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
+      cursor:n>1?"grab":"default",touchAction:"none",color:n>1?"#a1a1a6":"#d8d8dc",fontSize:18,lineHeight:1,
+      borderRadius:7,userSelect:"none",WebkitUserSelect:"none",marginLeft:-4}
+  },"⠿");
 }
 // Bir hatırlatmanın otomatik gönderim durumu (karta yazılacak metin + renk)
 const waHatDurum = (h2) => {
@@ -28698,7 +28791,7 @@ if(DB) dbUpsertAyar("tema",tema);
           marginBottom: hizDuzIdx?.liste==="manikurist"&&hizDuzIdx?.idx===i ? 0 : 6,
           background:"var(--bg2)",borderRadius: hizDuzIdx?.liste==="manikurist"&&hizDuzIdx?.idx===i ? "10px 10px 0 0" : 10,
           border:"1px solid var(--br)",borderBottom: hizDuzIdx?.liste==="manikurist"&&hizDuzIdx?.idx===i ? "none":undefined}},
-          h(SiraOklari,{i,n:hizListeleri.manikurist.length,ad:(typeof hz==="object"?hz.ad:hz),onTasi:y=>{setHizDuzIdx(null);setHizListeleri(p=>({...p,manikurist:diziTasi(p.manikurist,i,y)}));}}),
+          h(SiraOklari,{i,grup:"hiz-manikurist",n:hizListeleri.manikurist.length,ad:(typeof hz==="object"?hz.ad:hz),onTasi:y=>{setHizDuzIdx(null);setHizListeleri(p=>({...p,manikurist:diziTasi(p.manikurist,i,y)}));}}),
           div({style:{flex:1}},
             div({style:{fontSize:15,color:"var(--tx)"}},(typeof hz==="object"?hz.ad:hz)),
             HIZ_LISTE_FIYAT[(typeof hz==="object"?hz.ad:hz)]&&
@@ -28783,7 +28876,7 @@ if(DB) dbUpsertAyar("tema",tema);
           marginBottom: hizDuzIdx?.liste==="ustaKalfa"&&hizDuzIdx?.idx===i ? 0 : 6,
           background:"var(--bg2)",borderRadius: hizDuzIdx?.liste==="ustaKalfa"&&hizDuzIdx?.idx===i ? "10px 10px 0 0" : 10,
           border:"1px solid var(--br)",borderBottom: hizDuzIdx?.liste==="ustaKalfa"&&hizDuzIdx?.idx===i ? "none":undefined}},
-          h(SiraOklari,{i,n:(hizListeleri.ustaKalfa||[]).length,ad:(typeof hz==="object"?hz.ad:hz),onTasi:y=>{setHizDuzIdx(null);setHizListeleri(p=>({...p,ustaKalfa:diziTasi((p.ustaKalfa||[]),i,y)}));}}),
+          h(SiraOklari,{i,grup:"hiz-ustaKalfa",n:(hizListeleri.ustaKalfa||[]).length,ad:(typeof hz==="object"?hz.ad:hz),onTasi:y=>{setHizDuzIdx(null);setHizListeleri(p=>({...p,ustaKalfa:diziTasi((p.ustaKalfa||[]),i,y)}));}}),
           div({style:{flex:1}},
             div({style:{fontSize:15,color:"var(--tx)"}},(typeof hz==="object"?hz.ad:hz)),
             HIZ_LISTE_FIYAT[(typeof hz==="object"?hz.ad:hz)]&&
@@ -29149,9 +29242,9 @@ if(DB) dbUpsertAyar("tema",tema);
 
     // ── Satılabilen Ürünler ──
     urunListeSek==="satilabilen"&&markaListesi.map((marka,mi)=>{
-      const markaOklari = h(SiraOklari,{i:mi,n:markaListesi.length,ad:marka+" markası",onTasi:y=>menuSiraKaydet("urunMarkalari", diziTasi(markaListesi, mi, y))});
+      const markaOklari = h(SiraOklari,{i:mi,grup:"marka",n:markaListesi.length,ad:marka+" markası",onTasi:y=>menuSiraKaydet("urunMarkalari", diziTasi(markaListesi, mi, y))});
       const mUrunler = URUN_DB.filter(u=>u.m===marka && u.tip!=="sarf");
-      if(mUrunler.length===0) return div({key:marka,style:{marginBottom:8}},
+      if(mUrunler.length===0) return div({key:marka,"data-surukle-satir":"marka",style:{marginBottom:8,background:"var(--bg)",borderRadius:9}},
         div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
           padding:"8px 12px",background:"var(--bg2)",borderRadius:9,border:"1px solid var(--br)"}},
           div({style:{display:"flex",alignItems:"center",gap:8}}, markaOklari,
@@ -29161,7 +29254,7 @@ if(DB) dbUpsertAyar("tema",tema);
             onClick:()=>setEkMarkalar(p=>p.filter(m=>m!==marka))},"✕")
         )
       );
-      return div({key:marka,style:{marginBottom:16}},
+      return div({key:marka,"data-surukle-satir":"marka",style:{marginBottom:16,background:"var(--bg)",borderRadius:9}},
         div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",
           marginBottom:8,paddingBottom:5,borderBottom:"1px solid var(--br)"}},
           div({style:{display:"flex",alignItems:"center",gap:8}}, markaOklari,
@@ -29180,12 +29273,13 @@ if(DB) dbUpsertAyar("tema",tema);
             border:"1px solid "+(urunListeHighlight===u.b?"#34C759":urunDuzId===u.b?"#6a5010":"var(--bg3)"),
             transition:"background .4s,border-color .4s"},
             onClick:()=>{setUrunDuzId(u.b);setUrunDuzData({...u});}},
-            h(SiraOklari,{i:ui,n:mUrunler.length,ad:u.a,onTasi:y=>{
-              // Aynı markadaki komşu ürünle ana üründe (URUN_DB) yer değiştir — sıra her yerde ve tüm cihazlarda geçerli olur
-              const komsu = mUrunler[ui+y]; if(!komsu) return;
-              const a1 = URUN_DB.findIndex(x=>x.b===u.b), a2 = URUN_DB.findIndex(x=>x.b===komsu.b);
-              if(a1<0||a2<0) return;
-              const t = URUN_DB[a1]; URUN_DB[a1] = URUN_DB[a2]; URUN_DB[a2] = t;
+            h(SiraOklari,{i:ui,grup:"urun-"+marka,n:mUrunler.length,ad:u.a,onTasi:y=>{
+              // Ürünü aynı markadaki hedef ürünün yerine taşı (ana ürün listesi URUN_DB'de) — sıra her yerde ve tüm cihazlarda geçerli olur
+              const hedefU = mUrunler[Math.max(0, Math.min(mUrunler.length-1, ui+y))]; if(!hedefU || hedefU.b===u.b) return;
+              const a1 = URUN_DB.findIndex(x=>x.b===u.b); if(a1<0) return;
+              const [tasinan] = URUN_DB.splice(a1,1);
+              const a2 = URUN_DB.findIndex(x=>x.b===hedefU.b); if(a2<0){ URUN_DB.splice(a1,0,tasinan); return; }
+              URUN_DB.splice(y>0 ? a2+1 : a2, 0, tasinan);
               triggerUrunRender();
             }}),
             h(UrunResmi,{barkod:u.b,boyut:38,radius:8}),
@@ -29293,7 +29387,7 @@ if(DB) dbUpsertAyar("tema",tema);
             marginBottom:duzAcik?0:6,background:"var(--bg2)",
             borderRadius:duzAcik?"10px 10px 0 0":10,border:"1px solid var(--br)",
             borderBottom:duzAcik?"none":undefined}},
-            h(SiraOklari,{i:i,n:tumKat.length,ad:k,onTasi:function(y){setGiderDuzIdx(null);setTumKat(function(p){return diziTasi(p,i,y);});}}),
+            h(SiraOklari,{i:i,grup:"gider",n:tumKat.length,ad:k,onTasi:function(y){setGiderDuzIdx(null);setTumKat(function(p){return diziTasi(p,i,y);});}}),
             div({style:{flex:1,fontSize:15,color:"var(--tx)",fontFamily:"'Inter',-apple-system,sans-serif"}},k),
             duzAcik
               ? btn({style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(160,40,40,.2)",borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
@@ -29377,7 +29471,7 @@ if(DB) dbUpsertAyar("tema",tema);
       const bad = typeof b==="string"?b:(b&&b.ad)||"";
       return div({key:i,style:{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",
         marginBottom:8,background:"var(--bg2)",borderRadius:10,border:"1px solid var(--br)"}},
-        h(SiraOklari,{i,n:bankalar.length,ad:bad,onTasi:y=>setBankalar(p=>diziTasi(p,i,y))}),
+        h(SiraOklari,{i,grup:"banka",n:bankalar.length,ad:bad,onTasi:y=>setBankalar(p=>diziTasi(p,i,y))}),
         div({style:{flex:1,fontSize:15,color:"var(--tx)",fontWeight:600}},bad),
         btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",borderRadius:6,
           color:"#c05050",fontSize:13,padding:"5px 11px",cursor:"pointer"},
@@ -29787,7 +29881,7 @@ if(DB) dbUpsertAyar("tema",tema);
           borderRadius: duzAcik ? "10px 10px 0 0" : 10,
           border:"1px solid var(--br)",
           borderBottom: duzAcik ? "none" : undefined}},
-          h(SiraOklari,{i,n:tedarikciler.length,ad,onTasi:y=>{setTedarikciDuzIdx(null);setTedarikciler(p=>diziTasi(p,i,y));}}),
+          h(SiraOklari,{i,grup:"tedarikci",n:tedarikciler.length,ad,onTasi:y=>{setTedarikciDuzIdx(null);setTedarikciler(p=>diziTasi(p,i,y));}}),
           div({style:{flex:1,minWidth:0}},
             div({style:{fontSize:15,color:"var(--tx)",fontWeight:500}},ad),
             (typeof t!=="string"&&(t.tel||t.yetkiliAd||(t.markalar||[]).length>0))&&div({style:{fontSize:11,color:"var(--mu)",marginTop:2}},
@@ -29891,7 +29985,7 @@ if(DB) dbUpsertAyar("tema",tema);
           borderRadius: duzAcik ? "10px 10px 0 0" : 10,
           border:"1px solid var(--br)",
           borderBottom: duzAcik ? "none" : undefined}},
-          h(SiraOklari,{i,n:pozisyonlar.length,ad:poz,onTasi:y=>{setPozisyonDuzIdx(null);setPozisyonlar(p=>diziTasi(p,i,y));}}),
+          h(SiraOklari,{i,grup:"pozisyon",n:pozisyonlar.length,ad:poz,onTasi:y=>{setPozisyonDuzIdx(null);setPozisyonlar(p=>diziTasi(p,i,y));}}),
           div({style:{flex:1,fontSize:15,color:"var(--tx)",fontWeight:500}},poz),
           duzAcik
             ? btn({style:{background:"rgba(160,40,40,.08)",border:"1px solid rgba(160,40,40,.2)",borderRadius:6,color:"#c05050",fontSize:13,padding:"4px 10px",cursor:"pointer"},
