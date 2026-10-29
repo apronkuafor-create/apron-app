@@ -1332,17 +1332,18 @@ const hatMesajUret = (h2, idx, {hizmetTarihi, isletmeAd, ustaAd}) => {
 };
 // ── WhatsApp otomatik hatırlatma (WhatsApp Business Cloud API + Supabase zamanlanmış fonksiyon) ──
 // Gönderimi sunucudaki "hatirlatma-whatsapp" fonksiyonu yapar; uygulama yalnızca ayarı tutar ve durumu gösterir.
-const WA_AYAR_ID = "waOtomatik", WA_GUNLUK_ID = "waOtomatikGunluk", WA_FOTO_SECIM_ID = "waHatFotoSecim", HAT_SON_ID = "hatSonSablon";
+const WA_AYAR_ID = "waOtomatik", WA_GUNLUK_ID = "waOtomatikGunluk", WA_FOTO_SECIM_ID = "waHatFotoSecim", HAT_SON_ID = "hatSonSablon", LISTE_SIRA_ID = "listeSirasi";
 const WA_VARSAYILAN = {aktif:false, saat:10, fotoGonder:true, sablon:"sac_kesimi_hatirlatma", sablonFoto:"sac_kesimi_hatirlatma_foto", dil:"tr"};
-const waShardMi = id => id===WA_AYAR_ID || id===WA_GUNLUK_ID || id===WA_FOTO_SECIM_ID || id===HAT_SON_ID;
+const waShardMi = id => id===WA_AYAR_ID || id===WA_GUNLUK_ID || id===WA_FOTO_SECIM_ID || id===HAT_SON_ID || id===LISTE_SIRA_ID;
 const _waLsOku = (k, v) => { try{ const x=JSON.parse(localStorage.getItem(k)||"null"); return (x&&typeof x==="object"&&!Array.isArray(x))?x:v; }catch(e){ return v; } };
 let _wa = {
   [WA_AYAR_ID]: {...WA_VARSAYILAN, ..._waLsOku("apron_wa_ayar", {})},
   [WA_GUNLUK_ID]: _waLsOku("apron_wa_gunluk", {}),
   [WA_FOTO_SECIM_ID]: _waLsOku("apron_wa_foto_secim", {}),
   [HAT_SON_ID]: _waLsOku("apron_hat_son_sablon", {}),
+  [LISTE_SIRA_ID]: _waLsOku("apron_liste_sirasi", {}),
 };
-const _waLsAnahtar = {[WA_AYAR_ID]:"apron_wa_ayar",[WA_GUNLUK_ID]:"apron_wa_gunluk",[WA_FOTO_SECIM_ID]:"apron_wa_foto_secim",[HAT_SON_ID]:"apron_hat_son_sablon"};
+const _waLsAnahtar = {[WA_AYAR_ID]:"apron_wa_ayar",[WA_GUNLUK_ID]:"apron_wa_gunluk",[WA_FOTO_SECIM_ID]:"apron_wa_foto_secim",[HAT_SON_ID]:"apron_hat_son_sablon",[LISTE_SIRA_ID]:"apron_liste_sirasi"};
 const _waBildir = (id) => { lsSetJSON(_waLsAnahtar[id], _wa[id]); _fdDinle.forEach(f=>{ try{ f(); }catch(e){} }); };
 const waBulutUygula = (id, deger) => {
   const d = (deger && typeof deger==="object" && !Array.isArray(deger)) ? deger : {};
@@ -1370,6 +1371,23 @@ const hatSonSablonKaydet = (h2, idx) => {
   const yeni = {..._wa[HAT_SON_ID], [_hatMusteriAnahtar(h2)]: idx};
   _wa = {..._wa, [HAT_SON_ID]: yeni}; _waBildir(HAT_SON_ID);
   dbUpsertAyar(HAT_SON_ID, yeni);
+};
+// ── Menü sıralaması (Ayarlar → Listeler vb.): {menuAdi: [id, id, ...]} — tüm cihazlarda ortak ──
+const menuSirala = (menu, ogeler, idAl) => {
+  const sira = (_wa[LISTE_SIRA_ID]||{})[menu];
+  if(!Array.isArray(sira) || !sira.length) return ogeler;
+  const konum = {}; sira.forEach((id,i)=>{ konum[id]=i; });
+  return ogeler.map((o,i)=>({o,i})).sort((a,b)=>{
+    const ka = konum[idAl(a.o)], kb = konum[idAl(b.o)];
+    if(ka===undefined && kb===undefined) return a.i-b.i;   // yeni eklenen öğeler varsayılan yerinde, sonda
+    if(ka===undefined) return 1; if(kb===undefined) return -1;
+    return ka-kb;
+  }).map(x=>x.o);
+};
+const menuSiraKaydet = (menu, idler) => {
+  const yeni = {...(_wa[LISTE_SIRA_ID]||{}), [menu]: idler};
+  _wa = {..._wa, [LISTE_SIRA_ID]: yeni}; _waBildir(LISTE_SIRA_ID);
+  dbUpsertAyar(LISTE_SIRA_ID, yeni);
 };
 // Bir hatırlatmanın otomatik gönderim durumu (karta yazılacak metin + renk)
 const waHatDurum = (h2) => {
@@ -18137,6 +18155,7 @@ function App() {
   const [records, setRecords]         = useState([]);
   const [bekleyen, setBekleyen]       = useState([]);
   const [musteriDB, setMusteriDB]     = useState([]);
+  const [listeSiralaModu, setListeSiralaModu] = useState(false); // Ayarlar → Listeler: sıralama düzenleniyor mu
   const [musteriAraP, setMusteriAraP] = useState(""); // personel → Müşterilerim araması
   const [musteriAraY, setMusteriAraY] = useState(""); // yönetici → Listeler → Müşteriler araması
   const [hatSablonSecim, setHatSablonSecim] = useState({}); // hatırlatma id → seçili mesaj metni
@@ -26004,8 +26023,8 @@ if(DB) dbUpsertAyar("tema",tema);
         // (Kayıt Sorgula ara ekranı kaldırıldı — direkt sorgu paneli açılıyor)
 
         // Listeler alt-başlıklar menüsü
-        panelAdim==="ayarlar"&&panelAltSek==="listeler"&&!asek&&div({style:{padding:"12px 14px 8px"}},
-          [
+        panelAdim==="ayarlar"&&panelAltSek==="listeler"&&!asek&&(()=>{
+          const LISTELER = [
             ["rgba(88,86,214,.10)","💈","Usta/Kalfa Hizmet Listesi","ustaKalfa"],
             ["rgba(255,45,85,.10)","💅","Manikürist Hizmet Listesi","manikurist"],
             ["rgba(255,149,0,.10)","📦","Ürünler Listesi","ürün"],
@@ -26014,19 +26033,48 @@ if(DB) dbUpsertAyar("tema",tema);
             ["rgba(255,59,48,.10)","💸","Gider Listesi","giderListesi"],
             ["rgba(52,120,246,.10)","🏭","Tedarikçi Listesi","tedarikciListesi"],
             ["rgba(90,60,180,.10)","👔","Personel Pozisyon Listesi","pozisyonListesi"],
-          ].map(([bg,ikon,lb,id])=>
-            div({key:id,onClick:()=>{setAsek("ayarlar");setAySek("listeler");setAyListeSek(id);},style:{
-              display:"flex",alignItems:"center",gap:14,
-              background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderLeft:"4px solid "+bg.replace(",.13)",",1)"),
-              borderRadius:14,padding:"13px 16px",marginBottom:9,
-              cursor:"pointer",boxShadow:"0 1px 6px rgba(0,0,0,.05)"
-            }},
-              div({style:{width:48,height:48,borderRadius:14,background:bg,
-                display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0}},ikon),
-              div({style:{fontSize:15,fontWeight:600,color:"#1D1D1F",flex:1}},lb),span({style:{fontSize:20,color:"#c0c0c5",flexShrink:0}},"›")
-            )
-          )
-        ),
+          ];
+          const sirali = menuSirala("ayarListeler", LISTELER, x=>x[3]);
+          const idler = sirali.map(x=>x[3]);
+          const tasi = (i, yon) => {
+            const j = i+yon; if(j<0 || j>=idler.length) return;
+            const yeni = idler.slice(); [yeni[i], yeni[j]] = [yeni[j], yeni[i]];
+            menuSiraKaydet("ayarListeler", yeni);
+          };
+          const okBtn = (aktif, onClick, etiket, isaret) => btn({type:"button","aria-label":etiket,disabled:!aktif,onClick:(e)=>{e.stopPropagation(); onClick();},
+            style:{width:38,height:38,borderRadius:10,border:"1px solid "+(aktif?"rgba(0,113,227,.35)":"rgba(0,0,0,.08)"),
+              background:aktif?"rgba(0,113,227,.08)":"transparent",color:aktif?"#0071E3":"#c7c7cc",fontSize:17,fontWeight:700,
+              cursor:aktif?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}},isaret);
+          return div({style:{padding:"12px 14px 8px"}},
+            div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:10}},
+              div({style:{fontSize:12.5,color:"#86868B"}},listeSiralaModu?"Okları kullanarak listelerin yerini değiştirin":""),
+              btn({type:"button",onClick:()=>setListeSiralaModu(v=>!v),
+                style:{padding:"7px 13px",borderRadius:10,fontSize:13,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",
+                  border:"1px solid "+(listeSiralaModu?"#0071E3":"rgba(0,0,0,.12)"),
+                  background:listeSiralaModu?"#0071E3":"#fff",color:listeSiralaModu?"#fff":"#1D1D1F"}},
+                listeSiralaModu?"✓ Bitti":"↕ Sırala")),
+            sirali.map(([bg,ikon,lb,id],i)=>
+              div({key:id,onClick:()=>{ if(listeSiralaModu) return; setAsek("ayarlar");setAySek("listeler");setAyListeSek(id);},style:{
+                display:"flex",alignItems:"center",gap:14,
+                background:"#fff",border:"1px solid "+(listeSiralaModu?"rgba(0,113,227,.25)":"rgba(0,0,0,.07)"),borderLeft:"4px solid "+bg.replace(",.13)",",1)"),
+                borderRadius:14,padding:listeSiralaModu?"10px 12px 10px 16px":"13px 16px",marginBottom:9,
+                cursor:listeSiralaModu?"default":"pointer",boxShadow:"0 1px 6px rgba(0,0,0,.05)",transition:"padding .15s"
+              }},
+                div({style:{width:48,height:48,borderRadius:14,background:bg,
+                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0}},ikon),
+                div({style:{fontSize:15,fontWeight:600,color:"#1D1D1F",flex:1,minWidth:0}},lb),
+                listeSiralaModu
+                  ? div({style:{display:"flex",gap:6,flexShrink:0}},
+                      okBtn(i>0, ()=>tasi(i,-1), lb+" yukarı taşı", "↑"),
+                      okBtn(i<sirali.length-1, ()=>tasi(i,1), lb+" aşağı taşı", "↓"))
+                  : span({style:{fontSize:20,color:"#c0c0c5",flexShrink:0}},"›")
+              )
+            ),
+            listeSiralaModu && btn({type:"button",onClick:()=>{ menuSiraKaydet("ayarListeler", []); },
+              style:{marginTop:4,padding:"7px 12px",borderRadius:9,border:"1px solid rgba(0,0,0,.12)",background:"transparent",color:"#86868B",fontSize:12.5,cursor:"pointer"}},
+              "Varsayılan sıraya dön")
+          );
+        })(),
 
         // ══════════════════════════════════════════
         // ADIM 2c — İNSAN KAYNAKLARI ALT BAŞLIKLARI
