@@ -3,7 +3,7 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="1793730244">
+  <meta name="version" content="1793732124">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -2126,28 +2126,72 @@ function PersonelLinkKarti({showToast}){
   );
 }
 
+// ── Giriş ekranı: Şifremi unuttum ─────────────────────────────────────────────
+// Personel adını yazar → yöneticiye bildirim gider → yönetici Personel Listesi'nden yeni şifre verir.
+// Güvenlik: yanıt her zaman aynıdır (isim listede olsa da olmasa da) → personel adları sızdırılmaz.
+function SifremiUnuttum(){
+  const [acik, setAcik] = React.useState(false);
+  const [ad, setAd] = React.useState("");
+  const [durum, setDurum] = React.useState(""); // "", "gonderiliyor", "tamam", "hata", "kilit"
+  const [mesaj, setMesaj] = React.useState("");
+  const F = "'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+  const gonder = async ()=>{
+    if(ad.trim().length<3){ setDurum("hata"); setMesaj("Lütfen adınızı ve soyadınızı yazın."); return; }
+    setDurum("gonderiliyor"); setMesaj("");
+    try{
+      const r = await fetch(PERSONEL_GIRIS_URL,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({islem:"unuttum", ad:ad.trim().slice(0,80), salon:(localStorage.getItem("apron_salon")||""), cihaz:cihazKimligi()})});
+      const y = await r.json().catch(()=>null);
+      if(y && y.kilit){ setDurum("kilit"); setMesaj(y.hata||"Kısa süre önce talep gönderildi. Lütfen biraz bekleyin."); return; }
+      if(!y){ setDurum("hata"); setMesaj("📶 Bağlantı kurulamadı. İnternetinizi kontrol edin."); return; }
+      setDurum("tamam");
+    }catch(e){ setDurum("hata"); setMesaj("📶 Bağlantı kurulamadı. İnternetinizi kontrol edin."); }
+  };
+  if(!acik) return div({style:{textAlign:"center",marginTop:12}},
+    btn({type:"button",onClick:()=>{setAcik(true);setDurum("");setMesaj("");},
+      style:{background:"transparent",border:"none",color:"#0071E3",fontSize:13.5,cursor:"pointer",fontFamily:F,padding:6}},"Şifremi unuttum"));
+  if(durum==="tamam") return div({style:{marginTop:14,padding:"14px 14px",borderRadius:12,background:"rgba(52,199,89,.08)",border:"1px solid rgba(52,199,89,.3)",fontFamily:F,textAlign:"center"}},
+    div({style:{fontSize:14,fontWeight:600,color:"#1D1D1F",marginBottom:4}},"✓ Talebiniz yöneticinize iletildi"),
+    div({style:{fontSize:12.5,color:"#6E6E73",lineHeight:1.5}},"Yöneticiniz size yeni bir giriş şifresi verecek. Yeni şifrenizle giriş yaptıktan sonra Ayarlar'dan kendi şifrenizi belirleyebilirsiniz."),
+    btn({type:"button",onClick:()=>{setAcik(false);setAd("");setDurum("");},style:{marginTop:10,background:"transparent",border:"none",color:"#0071E3",fontSize:13,cursor:"pointer",fontFamily:F}},"Kapat"));
+  return div({style:{marginTop:14,padding:"14px 14px",borderRadius:12,background:"#F5F5F7",border:"1px solid #E5E5EA",fontFamily:F}},
+    div({style:{fontSize:14,fontWeight:600,color:"#1D1D1F",marginBottom:4}},"Şifremi unuttum"),
+    div({style:{fontSize:12.5,color:"#6E6E73",lineHeight:1.5,marginBottom:10}},"Adınızı ve soyadınızı yazın; yöneticinize bildirim gidecek ve size yeni bir şifre verecek."),
+    inp({className:"fi",placeholder:"Adınız Soyadınız",value:ad,maxLength:80,autoComplete:"name",
+      onChange:e=>{setAd(e.target.value);if(durum==="hata")setDurum("");},onKeyDown:e=>{if(e.key==="Enter")gonder();},
+      style:{width:"100%",boxSizing:"border-box",marginBottom:8}}),
+    (durum==="hata"||durum==="kilit") && div({style:{fontSize:12.5,color:durum==="kilit"?"#B76E00":"#FF3B30",marginBottom:8,lineHeight:1.45}},mesaj),
+    div({style:{display:"flex",gap:8}},
+      btn({type:"button",onClick:()=>{setAcik(false);setAd("");setDurum("");},style:{flex:1,padding:"11px 0",borderRadius:10,border:"1px solid #E5E5EA",background:"#fff",color:"#86868B",fontSize:13.5,cursor:"pointer",fontFamily:F}},"Vazgeç"),
+      btn({type:"button",disabled:durum==="gonderiliyor",onClick:gonder,style:{flex:2,padding:"11px 0",borderRadius:10,border:"none",background:"#1D1D1F",color:"#fff",fontSize:13.5,fontWeight:600,cursor:"pointer",fontFamily:F,opacity:durum==="gonderiliyor"?.6:1}},
+        durum==="gonderiliyor"?"Gönderiliyor…":"Yöneticime Bildir")));
+}
+
 // ── Personel şifre değiştirme (Personel → Ayarlar) ───────────────────────────
 // Tüm kontroller sunucuda (personel-sifre-degistir) tekrarlanır; buradaki kurallar
 // yalnızca anlık yönlendirme içindir ve sunucudakiyle birebir aynıdır.
 const PERSONEL_SIFRE_URL = "https://txbvqwcwarpkwvvhxdoo.supabase.co/functions/v1/personel-sifre-degistir";
+// Personel şifre kuralı: 8–20 karakter, en az 1 harf + 1 rakam, boşluk yok, büyük/küçük harf duyarlı.
+// Sunucudaki (personel-sifre-degistir → sifreKurali) kuralla birebir aynıdır.
+const ZAYIF_SIFRELER = ["abc12345","abcd1234","1234abcd","abc123456","a1234567","aa123456","123456ab","12345678a",
+  "sifre123","şifre123","sifre1234","parola123","password1","password123","qwerty123","qwe12345","asd12345","asdf1234",
+  "q1w2e3r4","1q2w3e4r","admin123","apron123","kuafor123","kuaför123","berber123","salon123","123qwe123","deneme123"];
 function sifreKuraliKontrol(s, mevcut){
-  const d = String(s||"").split("").map(Number);
-  const sadeceRakam = /^\d+$/.test(s||"");
-  const uzunluk = sadeceRakam && s.length>=6 && s.length<=12;
-  const hepsiAyni = /^(\d)\1+$/.test(s||"");
-  const artan = d.length>1 && d.every((x,i)=>i===0||x===(d[i-1]+1)%10);
-  const azalan = d.length>1 && d.every((x,i)=>i===0||x===(d[i-1]+9)%10);
-  const kalip = /^(\d{1,3})\1+$/.test(s||"");
-  const kolayDegil = !!s && !hepsiAyni && !artan && !azalan && !kalip;
+  s = String(s||"");
+  const uzunluk = s.length>=8 && s.length<=20 && !/\s/.test(s);
+  const harfRakam = /[A-Za-zÇĞİÖŞÜçğıöşü]/.test(s) && /\d/.test(s);
+  const kucuk = s.toLocaleLowerCase("tr-TR");
+  const kolayDegil = !!s && new Set(s).size>=4 && !/^(.)\1+$/.test(s) && !/^(.{1,4})\1+$/.test(s) && !ZAYIF_SIFRELER.includes(kucuk);
   const farkli = !!s && s!==mevcut;
-  return {uzunluk, kolayDegil, farkli, gecerli: uzunluk && kolayDegil && farkli};
+  return {uzunluk, harfRakam, kolayDegil, farkli, gecerli: uzunluk && harfRakam && kolayDegil && farkli};
 }
 // Yöneticinin personele atadığı şifre için kural (personel giriş ekranı yalnızca rakam kabul eder).
 function personelPinHatasi(pin, rol){
   if((rol||"personel")==="yonetici") return "";
   const k = sifreKuraliKontrol(pin, "");
-  if(!k.uzunluk) return "Personel giriş şifresi 6–12 rakamdan oluşmalı (harf kullanılamaz).";
-  if(!k.kolayDegil) return "Bu şifre kolay tahmin edilir (ör. 123456, 111111, 121212). Daha güçlü bir şifre seçin.";
+  if(!k.uzunluk) return "Personel giriş şifresi 8–20 karakter olmalı ve boşluk içermemeli.";
+  if(!k.harfRakam) return "Personel giriş şifresinde en az 1 harf ve 1 rakam olmalı (ör. Ayse2026).";
+  if(!k.kolayDegil) return "Bu şifre kolay tahmin edilir (ör. abc12345, sifre123). Daha güçlü bir şifre seçin.";
   return "";
 }
 function PersonelSifreDegistir({kul, onKapat, onBasari, showToast}){
@@ -2161,7 +2205,8 @@ function PersonelSifreDegistir({kul, onKapat, onBasari, showToast}){
   const k = sifreKuraliKontrol(yeni, mevcut);
   const eslesiyor = yeni2.length>0 && yeni===yeni2;
   const hazir = mevcut.length>=4 && k.gecerli && eslesiyor && !yuk;
-  const rakam = v => v.replace(/[^0-9]/g,"").slice(0,12);
+  const rakam = v => v.replace(/\s/g,"").slice(0,20);
+  const [capsLock, setCapsLock] = React.useState(false);
 
   const kaydet = async () => {
     if(!hazir) return;
@@ -2198,11 +2243,12 @@ function PersonelSifreDegistir({kul, onKapat, onBasari, showToast}){
     return div({style:{marginBottom:14}},
       lbl({className:"fl",style:{display:"block",marginBottom:6}},etiket),
       div({style:{position:"relative"}},
-        h("input",{className:"fi",type:goster[anahtar]?"text":"password",inputMode:"numeric",pattern:"[0-9]*",
-          autoComplete:anahtar==="m"?"current-password":"new-password",maxLength:12,placeholder:"••••••",value:deger,disabled:yuk,
+        h("input",{className:"fi",type:goster[anahtar]?"text":"password",
+          autoComplete:anahtar==="m"?"current-password":"new-password",autoCapitalize:"none",autoCorrect:"off",spellCheck:false,
+          maxLength:20,placeholder:"••••••••",value:deger,disabled:yuk,
           onChange:e=>{ setDeger(rakam(e.target.value)); if(hata.metin) setHata({alan:"",metin:""}); },
-          onKeyDown:e=>{ if(e.key==="Enter") kaydet(); },
-          style:{width:"100%",boxSizing:"border-box",paddingRight:46,letterSpacing:deger&&!goster[anahtar]?"6px":"2px",fontSize:18,border:"1.5px solid "+kenar,transition:"border-color .2s"}}),
+          onKeyDown:e=>{ try{ setCapsLock(!!(e.getModifierState&&e.getModifierState("CapsLock"))); }catch(_){} if(e.key==="Enter") kaydet(); },
+          style:{width:"100%",boxSizing:"border-box",paddingRight:46,letterSpacing:deger&&!goster[anahtar]?"4px":"1px",fontSize:17,border:"1.5px solid "+kenar,transition:"border-color .2s"}}),
         h("button",{type:"button","aria-label":goster[anahtar]?"Şifreyi gizle":"Şifreyi göster",
           onClick:()=>setGoster(g=>({...g,[anahtar]:!g[anahtar]})),
           style:{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",width:36,height:36,border:"none",background:"transparent",color:"var(--mu)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}},
@@ -2221,13 +2267,15 @@ function PersonelSifreDegistir({kul, onKapat, onBasari, showToast}){
 
   return div({style:{fontFamily:F}},
     div({style:{fontSize:13,color:"var(--mu)",lineHeight:1.5,marginBottom:16}},
-      "Güvenliğiniz için şifrenizi kimseyle paylaşmayın. Şifre yalnızca rakamlardan oluşur."),
+      "Güvenliğiniz için şifrenizi kimseyle paylaşmayın. Şifre büyük/küçük harfe duyarlıdır: \"Ayse2026\" ile \"ayse2026\" farklı şifrelerdir."),
+    capsLock && div({style:{fontSize:12.5,color:"#B76E00",background:"rgba(255,149,0,.09)",border:"1px solid rgba(255,149,0,.3)",borderRadius:8,padding:"7px 10px",marginBottom:12}},"⇪ Büyük harf kilidi (Caps Lock) açık"),
     alan("m","Mevcut Şifre",mevcut,setMevcut,
       hata.alan==="mevcut" && div({style:{fontSize:12.5,color:"#FF3B30",marginTop:6}},hata.metin)),
     alan("y","Yeni Şifre",yeni,setYeni,
       div({style:{marginTop:4}},
-        madde(k.uzunluk,"6–12 rakam"),
-        madde(k.kolayDegil,"Kolay tahmin edilemez (123456, 111111, 121212 gibi değil)"),
+        madde(k.uzunluk,"8–20 karakter, boşluksuz"),
+        madde(k.harfRakam,"En az 1 harf ve 1 rakam"),
+        madde(k.kolayDegil,"Kolay tahmin edilemez (abc12345, sifre123 gibi değil)"),
         madde(!!yeni && k.farkli,"Mevcut şifrenizden farklı"),
         hata.alan==="yeni" && div({style:{fontSize:12.5,color:"#FF3B30",marginTop:7}},hata.metin)),
       yeni ? (k.gecerli?"ok":"hata") : ""),
@@ -15950,8 +15998,8 @@ function KayitKarti({r, onDetay, onDuzenle, onSil}) {
         div({style:{marginBottom:10}},lbl(fl2,"Ad Soyad *"),inp({className:"fi",placeholder:"Ad Soyad",value:data.ad||"",onChange:e=>setData(p=>({...p,ad:e.target.value}))})),
         div({style:{marginBottom:10}},lbl(fl2,"E-posta (cihaz doğrulama için)"),inp({className:"fi",type:"email",placeholder:"ornek@eposta.com",value:data.eposta||"",onChange:e=>setData(p=>({...p,eposta:e.target.value.trim()}))})),
         div({style:{marginBottom:10}},lbl(fl2,"Doğum Tarihi (cihaz doğrulama için)"),inp({className:"fi",type:"date",value:data.dogumTarihi||"",onChange:e=>setData(p=>({...p,dogumTarihi:e.target.value}))})),
-        div({style:{marginBottom:10}},lbl(fl2,(data.rol||"personel")==="yonetici"?"Şifre * (min 6 karakter)":"Giriş Şifresi * (6–12 rakam)"),
-          div({style:{position:"relative"}},inp({className:"fi",type:pinGoster?"text":"password",style:{paddingRight:44,width:"100%",boxSizing:"border-box"},maxLength:(data.rol||"personel")==="yonetici"?20:12,inputMode:(data.rol||"personel")==="yonetici"?undefined:"numeric",placeholder:"••••••",value:data.pin||"",onChange:e=>{const v=e.target.value;setData(p=>({...p,pin:(p.rol||"personel")==="yonetici"?v.slice(0,20):v.replace(/[^0-9]/g,"").slice(0,12)}));}}),
+        div({style:{marginBottom:10}},lbl(fl2,(data.rol||"personel")==="yonetici"?"Şifre * (min 6 karakter)":"Giriş Şifresi * (en az 8 karakter, harf + rakam)"),
+          div({style:{position:"relative"}},inp({className:"fi",type:pinGoster?"text":"password",style:{paddingRight:44,width:"100%",boxSizing:"border-box"},maxLength:20,autoCapitalize:"none",autoCorrect:"off",spellCheck:false,placeholder:"••••••••",value:data.pin||"",onChange:e=>{const v=e.target.value.replace(/\s/g,"").slice(0,20);setData(p=>({...p,pin:v}));}}),
             h("button",{type:"button","aria-label":pinGoster?"Şifreyi gizle":"Şifreyi göster",onClick:()=>setPinGoster(v=>!v),
               style:{position:"absolute",right:4,top:"50%",transform:"translateY(-50%)",width:36,height:36,border:"none",background:"transparent",color:"var(--mu)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}},
               h("svg",{width:19,height:19,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
@@ -18544,6 +18592,8 @@ function App() {
   const [perPinHata, setPerPinHata]   = useState("");
   const [pinDeneme, setPinDeneme]     = useState(()=>{ try{ return parseInt(localStorage.getItem("apron_pin_deneme")||"0"); }catch(e){return 0;} });
   const [pinBloke, setPinBloke]       = useState(()=>localStorage.getItem("apron_pin_bloke")==="1");
+  const [perPinGoster, setPerPinGoster] = useState(false);
+  const [perCaps, setPerCaps] = useState(false);
   const [biyoOneriGoster, setBiyoOneriGoster] = useState(false); // başarılı PIN sonrası biyometrik öneri modalı
   const [biyoKaydediliyor, setBiyoKaydediliyor] = useState(false);
   const [biyoPendingKul, setBiyoPendingKul] = useState(null); // kayıt için bekleyen personel obj
@@ -23459,10 +23509,17 @@ if(DB) dbUpsertAyar("tema",tema);
                   : div(null,
                       div({style:{marginBottom:14}},
                         lbl({className:"fl",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},"Şifreniz"),
-                        inp({className:"fi",type:"password",inputMode:"numeric",pattern:"[0-9]*",autoComplete:"off",maxLength:12,placeholder:"••••••",value:perPin,
-                          onChange:e=>{ setPerPinHata(""); setPerPin(e.target.value.replace(/[^0-9]/g,"").slice(0,12)); },
-                          onKeyDown:e=>{ if(e.key==="Enter") perPinGiris(); },
-                          style:{textAlign:"center",letterSpacing:"8px",fontSize:22,marginTop:8}})
+                        div({style:{position:"relative",marginTop:8}},
+                          inp({className:"fi",type:perPinGoster?"text":"password",autoComplete:"current-password",autoCapitalize:"none",autoCorrect:"off",spellCheck:false,maxLength:20,placeholder:"••••••••",value:perPin,
+                            onChange:e=>{ setPerPinHata(""); setPerPin(e.target.value.replace(/\s/g,"").slice(0,20)); },
+                            onKeyDown:e=>{ try{ setPerCaps(!!(e.getModifierState&&e.getModifierState("CapsLock"))); }catch(_){} if(e.key==="Enter") perPinGiris(); },
+                            style:{textAlign:"center",letterSpacing:perPin&&!perPinGoster?"5px":"1px",fontSize:19,width:"100%",boxSizing:"border-box",padding:"12px 46px"}}),
+                          h("button",{type:"button","aria-label":perPinGoster?"Şifreyi gizle":"Şifreyi göster",onClick:()=>setPerPinGoster(v=>!v),
+                            style:{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",width:36,height:36,border:"none",background:"transparent",color:"#86868B",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}},
+                            h("svg",{width:20,height:20,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
+                              h("path",{d:"M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"}),h("circle",{cx:12,cy:12,r:3}),!perPinGoster&&h("line",{x1:3,y1:3,x2:21,y2:21})))),
+                        div({style:{fontSize:11.5,color:"#86868B",marginTop:6,textAlign:"center",fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},
+                          perCaps?"⇪ Büyük harf kilidi açık — şifre büyük/küçük harfe duyarlıdır":"Şifre büyük/küçük harfe duyarlıdır")
                       ),
                       perPinHata&&div({style:{background: pinDeneme>=3?"rgba(255,59,48,.10)":"rgba(255,149,0,.08)",
                         border:"1px solid "+(pinDeneme>=3?"rgba(255,59,48,.35)":"rgba(255,149,0,.3)"),
@@ -23471,7 +23528,8 @@ if(DB) dbUpsertAyar("tema",tema);
                         fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},perPinHata),
                       btn({style:{width:"100%",padding:"14px 0",borderRadius:12,border:"none",
                         background:"#1D1D1F",color:"#FFFFFF",fontSize:15,fontWeight:700,cursor:"pointer",
-                        fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},onClick:perPinGiris},"Giriş Yap")
+                        fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif"},onClick:perPinGiris},"Giriş Yap"),
+                      h(SifremiUnuttum,null)
                     )
               ),
           btn({style:{width:"100%",marginTop:10,padding:"11px 0",borderRadius:12,
@@ -26042,6 +26100,8 @@ if(DB) dbUpsertAyar("tema",tema);
                 onClick:()=>{
                   if(sifreUnuttumGonderildi) return;
                   setUnuttumBildirim(p=>[...p,{id:uid(),staffId:kul.id,staffAd:kul.ad,tarih:TODAY(),saat:SAAT(),okundu:false}]);
+                  // Yönetici bildirim merkezine gerçekten ilet (önceden yalnızca bu cihazda tutuluyordu, yöneticiye ulaşmıyordu)
+                  try{ yonBildirimEkle("sifre_unuttum", kul.ad+" — Şifremi Unuttum", kul.ad+" giriş şifresini unuttuğunu bildirdi. İnsan Kaynakları → Personel Listesi → Düzenle'den yeni şifre verebilirsiniz.", {staffId:kul.id, staffAd:kul.ad}); }catch(e){}
                   setSifreUnuttumGonderildi(true);
                 }},sifreUnuttumGonderildi?"✓ Yonetici bilgilendirildi":"Şifremi unuttum")
             )
@@ -27809,6 +27869,7 @@ if(DB) dbUpsertAyar("tema",tema);
             if(tip==="devir") return "🔄";
             if(tip==="devamsizlik_onay") return "📅";
             if(tip==="sifre_degisti") return "🔐";
+            if(tip==="sifre_unuttum") return "🔑";
             return "🔔";
           };
           const renkGetir = (tip) => {
@@ -27819,6 +27880,7 @@ if(DB) dbUpsertAyar("tema",tema);
             if(tip==="iban") return {bg:"rgba(0,113,227,.08)",border:"rgba(0,113,227,.3)",tx:"#0071E3"};
             if(tip==="devamsizlik_onay") return {bg:"rgba(255,149,0,.08)",border:"rgba(255,149,0,.3)",tx:"#FF9500"};
             if(tip==="sifre_degisti") return {bg:"rgba(52,199,89,.08)",border:"rgba(52,199,89,.3)",tx:"#248A3D"};
+            if(tip==="sifre_unuttum") return {bg:"rgba(255,149,0,.08)",border:"rgba(255,149,0,.3)",tx:"#B76E00"};
             return {bg:"rgba(255,107,74,.08)",border:"rgba(255,107,74,.3)",tx:"#FF6B4A"};
           };
           return div({className:"pg",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",padding:"8px 14px"}},
