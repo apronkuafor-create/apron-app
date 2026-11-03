@@ -3,7 +3,7 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="1793721803">
+  <meta name="version" content="1793730244">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -1718,7 +1718,39 @@ const _ayarYazimImza = (id, s) => {
   while(arr.length>30) arr.shift();
 };
 const _ayarYakinYazim = (id, s) => s!==null && (_ayarSigGec[id]||[]).includes(s);
+// ── Personel listesi: şifre değişikliklerini kaybetmeden birleştir ──
+// Liste buluta tek parça yazılır. Başka bir cihazda (ör. personelin kendi telefonunda) değişen şifre,
+// eski listeyle açık kalmış bir cihazın toplu yazımıyla geri ezilmesin diye her kişi için şifre alanında
+// "en son değişen kazanır" (pinDegisim zaman damgası) kuralı uygulanır. Diğer alanlar yerel listeden gelir.
+function personelPinBirlestir(yerel, bulut){
+  if(!Array.isArray(yerel) || !Array.isArray(bulut)) return yerel;
+  const bMap = {}; bulut.forEach(b=>{ if(b && b.id!=null) bMap[String(b.id)] = b; });
+  let degisti = false;
+  const sonuc = yerel.map(l=>{
+    const b = l && bMap[String(l.id)];
+    if(b && (b.pinDegisim||"") > (l.pinDegisim||"") && b.pin !== l.pin){
+      degisti = true;
+      return {...l, pin:b.pin, pinDegisim:b.pinDegisim};
+    }
+    return l;
+  });
+  return degisti ? sonuc : yerel;
+}
 const _ayarYaz = (id, deger) => {
+  if(id==="personeller" && DB && Array.isArray(deger)){
+    (async()=>{
+      let son = deger;
+      try{
+        const {data} = await DB.from("ayarlar").select("deger").eq("id","personeller").maybeSingle();
+        if(data && Array.isArray(data.deger)) son = personelPinBirlestir(deger, data.deger);
+      }catch(e){}
+      _ayarYazimImza(id, _ayarImza(son));
+      dbUpsert("ayarlar",{id, deger:son},"isletme_id,id");
+      // Buluttaki daha yeni şifre alındıysa bu cihazdaki listeyi de güncelle (yönetici ekranı doğru göstersin)
+      if(son!==deger && typeof window.__apronPersonelGuncelle==="function") window.__apronPersonelGuncelle(son);
+    })();
+    return;
+  }
   if(id==="mkArsiv"){
     // Mal Kabul arşivi: buluta yazmadan önce güncel "silinenler" listesini çek ve silinmiş faturaları ayıkla.
     // Böylece eski veriyle açık kalmış başka bir cihaz/sekme, silinen faturayı geri yazamaz.
@@ -2092,6 +2124,121 @@ function PersonelLinkKarti({showToast}){
           btn({type:"button",style:b,onClick:wa},"WhatsApp"),
           btn({type:"button",style:b,onClick:paylas},"Paylaş")))
   );
+}
+
+// ── Personel şifre değiştirme (Personel → Ayarlar) ───────────────────────────
+// Tüm kontroller sunucuda (personel-sifre-degistir) tekrarlanır; buradaki kurallar
+// yalnızca anlık yönlendirme içindir ve sunucudakiyle birebir aynıdır.
+const PERSONEL_SIFRE_URL = "https://txbvqwcwarpkwvvhxdoo.supabase.co/functions/v1/personel-sifre-degistir";
+function sifreKuraliKontrol(s, mevcut){
+  const d = String(s||"").split("").map(Number);
+  const sadeceRakam = /^\d+$/.test(s||"");
+  const uzunluk = sadeceRakam && s.length>=6 && s.length<=12;
+  const hepsiAyni = /^(\d)\1+$/.test(s||"");
+  const artan = d.length>1 && d.every((x,i)=>i===0||x===(d[i-1]+1)%10);
+  const azalan = d.length>1 && d.every((x,i)=>i===0||x===(d[i-1]+9)%10);
+  const kalip = /^(\d{1,3})\1+$/.test(s||"");
+  const kolayDegil = !!s && !hepsiAyni && !artan && !azalan && !kalip;
+  const farkli = !!s && s!==mevcut;
+  return {uzunluk, kolayDegil, farkli, gecerli: uzunluk && kolayDegil && farkli};
+}
+// Yöneticinin personele atadığı şifre için kural (personel giriş ekranı yalnızca rakam kabul eder).
+function personelPinHatasi(pin, rol){
+  if((rol||"personel")==="yonetici") return "";
+  const k = sifreKuraliKontrol(pin, "");
+  if(!k.uzunluk) return "Personel giriş şifresi 6–12 rakamdan oluşmalı (harf kullanılamaz).";
+  if(!k.kolayDegil) return "Bu şifre kolay tahmin edilir (ör. 123456, 111111, 121212). Daha güçlü bir şifre seçin.";
+  return "";
+}
+function PersonelSifreDegistir({kul, onKapat, onBasari, showToast}){
+  const [mevcut, setMevcut] = React.useState("");
+  const [yeni, setYeni] = React.useState("");
+  const [yeni2, setYeni2] = React.useState("");
+  const [goster, setGoster] = React.useState({m:false,y:false,y2:false});
+  const [hata, setHata] = React.useState({alan:"",metin:""});
+  const [yuk, setYuk] = React.useState(false);
+  const [tamam, setTamam] = React.useState(false);
+  const k = sifreKuraliKontrol(yeni, mevcut);
+  const eslesiyor = yeni2.length>0 && yeni===yeni2;
+  const hazir = mevcut.length>=4 && k.gecerli && eslesiyor && !yuk;
+  const rakam = v => v.replace(/[^0-9]/g,"").slice(0,12);
+
+  const kaydet = async () => {
+    if(!hazir) return;
+    setYuk(true); setHata({alan:"",metin:""});
+    try{
+      const {data:sd} = DB ? await DB.auth.getSession() : {data:null};
+      const token = sd?.session?.access_token;
+      if(!token){ setHata({alan:"",metin:"Oturumunuz bulunamadı. Çıkış yapıp yeniden giriş yapın."}); setYuk(false); return; }
+      let y = null;
+      try{
+        const r = await fetch(PERSONEL_SIFRE_URL,{method:"POST",
+          headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
+          body:JSON.stringify({personel_id:String(kul.id), mevcut, yeni})});
+        y = await r.json().catch(()=>null);
+      }catch(e){ y = null; }
+      if(!y){ setHata({alan:"",metin:"📶 Bağlantı kurulamadı. İnternetinizi kontrol edip tekrar deneyin."}); setYuk(false); return; }
+      if(!y.ok){
+        setHata({alan:y.alan||"", metin:y.hata||"Şifre değiştirilemedi."});
+        if(y.alan==="mevcut") setMevcut("");
+        setYuk(false); return;
+      }
+      onBasari && onBasari(yeni);
+      setMevcut(""); setYeni(""); setYeni2(""); setYuk(false); setTamam(true);
+    }catch(e){ setHata({alan:"",metin:"Beklenmeyen bir hata oluştu. Tekrar deneyin."}); setYuk(false); }
+  };
+
+  const F = "'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+  const goz = (acik) => h("svg",{width:20,height:20,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
+    h("path",{d:"M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"}), h("circle",{cx:12,cy:12,r:3}),
+    !acik && h("line",{x1:3,y1:3,x2:21,y2:21}));
+  const alan = (anahtar, etiket, deger, setDeger, ipucu, durum) => {
+    const hataVar = hata.alan===(anahtar==="m"?"mevcut":"yeni") && (anahtar!=="y2");
+    const kenar = hataVar ? "#FF3B30" : durum==="ok" ? "#34C759" : durum==="hata" ? "#FF9500" : "var(--br)";
+    return div({style:{marginBottom:14}},
+      lbl({className:"fl",style:{display:"block",marginBottom:6}},etiket),
+      div({style:{position:"relative"}},
+        h("input",{className:"fi",type:goster[anahtar]?"text":"password",inputMode:"numeric",pattern:"[0-9]*",
+          autoComplete:anahtar==="m"?"current-password":"new-password",maxLength:12,placeholder:"••••••",value:deger,disabled:yuk,
+          onChange:e=>{ setDeger(rakam(e.target.value)); if(hata.metin) setHata({alan:"",metin:""}); },
+          onKeyDown:e=>{ if(e.key==="Enter") kaydet(); },
+          style:{width:"100%",boxSizing:"border-box",paddingRight:46,letterSpacing:deger&&!goster[anahtar]?"6px":"2px",fontSize:18,border:"1.5px solid "+kenar,transition:"border-color .2s"}}),
+        h("button",{type:"button","aria-label":goster[anahtar]?"Şifreyi gizle":"Şifreyi göster",
+          onClick:()=>setGoster(g=>({...g,[anahtar]:!g[anahtar]})),
+          style:{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",width:36,height:36,border:"none",background:"transparent",color:"var(--mu)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}},
+          goz(goster[anahtar]))),
+      ipucu);
+  };
+  const madde = (ok, metin) => div({style:{display:"flex",alignItems:"center",gap:7,fontSize:12.5,color:ok?"#248A3D":"var(--mu)",marginTop:5,transition:"color .2s"}},
+    h("span",{style:{width:16,height:16,borderRadius:"50%",flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,
+      background:ok?"#34C759":"transparent",border:ok?"none":"1.5px solid var(--br)",color:"#fff"}},ok?"✓":""), metin);
+
+  if(tamam) return div({style:{fontFamily:F,textAlign:"center",padding:"10px 4px 4px"}},
+    div({style:{width:56,height:56,borderRadius:"50%",background:"rgba(52,199,89,.12)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px",fontSize:26,color:"#34C759"}},"✓"),
+    div({style:{fontSize:16,fontWeight:600,color:"var(--tx)",marginBottom:6}},"Şifreniz güncellendi"),
+    div({style:{fontSize:13,color:"var(--mu)",lineHeight:1.5,marginBottom:16}},"Bir sonraki girişinizde yeni şifrenizi kullanın. Yöneticinize şifrenizin değiştiği bilgisi iletildi (şifrenin kendisi iletilmez)."),
+    btn({type:"button",onClick:onKapat,style:{width:"100%",background:"linear-gradient(135deg,var(--g),var(--gd))",border:"none",borderRadius:11,color:"var(--bg)",fontSize:15,fontWeight:700,padding:13,cursor:"pointer"}},"Tamam"));
+
+  return div({style:{fontFamily:F}},
+    div({style:{fontSize:13,color:"var(--mu)",lineHeight:1.5,marginBottom:16}},
+      "Güvenliğiniz için şifrenizi kimseyle paylaşmayın. Şifre yalnızca rakamlardan oluşur."),
+    alan("m","Mevcut Şifre",mevcut,setMevcut,
+      hata.alan==="mevcut" && div({style:{fontSize:12.5,color:"#FF3B30",marginTop:6}},hata.metin)),
+    alan("y","Yeni Şifre",yeni,setYeni,
+      div({style:{marginTop:4}},
+        madde(k.uzunluk,"6–12 rakam"),
+        madde(k.kolayDegil,"Kolay tahmin edilemez (123456, 111111, 121212 gibi değil)"),
+        madde(!!yeni && k.farkli,"Mevcut şifrenizden farklı"),
+        hata.alan==="yeni" && div({style:{fontSize:12.5,color:"#FF3B30",marginTop:7}},hata.metin)),
+      yeni ? (k.gecerli?"ok":"hata") : ""),
+    alan("y2","Yeni Şifre (Tekrar)",yeni2,setYeni2,
+      yeni2 && div({style:{fontSize:12.5,marginTop:6,color:eslesiyor?"#248A3D":"#FF9500"}},eslesiyor?"✓ Şifreler eşleşiyor":"Şifreler eşleşmiyor"),
+      yeni2 ? (eslesiyor?"ok":"hata") : ""),
+    hata.metin && !hata.alan && div({style:{color:"#c0392b",fontSize:13,marginBottom:12,padding:"9px 11px",background:"rgba(255,59,48,.07)",border:"1px solid rgba(255,59,48,.25)",borderRadius:9,lineHeight:1.45}},hata.metin),
+    div({style:{display:"flex",gap:8,marginTop:4}},
+      btn({type:"button",disabled:yuk,onClick:onKapat,style:{flex:1,background:"transparent",border:"1px solid var(--br)",borderRadius:10,color:"var(--mu)",fontSize:14,padding:13,cursor:"pointer"}},"İptal"),
+      btn({type:"button",disabled:!hazir,onClick:kaydet,style:{flex:2,background:"linear-gradient(135deg,var(--g),var(--gd))",border:"none",borderRadius:10,color:"var(--bg)",fontSize:14.5,fontWeight:700,padding:13,cursor:hazir?"pointer":"not-allowed",opacity:hazir?1:.45,transition:"opacity .2s"}},
+        yuk?"Kaydediliyor…":"Şifreyi Güncelle")));
 }
 
 // ── TutarInput: ₺ tutar alanları için yazarken binlik ayraçlı gösterim ─────────
@@ -15788,6 +15935,7 @@ function KayitKarti({r, onDetay, onDuzenle, onSil}) {
 }
 
   function PersonelFormModal({title, data, setData, onKaydet, onIptal, showDurum, hata, gruplar, pozisyonlar}) {
+  const [pinGoster, setPinGoster] = React.useState(false);
   const fl2 = {className:"fl",style:{minHeight:34,display:"block"}}; // etiketler 1-2 satır olabildiği için sabit yükseklik — grid satırları düzgün hizalansın
   return div({style:{position:"fixed",inset:0,background:"linear-gradient(180deg,#F7F8FA 0%,#ECEEF1 100%)",zIndex:1000,display:"flex",flexDirection:"column",overflow:"hidden"}},
     div({style:{background:"#0f0c08",borderBottom:"1px solid #1e4244",padding:"13px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}},
@@ -15802,7 +15950,13 @@ function KayitKarti({r, onDetay, onDuzenle, onSil}) {
         div({style:{marginBottom:10}},lbl(fl2,"Ad Soyad *"),inp({className:"fi",placeholder:"Ad Soyad",value:data.ad||"",onChange:e=>setData(p=>({...p,ad:e.target.value}))})),
         div({style:{marginBottom:10}},lbl(fl2,"E-posta (cihaz doğrulama için)"),inp({className:"fi",type:"email",placeholder:"ornek@eposta.com",value:data.eposta||"",onChange:e=>setData(p=>({...p,eposta:e.target.value.trim()}))})),
         div({style:{marginBottom:10}},lbl(fl2,"Doğum Tarihi (cihaz doğrulama için)"),inp({className:"fi",type:"date",value:data.dogumTarihi||"",onChange:e=>setData(p=>({...p,dogumTarihi:e.target.value}))})),
-        div({style:{marginBottom:10}},lbl(fl2,"Şifre * (min 6 karakter, harf+rakam)"),inp({className:"fi",type:"password",maxLength:20,placeholder:"••••••",value:data.pin||"",onChange:e=>setData(p=>({...p,pin:e.target.value.slice(0,20)}))})),
+        div({style:{marginBottom:10}},lbl(fl2,(data.rol||"personel")==="yonetici"?"Şifre * (min 6 karakter)":"Giriş Şifresi * (6–12 rakam)"),
+          div({style:{position:"relative"}},inp({className:"fi",type:pinGoster?"text":"password",style:{paddingRight:44,width:"100%",boxSizing:"border-box"},maxLength:(data.rol||"personel")==="yonetici"?20:12,inputMode:(data.rol||"personel")==="yonetici"?undefined:"numeric",placeholder:"••••••",value:data.pin||"",onChange:e=>{const v=e.target.value;setData(p=>({...p,pin:(p.rol||"personel")==="yonetici"?v.slice(0,20):v.replace(/[^0-9]/g,"").slice(0,12)}));}}),
+            h("button",{type:"button","aria-label":pinGoster?"Şifreyi gizle":"Şifreyi göster",onClick:()=>setPinGoster(v=>!v),
+              style:{position:"absolute",right:4,top:"50%",transform:"translateY(-50%)",width:36,height:36,border:"none",background:"transparent",color:"var(--mu)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}},
+              h("svg",{width:19,height:19,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
+                h("path",{d:"M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"}),h("circle",{cx:12,cy:12,r:3}),!pinGoster&&h("line",{x1:3,y1:3,x2:21,y2:21})))),
+          data.pinDegisim&&div({style:{fontSize:11.5,color:"var(--mu)",marginTop:5}},"Son şifre değişikliği: "+new Date(data.pinDegisim).toLocaleString("tr-TR",{day:"numeric",month:"long",year:"numeric",hour:"2-digit",minute:"2-digit"}))),
         div({style:{marginBottom:10}},lbl(fl2,"Rol"),
           sel({className:"fi",value:data.rol||"personel",onChange:e=>setData(p=>({...p,rol:e.target.value}))},
             opt("personel","Personel"),opt("yonetici","Yonetici"))
@@ -19277,6 +19431,30 @@ if(DB) dbUpsertAyar("tema",tema);
     if(DB && !yukleniyor) dbUpsertAyar("isletme",isletme);
   }, [isletme, yukleniyor]);
   useEffect(()=>{ if(yukleniyor||!DB||!personellerHazirRef.current) return; dbUpsertAyar("personeller",personeller); },[personeller]);
+  // Yazım sırasında buluttan daha yeni bir şifre geldiyse yerel listeye uygula
+  useEffect(()=>{
+    window.__apronPersonelGuncelle = (liste)=>setPersoneller(prev=>personelPinBirlestir(prev, liste));
+    return ()=>{ window.__apronPersonelGuncelle = null; };
+  },[]);
+  // Uygulama arka plandan öne gelince personel listesini buluttan tazele (canlı güncelleme
+  // telefon uykudayken kaçmış olabilir). Bekleyen yerel yazım varsa dokunma.
+  useEffect(()=>{
+    if(!DB) return;
+    const tazele = async ()=>{
+      if(document.visibilityState!=="visible") return;
+      if(_ayarDebounce.personeller && _ayarDebounce.personeller.timer) return;
+      try{
+        const {data} = await DB.from("ayarlar").select("deger").eq("id","personeller").maybeSingle();
+        if(data && Array.isArray(data.deger) && data.deger.length){
+          personellerHazirRef.current = true;
+          setPersoneller(prev=>_ayarImza(prev)===_ayarImza(data.deger) ? prev : data.deger);
+        }
+      }catch(e){}
+    };
+    document.addEventListener("visibilitychange", tazele);
+    window.addEventListener("focus", tazele);
+    return ()=>{ document.removeEventListener("visibilitychange", tazele); window.removeEventListener("focus", tazele); };
+  },[]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("pGruplar",pGruplar); },[pGruplar]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("hizListeleri",hizListeleri); },[hizListeleri]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("bankalar",bankalar); },[bankalar]);
@@ -20928,10 +21106,11 @@ if(DB) dbUpsertAyar("tema",tema);
     setPHata("");
     if(!yeniP.ad.trim()){setPHata("Ad Soyad zorunlu");return;}
     if(!yeniP.pin||yeniP.pin.length<6){setPHata("Şifre en az 6 karakter olmalı.");return;}
+    { const hk=personelPinHatasi(yeniP.pin,yeniP.rol); if(hk){setPHata(hk);return;} }
     if(personeller.find(p=>p.pin===yeniP.pin)){setPHata("Bu PIN kullaniliyor");return;}
     const _gelirGrupId=(pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id;
     const _yeniPersonelId = "s"+uid();
-    setPersoneller(p=>[...p,{...yeniP,id:_yeniPersonelId,ad:yeniP.ad.trim(),pin:yeniP.pin,rol:yeniP.rol,grup:yeniP.grup||_gelirGrupId||"",aktif:true}]);
+    setPersoneller(p=>[...p,{...yeniP,id:_yeniPersonelId,ad:yeniP.ad.trim(),pin:yeniP.pin,pinDegisim:new Date().toISOString(),rol:yeniP.rol,grup:yeniP.grup||_gelirGrupId||"",aktif:true}]);
     // İK — otomatik standart işe giriş evrak checklist'i + deneme süresi bitişi hatırlatması oluştur (işe başlama tarihine bağlı)
     const _otomatikOzlukKayitlari = ikIseGirisChecklistOlustur();
     if(yeniP.isBaslama){
@@ -20952,9 +21131,14 @@ if(DB) dbUpsertAyar("tema",tema);
     setPHata("");
     if(!pDuz.ad.trim()){setPHata("Ad Soyad zorunlu");return;}
     if(!pDuz.pin||pDuz.pin.length<6){setPHata("Şifre en az 6 karakter olmalı.");return;}
+    { const eski=personeller.find(p=>p.id===pDuz.id); if(!eski||eski.pin!==pDuz.pin){ const hk=personelPinHatasi(pDuz.pin,pDuz.rol); if(hk){setPHata(hk);return;} } }
     if(personeller.find(p=>p.pin===pDuz.pin&&p.id!==pDuz.id)){setPHata("Bu PIN baska personelde");return;}
-    setPersoneller(p=>p.map(x=>x.id===pDuz.id?pDuz:x));
-    setPDetay(p=>p?.id===pDuz.id?pDuz:p);
+    // Şifre bu formda değiştirildiyse zaman damgası bas → "en son değişen kazanır" kuralında yöneticinin
+    // atadığı şifre geçerli olur. Değiştirilmediyse personelin sonradan kendi değiştirdiği şifre korunur.
+    const _eskiP = personeller.find(x=>x.id===pDuz.id);
+    const _kayit = (_eskiP && _eskiP.pin!==pDuz.pin) ? {...pDuz, pinDegisim:new Date().toISOString()} : pDuz;
+    setPersoneller(p=>p.map(x=>x.id===pDuz.id?_kayit:x));
+    setPDetay(p=>p?.id===pDuz.id?_kayit:p);
     setPDuz(null); setPHata("");
     showToast("Personel guncellendi");
   };
@@ -25863,43 +26047,14 @@ if(DB) dbUpsertAyar("tema",tema);
             )
           ),
 
-          sifreAdim===1&&div(null,
-            div({style:{fontSize:13,color:"var(--mu)",marginBottom:14}},"Mevcut PIN kodunuzu girin:"),
-            div({style:{marginBottom:12}},
-              lbl({className:"fl"},"Mevcut PIN"),
-              inp({className:"fi",type:"password",maxLength:20,placeholder:"••••••",value:sifreMevcut,onChange:e=>setSifreMevcut(e.target.value.slice(0,20))})
-            ),
-            sifreHata&&div({style:{color:"#c05050",fontSize:13,marginBottom:10,padding:"8px 10px",background:"#0e1a1a",borderRadius:8}},sifreHata),
-            div({style:{display:"flex",gap:8}},
-              btn({style:{flex:1,background:"transparent",border:"1px solid var(--br)",borderRadius:9,color:"var(--mu)",fontSize:14,padding:12,cursor:"pointer"},onClick:()=>{setSifreAdim(0);setSifreHata("");setSifreMevcut("");}},"İptal"),
-              btn({style:{flex:2,background:"linear-gradient(135deg,var(--g),var(--gd))",border:"none",borderRadius:9,color:"var(--bg)",fontSize:14,fontWeight:700,padding:12,cursor:"pointer"},
-                onClick:()=>{
-                  if(kul.pin===sifreMevcut){setSifreAdim(2);setSifreHata("");setSifreYeni("");setSifreYeni2("");}
-                  else{setSifreHata("Yanlış PIN.");setSifreMevcut("");}
-                }},"Devam Et")
-            )
-          ),
-
-          sifreAdim===2&&div(null,
-            div({style:{fontSize:13,color:"var(--mu)",marginBottom:14}},"Yeni şifre belirleyin (min 6 karakter):"),
-            div({style:{marginBottom:10}},lbl({className:"fl"},"Yeni Şifre"),inp({className:"fi",type:"password",maxLength:20,placeholder:"••••••",value:sifreYeni,onChange:e=>setSifreYeni(e.target.value.slice(0,20))})),
-            div({style:{marginBottom:12}},lbl({className:"fl"},"Yeni Şifre Tekrar"),inp({className:"fi",type:"password",maxLength:20,placeholder:"••••••",value:sifreYeni2,onChange:e=>setSifreYeni2(e.target.value.slice(0,20))})),
-            sifreHata&&div({style:{color:"#c05050",fontSize:13,marginBottom:10,padding:"8px 10px",background:"#0e1a1a",borderRadius:8}},sifreHata),
-            div({style:{display:"flex",gap:8}},
-              btn({style:{flex:1,background:"transparent",border:"1px solid var(--br)",borderRadius:9,color:"var(--mu)",fontSize:14,padding:12,cursor:"pointer"},onClick:()=>{setSifreAdim(1);setSifreHata("");}},"Geri"),
-              btn({style:{flex:2,background:"linear-gradient(135deg,var(--g),var(--gd))",border:"none",borderRadius:9,color:"var(--bg)",fontSize:14,fontWeight:700,padding:12,cursor:"pointer"},
-                onClick:()=>{
-                  if(sifreYeni.length<6){setSifreHata("En az 6 karakter olmalı.");return;}
-                  if(sifreYeni!==sifreYeni2){setSifreHata("PIN eşleşmiyor.");return;}
-                  if(sifreYeni===sifreMevcut){setSifreHata("Mevcut ile aynı olamaz.");return;}
-                  setPersoneller(p=>p.map(x=>x.id===kul.id?{...x,pin:sifreYeni}:x));
-                  setKul(p=>({...p,pin:sifreYeni}));
-                  setSifreAdim(0);setSifreMevcut("");setSifreYeni("");setSifreYeni2("");setSifreHata("");
-                  setSifreUnuttumGonderildi(false);
-                  showToast("PIN güncellendi!");
-                }},"Kaydet")
-            )
-          )
+          sifreAdim>=1&&h(PersonelSifreDegistir,{kul,showToast,
+            onKapat:()=>{setSifreAdim(0);setSifreMevcut("");setSifreYeni("");setSifreYeni2("");setSifreHata("");},
+            onBasari:(yeniPin)=>{
+              // Sunucu şifreyi kaydetti. Yerel listeyi de güncelle ki cihazın sonraki toplu
+              // personel yazımı eski şifreyi geri yazmasın. (Şifre oturum kaydına yazılmaz.)
+              setPersoneller(p=>p.map(x=>String(x.id)===String(kul.id)?{...x,pin:yeniPin,pinDegisim:new Date().toISOString()}:x));
+              setSifreUnuttumGonderildi(false);
+            }})
         )
       )
     ),
@@ -27653,6 +27808,7 @@ if(DB) dbUpsertAyar("tema",tema);
             if(tip==="iban") return "🏦";
             if(tip==="devir") return "🔄";
             if(tip==="devamsizlik_onay") return "📅";
+            if(tip==="sifre_degisti") return "🔐";
             return "🔔";
           };
           const renkGetir = (tip) => {
@@ -27662,6 +27818,7 @@ if(DB) dbUpsertAyar("tema",tema);
             if(tip==="hesap_saglama") return {bg:"rgba(224,96,96,.08)",border:"rgba(224,96,96,.3)",tx:"#e06060"};
             if(tip==="iban") return {bg:"rgba(0,113,227,.08)",border:"rgba(0,113,227,.3)",tx:"#0071E3"};
             if(tip==="devamsizlik_onay") return {bg:"rgba(255,149,0,.08)",border:"rgba(255,149,0,.3)",tx:"#FF9500"};
+            if(tip==="sifre_degisti") return {bg:"rgba(52,199,89,.08)",border:"rgba(52,199,89,.3)",tx:"#248A3D"};
             return {bg:"rgba(255,107,74,.08)",border:"rgba(255,107,74,.3)",tx:"#FF6B4A"};
           };
           return div({className:"pg",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",padding:"8px 14px"}},
