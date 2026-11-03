@@ -3,13 +3,18 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="1781504124">
+  <meta name="version" content="1793721803">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="APRON BUSINESS">
 <meta name="theme-color" content="#0071E3">
 <title>APRON BUSINESS</title>
+<!-- Uygulama ikonu: bu dosyalar index.html ile AYNI klasörde olmalı -->
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="manifest" href="manifest.webmanifest">
 <style>
 :root{--g:#0071E3;--gd:#0058B0;--bg:#FFFFFF;--bg2:#FFFFFF;--bg3:#F5F5F7;--br:#E5E5EA;--tx:#1D1D1F;--mu:#86868B;--di:#6E6E73;--gr:#34C759;--bl:#0071E3;--re:#FF3B30}
 html,body{margin:0;padding:0;background:#FFFFFF;min-height:100%;overflow-x:hidden;max-width:100vw;-webkit-text-size-adjust:100%;-moz-text-size-adjust:100%;text-size-adjust:100%}
@@ -129,6 +134,26 @@ const {useState, useRef, useEffect, useCallback, createElement: h, Fragment} = R
 const DB = (window.supabase && window.supabase.createClient)
   ? window.supabase.createClient("https://txbvqwcwarpkwvvhxdoo.supabase.co", "sb_publishable_fqTUK7zk4d0peq6jFib-VQ__gYCl34J")
   : null;
+
+// ── Personel davet linki: "...?salon=<kod>" ile açılırsa salon kodunu bu cihazda sakla ──
+// Personel yalnızca kendi şifresiyle girer; salon kodu linkten gelir. Kod hiç gelmese bile
+// (ör. iPhone'da ana ekran uygulaması linksiz açılırsa) sunucu şifreden salonu bulur.
+const PERSONEL_GIRIS_URL = "https://txbvqwcwarpkwvvhxdoo.supabase.co/functions/v1/personel-giris";
+try {
+  const _salonParam = new URLSearchParams(location.search).get("salon");
+  if(_salonParam) localStorage.setItem("apron_salon", _salonParam.slice(0,200));
+} catch(e){}
+function cihazKimligi(){
+  try {
+    let c = localStorage.getItem("apron_cihaz_id");
+    if(!c){
+      const b = new Uint8Array(16); crypto.getRandomValues(b);
+      c = Array.from(b).map(x=>x.toString(16).padStart(2,"0")).join("");
+      localStorage.setItem("apron_cihaz_id", c);
+    }
+    return c;
+  } catch(e){ return "gecici-"+Math.random().toString(36).slice(2)+Date.now().toString(36); }
+}
 
 const TODAY = () => { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
 // Yerel tarih bileşenlerinden (saat dilimi kaymasına karşı güvenli) ISO tarih string'i üretir.
@@ -2024,6 +2049,50 @@ function img(props) { return el('img', props); }
 function sel(props, ...kids) { return el('select', props, ...kids); }
 function opt(v, txt) { return el('option', {key:v, value:v}, txt||v); }
 function lbl(props, ...kids) { return el('label', props, ...kids); }
+
+// ── Personel Giriş Linki kartı (Yönetici → Personel Listesi) ─────────────────
+// Link, salon kodunu içerir. Personel linki açıp yalnızca kendi şifresini girer.
+function PersonelLinkKarti({showToast}){
+  const [link, setLink] = React.useState("");
+  const [hata, setHata] = React.useState("");
+  React.useEffect(()=>{
+    let iptal=false;
+    (async()=>{
+      try{
+        if(!DB) throw new Error("bağlantı yok");
+        const {data, error} = await DB.rpc("current_isletme_id");
+        if(error || !data) throw error||new Error("salon bulunamadı");
+        const url = location.origin + location.pathname + "?salon=" + encodeURIComponent(data);
+        if(!iptal) setLink(url);
+      }catch(e){ if(!iptal) setHata("Link oluşturulamadı. İnternet bağlantınızı kontrol edin."); }
+    })();
+    return ()=>{iptal=true;};
+  },[]);
+  const metin = link ? "APRON BUSINESS uygulamasına giriş linkiniz:\n"+link+"\n\nLinki açın, ana ekrana ekleyin ve size verilen şifreyle giriş yapın." : "";
+  const kopyala = async ()=>{
+    try{ await navigator.clipboard.writeText(metin); showToast&&showToast("Link kopyalandı ✓","ba"); }
+    catch(e){ showToast&&showToast("Kopyalanamadı — linki elle seçip kopyalayın","uy"); }
+  };
+  const paylas = async ()=>{
+    if(navigator.share){ try{ await navigator.share({title:"APRON BUSINESS", text:metin}); }catch(e){} }
+    else kopyala();
+  };
+  const wa = ()=>{ window.open("https://wa.me/?text="+encodeURIComponent(metin),"_blank"); };
+  const b = {flex:1,padding:"9px 0",borderRadius:9,border:"1px solid rgba(0,113,227,.3)",background:"#fff",color:"#0071E3",fontSize:13,fontWeight:600,cursor:"pointer"};
+  return div({style:{margin:"12px 0 16px",padding:"13px 14px",borderRadius:12,background:"rgba(0,113,227,.05)",border:"1px solid rgba(0,113,227,.18)"}},
+    div({style:{fontSize:14,fontWeight:600,color:"#1D1D1F",marginBottom:4}},"🔗 Personel Giriş Linki"),
+    div({style:{fontSize:12,color:"#6E6E73",lineHeight:1.45,marginBottom:10}},
+      "Bu linki personelinize gönderin. Personel linki açıp yalnızca kendisine verdiğiniz şifreyle giriş yapar — sizin e-posta/şifreniz gerekmez. Link tüm personel için aynıdır."),
+    hata ? div({style:{fontSize:12,color:"#FF3B30"}},hata)
+    : !link ? div({style:{fontSize:12,color:"#86868B"}},"Link hazırlanıyor…")
+    : h(Fragment,null,
+        div({style:{fontSize:11.5,color:"#0058B0",background:"#fff",border:"1px solid #E5E5EA",borderRadius:8,padding:"7px 9px",wordBreak:"break-all",marginBottom:9,userSelect:"all"}},link),
+        div({style:{display:"flex",gap:7}},
+          btn({type:"button",style:b,onClick:kopyala},"Kopyala"),
+          btn({type:"button",style:b,onClick:wa},"WhatsApp"),
+          btn({type:"button",style:b,onClick:paylas},"Paylaş")))
+  );
+}
 
 // ── TutarInput: ₺ tutar alanları için yazarken binlik ayraçlı gösterim ─────────
 // Ekranda "437.751,26" görünür; onChange'e ise toN() ile uyumlu düz değer gider ("437751.26").
@@ -20089,6 +20158,16 @@ if(DB) dbUpsertAyar("tema",tema);
         location.reload(); // RLS sonrası: gerçek oturumla temiz baştan veri çek
         return;
       }
+      if(hedef==="personel" && window.__apronPerYeniOturum){
+        // Personel bu cihazda kendi bulut oturumunu YENİ açtı (personel-giris) → salon verisi
+        // henüz bu oturumla yüklenmedi. Oturumu yaz ve temiz baştan yükle (yönetici akışıyla aynı).
+        window.__apronPerYeniOturum = false;
+        try {
+          localStorage.setItem("apron_session", JSON.stringify({ kul:(girenKul||kul), ekran:"personel" }));
+        } catch(e){}
+        location.reload();
+        return;
+      }
       setKapiAnim(null); setEkran(hedef);
     }, 3000);
   };
@@ -20114,6 +20193,46 @@ if(DB) dbUpsertAyar("tema",tema);
       try {
         const { data: sessionData } = await DB.auth.getSession();
         const token = sessionData?.session?.access_token;
+        const personelOturumu = sessionData?.session?.user?.app_metadata?.rol === "personel";
+        if(!token || personelOturumu){
+          // ── Personelin KENDİ hesabıyla girişi (yönetici şifresi gerekmez) ──
+          // Cihazda hiç oturum yoksa (personelin kendi telefonu) veya cihazdaki oturum zaten bir
+          // personel oturumuysa: şifreyi personel-giris servisine gönder, servis bu personelin
+          // kendi oturumunu döner. Yönetici oturumu olan ortak salon cihazında eski akış sürer.
+          let yanit = null;
+          try {
+            const resp = await fetch(PERSONEL_GIRIS_URL, {
+              method:"POST",
+              headers:{ "Content-Type":"application/json" },
+              body: JSON.stringify({ pin:perPin, salon:(localStorage.getItem("apron_salon")||""), cihaz:cihazKimligi() })
+            });
+            yanit = await resp.json().catch(()=>null);
+          } catch(e){ yanit = null; }
+          if(!yanit){ setPerPinHata("📶 İnternet bağlantısı yok. Giriş için bağlantı gerekli."); setPerPin(""); return; }
+          if(!yanit.ok){
+            // Kilit geçicidir (15 dk) — cihaza kalıcı "bloke" yazılmaz, yönetici müdahalesi gerekmez.
+            setPerPinHata(yanit.kilit
+              ? "🔒 "+(yanit.hata||"Çok fazla hatalı deneme. Biraz sonra tekrar deneyin.")
+              : yanit.cakisma
+                ? "⚠️ "+yanit.hata
+                : (yanit.kalan===1
+                    ? "⚠️ Hatalı şifre. Bir kez daha yanlış girerseniz giriş 15 dakika kilitlenecek."
+                    : "❌ "+(yanit.hata||"Hatalı şifre.")+" Şifrenizi unuttuysanız yöneticinizle iletişime geçin."));
+            setPerPin(""); return;
+          }
+          const { error: sErr } = await DB.auth.setSession(yanit.oturum);
+          if(sErr){ setPerPinHata("Oturum açılamadı. Lütfen tekrar deneyin."); setPerPin(""); return; }
+          if(yanit.salon) try{ localStorage.setItem("apron_salon", yanit.salon); }catch(e){}
+          window.__apronPerYeniOturum = true;
+          k = yanit.personel; // sunucudaki güncel kayıt (PIN hariç)
+          setPinDeneme(0); localStorage.removeItem("apron_pin_deneme");
+          setKul(k); setPerPin(""); setPerPinHata(""); setLoginMod("secim");
+          const bioRedY = localStorage.getItem("apron_bio_red")==="1";
+          const bioKayitliY = JSON.parse(localStorage.getItem("apron_bio_creds")||"[]").some(c=>String(c.staffId)===String(k.id));
+          if(!bioRedY && !bioKayitliY && !!(window.PublicKeyCredential)){ setBiyoPendingKul(k); setBiyoOneriGoster(true); }
+          else kapidanGir("personel", k);
+          return;
+        }
         if(token){
           const resp = await fetch(PIN_DOGRULA_URL, {
             method:"POST",
@@ -23206,7 +23325,7 @@ if(DB) dbUpsertAyar("tema",tema);
                     const tamam = await biyometrikKaydet(biyoPendingKul);
                     setBiyoOneriGoster(false);
                     if(tamam) showToast("Biyometrik giriş kaydedildi ✓","ba");
-                    kapidanGir("personel");
+                    kapidanGir("personel", biyoPendingKul);
                   }},
                   "✓ Evet, Kullanmak İstiyorum"),
                 btn({style:{width:"100%",padding:"12px 0",borderRadius:12,
@@ -23215,7 +23334,7 @@ if(DB) dbUpsertAyar("tema",tema);
                   onClick:()=>{
                     localStorage.setItem("apron_bio_red","1");
                     setBiyoOneriGoster(false);
-                    kapidanGir("personel");
+                    kapidanGir("personel", biyoPendingKul);
                   }},
                   "Hayır, Teşekkürler")
               )
@@ -27052,6 +27171,8 @@ if(DB) dbUpsertAyar("tema",tema);
         panelAdim==="insanKaynaklari"&&panelAltSek==="personelListesi"&&!asek&&div({style:{padding:"12px 14px 24px"}},
 
     btn({className:"epb",onClick:()=>{setYeniP({ad:"",pin:"",rol:"personel",isBaslama:TODAY(),grup:(pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id||""});setPHata("");setPEkle(true);}},"+ Yeni Personel Ekle"),
+
+    h(PersonelLinkKarti,{showToast}),
 
     personeller.filter(p=>!p.aktif&&p.rol!=="yonetici").length>0&&div(null,
     div({className:"sek",style:{color:"#c08040",marginBottom:9}},"Onay Bekleyenler"),
