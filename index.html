@@ -2082,9 +2082,35 @@ const TutarInput = React.forwardRef(function TutarInput(props, disRef){
     imlecRef.current = null;
   },[metin]);
   const degisti = e => {
-    const girilen = e.target.value;
-    const imlec = e.target.selectionStart==null ? girilen.length : e.target.selectionStart;
+    let girilen = e.target.value;
+    let imlec = e.target.selectionStart==null ? girilen.length : e.target.selectionStart;
+    const onceki = metin;
+    const tip = (e.nativeEvent && e.nativeEvent.inputType) || "";
+    const fark = girilen.length - onceki.length;
+    // Ekrandaki noktalar BİZİM eklediğimiz binlik ayraçlarıdır. Tek karakterlik yazma/silme işlemlerinde
+    // bu noktalar asla ondalık sayılmamalı — yoksa "1.000"ın son 0'ı silinince kalan "1.00" metni
+    // "1,00" (kuruşlu) sanılır, imleç sıfırların arasına kayar ve sonraki tuşlar yanlış yere yazılır.
+    const tekKarakter = fark===1 || fark===-1;
+    if(fark===-1){
+      // Silinen karakter yalnızca bir binlik noktasıysa, kullanıcının asıl niyeti o noktanın yanındaki
+      // rakamı silmektir (geri silme → soldaki rakam, ileri silme → sağdaki rakam).
+      const silinenIdx = imlec;
+      if(onceki[silinenIdx]==="." && girilen===onceki.slice(0,silinenIdx)+onceki.slice(silinenIdx+1)){
+        if(tip==="deleteContentForward"){
+          girilen = onceki.slice(0,silinenIdx)+onceki.slice(silinenIdx+2);
+        } else if(silinenIdx>0){
+          girilen = onceki.slice(0,silinenIdx-1)+onceki.slice(silinenIdx+1);
+          imlec = silinenIdx-1;
+        }
+      }
+    }
+    if(fark===1 && imlec>0 && girilen[imlec-1]==="."){
+      // Kullanıcının o an bastığı nokta (bazı klavyelerde ondalık tuşu ".") → ondalık virgül.
+      girilen = girilen.slice(0,imlec-1)+(girilen.indexOf(",")<0 ? "," : "")+girilen.slice(imlec);
+      if(girilen.length<e.target.value.length) imlec--;
+    }
     imlecRef.current = (girilen.slice(0,imlec).match(/[\d,\-]/g)||[]).length;
+    if(tekKarakter) girilen = girilen.replace(/\./g,""); // kalan noktalar binlik ayraç → at
     const ham = tutarMetindenHam(girilen);
     setMetin(tutarHamdan(ham==="-"?"":ham) || (ham==="-"?"-":""));
     if(onChange) onChange({target:{value:ham==="-"?"":ham, name:rest.name}, currentTarget:{value:ham==="-"?"":ham}, preventDefault(){}, stopPropagation(){}});
