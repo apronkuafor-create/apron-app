@@ -15862,7 +15862,7 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
 }
 
 
-function KayitKarti({r, onDetay, onDuzenle, onSil}) {
+function KayitKarti({r, rvSaat, rvBos, onDetay, onDuzenle, onSil}) {
   const kk=(r.hizKK||0)+(r.uKK||0), ib=(r.hizIB||0)+(r.uIB||0), nk=(r.hizNK||0)+(r.uNK||0);
 
   const yoneticiTalepAktif = (kayitId) => yonBildirim.find(b =>
@@ -15949,7 +15949,8 @@ function KayitKarti({r, onDetay, onDuzenle, onSil}) {
         div({style:{textAlign:"center"}},
           div({style:et},"Misafirimiz"),
           div({style:{fontSize:13,fontWeight:700,color:"var(--t)"}},r.musteri||"—"),
-          !r.gonderildi&&span({style:{fontSize:9,color:"#B45309",padding:"2px 6px",background:"rgba(255,159,10,.13)",borderRadius:20,fontWeight:700,display:"inline-block",marginTop:3}},"Bekliyor")
+          !r.gonderildi&&span({style:{fontSize:9,color:"#B45309",padding:"2px 6px",background:"rgba(255,159,10,.13)",borderRadius:20,fontWeight:700,display:"inline-block",marginTop:3}},"Bekliyor"),
+          rvSaat&&div(null,span({style:{fontSize:9,color:"#0058B0",padding:"2px 6px",background:"rgba(0,113,227,.1)",borderRadius:20,fontWeight:700,display:"inline-block",marginTop:3}},"📅 Randevu "+rvSaat+(rvBos?" · form boş":"")))
         )
       ),
       div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4}},
@@ -18528,6 +18529,135 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
   );
 }
 
+
+// ── RANDEVU DEFTERİ: ortak yardımcılar ─────────────────────────────────────
+// Slotlar: 09:00 – 19:00 arası 15'er dakika (19:00 dahil). Elle saat girişi de serbest.
+const RV_SLOTLAR = (()=>{ const a=[]; for(let m=9*60;m<=19*60;m+=15){ a.push(String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0")); } return a; })();
+const RV_DURUM = {
+  bekliyor:{ad:"Bekliyor",    renk:"#B45309", bg:"rgba(255,159,10,.14)", cizgi:"#FF9F0A"},
+  geldi:   {ad:"Geldi",       renk:"#1A7A34", bg:"rgba(52,199,89,.14)",  cizgi:"#34C759"},
+  iptal:   {ad:"İptal",       renk:"#C0392B", bg:"rgba(255,59,48,.12)",  cizgi:"#FF3B30"},
+  gelmedi: {ad:"Gelmedi",     renk:"#6E6E73", bg:"rgba(120,120,128,.14)",cizgi:"#8E8E93"}
+};
+// Kayıt formu doldurulmuş mu? (hizmet, ürün ya da tutar girilmişse "dolu")
+const rvKayitDolu = r => !!r && ((Number(r.toplam)||0)>0 || (r.hizler||[]).length>0 || (r.urunler||[]).length>0);
+const rvGunAd = (t) => { try{ const d=new Date(t+"T12:00:00"); return d.toLocaleDateString("tr-TR",{weekday:"long"}); }catch(e){ return ""; } };
+const rvGunKaydir = (t,n) => { const d=new Date(t+"T12:00:00"); d.setDate(d.getDate()+n); return isoTarih(d); };
+
+// ── Randevu ekleme / düzenleme / erteleme / iptal penceresi ────────────────
+function RvFormModal({mod, rv, varsayilan, mevcutlar, musteriDB, kulId, onKaydet, onIptalOnay, onKapat}){
+  const bas = rv || varsayilan || {};
+  const [ad,setAd]       = React.useState(mod==="yeni" ? "" : (rv&&rv.musteriAd)||"");
+  const [tel,setTel]     = React.useState((rv&&rv.tel)||"");
+  const [tarih,setTarih] = React.useState(bas.tarih||TODAY());
+  const [saat,setSaat]   = React.useState(bas.saat||"09:00");
+  const [elle,setElle]   = React.useState(()=>!RV_SLOTLAR.includes(bas.saat||"09:00"));
+  const [notlar,setNotlar] = React.useState((rv&&rv.not)||"");
+  const [neden,setNeden] = React.useState("");
+  const [hata,setHata]   = React.useState("");
+  const kendi = (musteriDB||[]).filter(m=>m && m.ad && (!m.sahipId || String(m.sahipId)===String(kulId)));
+  const adDegis = (v) => {
+    setAd(v);
+    if(mod==="yeni" && !tel){
+      const m = kendi.find(x=>normText(x.ad)===normText(v));
+      if(m && m.tel) setTel(m.tel);
+    }
+  };
+  const cakisma = (mod==="yeni"||mod==="duzenle"||mod==="ertele") && saat && tarih
+    ? (mevcutlar||[]).filter(x=>x.durum==="bekliyor" && x.tarih===tarih && x.saat===saat && (!rv || x.id!==rv.id)) : [];
+  const etiket = {fontSize:11,color:"var(--di)",marginBottom:4,marginTop:12,textTransform:"uppercase",letterSpacing:.5,fontWeight:600};
+  const kaydet = () => {
+    if(mod==="iptal"){ onIptalOnay(neden); return; }
+    if(mod!=="ertele" && !ad.trim()){ setHata("Müşteri adı zorunlu"); return; }
+    if(!/^\d{2}:\d{2}$/.test(saat||"")){ setHata("Geçerli bir saat seçin"); return; }
+    if(!tarih){ setHata("Tarih seçin"); return; }
+    if(mod==="ertele" && rv && tarih===rv.tarih && saat===rv.saat){ setHata("Yeni bir tarih veya saat seçin"); return; }
+    onKaydet({musteriAd:ad.trim(), tel:tel.trim(), tarih, saat, not:notlar.trim(), neden:neden.trim()});
+  };
+  const baslik = mod==="yeni" ? "Yeni Randevu" : mod==="duzenle" ? "Randevuyu Düzenle" : mod==="ertele" ? "Randevuyu Ertele" : "Randevuyu İptal Et";
+  const NEDENLER = ["Müşteri iptal etti","Müşteri gelmedi","Ben iptal ettim"];
+  return div({className:"conf-ov",style:{alignItems:"center",padding:"0 14px",zIndex:99990}},
+    div({className:"gs-k",style:{maxHeight:"88vh",overflowY:"auto",textAlign:"left"}},
+      div({style:{fontSize:18,fontWeight:700,color:"var(--tx)",textAlign:"center",marginBottom:4}},baslik),
+      rv && mod!=="yeni" && div({style:{textAlign:"center",fontSize:13,color:"var(--di)",marginBottom:6}},
+        rv.musteriAd+" · "+fmtT(rv.tarih)+" · "+rv.saat),
+      mod==="iptal"
+        ? div(null,
+            div({style:etiket},"İptal nedeni (isteğe bağlı)"),
+            div({style:{display:"flex",flexWrap:"wrap",gap:7,marginBottom:8}},
+              NEDENLER.map(n=>h("button",{key:n,type:"button",onClick:()=>setNeden(neden===n?"":n),
+                style:{padding:"8px 12px",borderRadius:20,border:"1px solid "+(neden===n?"#FF3B30":"var(--br)"),
+                  background:neden===n?"rgba(255,59,48,.1)":"var(--bg3)",color:neden===n?"#C0392B":"var(--tx)",fontSize:13,fontWeight:600,cursor:"pointer"}},n))),
+            h("input",{className:"fi",placeholder:"Başka bir neden yazın…",value:NEDENLER.includes(neden)?"":neden,onChange:e=>setNeden(e.target.value)}),
+            div({style:{fontSize:12,color:"var(--di)",marginTop:10,lineHeight:1.5}},"Randevu iptal edilir. Bu randevu için açılmış boş kayıt formu varsa otomatik silinir; doldurulmuş bir kayıt silinmez.")
+          )
+        : div(null,
+            mod!=="ertele" && div(null,
+              div({style:etiket},"Müşteri adı"),
+              h("input",{className:"fi",list:"rv-musteriler",placeholder:"Ad Soyad",value:ad,onChange:e=>adDegis(e.target.value),autoFocus:mod==="yeni"}),
+              h("datalist",{id:"rv-musteriler"},kendi.slice(0,400).map(m=>h("option",{key:m.id||m.ad,value:m.ad}))),
+              div({style:etiket},"Telefon (isteğe bağlı)"),
+              h("input",{className:"fi",type:"tel",inputMode:"tel",placeholder:"05xx xxx xx xx",value:tel,onChange:e=>setTel(e.target.value)})
+            ),
+            div({style:etiket},mod==="ertele"?"Yeni tarih":"Tarih"),
+            h("input",{className:"fi",type:"date",value:tarih,onChange:e=>setTarih(e.target.value)}),
+            div({style:etiket},mod==="ertele"?"Yeni saat":"Saat"),
+            h("select",{className:"fi",value:elle?"__elle":saat,onChange:e=>{
+              if(e.target.value==="__elle"){ setElle(true); } else { setElle(false); setSaat(e.target.value); }
+            }},
+              RV_SLOTLAR.map(s=>h("option",{key:s,value:s},s)),
+              h("option",{value:"__elle"},"✎ Elle saat gir…")),
+            elle && h("input",{className:"fi",type:"time",step:60,style:{marginTop:8},value:saat,onChange:e=>setSaat(e.target.value)}),
+            cakisma.length>0 && div({style:{marginTop:10,padding:"9px 12px",borderRadius:10,background:"rgba(255,159,10,.12)",border:"1px solid rgba(255,159,10,.35)",fontSize:12.5,color:"#B45309",fontWeight:600,lineHeight:1.45}},
+              "⚠ Bu saatte zaten randevu var: "+cakisma.map(x=>x.musteriAd).join(", ")+". Yine de kaydedebilirsiniz."),
+            mod==="ertele"
+              ? div(null,div({style:etiket},"Erteleme nedeni (isteğe bağlı)"),h("input",{className:"fi",placeholder:"Örn. müşteri istedi",value:neden,onChange:e=>setNeden(e.target.value)}))
+              : div(null,div({style:etiket},"Not (isteğe bağlı)"),h("input",{className:"fi",placeholder:"Örn. saç + sakal",value:notlar,onChange:e=>setNotlar(e.target.value)}))
+          ),
+      hata && div({style:{color:"#FF3B30",fontSize:13,fontWeight:600,marginTop:10,textAlign:"center"}},hata),
+      div({className:"btn-r",style:{marginTop:16}},
+        btn({className:"btn-i",onClick:onKapat},mod==="iptal"?"Vazgeç":"Kapat"),
+        btn({className:"btn-k",style:mod==="iptal"?{background:"#FF3B30",color:"#fff"}:null,onClick:kaydet},
+          mod==="iptal"?"Evet, İptal Et":mod==="ertele"?"Ertele":"Kaydet"))
+    )
+  );
+}
+
+// ── Randevu geçmişi (gün sonu gönderilen günlerin defteri) ──────────────────
+function RvGecmis({liste}){
+  const [ara,setAra] = React.useState("");
+  const q = normText(ara);
+  const f = liste.filter(r=>!q || normText(r.musteriAd).includes(q));
+  const gruplar = {};
+  f.forEach(r=>{ (gruplar[r.tarih]=gruplar[r.tarih]||[]).push(r); });
+  const tarihler = Object.keys(gruplar).sort((a,b)=>b.localeCompare(a)).slice(0,90);
+  return div(null,
+    h("input",{className:"fi",placeholder:"Müşteri adına göre ara…",value:ara,onChange:e=>setAra(e.target.value),style:{marginBottom:12}}),
+    tarihler.length===0
+      ? div({className:"bos"},div({style:{fontSize:42,marginBottom:9}},"🗓️"),div({style:{fontSize:12,letterSpacing:2,marginTop:4}},"GEÇMİŞ RANDEVU YOK"))
+      : tarihler.map(t=>{
+          const l = gruplar[t].slice().sort((a,b)=>(a.saat||"").localeCompare(b.saat||""));
+          const say = d=>l.filter(x=>x.durum===d).length;
+          return div({key:t,style:{marginBottom:16}},
+            div({style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",margin:"0 2px 7px"}},
+              div({style:{fontSize:13,fontWeight:700,color:"#3a3a3c"}},"📅 "+fmtT(t)+" · "+rvGunAd(t)),
+              div({style:{fontSize:11,color:"var(--di)"}},l.length+" randevu"+(say("geldi")?" · "+say("geldi")+" geldi":"")+(say("iptal")?" · "+say("iptal")+" iptal":"")+(say("gelmedi")?" · "+say("gelmedi")+" gelmedi":""))),
+            div({style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,overflow:"hidden"}},
+              l.map((r,i)=>{
+                const d = RV_DURUM[r.durum]||RV_DURUM.bekliyor;
+                return div({key:r.id,style:{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderTop:i?"1px solid rgba(0,0,0,.06)":"none"}},
+                  div({style:{fontSize:13,fontWeight:700,color:"#1a56a8",minWidth:44}},r.saat),
+                  div({style:{flex:1,minWidth:0}},
+                    div({style:{fontSize:13.5,fontWeight:600,color:"var(--tx)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},r.musteriAd),
+                    ((r.ertelemeler||[]).length>0 || r.iptalNedeni || r.not) && div({style:{fontSize:11,color:"var(--di)",marginTop:2}},
+                      [(r.ertelemeler||[]).length>0?"↪ "+r.ertelemeler.length+" kez ertelendi":"", r.iptalNedeni||"", r.not||""].filter(Boolean).join(" · "))),
+                  span({style:{fontSize:10.5,fontWeight:700,color:d.renk,background:d.bg,borderRadius:20,padding:"3px 9px",whiteSpace:"nowrap"}},d.ad));
+              })));
+        })
+  );
+}
+
+
 function App() {
   // Ödünç Ürün Takibi (oduncler/komsular) için: bir yerel değişiklikten (Kapat/İade, Geri Al, Düzenle,
   // yeni kayıt) sonra ~8 sn boyunca gelen bulut senkronlarını UYGULAMA — bu, henüz sunucuya ulaşmamış
@@ -18808,6 +18938,10 @@ function App() {
   const [ibanBildirimler, setIbanBildirimler] = useState([]); // [{id,kayitId,manKulId,manKulAd,hedefId,hedefAd,musteriAd,hizmetAd,tutar,tarih,durum}]
   const [randevular, setRandevular]       = useState([]); // [{id,staffId,staffAd,musteriAd,tel,tarih,saat,notlar,iptal}]
   const [randevuForm, setRandevuForm]     = useState(null);
+  const [rvTarih, setRvTarih]             = useState(TODAY());
+  const [rvGorunum, setRvGorunum]         = useState("defter"); // defter | gecmis
+  const [rvModal, setRvModal]             = useState(null); // {mod:'yeni'|'duzenle'|'ertele'|'iptal', rv?, varsayilan?}
+  const rvYukluRef = useRef(null), rvSonImzaRef = useRef(""), rvUretilenRef = useRef(new Set());
   // Ürün Muhasebesi state'leri
   const [tedarikciler, setTedarikciler]   = useState([]); // [{id,ad,tel,adres,bakiye}]
   const [pozisyonlar, setPozisyonlar]     = useState(["Isyeri Sahibi ve Usta","Usta","Kalfa","Cirak","Manikurist","Pedikürist","Diger"]); // Personel Pozisyon Listesi
@@ -20193,6 +20327,211 @@ if(DB) dbUpsertAyar("tema",tema);
   };
 
   const myBekleyen = kul ? bekleyen.filter(r=>r.staffId===kul.id) : [];
+  // ══ RANDEVU DEFTERİ (personel) ═══════════════════════════════════════════
+  // Veri modeli (müşteri randevu alanı için de genişletilebilir): kaynak:"personel"|"musteri", musteriId, hizmetler[], sureDk
+  // Kayıt formu bağı: randevu.kayitId → kayıt formu silinse bile randevu silinmez.
+  const rvBenim = kul ? (randevular||[]).filter(r=>r && String(r.staffId)===String(kul.id)) : [];
+  const rvOtoIds = new Set((randevular||[]).map(r=>r&&r.kayitId).filter(Boolean).map(String));
+  const rvBosOto = r => !!r && rvOtoIds.has(String(r.id)) && !rvKayitDolu(r);
+  const myBekleyenGonder = myBekleyen.filter(r=>!rvBosOto(r));
+  const rvKayitBul = (id) => id ? (bekleyen.find(r=>String(r.id)===String(id)) || records.find(r=>String(r.id)===String(id)) || gecmis.find(r=>String(r.id)===String(id)) || null) : null;
+  const rvGuncelle = (id, patch) => setRandevular(p=>(p||[]).map(r=>r && r.id===id ? {...r,...patch,guncelleme:Date.now()} : r));
+  const rvKayitSessizSil = (kid) => {
+    setBekleyen(p=>p.filter(r=>String(r.id)!==String(kid)));
+    setRecords(p=>p.filter(r=>String(r.id)!==String(kid)));
+    setGecmis(p=>p.filter(r=>String(r.id)!==String(kid)));
+    mezarEkle([kid]);
+    dbSil("kayitlar",kid);
+  };
+  // Randevu bilgilerine uygun otomatik BOŞ kayıt formu (Bugün → Kayıtlarım)
+  const rvKayitOlustur = (rv) => {
+    const y={id:"rk"+uid(),staffId:rv.staffId,staffAd:rv.staffAd,musteri:rv.musteriAd,tel:rv.tel||"",
+      hizler:[],hizKK:0,hizIB:0,hizNK:0,urunler:[],uKK:0,uIB:0,uNK:0,toplam:0,
+      tarih:rv.tarih,saat:SAAT(),hizmetSaati:rv.saat,gonderildi:false,musteriKaydet:false,
+      anaPersonelId:"",hizIbanId:"",hizIbanAd:"",urunIbanId:"",urunIbanAd:"",randevuId:rv.id};
+    setBekleyen(p=>[y,...p]);
+    dbEkle("kayitlar",{id:y.id,staff_id:y.staffId,staff_name:y.staffAd,musteri:y.musteri,telefon:y.tel,
+      hizmetler:[],hiz_kk:0,hiz_ib:0,hiz_nk:0,urunler:[],urun_kk:0,urun_ib:0,urun_nk:0,toplam:0,
+      tarih:y.tarih,saat:y.saat,gonderildi:false,hiz_iban_id:"",hiz_iban_ad:"",urun_iban_id:"",urun_iban_ad:""});
+    return y.id;
+  };
+  // Randevu değişince (düzenle/ertele) henüz BOŞ olan kayıt formunu güncelle; doluysa dokunma
+  const rvKayitSenkronla = (rv, yeni) => {
+    const rec = rvKayitBul(rv.kayitId);
+    const patch = {};
+    if(rec && !rvKayitDolu(rec)){
+      if(yeni.tarih > TODAY()){ rvKayitSessizSil(rec.id); patch.kayitId=""; rvUretilenRef.current.delete(rv.id); }
+      else {
+        const g={...rec,musteri:yeni.musteriAd,tel:yeni.tel||"",tarih:yeni.tarih,hizmetSaati:yeni.saat};
+        const esle=p=>p.map(r=>String(r.id)===String(rec.id)?g:r);
+        setBekleyen(esle); setRecords(esle); setGecmis(esle);
+        dbGnc("kayitlar",{musteri:g.musteri,telefon:g.tel,tarih:g.tarih},g.id);
+      }
+    }
+    return patch;
+  };
+  const rvEkle = (f) => {
+    const t=Date.now();
+    const rv={id:"rv"+uid(),staffId:kul.id,staffAd:kul.ad,kaynak:"personel",musteriId:"",musteriAd:f.musteriAd,tel:f.tel||"",
+      tarih:f.tarih,saat:f.saat,sureDk:null,hizmetler:[],not:f.not||"",durum:"bekliyor",kayitId:"",
+      ertelemeler:[],iptalNedeni:"",arsiv:false,olusturma:t,guncelleme:t};
+    if(rv.tarih<=TODAY()){ rvUretilenRef.current.add(rv.id); rv.kayitId=rvKayitOlustur(rv); }
+    setRandevular(p=>[...(p||[]),rv]);
+    setRvModal(null);
+    showToast("Randevu eklendi"+(rv.kayitId?" · kayıt formu açıldı":""));
+  };
+  const rvDuzenle = (rv,f) => {
+    const patch={musteriAd:f.musteriAd,tel:f.tel,tarih:f.tarih,saat:f.saat,not:f.not};
+    Object.assign(patch, rvKayitSenkronla(rv,{...rv,...patch}));
+    rvGuncelle(rv.id,patch); setRvModal(null); showToast("Randevu güncellendi");
+  };
+  const rvErtele = (rv,f) => {
+    const rec=rvKayitBul(rv.kayitId);
+    if(rec && rvKayitDolu(rec)){ showToast("Kayıt formu doldurulmuş, bu randevu ertelenemez","uy"); return; }
+    const patch={tarih:f.tarih,saat:f.saat,ertelemeler:[...(rv.ertelemeler||[]),{eskiTarih:rv.tarih,eskiSaat:rv.saat,yeniTarih:f.tarih,yeniSaat:f.saat,neden:f.neden||"",zaman:Date.now()}]};
+    Object.assign(patch, rvKayitSenkronla(rv,{...rv,...patch}));
+    rvGuncelle(rv.id,patch); setRvModal(null);
+    showToast("Randevu ertelendi: "+(f.tarih===TODAY()?"bugün":fmtT(f.tarih))+" "+f.saat);
+  };
+  const rvIptal = (rv,neden) => {
+    const rec=rvKayitBul(rv.kayitId);
+    let not="Randevu iptal edildi";
+    if(rec){
+      if(rvKayitDolu(rec)) not="Randevu iptal edildi · kayıt formu doldurulmuş olduğu için silinmedi";
+      else { rvKayitSessizSil(rec.id); not="Randevu iptal edildi · boş kayıt formu silindi"; }
+    }
+    rvGuncelle(rv.id,{durum:"iptal",iptalNedeni:neden||"",iptalZaman:Date.now()});
+    setRvModal(null); showToast(not,"uy");
+  };
+  const rvTekrarAc = (rv) => { rvUretilenRef.current.delete(rv.id); rvGuncelle(rv.id,{durum:"bekliyor",iptalNedeni:"",kayitId:rvKayitBul(rv.kayitId)?rv.kayitId:""}); showToast("Randevu yeniden açıldı"); };
+  const rvFormOlustur = (rv) => { rvUretilenRef.current.add(rv.id); const kid=rvKayitOlustur(rv); rvGuncelle(rv.id,{kayitId:kid}); showToast("Kayıt formu oluşturuldu"); };
+
+  // 1) Buluttan yükle (her personel kendi kaydı: ayarlar → "randevu_<personelId>") ve odaklanınca yenile
+  useEffect(()=>{
+    if(!kul || !DB) return;
+    const sid=String(kul.id); let bitti=false;
+    rvYukluRef.current=null;
+    const yukle=()=>{ Promise.resolve(DB.from("ayarlar").select("deger").eq("id","randevu_"+sid).maybeSingle()).then(({data,error})=>{
+      if(bitti||error) return;
+      const liste = data && data.deger && Array.isArray(data.deger.liste) ? data.deger.liste : [];
+      rvSonImzaRef.current = JSON.stringify(liste.map(r=>[r.id,r.guncelleme||0]));
+      setRandevular(p=>{
+        const m={}; (p||[]).forEach(r=>{ if(r&&r.id!=null) m[String(r.id)]=r; });
+        liste.forEach(r=>{ if(!r||r.id==null) return; const k=String(r.id),e=m[k]; if(!e || (r.guncelleme||0)>(e.guncelleme||0)) m[k]=r; });
+        return Object.values(m);
+      });
+      rvYukluRef.current=sid;
+    }).catch(()=>{}); };
+    yukle();
+    const odak=()=>{ if(!document.hidden) yukle(); };
+    document.addEventListener("visibilitychange",odak);
+    return ()=>{ bitti=true; document.removeEventListener("visibilitychange",odak); };
+  },[kul&&kul.id]);
+  // 2) Buluta yaz (yalnızca bu personelin randevuları)
+  useEffect(()=>{
+    if(!kul || !DB || rvYukluRef.current!==String(kul.id)) return;
+    const benim=(randevular||[]).filter(r=>r && String(r.staffId)===String(kul.id));
+    const imza=JSON.stringify(benim.map(r=>[r.id,r.guncelleme||0]));
+    if(rvSonImzaRef.current===imza) return;
+    rvSonImzaRef.current=imza;
+    dbUpsertAyar("randevu_"+kul.id,{liste:benim.slice(-1500),guncelleme:Date.now()});
+  },[randevular,kul&&kul.id]);
+  // 3) Randevu günü gelen (veya geçmiş) randevular için otomatik boş kayıt formu aç
+  useEffect(()=>{
+    if(!kul) return;
+    if(DB && rvYukluRef.current!==String(kul.id)) return; // bulut yüklenmeden üretme (çift form olmasın)
+    const bg=TODAY();
+    (randevular||[]).forEach(rv=>{
+      if(!rv || String(rv.staffId)!==String(kul.id) || rv.durum!=="bekliyor" || rv.kayitId || rv.arsiv || rv.tarih>bg) return;
+      if(rvUretilenRef.current.has(rv.id)) return;
+      rvUretilenRef.current.add(rv.id);
+      const kid=rvKayitOlustur(rv);
+      setRandevular(p=>(p||[]).map(x=>x&&x.id===rv.id?{...x,kayitId:kid,guncelleme:Date.now()}:x));
+    });
+  },[randevular,kul&&kul.id]);
+  // 4) Kayıt formu doldurulup kaydedilince randevu "Geldi" olur
+  useEffect(()=>{
+    if(!kul) return;
+    (randevular||[]).forEach(rv=>{
+      if(!rv || String(rv.staffId)!==String(kul.id) || rv.durum!=="bekliyor" || !rv.kayitId) return;
+      const rec=rvKayitBul(rv.kayitId);
+      if(rec && rvKayitDolu(rec)) rvGuncelle(rv.id,{durum:"geldi"});
+    });
+  },[bekleyen,records,randevular]);
+
+  // ── Randevu defteri ekranı ──
+  const rvPanel = () => {
+    const bg=TODAY();
+    const gun = rvBenim.filter(r=>!r.arsiv && r.tarih===rvTarih);
+    const say = d=>gun.filter(x=>x.durum===d).length;
+    const saatler = Array.from(new Set([...RV_SLOTLAR,...gun.map(r=>r.saat).filter(Boolean)])).sort();
+    const yeniAc = (saat)=>setRvModal({mod:"yeni",varsayilan:{tarih:rvTarih,saat:saat||RV_SLOTLAR[0]}});
+    const ikSt = {flex:"none",width:44,height:44,borderRadius:12,border:"1px solid var(--br)",background:"var(--bg3)",fontSize:20,cursor:"pointer",color:"var(--tx)"};
+    const kart = (r) => {
+      const d=RV_DURUM[r.durum]||RV_DURUM.bekliyor;
+      const rec=rvKayitBul(r.kayitId);
+      const son=(r.ertelemeler||[])[(r.ertelemeler||[]).length-1];
+      const mini={flex:1,padding:"9px 2px",border:"none",background:"transparent",fontSize:11.5,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"};
+      const aksiyonlar=[];
+      if(r.durum==="bekliyor"||r.durum==="geldi"){
+        if(rec) aksiyonlar.push(btn({key:"a",style:{...mini,color:"#0071E3"},onClick:()=>setKayitForm(rec)},"📋 Kayıt"));
+        else if(r.durum==="bekliyor" && r.tarih<=bg) aksiyonlar.push(btn({key:"a",style:{...mini,color:"#0071E3"},onClick:()=>rvFormOlustur(r)},"📋 Form Aç"));
+      }
+      if(r.durum==="bekliyor"){
+        aksiyonlar.push(btn({key:"b",style:{...mini,color:"#B45309"},onClick:()=>setRvModal({mod:"ertele",rv:r})},"🕒 Ertele"));
+        aksiyonlar.push(btn({key:"c",style:{...mini,color:"#1A7A34"},onClick:()=>setRvModal({mod:"duzenle",rv:r})},"✏️"));
+        aksiyonlar.push(btn({key:"d",style:{...mini,color:"#FF3B30"},onClick:()=>setRvModal({mod:"iptal",rv:r})},"✕ İptal"));
+      } else if(r.durum==="iptal"||r.durum==="gelmedi"){
+        aksiyonlar.push(btn({key:"e",style:{...mini,color:"#0071E3"},onClick:()=>rvTekrarAc(r)},"↩ Tekrar Aç"));
+      }
+      return div({key:r.id,style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.09)",borderLeft:"4px solid "+d.cizgi,borderRadius:12,marginBottom:6,overflow:"hidden",opacity:r.durum==="iptal"?.62:1}},
+        div({style:{padding:"10px 12px 8px"}},
+          div({style:{display:"flex",alignItems:"center",gap:8}},
+            div({style:{flex:1,minWidth:0,fontSize:14.5,fontWeight:700,color:"var(--tx)",textDecoration:r.durum==="iptal"?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},r.musteriAd),
+            span({style:{fontSize:10.5,fontWeight:700,color:d.renk,background:d.bg,borderRadius:20,padding:"3px 9px",whiteSpace:"nowrap"}},d.ad)),
+          (r.tel||r.not||son||r.iptalNedeni) && div({style:{fontSize:12,color:"var(--di)",marginTop:4,lineHeight:1.5}},
+            r.tel && h("a",{href:"tel:"+String(r.tel).replace(/\s/g,""),style:{color:"#0071E3",textDecoration:"none",marginRight:10}},"📞 "+r.tel),
+            r.not && span(null,"📝 "+r.not),
+            son && div({style:{color:"#B45309",fontWeight:600}},"↪ Ertelendi: "+(son.eskiTarih!==r.tarih?fmtT(son.eskiTarih)+" ":"")+son.eskiSaat+" → "+(son.yeniTarih!==son.eskiTarih?fmtT(son.yeniTarih)+" ":"")+son.yeniSaat+(son.neden?" ("+son.neden+")":"")),
+            r.iptalNedeni && div({style:{color:"#C0392B",fontWeight:600}},"✕ "+r.iptalNedeni)
+          )),
+        aksiyonlar.length>0 && div({style:{display:"flex",borderTop:"1px solid rgba(0,0,0,.06)"}},aksiyonlar));
+    };
+    return div({className:"gozetim"},
+      div({style:{display:"flex",gap:5,marginBottom:12,background:"var(--bg3)",borderRadius:11,padding:3}},
+        [["defter","📒 Defter"],["gecmis","🗂️ Geçmiş"]].map(([k,l])=>btn({key:k,onClick:()=>setRvGorunum(k),style:{flex:1,padding:"8px 0",borderRadius:9,border:"none",fontSize:12.5,fontWeight:700,cursor:"pointer",
+          background:rvGorunum===k?"#fff":"transparent",color:rvGorunum===k?"#1D1D1F":"#86868B",boxShadow:rvGorunum===k?"0 1px 4px rgba(0,0,0,.1)":"none"}},l))),
+      rvGorunum==="gecmis"
+        ? h(RvGecmis,{liste:rvBenim.filter(r=>r.arsiv||r.tarih<bg)})
+        : div(null,
+            div({style:{display:"flex",gap:8,alignItems:"center",marginBottom:6}},
+              btn({style:ikSt,onClick:()=>setRvTarih(rvGunKaydir(rvTarih,-1))},"‹"),
+              div({style:{flex:1,minWidth:0}},h("input",{className:"fi",type:"date",value:rvTarih,onChange:e=>e.target.value&&setRvTarih(e.target.value),style:{textAlign:"center"}})),
+              btn({style:ikSt,onClick:()=>setRvTarih(rvGunKaydir(rvTarih,1))},"›")),
+            div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"2px 2px 10px",fontSize:12,color:"var(--di)"}},
+              span({style:{fontWeight:600}},(rvTarih===bg?"Bugün · ":"")+rvGunAd(rvTarih)),
+              rvTarih!==bg && btn({style:{border:"none",background:"transparent",color:"#0071E3",fontSize:12,fontWeight:700,cursor:"pointer"},onClick:()=>setRvTarih(bg)},"Bugüne dön")),
+            div({style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:12}},
+              [["Toplam",gun.filter(x=>x.durum!=="iptal").length,"#1a56a8"],["Bekliyor",say("bekliyor"),"#B45309"],["Geldi",say("geldi"),"#1A7A34"],["İptal",say("iptal")+say("gelmedi"),"#C0392B"]].map(([l,v,c])=>
+                div({key:l,style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.07)",borderRadius:12,padding:"8px 4px",textAlign:"center"}},
+                  div({style:{fontSize:19,fontWeight:800,color:c,lineHeight:1}},String(v)),
+                  div({style:{fontSize:9.5,color:"var(--di)",marginTop:3,letterSpacing:.5,textTransform:"uppercase",fontWeight:600}},l)))),
+            btn({className:"ybt",style:{marginBottom:14},onClick:()=>yeniAc()},
+              div({style:{fontSize:14,letterSpacing:1.5,color:"rgba(255,255,255,0.97)",fontWeight:700,textTransform:"uppercase"}},"＋ Yeni Randevu")),
+            saatler.map(t=>{
+              const l=gun.filter(x=>x.saat===t).sort((a,b)=>(a.olusturma||0)-(b.olusturma||0));
+              const slotMu=RV_SLOTLAR.includes(t);
+              const aktifVar=l.some(x=>x.durum!=="iptal");
+              const tamSaat=t.endsWith(":00");
+              return div({key:t,style:{display:"flex",gap:10,alignItems:"flex-start",marginBottom:l.length||!slotMu?0:4}},
+                div({style:{width:46,flex:"none",paddingTop:l.length?12:8,fontSize:tamSaat||!slotMu?13:11.5,fontWeight:tamSaat||!slotMu?800:600,color:tamSaat||!slotMu?"#1a56a8":"#9a9aa0",textAlign:"right"}},t),
+                div({style:{flex:1,minWidth:0}},
+                  l.map(kart),
+                  slotMu && !aktifVar && btn({onClick:()=>yeniAc(t),style:{width:"100%",height:l.length?30:32,marginBottom:l.length?6:0,borderRadius:10,border:"1px dashed rgba(0,0,0,.14)",background:"transparent",color:"#a0a0a6",fontSize:12,cursor:"pointer",textAlign:"left",padding:"0 12px"}},l.length?"＋ Bu saate yeni randevu":"＋ Boş")));
+            })
+          )
+    );
+  };
   const tumK = records;
   const bugunku = tumK.filter(r=>r.tarih===TODAY());
   const filtreli = tumK.filter(r=>{
@@ -21099,10 +21438,10 @@ if(DB) dbUpsertAyar("tema",tema);
 
   const gunSonu = () => {
     // Müşteri havuzuna kayıt sadece gün sonu yöneticiye gönderme anında yapılır.
-    myBekleyen.forEach(musteriHavuzunaEkle);
-    const ids=myBekleyen.map(r=>r.id);
+    myBekleyenGonder.forEach(musteriHavuzunaEkle);
+    const ids=myBekleyenGonder.map(r=>r.id);
     // Stok düşümü + hareket kaydı - satılan ürünler için FIFO
-    myBekleyen.forEach(kayit => {
+    myBekleyenGonder.forEach(kayit => {
       if(stokOncesiKayit(kayit)) return; // stok başlangıç tarihinden önceki satış: stok sayımında zaten düşülmüş
       (kayit.urunler||[]).forEach(u => {
         if(!u.b || !toN(u.qty)) return;
@@ -21121,13 +21460,13 @@ if(DB) dbUpsertAyar("tema",tema);
         }));
       });
     });
-    setGecmis(p=>[...myBekleyen.map(r=>({...r,gonderildi:true})),...p]);
-    setRecords(p=>[...myBekleyen.map(r=>({...r,gonderildi:true})),...p]);
+    setGecmis(p=>[...myBekleyenGonder.map(r=>({...r,gonderildi:true})),...p]);
+    setRecords(p=>[...myBekleyenGonder.map(r=>({...r,gonderildi:true})),...p]);
     setBekleyen(p=>p.filter(r=>r.staffId!==kul.id));
     // Bu personelin "çalıştı" işaretlerini temizle (bildirimler kaybolsun)
     setCalistiGunler(p=>p.filter(anahtar=>!anahtar.endsWith("_"+kul.id)));
     // Gün sonu gönderilen günleri devDB'ye "çalıştı" olarak yaz (eksik gün kartından kaybolsunlar)
-    const gonderilenTarihler = [...new Set(myBekleyen.map(r=>r.tarih))];
+    const gonderilenTarihler = [...new Set(myBekleyenGonder.map(r=>r.tarih))];
     if(gonderilenTarihler.length>0){
       setDevDB(p=>{
         const yeni={...p};
@@ -21140,6 +21479,17 @@ if(DB) dbUpsertAyar("tema",tema);
         gonderilenTarihler.map(t=>({staff_id:kul.id,tarih:t,aciklama:"Çalıştı - kayıt yapıldı"})),
         "isletme_id,staff_id,tarih");
     }
+    // ── Randevu defteri: boş otomatik formları temizle, bugünün defterini randevu geçmişine al ──
+    (()=>{
+      const bg=TODAY();
+      bekleyen.filter(r=>r.staffId===kul.id && rvBosOto(r)).forEach(r=>{ mezarEkle([r.id]); dbSil("kayitlar",r.id); });
+      setRandevular(p=>(p||[]).map(rv=>{
+        if(!rv || String(rv.staffId)!==String(kul.id) || rv.arsiv || rv.tarih>bg) return rv;
+        let durum=rv.durum;
+        if(durum==="bekliyor"){ const rc=rvKayitBul(rv.kayitId); durum=(rc&&rvKayitDolu(rc))?"geldi":"gelmedi"; }
+        return {...rv,durum,arsiv:true,arsivTarih:bg,guncelleme:Date.now()};
+      }));
+    })();
     setGsOnay(false);
     if(ids.length>0&&DB) DB.from("kayitlar").update({gonderildi:true}).in("id",ids).then(()=>{}).catch(()=>{});
     // ── Yönetici bildirim merkezine kişisel gün sonu bildirimi gönder ──
@@ -22949,7 +23299,7 @@ if(DB) dbUpsertAyar("tema",tema);
           div({style:{fontSize:11,color:"#2A8A44",marginBottom:8,letterSpacing:1.5,textTransform:"uppercase",fontWeight:600}},"Gönderilecek Kayıtlar"),
           (()=>{
             const grup={};
-            myBekleyen.forEach(r=>{ const t=r.tarih||""; (grup[t]=grup[t]||[]).push(r); });
+            myBekleyenGonder.forEach(r=>{ const t=r.tarih||""; (grup[t]=grup[t]||[]).push(r); });
             const tarihler=Object.keys(grup).sort((a,b)=>(b||"").localeCompare(a||""));
             return div(null, tarihler.map(t=>{
               const liste=grup[t], tutar=liste.reduce((s,r)=>s+toN(r.toplam),0);
@@ -22961,7 +23311,7 @@ if(DB) dbUpsertAyar("tema",tema);
           })(),
           div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,paddingTop:10,marginTop:2}},
             div({style:{fontSize:11,color:"#2A8A44",letterSpacing:1.5,textTransform:"uppercase",fontWeight:700}},"Toplam"),
-            div({style:{fontSize:18,color:"#1A7A34",fontWeight:800,whiteSpace:"nowrap"}},myBekleyen.length+" kayıt · "+fmt(myBekleyen.reduce((s,r)=>s+toN(r.toplam),0)))
+            div({style:{fontSize:18,color:"#1A7A34",fontWeight:800,whiteSpace:"nowrap"}},myBekleyenGonder.length+" kayıt · "+fmt(myBekleyenGonder.reduce((s,r)=>s+toN(r.toplam),0)))
           )
         ),
         div({className:"btn-r"},
@@ -23168,6 +23518,10 @@ if(DB) dbUpsertAyar("tema",tema);
     ),
 
     // Kayit formu
+    rvModal&&h(RvFormModal,{key:(rvModal.rv&&rvModal.rv.id||"yeni")+rvModal.mod,mod:rvModal.mod,rv:rvModal.rv,varsayilan:rvModal.varsayilan,mevcutlar:rvBenim,musteriDB,kulId:kul&&kul.id,
+      onKapat:()=>setRvModal(null),
+      onKaydet:f=>rvModal.mod==="yeni"?rvEkle(f):rvModal.mod==="duzenle"?rvDuzenle(rvModal.rv,f):rvErtele(rvModal.rv,f),
+      onIptalOnay:n=>rvIptal(rvModal.rv,n)}),
     kayitForm&&h(KayitForm,{bolumStilleri,gecmisKayitlar:[records,gecmis,bekleyen],ilk:kayitForm,musteriDB,personeller,aktifKullanici:kul,stokDB:stokKalanMap,stokBaslangic,isletme,hizListeleri,buttonText:(kayitForm._yonBildirimId||kayitForm._talepOnayId)?"Güncelle ve Gönder":kayitForm._yonDirektDuzenle?"Güncelle":undefined,onKaydet:kayitKaydet,onIptal:()=>setKayitForm(null),hatirlatmalar,setHatirlatmalar,devirBildirim,setDevirBildirim,showToast,pGruplar,gotoMusteriKart:(mid)=>{setKayitForm(null);gotoMusteriKartGenel(mid);},onYeniMusteriAc:(taslak)=>{setYeniMusteriHata("");setYeniMusteriForm(taslak);}}),
 
     // Personel ekle modal
@@ -23938,7 +24292,7 @@ if(DB) dbUpsertAyar("tema",tema);
           img({src:AKTIF_LOGO,className:"logo-header"})
         ),
         div({style:{flex:1,fontSize:13,color:"var(--mu)"}},kul.ad),
-        myBekleyen.length>0&&btn({className:"gsbtn",style:{flexShrink:0},onClick:()=>setGsOnay(true)},"📤 Gönder ("+myBekleyen.length+")")
+        myBekleyen.length>0&&btn({className:"gsbtn",style:{flexShrink:0},onClick:()=>setGsOnay(true)},(myBekleyenGonder.length>0?"📤 Gönder ("+myBekleyenGonder.length+")":"📤 Gün Sonu"))
       ),
       div({className:"atabs"},
         (()=>{
@@ -25000,8 +25354,17 @@ if(DB) dbUpsertAyar("tema",tema);
             color:bugunAltSek==="hakedis"?"#1F3D2C":"#7AAF90",
             boxShadow:bugunAltSek==="hakedis"?"0 1px 5px rgba(0,0,0,.10)":"none",
             transition:"all .18s"},
-            onClick:()=>setBugunAltSek("hakedis")},"Hakediş")
+            onClick:()=>setBugunAltSek("hakedis")},"Hakediş"),
+          btn({style:{flex:1,padding:"9px 0",borderRadius:10,border:"none",fontSize:13,fontWeight:700,cursor:"pointer",
+            background:bugunAltSek==="randevu"?"#fff":"transparent",
+            color:bugunAltSek==="randevu"?"#1F3D2C":"#7AAF90",
+            boxShadow:bugunAltSek==="randevu"?"0 1px 5px rgba(0,0,0,.10)":"none",
+            transition:"all .18s"},
+            onClick:()=>setBugunAltSek("randevu")},"Randevu")
         ),
+
+        // ── RANDEVU DEFTERİ sekmesi ──────────────────────────────────
+        bugunAltSek==="randevu"&&rvPanel(),
 
         // ── GÜNLÜK KAYIT sekmesi ──────────────────────────────────────
         bugunAltSek==="kayit"&&(()=>{
@@ -25009,7 +25372,7 @@ if(DB) dbUpsertAyar("tema",tema);
           // gönderilmemiş ekstralar). Böylece geçmiş tarihli kayıt girilince de toplamı buraya yansır.
           const myRecords=records.filter(r=>r.staffId===kul.id&&!r.gonderildi);
           const seenIds=new Set(myBekleyen.map(r=>r.id));
-          const todayK=[...myBekleyen,...myRecords.filter(r=>!seenIds.has(r.id))];
+          const todayK=[...myBekleyen,...myRecords.filter(r=>!seenIds.has(r.id))].filter(r=>!rvBosOto(r));
           // K.K / IBAN / Nakit mini kırılım satırı — "Yeni Kayıt" alanındaki SVG ikonlarla
           const fmtP=v=>Number(v||0).toLocaleString("tr-TR");
           const svgKK=()=>h("svg",{width:13,height:13,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
@@ -25089,7 +25452,7 @@ if(DB) dbUpsertAyar("tema",tema);
             ),
             myBekleyen.length>0&&div({className:"bkb"},
               div(null,
-                div({style:{fontSize:14,color:"#1A7A34",fontWeight:600}},"⏳ "+myBekleyen.length+" kayıt gönderilmeyi bekliyor"),
+                div({style:{fontSize:14,color:"#1A7A34",fontWeight:600}},myBekleyenGonder.length>0?"⏳ "+myBekleyenGonder.length+" kayıt gönderilmeyi bekliyor":"⏳ Doldurulmamış randevu formları var"),
                 div({style:{fontSize:12.5,color:"#1A7A34",marginTop:3,fontWeight:600,lineHeight:1.5}},"Lütfen tüm işlemleri gözden geçirip doğruluğundan emin olduktan sonra gönderiniz.")
               ),
               btn({className:"gsbtn",onClick:()=>setGsOnay(true)},"Gönder")
@@ -25097,7 +25460,7 @@ if(DB) dbUpsertAyar("tema",tema);
             div({className:"sek"},"Kayıtlarım"),
             myBekleyen.length===0
               ?div({className:"bos"},div({style:{fontSize:42,marginBottom:9}},"📋"),div({style:{fontSize:12,letterSpacing:2,marginTop:4}},"HENÜZ KAYIT YOK"))
-              :myBekleyen.map(r=>h(KayitKarti,{r,key:r.id,onDetay:setDetay,onDuzenle:r=>setKayitForm(r),onSil:setSilOnay}))
+              :myBekleyen.map(r=>{ const _rv=rvBenim.find(x=>String(x.kayitId)===String(r.id)); return h(KayitKarti,{r,key:r.id,rvSaat:_rv?_rv.saat:"",rvBos:rvBosOto(r),onDetay:setDetay,onDuzenle:r=>setKayitForm(r),onSil:setSilOnay}); })
           );
         })(),
 
