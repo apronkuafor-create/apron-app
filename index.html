@@ -18565,8 +18565,22 @@ const panelTuru = p => {
   if(ids.some(id=>PGRUP_TUR.destek.has(id))) return "destek";
   return "standart";
 };
-// Giriş sonrası açılacak ekran. Destek paneli hazır olunca yalnızca burayı değiştirmek yeterli (destek → "destek").
-const ekranHedefi = p => panelTuru(p)==="sekreter" ? "sekreter" : "personel";
+// Bir kişinin girebileceği paneller. Hem sekreter hem başka gruptaki (destek / gelire katkı…) kişi İKİ panele de sahiptir
+// ve girişte hangisiyle devam edeceğini seçer. Destek paneli ayrılınca "personel" seçeneği o panele yönlenecek.
+const panelSecenekleri = p => {
+  if(!p || p.rol==="yonetici") return [];
+  const o=[];
+  if(sekreterMi(p)) o.push("sekreter");
+  const digerGrup = pGrupIds(p).some(id=>!PGRUP_TUR.sekreter.has(id));
+  if(!sekreterMi(p) || digerGrup) o.push("personel");
+  return o;
+};
+// Giriş sonrası açılacak ekran: tek panel varsa doğrudan o; birden fazlaysa seçim yapılana kadar "panelSecim".
+const ekranHedefi = (p, tercih) => {
+  const o = panelSecenekleri(p);
+  if(o.length>1) return (tercih && o.includes(tercih)) ? tercih : "panelSecim";
+  return o[0] || "personel";
+};
 // Sekreter, bir personelin panelini açtığında KISITLANACAK özellikler. true = gizli/kapalı.
 // Kısıtlama listesi netleşince yalnızca bu değerleri değiştirmek yeterli.
 const SEKRETER_KISIT = {
@@ -18989,6 +19003,7 @@ function App() {
   const [rvModal, setRvModal]             = useState(null); // {mod:'yeni'|'duzenle'|'ertele'|'iptal', rv?, varsayilan?}
   const [sekreterAslinda, setSekreterAslinda] = useState(null); // sekreter bir personelin panelini açtığında gerçek sekreteri tutar
   const [sekAra, setSekAra]               = useState("");
+  const [panelTercihi, setPanelTercihi]   = useState(null); // çok panelli kullanıcının seçtiği panel: "sekreter" | "personel"
   const rvYukluRef = useRef(null), rvSonImzaRef = useRef(""), rvUretilenRef = useRef(new Set());
   // Ürün Muhasebesi state'leri
   const [tedarikciler, setTedarikciler]   = useState([]); // [{id,ad,tel,adres,bakiye}]
@@ -19541,7 +19556,7 @@ ayarlarRaw.forEach(a=>{ try {
       try {
         const sess = JSON.parse(localStorage.getItem("apron_session")||"null");
         if(sess && sess.kul && sess.kul.id){
-          setKul(sess.kul);
+          setKul(sess.kul); if(sess.tercih) setPanelTercihi(sess.tercih);
           setEkran(sess.ekran || (sess.kul.rol==="yonetici"?"yonetici":"personel"));
           // Nav state'lerini geri yükle
           if(sess.panelAdim)  setPanelAdim(sess.panelAdim);
@@ -20354,7 +20369,7 @@ if(DB) dbUpsertAyar("tema",tema);
           }));
         } else {
           localStorage.setItem("apron_session", JSON.stringify({
-            kul, ekran,
+            kul, ekran, tercih:panelTercihi,
             panelAdim, panelAltSek, asek,
             muhSek, muhAlt, muhAltAcik,
             psek, aySek, ayListeSek,
@@ -20365,7 +20380,7 @@ if(DB) dbUpsertAyar("tema",tema);
         localStorage.removeItem("apron_session");
       }
     } catch(e){}
-  }, [kul, ekran, panelAdim, panelAltSek, asek, muhSek, muhAlt, muhAltAcik, psek, aySek, ayListeSek, hesapFull, vergiFull, yukleniyor, yoneticiAslinda, sekreterAslinda]);
+  }, [kul, ekran, panelAdim, panelAltSek, asek, muhSek, muhAlt, muhAltAcik, psek, aySek, ayListeSek, hesapFull, vergiFull, yukleniyor, yoneticiAslinda, sekreterAslinda, panelTercihi]);
 
   // Ay başı gecmis temizle
   useEffect(()=>{
@@ -20514,11 +20529,11 @@ if(DB) dbUpsertAyar("tema",tema);
   // Panel türü düzeltmesi: sunucudan gelen kul kaydında çoklu grup bilgisi eksik olabilir; tam personel kaydına göre doğru ekrana al
   useEffect(()=>{
     if(yukleniyor || !kul || yoneticiAslinda || sekreterAslinda) return;
-    if(ekran!=="personel" && ekran!=="sekreter") return;
+    if(ekran!=="personel" && ekran!=="sekreter" && ekran!=="panelSecim") return;
     const tam=(personeller||[]).find(p=>String(p.id)===String(kul.id)) || kul;
-    const hedef=ekranHedefi(tam);
+    const hedef=ekranHedefi(tam,panelTercihi);
     if(hedef!==ekran) setEkran(hedef);
-  },[yukleniyor,kul,ekran,personeller,pGruplar,yoneticiAslinda,sekreterAslinda]);
+  },[yukleniyor,kul,ekran,personeller,pGruplar,yoneticiAslinda,sekreterAslinda,panelTercihi]);
 
   // ── Randevu defteri ekranı ──
   const rvPanel = () => {
@@ -20791,12 +20806,12 @@ if(DB) dbUpsertAyar("tema",tema);
         // henüz bu oturumla yüklenmedi. Oturumu yaz ve temiz baştan yükle (yönetici akışıyla aynı).
         window.__apronPerYeniOturum = false;
         try {
-          localStorage.setItem("apron_session", JSON.stringify({ kul:(girenKul||kul), ekran:ekranHedefi(girenKul||kul) }));
+          localStorage.setItem("apron_session", JSON.stringify({ kul:(girenKul||kul), ekran:ekranHedefi(girenKul||kul,null) }));
         } catch(e){}
         location.reload();
         return;
       }
-      setKapiAnim(null); setEkran(hedef==="personel"?ekranHedefi(girenKul||kul):hedef);
+      setKapiAnim(null); setEkran(hedef==="personel"?ekranHedefi(girenKul||kul,null):hedef);
     }, 3000);
   };
 
@@ -21018,7 +21033,7 @@ if(DB) dbUpsertAyar("tema",tema);
     },120);
   };
 
-  const cikis = async () => { setCikisSecenek(false); setSekreterAslinda(null); setKul(null); setEkran("login"); setKayitForm(null); setDetay(null); try{ localStorage.removeItem("apron_session"); }catch(e){} /* Not: Supabase oturumu BİLEREK kapatılmıyor — paylaşılan salon cihazı, isletme_id bağlantısı PIN değişiminden bağımsız canlı kalmalı. */ };
+  const cikis = async () => { setCikisSecenek(false); setSekreterAslinda(null); setPanelTercihi(null); setKul(null); setEkran("login"); setKayitForm(null); setDetay(null); try{ localStorage.removeItem("apron_session"); }catch(e){} /* Not: Supabase oturumu BİLEREK kapatılmıyor — paylaşılan salon cihazı, isletme_id bağlantısı PIN değişiminden bağımsız canlı kalmalı. */ };
 
   // Yönetici → personel paneline şifresiz geçiş (yalnızca yönetici yapabilir)
   const personelGecisYap = (p) => {
@@ -21032,6 +21047,30 @@ if(DB) dbUpsertAyar("tema",tema);
     setEkran("personel");               // personel panelini aç
     showToast(p.ad+" paneline geçildi","ba");
   };
+  // ══ ÇOK PANELLİ GİRİŞ (örn. hem Sekreter hem Destek) ═══════════════════════
+  const kulTam = kul ? ((personeller||[]).find(p=>String(p.id)===String(kul.id)) || kul) : null;
+  const cokPanelli = !!kulTam && !sekreterAslinda && panelSecenekleri(kulTam).length>1;
+  const panelSecYap = (hedef) => { setKayitForm(null); setDetay(null); setPanelTercihi(hedef); setEkran(hedef); if(hedef==="personel"){ setPsek("bugun"); setBugunAltSek("kayit"); } };
+  const panelDegistir = () => { setKayitForm(null); setDetay(null); setRvModal(null); setGsOnay(false); setCikisSecenek(false); setPanelTercihi(null); setEkran("panelSecim"); };
+  const panelSecimEkrani = () => {
+    const secenekler={
+      sekreter:{ikon:"🗂️",baslik:"Sekreter Girişi",aciklama:"Tüm personelin kayıt ve randevu girişlerini yapın.",renk:"#0b2f66",bg:"linear-gradient(135deg,#1a56a8,#0b2f66)"},
+      personel:{ikon:"✂️",baslik:"Personel Girişi",aciklama:"Kendi kayıtlarınız, randevularınız ve hakedişiniz.",renk:"#0e3a1a",bg:"linear-gradient(135deg,#1e8a50,#0e3a1a)"}
+    };
+    return div({style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 18px",background:"var(--bg)"}},
+      div({style:{width:"100%",maxWidth:420}},
+        div({style:{textAlign:"center",marginBottom:22}},img({src:AKTIF_LOGO,className:"logo-login"})),
+        div({style:{fontSize:13,color:"var(--di)",textAlign:"center",letterSpacing:1.5,textTransform:"uppercase",fontWeight:700}},"Hoş geldiniz"),
+        div({style:{fontSize:22,fontWeight:800,color:"var(--tx)",textAlign:"center",margin:"4px 0 6px"}},kul.ad),
+        div({style:{fontSize:14,color:"var(--di)",textAlign:"center",marginBottom:20,lineHeight:1.5}},"Hangi panelle devam etmek istiyorsunuz?"),
+        panelSecenekleri(kulTam).map(k=>{ const o=secenekler[k]; return btn({key:k,onClick:()=>panelSecYap(k),style:{width:"100%",display:"flex",alignItems:"center",gap:14,padding:"16px 18px",marginBottom:12,border:"none",borderRadius:18,cursor:"pointer",textAlign:"left",color:"#fff",background:o.bg,boxShadow:"0 6px 20px rgba(0,0,0,.18)"}},
+          span({style:{fontSize:30,flexShrink:0}},o.ikon),
+          div({style:{flex:1,minWidth:0}},div({style:{fontSize:17,fontWeight:800}},o.baslik),div({style:{fontSize:12.5,opacity:.85,marginTop:3,lineHeight:1.4,fontWeight:500}},o.aciklama)),
+          span({style:{fontSize:22,opacity:.8}},"›")); }),
+        btn({onClick:cikis,style:{width:"100%",padding:"12px",marginTop:6,border:"1px solid var(--br)",borderRadius:14,background:"transparent",color:"var(--di)",fontSize:14,fontWeight:600,cursor:"pointer"}},"Çıkış"))
+    );
+  };
+
   // ══ SEKRETER MODU ═══════════════════════════════════════════════════════
   const sekKisit = (k) => !!sekreterAslinda && !!SEKRETER_KISIT[k];
   const sekreterPersonelAc = (p) => {
@@ -21084,6 +21123,7 @@ if(DB) dbUpsertAyar("tema",tema);
         div({style:{flex:1,minWidth:0}},
           div({style:{fontSize:11,color:"var(--di)",letterSpacing:1.5,textTransform:"uppercase",fontWeight:700}},"Sekreter"),
           div({style:{fontSize:13,color:"var(--mu)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},kul.ad)),
+        cokPanelli&&btn({className:"gsbtn",style:{flexShrink:0,marginRight:6},onClick:panelDegistir},"⇄ Panel"),
         btn({className:"gsbtn",style:{flexShrink:0},onClick:cikis},"Çıkış")),
       div({style:{padding:"16px 14px 40px",maxWidth:560,margin:"0 auto"}},
         div({style:{fontSize:20,fontWeight:800,color:"var(--tx)"}},"Personel Seç"),
@@ -24419,6 +24459,8 @@ if(DB) dbUpsertAyar("tema",tema);
             ), document.body);
           })(),
 
+    !yukleniyor&&ekran==="panelSecim"&&kul&&panelSecimEkrani(),
+
     !yukleniyor&&ekran==="sekreter"&&kul&&sekreterEkrani(),
 
     !yukleniyor&&ekran==="personel"&&kul&&div(null,
@@ -24432,6 +24474,7 @@ if(DB) dbUpsertAyar("tema",tema);
           img({src:AKTIF_LOGO,className:"logo-header"})
         ),
         div({style:{flex:1,fontSize:13,color:"var(--mu)"}},kul.ad),
+        cokPanelli&&btn({className:"gsbtn",style:{flexShrink:0,marginRight:6},onClick:panelDegistir},"⇄ Panel"),
         myBekleyen.length>0&&!sekKisit("gunSonuGonder")&&btn({className:"gsbtn",style:{flexShrink:0},onClick:()=>setGsOnay(true)},(myBekleyenGonder.length>0?"📤 Gönder ("+myBekleyenGonder.length+")":"📤 Gün Sonu"))
       ),
       div({className:"atabs"},
