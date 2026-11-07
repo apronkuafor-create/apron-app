@@ -20471,10 +20471,7 @@ if(DB) dbUpsertAyar("tema",tema);
     if(yukleniyor) return;
     try {
       if(kul){
-        if(sekreterAslinda){
-          // Sekreter bir personelin panelindeyken yenilenirse sekreterin personel listesine döner
-          localStorage.setItem("apron_session", JSON.stringify({ kul:personelPinTemizle([sekreterAslinda])[0], ekran:"sekreter" }));
-        } else if(yoneticiAslinda){
+        if(yoneticiAslinda){
           // Geçiş modunda: oturuma gerçek yöneticiyi yaz; yenilenince yönetici paneli açılır (geçiş sona erer)
           localStorage.setItem("apron_session", JSON.stringify({
             kul:personelPinTemizle([yoneticiAslinda])[0], ekran:"yonetici",
@@ -20483,6 +20480,9 @@ if(DB) dbUpsertAyar("tema",tema);
             psek:"", aySek:"", ayListeSek:"",
             hesapFull:false, vergiFull:false
           }));
+        } else if(sekreterAslinda){
+          // Sekreter bir personelin panelindeyken yenilenirse sekreterin personel listesine döner
+          localStorage.setItem("apron_session", JSON.stringify({ kul:personelPinTemizle([sekreterAslinda])[0], ekran:"sekreter" }));
         } else {
           localStorage.setItem("apron_session", JSON.stringify({
             kul:personelPinTemizle([kul])[0], ekran, tercih:panelTercihi,
@@ -21202,6 +21202,19 @@ if(DB) dbUpsertAyar("tema",tema);
     setKul(p);                          // o personel olarak davran
     setEkran("personel");               // personel panelini aç
     showToast(p.ad+" paneline geçildi","ba");
+  };
+  // Yönetici → Sekreter paneline şifresiz geçiş ("Yönetici'ye dön" çubuğu personel geçişiyle aynı çalışır)
+  const sekreterGecisYap = (p) => {
+    if(!p) return;
+    if(!(kul && kul.rol==="yonetici")) { showToast("Bu işlem yalnızca yöneticiye açıktır","uy"); return; }
+    setYoneticiAslinda(kul);
+    setDonusKonum({asek, panelAdim, panelAltSek, kayitlarAlt});
+    setKayitForm(null); setDetay(null);
+    setAsek(""); setPanelAdim("ana"); setPanelAltSek(""); setMuhSek(""); setMuhAlt(""); setMuhAltAcik("");
+    setSekGorunum("personeller"); setSekAra("");
+    setKul(p);
+    setEkran("sekreter");
+    showToast(p.ad+" sekreter paneline geçildi","ba");
   };
   // ══ ÇOK PANELLİ GİRİŞ (örn. hem Sekreter hem Destek) ═══════════════════════
   const kulTam = kul ? ((personeller||[]).find(p=>String(p.id)===String(kul.id)) || kul) : null;
@@ -29447,6 +29460,29 @@ if(DB) dbUpsertAyar("tema",tema);
 
           // ── Bölüm 1: Personel Panelleri ──
           kayitlarAlt==="paneller"&&div(null,
+
+          // ── Sekreter paneli: şifresiz geç ──
+          div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:14,marginBottom:14,boxShadow:"0 1px 6px rgba(0,0,0,.05)"}},
+            div({style:{fontSize:14,fontWeight:700,color:"#1D1D1F",marginBottom:3}},"🗂️ Sekreter Paneli"),
+            div({style:{fontSize:11.5,color:"#888",marginBottom:12,lineHeight:1.45}},"Sekreterin gördüğü ekrana şifresiz geçersin: personel listesi, randevu defteri ve Boş Saatler. İşin bitince ekranın altındaki yeşil çubuktan yönetici paneline dönersin."),
+            (()=>{
+              const sekListe=(personeller||[]).filter(p=>p.aktif && p.rol!=="yonetici" && sekreterMi(p));
+              if(sekListe.length===0) return div({style:{fontSize:12.5,color:"var(--mu)",lineHeight:1.5}},"Sekreter grubunda aktif personel yok. Ayarlar → Gruplar'dan Sekreter grubunu oluşturup Personel Listesi'nden bir personele ata.");
+              return div({style:{display:"flex",flexDirection:"column",gap:8}},
+                sekListe.map(p=>div({key:p.id,onClick:()=>sekreterGecisYap(p),style:{
+                  display:"flex",alignItems:"center",gap:12,
+                  background:"#f6f6f8",border:"1px solid rgba(0,0,0,.06)",borderRadius:12,padding:"11px 13px",cursor:"pointer"
+                }},
+                  div({style:{width:38,height:38,borderRadius:12,background:"linear-gradient(135deg,#1a56a8,#0b2f66)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,color:"#fff",fontWeight:700,flexShrink:0}},"🗂️"),
+                  div({style:{flex:1,minWidth:0}},
+                    div({style:{fontSize:14.5,fontWeight:600,color:"#1D1D1F"}},p.ad),
+                    div({style:{fontSize:11.5,color:"var(--mu)",marginTop:1}},"Sekreter")
+                  ),
+                  span({style:{fontSize:12.5,fontWeight:700,color:"#1a56a8",whiteSpace:"nowrap"}},"Sekreter paneline geç →")
+                ))
+              );
+            })()
+          ),
 
           // ── Personel adına kayıt: personel paneline şifresiz geç ──
           div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:14,marginBottom:14,boxShadow:"0 1px 6px rgba(0,0,0,.05)"}},
