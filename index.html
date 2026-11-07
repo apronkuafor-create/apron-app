@@ -1874,6 +1874,7 @@ input,select,textarea{font-family:'Inter',-apple-system,BlinkMacSystemFont,syste
 .fi{width:100%;background:var(--bg3);border:1px solid var(--br);border-radius:10px;color:var(--tx);font-size:14px;padding:11px 13px;outline:none;box-sizing:border-box;height:44px}
 .fi:focus{border-color:var(--g)}
 input[type="date"].fi{cursor:pointer}
+input.sekdate[type="date"]{opacity:0!important;-webkit-text-fill-color:transparent!important;border:none!important;background:transparent!important}
 input[type="date"].fi,input[type="date"],input[type="month"].fi,input[type="month"]{color:var(--tx)!important;-webkit-text-fill-color:var(--tx)!important;opacity:1!important}
 input[type="date"]::-webkit-datetime-edit,input[type="date"]::-webkit-datetime-edit-fields-wrapper,input[type="date"]::-webkit-datetime-edit-text,input[type="date"]::-webkit-datetime-edit-day-field,input[type="date"]::-webkit-datetime-edit-month-field,input[type="date"]::-webkit-datetime-edit-year-field,input[type="month"]::-webkit-datetime-edit,input[type="month"]::-webkit-datetime-edit-fields-wrapper,input[type="month"]::-webkit-datetime-edit-text,input[type="month"]::-webkit-datetime-edit-month-field,input[type="month"]::-webkit-datetime-edit-year-field{color:var(--tx)!important;-webkit-text-fill-color:var(--tx)!important;opacity:1!important}
 input[type="date"]::-webkit-date-and-time-value,input[type="month"]::-webkit-date-and-time-value{color:var(--tx)!important;-webkit-text-fill-color:var(--tx)!important;opacity:1!important}
@@ -18733,7 +18734,7 @@ function RvFormModal({mod, rv, varsayilan, baslikEk, mevcutlar, musteriDB, kulId
 // ── Genel boş saat takvimi (sekreter): hangi saatte hangi personel boş, müşteriyi birine ata ──
 const RV_VARSAYILAN_SURE = 30; // süresi girilmemiş randevular bu kadar dakika dolu sayılır
 const rvDk = t => { const a=String(t||"0:0").split(":"); return (+a[0]||0)*60+(+a[1]||0); };
-function RvGenelTakvim({personeller, rvOf, devDB, onAta, onYenile}){
+function RvGenelTakvim({personeller, rvOf, devDB, onAta, onYenile, serit}){
   const bg=TODAY();
   const [tarih,setTarih]=React.useState(bg);
   const [sure,setSure]=React.useState(RV_VARSAYILAN_SURE);
@@ -18751,6 +18752,46 @@ function RvGenelTakvim({personeller, rvOf, devDB, onAta, onYenile}){
   const renk=p=>renkler[Math.max(0,personeller.findIndex(x=>x.id===p.id))%renkler.length];
   const avatar=(p,k=26)=>span({key:p.id,title:p.ad,style:{width:k,height:k,borderRadius:k/2,background:renk(p),color:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:k*0.46,fontWeight:800,flexShrink:0}},(p.ad||"?")[0]);
   const satirlar=RV_SLOTLAR.map(t=>({t,bos:personeller.filter(p=>durum(p,t).tip==="bos")}));
+  if(serit){
+    const secBos = slot ? personeller.filter(p=>durum(p,slot).tip==="bos") : [];
+    const kucuk={flex:"none",width:30,height:30,borderRadius:8,border:"none",background:"transparent",fontSize:17,cursor:"pointer",color:"var(--di)",padding:0};
+    const bitS=(t)=>{ const e=rvDk(t)+sure; return String(Math.floor(e/60)).padStart(2,"0")+":"+String(e%60).padStart(2,"0"); };
+    return div(null,
+      div({style:{background:"#F6F5F1",borderBottom:"1px solid rgba(0,0,0,.08)",padding:"10px 0 0"}},
+        div({style:{display:"flex",alignItems:"center",gap:8,padding:"0 14px 8px",flexWrap:"wrap"}},
+          div({style:{display:"flex",alignItems:"center",gap:2,background:"#fff",border:"1px solid rgba(0,0,0,.1)",borderRadius:10,padding:2}},
+            btn({style:{...kucuk,opacity:tarih<=bg?.35:1},disabled:tarih<=bg,onClick:()=>{setTarih(rvGunKaydir(tarih,-1));setSlot(null);}},"‹"),
+            div({style:{position:"relative",padding:"5px 6px",fontSize:13,fontWeight:700,color:"var(--tx)",whiteSpace:"nowrap"}},(tarih===bg?"Bugün · ":"")+fmtT(tarih)+" · "+rvGunAd(tarih),
+              h("input",{className:"sekdate",type:"date",value:tarih,min:bg,"aria-label":"Tarih seç",onChange:e=>{ if(e.target.value){ setTarih(e.target.value<bg?bg:e.target.value); setSlot(null);} },style:{position:"absolute",inset:0,width:"100%",height:"100%",opacity:0,cursor:"pointer"}})),
+            btn({style:kucuk,onClick:()=>{setTarih(rvGunKaydir(tarih,1));setSlot(null);}},"›")),
+          div({style:{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}},
+            [15,30,45,60].map(d=>btn({key:d,onClick:()=>setSure(d),style:{fontSize:12,fontWeight:700,padding:"6px 10px",borderRadius:14,cursor:"pointer",
+              border:"1px solid "+(sure===d?"#0071E3":"rgba(0,0,0,.1)"),background:sure===d?"#EAF3FF":"#fff",color:sure===d?"#0071E3":"#444"}},d+" dk")),
+            btn({onClick:onYenile,title:"Yenile",style:{border:"none",background:"transparent",color:"#0071E3",fontSize:16,fontWeight:700,cursor:"pointer",padding:"2px 4px"}},"↻"))),
+        div({className:"sekserit",style:{display:"flex",gap:6,overflowX:"auto",padding:"2px 14px 12px",WebkitOverflowScrolling:"touch"}},
+          satirlar.map(({t,bos})=>{
+            const gec=gecmisSlot(t), sec=slot===t, tam=t.endsWith(":00");
+            return btn({key:t,disabled:gec,onClick:()=>setSlot(sec?null:t),style:{flex:"0 0 56px",background:sec?"#F2F8FF":"#fff",border:sec?"2px solid #0071E3":"1px solid rgba(0,0,0,.09)",borderRadius:12,padding:sec?"7px 0":"8px 0",textAlign:"center",minHeight:104,cursor:gec?"default":"pointer",opacity:gec?.35:1,boxShadow:sec?"0 2px 10px rgba(0,113,227,.2)":"none"}},
+              div({style:{fontSize:tam?13.5:12.5,fontWeight:700,color:tam?"#1a56a8":"#8a8a90"}},t),
+              bos.length
+                ? div({style:{display:"flex",flexDirection:"column",alignItems:"center",gap:4,marginTop:7}},bos.map(p=>avatar(p,26)))
+                : div({style:{marginTop:14,fontSize:10.5,color:"#b0b0b5",fontWeight:600}},"dolu"));
+          }))),
+      div({style:{padding:"12px 14px 0",maxWidth:560,margin:"0 auto"}},
+        slot
+          ? div({style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.09)",borderRadius:14,padding:"12px 14px"}},
+              div({style:{fontSize:14,fontWeight:800,marginBottom:6,color:"var(--tx)"}},span({style:{color:"#1a56a8"}},slot),"–"+bitS(slot)+" · "+secBos.length+" personel boş"),
+              secBos.length===0 && div({style:{fontSize:12.5,color:"var(--di)",padding:"6px 0"}},"Bu saatte boş personel yok."),
+              secBos.map((p,i)=>div({key:p.id,style:{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderTop:i?"1px solid rgba(0,0,0,.06)":"none"}},
+                avatar(p,34),
+                div({style:{flex:1,minWidth:0,fontWeight:700,fontSize:14.5,color:"var(--tx)"}},p.ad,div({style:{fontWeight:500,color:"var(--di)",fontSize:12,marginTop:1}},"Bu saat boş")),
+                btn({onClick:()=>setAta({p,saat:slot}),style:{background:"#1a56a8",color:"#fff",fontWeight:700,fontSize:12.5,borderRadius:10,padding:"8px 12px",border:"none",cursor:"pointer"}},"Randevu ver"))))
+          : div({style:{fontSize:12,color:"var(--di)",textAlign:"center",padding:"2px 0 4px"}},"Müşterinin istediği saate dokunun; boş personeller burada görünür.")),
+      ata&&h(RvFormModal,{key:"ata"+ata.p.id+ata.saat,mod:"yeni",varsayilan:{tarih,saat:ata.saat,sureDk:sure},baslikEk:ata.p.ad,mevcutlar:rvOf(ata.p.id),musteriDB:[],kulId:"",
+        onKapat:()=>setAta(null),onIptalOnay:()=>{},
+        onKaydet:f=>{ onAta(ata.p,f); setAta(null); setSlot(null); }})
+    );
+  }
   return div(null,
     div({style:{display:"flex",gap:8,alignItems:"center",marginBottom:8}},
       btn({style:{...ikSt,opacity:tarih<=bg?.35:1},disabled:tarih<=bg,onClick:()=>setTarih(rvGunKaydir(tarih,-1))},"‹"),
@@ -20689,13 +20730,13 @@ if(DB) dbUpsertAyar("tema",tema);
     showToast(p.ad+" için randevu atandı · "+f.saat,"ba");
   };
   useEffect(()=>{
-    if(!kul || ekran!=="sekreter" || sekGorunum!=="takvim") return;
+    if(!kul || ekran!=="sekreter") return;
     sekRvYukle();
     const iv=setInterval(()=>{ if(!document.hidden) sekRvYukle(); },20000);
     const od=()=>{ if(!document.hidden) sekRvYukle(); };
     document.addEventListener("visibilitychange",od);
     return ()=>{ clearInterval(iv); document.removeEventListener("visibilitychange",od); };
-  },[kul&&kul.id,ekran,sekGorunum,personeller,pGruplar]);
+  },[kul&&kul.id,ekran,personeller,pGruplar]);
 
   // ── Randevu defteri ekranı ──
   const rvPanel = () => {
@@ -21294,18 +21335,11 @@ if(DB) dbUpsertAyar("tema",tema);
           div({style:{fontSize:13,color:"var(--mu)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},kul.ad)),
         cokPanelli&&btn({className:"gsbtn",style:{flexShrink:0,marginRight:6},onClick:panelDegistir},"⇄ Panel"),
         btn({className:"gsbtn",style:{flexShrink:0},onClick:cikis},"Çıkış")),
-      // Sekmeler: başlığın hemen altında, tam genişlikte, yatay ve açıkta (personel panelindeki sekmelerle aynı çubuk)
-      div({className:"atabs"},
-        [["personeller","Personeller"],["takvim","Boş Saatler"]].map(([k,l])=>div({key:k,className:"atab"+(sekGorunum===k?" a":""),onClick:()=>setSekGorunum(k)},l))),
+      // Tek sekme: Personeller. Sayfanın en üstünde yatay boş-saat şeridi.
+      div({className:"atabs"},div({className:"atab a"},"Personeller")),
+      h(RvGenelTakvim,{serit:true,personeller:tum,rvOf:sekRvOf,devDB,onAta:sekRvAta,onYenile:sekRvYukle}),
       div({style:{padding:"16px 14px 40px",maxWidth:560,margin:"0 auto"}},
-        sekGorunum==="takvim"
-          ? div(null,
-              div({style:{fontSize:20,fontWeight:800,color:"var(--tx)"}},"Boş Saatler"),
-              div({style:{fontSize:12.5,color:"var(--di)",margin:"4px 0 14px",lineHeight:1.5}},"Arayan müşterinin istediği saate dokunun; o saatte boş olan personeller görünür. Müşteriyi birine atayın."),
-              h(RvGenelTakvim,{personeller:tum,rvOf:sekRvOf,devDB,onAta:sekRvAta,onYenile:sekRvYukle}))
-          : div(null,
-        div({style:{fontSize:20,fontWeight:800,color:"var(--tx)"}},"Personel Seç"),
-        div({style:{fontSize:12.5,color:"var(--di)",margin:"4px 0 14px",lineHeight:1.5}},"Bir personele dokunun; paneli o personel adına açılır. Girdiğiniz kayıt ve randevular o personele yazılır."),
+        div(null,
         div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}},
           div({style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:"10px 12px"}},
             div({style:{fontSize:22,fontWeight:800,color:"#1a56a8",lineHeight:1}},String(topl.bugun)),
