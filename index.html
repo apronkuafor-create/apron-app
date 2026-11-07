@@ -2768,7 +2768,7 @@ function OzetDashboard({stokPartiler,mkArsiv,tumK,personeller}){
   const markaListe=Object.values(markaSatis).sort((a,b)=>b.gelir-a.gelir).slice(0,8);
   const enYukMarka=markaListe[0]?.gelir||1;
   const persPerf={};
-  (personeller||[]).filter(p=>p.rol==="personel"&&p.aktif).forEach(p=>{
+  (personeller||[]).filter(p=>p.rol==="personel"&&p.aktif&&!sekreterMi(p)).forEach(p=>{
     const pk=periyotK.filter(r=>r.staffId===p.id);
     const ug=pk.reduce((s,r)=>s+(r.uKK||0)+(r.uIB||0)+(r.uNK||0),0);
     const hg=pk.reduce((s,r)=>s+(r.hizKK||0)+(r.hizIB||0)+(r.hizNK||0),0);
@@ -3234,7 +3234,7 @@ function HizmetMuhasebeOzet({tumK, personeller, pGruplar}){
   },[periyot]);
   const periyotEtiket={buHafta:"Bu Hafta",buAy:"Bu Ay",son3Ay:"Son 3 Ay",buYil:"Bu Yıl"}[periyot];
   const gelirGrupId=(pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id;
-  const aktifPersoneller=(personeller||[]).filter(p=>p.aktif&&p.rol==="personel"&&(!gelirGrupId||p.grup===gelirGrupId));
+  const aktifPersoneller=(personeller||[]).filter(p=>p.aktif&&p.rol==="personel"&&(!gelirGrupId||pGrupta(p,gelirGrupId)));
   const periyotK=(tumK||[]).filter(r=>{
     if(!r.tarih||r.gonderildi===false) return false;
     if(new Date(r.tarih)<periyotBaslangic) return false;
@@ -3428,7 +3428,7 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
 
   const gelirGrupId = (pGruplar||[]).find(g=>g.ad.toLowerCase().includes("gelire"))?.id;
   const gelirPersoneller = gelirGrupId
-    ? personeller.filter(p=>p.aktif&&p.rol==="personel"&&p.grup===gelirGrupId)
+    ? personeller.filter(p=>p.aktif&&p.rol==="personel"&&pGrupta(p,gelirGrupId))
     : [];
 
 
@@ -10597,7 +10597,7 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
 
   // Personel bazlı gelir
   const pGelir = {};
-  (personeller||[]).filter(p=>p.rol==="personel"&&p.aktif).forEach(p=>{
+  (personeller||[]).filter(p=>p.rol==="personel"&&p.aktif&&!sekreterMi(p)).forEach(p=>{
     const pk = ayKayitlar.filter(r=>r.staffId===p.id);
     pGelir[p.id] = {
       ad:p.ad,
@@ -10875,7 +10875,7 @@ function GelirGiderModul({tumK, personeller, giderler, setGiderler, avanslar, se
         padding:14,marginBottom:14}},
         div({style:{fontSize:12,color:"var(--g)",letterSpacing:2,textTransform:"uppercase",
           marginBottom:12}},"👤 Personel Bazlı Detay"),
-        (personeller||[]).filter(p=>p.rol==="personel"&&p.aktif).map(p=>{
+        (personeller||[]).filter(p=>p.rol==="personel"&&p.aktif&&!sekreterMi(p)).map(p=>{
           // IBAN kuralı:
           // - Normal personel: kendi kayıtlarındaki hizIB (hizIbanId kendisi veya boş)
           // - Maniküristten gelen: ibanBildirimler'de onaylananlar
@@ -13815,7 +13815,7 @@ function BarkodTarayici({onOku, onKapat}) {
 
 
 function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, aktifKullanici, baslik, buttonText, onKaydet, onIptal, hizListeleri, hatirlatmalar, setHatirlatmalar, bolumStilleri, devirBildirim, setDevirBildirim, gotoMusteriKart, showToast, pGruplar, stokDB, isletme, onYeniMusteriAc}) {
-  const aktifP = personeller.filter(p=>p.rol==="personel"&&p.aktif);
+  const aktifP = personeller.filter(p=>p.rol==="personel"&&p.aktif&&!sekreterMi(p));
   const _poz = aktifKullanici?.pozisyon||"";
   const _isManikurist = _poz==="Manikurist"||_poz==="Pedikürist"||_poz==="Pedikurist";
   const _hizListesi = _isManikurist ? (hizListeleri?.manikurist?.length ? hizListeleri.manikurist : MANIKURIST_HIZMETLER_VARSAYILAN) : (hizListeleri?.ustaKalfa?.length ? hizListeleri.ustaKalfa : USTA_KALFA_HIZMETLER_VARSAYILAN);
@@ -14864,7 +14864,7 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
             style:{borderColor:!anaPersonelId?"rgba(160,40,40,.5)":""},
             onChange:e=>setAnaPersonelId(e.target.value)},
             opt("","Müşteri Kime Ait?"),
-            personeller.filter(p=>p.aktif&&p.rol==="personel"&&(pGruplar||[]).find(g=>g.id===p.grup&&g.ad.toLowerCase().includes("gelire"))).map(p=>
+            personeller.filter(p=>p.aktif&&p.rol==="personel"&&(pGruplar||[]).find(g=>pGrupta(p,g.id)&&g.ad.toLowerCase().includes("gelire"))).map(p=>
               opt(p.id, p.id===aktifKullanici?.id ? p.ad+" (Ben)" : p.ad)
             )
           ),
@@ -16015,11 +16015,22 @@ function KayitKarti({r, rvSaat, rvBos, onDetay, onDuzenle, onSil}) {
           sel({className:"fi",value:data.pozisyon||"",onChange:e=>setData(p=>({...p,pozisyon:e.target.value}))},
             opt("","Seciniz..."),(pozisyonlar||[]).map(poz=>opt(poz,poz)))
         ),
-        div({style:{marginBottom:10}},lbl(fl2,"Personel Grubu"),
-          sel({className:"fi",value:data.grup||"",onChange:e=>setData(p=>({...p,grup:e.target.value}))},
-            opt("","Grup seciniz..."),
-            (gruplar||[]).map(g=>opt(g.id,g.ad))
-          )
+        div({style:{marginBottom:10}},lbl(fl2,"Personel Grubu (birden fazla seçilebilir)"),
+          div({style:{display:"flex",flexDirection:"column",gap:7}},
+            (gruplar||[]).map(g=>{
+              const gid=String(g.id), ids=pGrupIds(data), secili=ids.includes(gid), ana=ids[0]===gid&&ids.length>1;
+              return h("button",{key:gid,type:"button",
+                onClick:()=>setData(p=>{ const cur=pGrupIds(p); const yeni=cur.includes(gid)?cur.filter(x=>x!==gid):[...cur,gid]; return {...p,gruplar:yeni,grup:yeni[0]||""}; }),
+                style:{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 12px",borderRadius:12,textAlign:"left",cursor:"pointer",
+                  border:"1.5px solid "+(secili?"#0071E3":"var(--br)"),background:secili?"rgba(0,113,227,.08)":"var(--bg3)",
+                  color:"var(--tx)",fontSize:14,fontWeight:secili?700:500}},
+                span({style:{width:22,height:22,borderRadius:7,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                  border:"2px solid "+(secili?"#0071E3":"#c4c4c8"),background:secili?"#0071E3":"#fff",color:"#fff",fontSize:14,fontWeight:800}},secili?"✓":""),
+                span({style:{flex:1,minWidth:0}},g.ad),
+                ana&&span({style:{fontSize:10,fontWeight:800,letterSpacing:.8,color:"#0058B0",background:"rgba(0,113,227,.12)",borderRadius:20,padding:"2px 8px"}},"ANA"));
+            })),
+          div({style:{fontSize:11.5,color:"var(--di)",marginTop:6,lineHeight:1.45}},
+            pGrupIds(data).length>1?"Birden fazla grup seçili. İlk seçilen \"ANA\" gruptur; listelerde ana grubun altında görünür.":"Gerekirse birden fazla grup seçebilirsiniz.")
         ),
         div({style:{marginBottom:10}},lbl(fl2,"Calisma Sekli"),
           inp({className:"fi",placeholder:"ornek: Maas, %40 Yuzde, Gundelik...",value:data.calismaSekli||"",onChange:e=>setData(p=>({...p,calismaSekli:e.target.value}))})
@@ -18530,6 +18541,41 @@ function GiderlerModul({giderler, setGiderler, giderKategoriler, showToast, bank
 }
 
 
+// ── PERSONEL GRUPLARI (çoklu) ──────────────────────────────────────────────
+// Bir personel birden fazla gruba üye olabilir: p.gruplar = ["g1","g3"]. p.grup = ANA grup (listenin ilki);
+// eski kod ve sunucu uyumu için her zaman senkron tutulur. Eski kayıtlarda yalnızca p.grup olabilir.
+const pGrupIds = p => {
+  const a = p && Array.isArray(p.gruplar) ? p.gruplar.map(String).filter(Boolean) : [];
+  if(!a.length && p && p.grup) return [String(p.grup)];
+  return a;
+};
+const pGrupta = (p,id) => !!id && pGrupIds(p).includes(String(id));
+// Grup adına göre tür: "Sekreter…" / "Destek…" / "Gelire doğrudan katkı…". App her render'da günceller.
+let PGRUP_TUR = {sekreter:new Set(), destek:new Set(), gelir:new Set()};
+const _pGrupTuru = ad => { const a=(ad||"").toLowerCase(); return a.includes("sekreter")?"sekreter":a.includes("destek")?"destek":a.includes("gelire")?"gelir":""; };
+const sekreterMi = p => !!p && p.rol!=="yonetici" && pGrupIds(p).some(id=>PGRUP_TUR.sekreter.has(id));
+// Panel türü: sekreter > gelire katkı (standart) > yalnızca destek > standart.
+//   Destek personeli için ileride ayrı panel yapılacak; o güne kadar "standart" paneli görür.
+const panelTuru = p => {
+  if(!p) return "";
+  if(p.rol==="yonetici") return "yonetici";
+  if(sekreterMi(p)) return "sekreter";
+  const ids=pGrupIds(p);
+  if(ids.some(id=>PGRUP_TUR.gelir.has(id))) return "standart";
+  if(ids.some(id=>PGRUP_TUR.destek.has(id))) return "destek";
+  return "standart";
+};
+// Giriş sonrası açılacak ekran. Destek paneli hazır olunca yalnızca burayı değiştirmek yeterli (destek → "destek").
+const ekranHedefi = p => panelTuru(p)==="sekreter" ? "sekreter" : "personel";
+// Sekreter, bir personelin panelini açtığında KISITLANACAK özellikler. true = gizli/kapalı.
+// Kısıtlama listesi netleşince yalnızca bu değerleri değiştirmek yeterli.
+const SEKRETER_KISIT = {
+  ayarlar:       true,   // personelin "Ayarlar" sekmesi (şifre, biyometri vb.)
+  hakedisSekme:  false,  // Bugün → "Hakediş" alt sekmesi
+  hakedisOzet:   false,  // "Hakediş Özetim" kartı
+  gunSonuGonder: false   // "Gönder" (gün sonu) düğmeleri
+};
+
 // ── RANDEVU DEFTERİ: ortak yardımcılar ─────────────────────────────────────
 // Slotlar: 09:00 – 19:00 arası 15'er dakika (19:00 dahil). Elle saat girişi de serbest.
 const RV_SLOTLAR = (()=>{ const a=[]; for(let m=9*60;m<=19*60;m+=15){ a.push(String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0")); } return a; })();
@@ -18941,6 +18987,8 @@ function App() {
   const [rvTarih, setRvTarih]             = useState(TODAY());
   const [rvGorunum, setRvGorunum]         = useState("defter"); // defter | gecmis
   const [rvModal, setRvModal]             = useState(null); // {mod:'yeni'|'duzenle'|'ertele'|'iptal', rv?, varsayilan?}
+  const [sekreterAslinda, setSekreterAslinda] = useState(null); // sekreter bir personelin panelini açtığında gerçek sekreteri tutar
+  const [sekAra, setSekAra]               = useState("");
   const rvYukluRef = useRef(null), rvSonImzaRef = useRef(""), rvUretilenRef = useRef(new Set());
   // Ürün Muhasebesi state'leri
   const [tedarikciler, setTedarikciler]   = useState([]); // [{id,ad,tel,adres,bakiye}]
@@ -18998,6 +19046,7 @@ function App() {
     {id:"g2", ad:"Destek Personeli"}
   ]);
   const [pGrupDuz, setPGrupDuz]       = useState(false);
+  PGRUP_TUR = (pGruplar||[]).reduce((a,g)=>{ const t=_pGrupTuru(g.ad); if(t) a[t].add(String(g.id)); return a; },{sekreter:new Set(),destek:new Set(),gelir:new Set()});
   const [hizListeleri, setHizListeleri] = useState({
     
     ustaKalfa: [...USTA_KALFA_HIZMETLER_VARSAYILAN],
@@ -19291,7 +19340,7 @@ function App() {
   // DEFAULT ile merge et - yeni eklenen personeller kaybolmasın, eksik alanlar tamamlansın
   const merged = DEFAULT_PERSONELLER.map(dp => {
     const lp = local.personeller.find(x=>x.id===dp.id);
-    return lp ? {...dp, ...lp, aktif: dp.aktif, pozisyon: lp.pozisyon||dp.pozisyon, grup: dp.grup} : dp;
+    return lp ? {...dp, ...lp, aktif: dp.aktif, pozisyon: lp.pozisyon||dp.pozisyon, grup: lp.grup||dp.grup, gruplar: (Array.isArray(lp.gruplar)&&lp.gruplar.length)?lp.gruplar:undefined} : dp;
   });
   // localStorage'da olup DEFAULT'ta olmayan (sonradan eklenmiş) personeller
   const extras = local.personeller.filter(lp=>!DEFAULT_PERSONELLER.find(dp=>dp.id===lp.id));
@@ -20291,7 +20340,10 @@ if(DB) dbUpsertAyar("tema",tema);
     if(yukleniyor) return;
     try {
       if(kul){
-        if(yoneticiAslinda){
+        if(sekreterAslinda){
+          // Sekreter bir personelin panelindeyken yenilenirse sekreterin personel listesine döner
+          localStorage.setItem("apron_session", JSON.stringify({ kul:sekreterAslinda, ekran:"sekreter" }));
+        } else if(yoneticiAslinda){
           // Geçiş modunda: oturuma gerçek yöneticiyi yaz; yenilenince yönetici paneli açılır (geçiş sona erer)
           localStorage.setItem("apron_session", JSON.stringify({
             kul:yoneticiAslinda, ekran:"yonetici",
@@ -20313,7 +20365,7 @@ if(DB) dbUpsertAyar("tema",tema);
         localStorage.removeItem("apron_session");
       }
     } catch(e){}
-  }, [kul, ekran, panelAdim, panelAltSek, asek, muhSek, muhAlt, muhAltAcik, psek, aySek, ayListeSek, hesapFull, vergiFull, yukleniyor, yoneticiAslinda]);
+  }, [kul, ekran, panelAdim, panelAltSek, asek, muhSek, muhAlt, muhAltAcik, psek, aySek, ayListeSek, hesapFull, vergiFull, yukleniyor, yoneticiAslinda, sekreterAslinda]);
 
   // Ay başı gecmis temizle
   useEffect(()=>{
@@ -20458,6 +20510,15 @@ if(DB) dbUpsertAyar("tema",tema);
       if(rec && rvKayitDolu(rec)) rvGuncelle(rv.id,{durum:"geldi"});
     });
   },[bekleyen,records,randevular]);
+
+  // Panel türü düzeltmesi: sunucudan gelen kul kaydında çoklu grup bilgisi eksik olabilir; tam personel kaydına göre doğru ekrana al
+  useEffect(()=>{
+    if(yukleniyor || !kul || yoneticiAslinda || sekreterAslinda) return;
+    if(ekran!=="personel" && ekran!=="sekreter") return;
+    const tam=(personeller||[]).find(p=>String(p.id)===String(kul.id)) || kul;
+    const hedef=ekranHedefi(tam);
+    if(hedef!==ekran) setEkran(hedef);
+  },[yukleniyor,kul,ekran,personeller,pGruplar,yoneticiAslinda,sekreterAslinda]);
 
   // ── Randevu defteri ekranı ──
   const rvPanel = () => {
@@ -20730,12 +20791,12 @@ if(DB) dbUpsertAyar("tema",tema);
         // henüz bu oturumla yüklenmedi. Oturumu yaz ve temiz baştan yükle (yönetici akışıyla aynı).
         window.__apronPerYeniOturum = false;
         try {
-          localStorage.setItem("apron_session", JSON.stringify({ kul:(girenKul||kul), ekran:"personel" }));
+          localStorage.setItem("apron_session", JSON.stringify({ kul:(girenKul||kul), ekran:ekranHedefi(girenKul||kul) }));
         } catch(e){}
         location.reload();
         return;
       }
-      setKapiAnim(null); setEkran(hedef);
+      setKapiAnim(null); setEkran(hedef==="personel"?ekranHedefi(girenKul||kul):hedef);
     }, 3000);
   };
 
@@ -20957,7 +21018,7 @@ if(DB) dbUpsertAyar("tema",tema);
     },120);
   };
 
-  const cikis = async () => { setCikisSecenek(false); setKul(null); setEkran("login"); setKayitForm(null); setDetay(null); try{ localStorage.removeItem("apron_session"); }catch(e){} /* Not: Supabase oturumu BİLEREK kapatılmıyor — paylaşılan salon cihazı, isletme_id bağlantısı PIN değişiminden bağımsız canlı kalmalı. */ };
+  const cikis = async () => { setCikisSecenek(false); setSekreterAslinda(null); setKul(null); setEkran("login"); setKayitForm(null); setDetay(null); try{ localStorage.removeItem("apron_session"); }catch(e){} /* Not: Supabase oturumu BİLEREK kapatılmıyor — paylaşılan salon cihazı, isletme_id bağlantısı PIN değişiminden bağımsız canlı kalmalı. */ };
 
   // Yönetici → personel paneline şifresiz geçiş (yalnızca yönetici yapabilir)
   const personelGecisYap = (p) => {
@@ -20971,6 +21032,79 @@ if(DB) dbUpsertAyar("tema",tema);
     setEkran("personel");               // personel panelini aç
     showToast(p.ad+" paneline geçildi","ba");
   };
+  // ══ SEKRETER MODU ═══════════════════════════════════════════════════════
+  const sekKisit = (k) => !!sekreterAslinda && !!SEKRETER_KISIT[k];
+  const sekreterPersonelAc = (p) => {
+    if(!p) return;
+    if(!(kul && sekreterMi((personeller||[]).find(x=>String(x.id)===String(kul.id))||kul))){ showToast("Bu işlem yalnızca sekretere açıktır","uy"); return; }
+    setSekreterAslinda(kul);
+    setKayitForm(null); setDetay(null); setRvModal(null);
+    setPsek("bugun"); setBugunAltSek("kayit");
+    setKul(p); setEkran("personel");
+    showToast(p.ad+" paneli açıldı","ba");
+  };
+  const sekreterListeyeDon = () => {
+    if(!sekreterAslinda) return;
+    setKayitForm(null); setDetay(null); setRvModal(null); setGsOnay(false);
+    setKul(sekreterAslinda); setEkran("sekreter"); setSekreterAslinda(null);
+  };
+  const sekreterEkrani = () => {
+    const bg=TODAY(), q=normText(sekAra);
+    const tum=(personeller||[]).filter(p=>p.aktif&&p.rol==="personel"&&!sekreterMi(p));
+    const liste=tum.filter(p=>!q||normText(p.ad).includes(q));
+    const sayim=(p)=>{
+      const bek=bekleyen.filter(r=>r.staffId===p.id&&!rvBosOto(r));
+      const ids=new Set(bek.map(r=>String(r.id)));
+      const bugun=bek.length+records.filter(r=>r.staffId===p.id&&r.tarih===bg&&!ids.has(String(r.id))).length;
+      return {bugun,bek:bek.length};
+    };
+    const topl=tum.reduce((a,p)=>{const x=sayim(p);return {bugun:a.bugun+x.bugun,bek:a.bek+x.bek};},{bugun:0,bek:0});
+    const renkler=["#0071E3","#1A7A34","#B45309","#7A3FB5","#C0392B","#0E7C86"];
+    const anaGrup=p=>pGrupIds(p).find(id=>(pGruplar||[]).some(g=>String(g.id)===id));
+    const gruplar=(pGruplar||[]).map(g=>({ad:g.ad,uyeler:liste.filter(p=>anaGrup(p)===String(g.id))}));
+    const grupsuz=liste.filter(p=>!anaGrup(p));
+    if(grupsuz.length) gruplar.push({ad:"Diğer",uyeler:grupsuz});
+    const kart=(p,i)=>{
+      const x=sayim(p);
+      return btn({key:p.id,onClick:()=>sekreterPersonelAc(p),style:{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"12px 14px",marginBottom:8,
+        background:"#FAF9F6",border:"1px solid rgba(0,0,0,.09)",borderRadius:16,cursor:"pointer",textAlign:"left",boxShadow:"0 1px 5px rgba(0,0,0,.04)"}},
+        div({style:{width:44,height:44,borderRadius:22,background:renkler[i%renkler.length],color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:800,flexShrink:0}},(p.ad||"?")[0]),
+        div({style:{flex:1,minWidth:0}},
+          div({style:{fontSize:15,fontWeight:700,color:"var(--tx)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},p.ad),
+          div({style:{fontSize:12,color:"var(--di)",marginTop:2}},p.pozisyon||"Personel")),
+        div({style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}},
+          span({style:{fontSize:11,fontWeight:700,color:"#1a56a8",background:"rgba(0,113,227,.1)",borderRadius:20,padding:"3px 9px",whiteSpace:"nowrap"}},"Bugün "+x.bugun+" kayıt"),
+          x.bek>0&&span({style:{fontSize:11,fontWeight:700,color:"#B45309",background:"rgba(255,159,10,.14)",borderRadius:20,padding:"3px 9px",whiteSpace:"nowrap"}},"⏳ "+x.bek+" gönderilmedi")),
+        span({style:{color:"#b0b0b5",fontSize:20,flexShrink:0}},"›"));
+    };
+    let sira=0;
+    return div(null,
+      div({className:"tbar"},
+        div({style:{display:"flex",alignItems:"center",height:isletme.logoHeight||80,flexShrink:0,padding:"6px 10px",background:"#FFFFFF",borderRadius:10}},img({src:AKTIF_LOGO,className:"logo-header"})),
+        div({style:{flex:1,minWidth:0}},
+          div({style:{fontSize:11,color:"var(--di)",letterSpacing:1.5,textTransform:"uppercase",fontWeight:700}},"Sekreter"),
+          div({style:{fontSize:13,color:"var(--mu)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},kul.ad)),
+        btn({className:"gsbtn",style:{flexShrink:0},onClick:cikis},"Çıkış")),
+      div({style:{padding:"16px 14px 40px",maxWidth:560,margin:"0 auto"}},
+        div({style:{fontSize:20,fontWeight:800,color:"var(--tx)"}},"Personel Seç"),
+        div({style:{fontSize:12.5,color:"var(--di)",margin:"4px 0 14px",lineHeight:1.5}},"Bir personele dokunun; paneli o personel adına açılır. Girdiğiniz kayıt ve randevular o personele yazılır."),
+        div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}},
+          div({style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:"10px 12px"}},
+            div({style:{fontSize:22,fontWeight:800,color:"#1a56a8",lineHeight:1}},String(topl.bugun)),
+            div({style:{fontSize:10.5,color:"var(--di)",marginTop:4,textTransform:"uppercase",letterSpacing:.5,fontWeight:600}},"Bugünkü kayıt")),
+          div({style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.08)",borderRadius:14,padding:"10px 12px"}},
+            div({style:{fontSize:22,fontWeight:800,color:"#B45309",lineHeight:1}},String(topl.bek)),
+            div({style:{fontSize:10.5,color:"var(--di)",marginTop:4,textTransform:"uppercase",letterSpacing:.5,fontWeight:600}},"Gönderilmeyi bekleyen"))),
+        h("input",{className:"fi",placeholder:"Personel ara…",value:sekAra,onChange:e=>setSekAra(e.target.value),style:{marginBottom:14}}),
+        liste.length===0
+          ? div({className:"bos"},div({style:{fontSize:42,marginBottom:9}},"👥"),div({style:{fontSize:12,letterSpacing:2,marginTop:4}},tum.length?"SONUÇ YOK":"AKTİF PERSONEL YOK"))
+          : gruplar.filter(g=>g.uyeler.length>0).map(g=>div({key:g.ad,style:{marginBottom:12}},
+              div({style:{fontSize:11.5,color:"#9a7a3a",letterSpacing:1.8,textTransform:"uppercase",fontWeight:700,margin:"0 2px 8px"}},g.ad),
+              g.uyeler.map(p=>kart(p,sira++))))
+      )
+    );
+  };
+
   const yoneticiyeDon = () => {
     if(!yoneticiAslinda) return;
     setKayitForm(null); setDetay(null);
@@ -21510,7 +21644,8 @@ if(DB) dbUpsertAyar("tema",tema);
     if(personeller.find(p=>p.pin===yeniP.pin)){setPHata("Bu PIN kullaniliyor");return;}
     const _gelirGrupId=(pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id;
     const _yeniPersonelId = "s"+uid();
-    setPersoneller(p=>[...p,{...yeniP,id:_yeniPersonelId,ad:yeniP.ad.trim(),pin:yeniP.pin,pinDegisim:new Date().toISOString(),rol:yeniP.rol,grup:yeniP.grup||_gelirGrupId||"",aktif:true}]);
+    const _grupAlan = (()=>{ let g=pGrupIds(yeniP); if(!g.length&&_gelirGrupId) g=[String(_gelirGrupId)]; return {gruplar:g,grup:g[0]||""}; })();
+    setPersoneller(p=>[...p,{...yeniP,id:_yeniPersonelId,ad:yeniP.ad.trim(),pin:yeniP.pin,pinDegisim:new Date().toISOString(),rol:yeniP.rol,..._grupAlan,aktif:true}]);
     // İK — otomatik standart işe giriş evrak checklist'i + deneme süresi bitişi hatırlatması oluştur (işe başlama tarihine bağlı)
     const _otomatikOzlukKayitlari = ikIseGirisChecklistOlustur();
     if(yeniP.isBaslama){
@@ -24284,7 +24419,12 @@ if(DB) dbUpsertAyar("tema",tema);
             ), document.body);
           })(),
 
+    !yukleniyor&&ekran==="sekreter"&&kul&&sekreterEkrani(),
+
     !yukleniyor&&ekran==="personel"&&kul&&div(null,
+      sekreterAslinda&&div({style:{position:"sticky",top:0,zIndex:5000,background:"linear-gradient(135deg,#1a56a8,#0b2f66)",color:"#fff",padding:"9px 14px",display:"flex",alignItems:"center",gap:10,fontSize:13,fontWeight:700,boxShadow:"0 2px 10px rgba(0,0,0,.18)"}},
+        span({style:{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},"🗂️ Sekreter modu · "+kul.ad+" adına işlem"),
+        btn({onClick:sekreterListeyeDon,style:{flexShrink:0,background:"#fff",color:"#0b2f66",border:"none",borderRadius:999,padding:"6px 12px",fontSize:12.5,fontWeight:800,cursor:"pointer"}},"← Personeller")),
       div({className:"tbar"},
         btn({style:{background:"#FFFFFF",isolation:"isolate",border:"none",padding:"6px 10px",cursor:"pointer",display:"flex",alignItems:"center",height:isletme.logoHeight||80,flexShrink:0,borderRadius:10,boxShadow:"0 1px 3px rgba(0,0,0,.12)"},
           onClick:()=>{ if(psek==="bugun") setCikisSecenek(true); else setPsek("bugun"); },
@@ -24292,7 +24432,7 @@ if(DB) dbUpsertAyar("tema",tema);
           img({src:AKTIF_LOGO,className:"logo-header"})
         ),
         div({style:{flex:1,fontSize:13,color:"var(--mu)"}},kul.ad),
-        myBekleyen.length>0&&btn({className:"gsbtn",style:{flexShrink:0},onClick:()=>setGsOnay(true)},(myBekleyenGonder.length>0?"📤 Gönder ("+myBekleyenGonder.length+")":"📤 Gün Sonu"))
+        myBekleyen.length>0&&!sekKisit("gunSonuGonder")&&btn({className:"gsbtn",style:{flexShrink:0},onClick:()=>setGsOnay(true)},(myBekleyenGonder.length>0?"📤 Gönder ("+myBekleyenGonder.length+")":"📤 Gün Sonu"))
       ),
       div({className:"atabs"},
         (()=>{
@@ -24355,7 +24495,7 @@ if(DB) dbUpsertAyar("tema",tema);
         div({className:`atab${psek==="gecmis"?" a":""}`,onClick:()=>setPsek("gecmis")},
           "Geçmişim"
         ),
-        div({className:`atab${psek==="ayarlar"?" a":""}`,onClick:()=>{setPsek("ayarlar");setSifreAdim(0);setSifreHata("");}},"Ayarlar")
+        !sekKisit("ayarlar")&&div({className:`atab${psek==="ayarlar"?" a":""}`,onClick:()=>{setPsek("ayarlar");setSifreAdim(0);setSifreHata("");}},"Ayarlar")
       ),
       // Müşterilerim
       psek==="musterilerim"&&(()=>{
@@ -25349,7 +25489,7 @@ if(DB) dbUpsertAyar("tema",tema);
             boxShadow:bugunAltSek==="kayit"?"0 1px 5px rgba(0,0,0,.10)":"none",
             transition:"all .18s"},
             onClick:()=>setBugunAltSek("kayit")},"Günlük Kayıt"),
-          btn({style:{flex:1,padding:"9px 0",borderRadius:10,border:"none",fontSize:13,fontWeight:700,cursor:"pointer",
+          !sekKisit("hakedisSekme")&&btn({style:{flex:1,padding:"9px 0",borderRadius:10,border:"none",fontSize:13,fontWeight:700,cursor:"pointer",
             background:bugunAltSek==="hakedis"?"#fff":"transparent",
             color:bugunAltSek==="hakedis"?"#1F3D2C":"#7AAF90",
             boxShadow:bugunAltSek==="hakedis"?"0 1px 5px rgba(0,0,0,.10)":"none",
@@ -25455,7 +25595,7 @@ if(DB) dbUpsertAyar("tema",tema);
                 div({style:{fontSize:14,color:"#1A7A34",fontWeight:600}},myBekleyenGonder.length>0?"⏳ "+myBekleyenGonder.length+" kayıt gönderilmeyi bekliyor":"⏳ Doldurulmamış randevu formları var"),
                 div({style:{fontSize:12.5,color:"#1A7A34",marginTop:3,fontWeight:600,lineHeight:1.5}},"Lütfen tüm işlemleri gözden geçirip doğruluğundan emin olduktan sonra gönderiniz.")
               ),
-              btn({className:"gsbtn",onClick:()=>setGsOnay(true)},"Gönder")
+              !sekKisit("gunSonuGonder")&&btn({className:"gsbtn",onClick:()=>setGsOnay(true)},"Gönder")
             ),
             div({className:"sek"},"Kayıtlarım"),
             myBekleyen.length===0
@@ -25525,6 +25665,7 @@ if(DB) dbUpsertAyar("tema",tema);
           const ayAd = simdi.toLocaleString("tr-TR",{month:"long",year:"numeric"});
           const negatif = netHak < 0;
 
+          if(sekKisit("hakedisOzet")) return null;
           return div({style:{marginTop:4}},
             div({className:"gozetim-baslik"},"Hakediş Özetim"),
             // ── KART ÖN YÜZÜ - SADECE NET HAKEDİŞ ──
@@ -27748,7 +27889,7 @@ if(DB) dbUpsertAyar("tema",tema);
         // ── Personel Listesi (Ayarlar'dan taşındı: kimlik, durum, grup, onay bekleyenler) ──
         panelAdim==="insanKaynaklari"&&panelAltSek==="personelListesi"&&!asek&&div({style:{padding:"12px 14px 24px"}},
 
-    btn({className:"epb",onClick:()=>{setYeniP({ad:"",pin:"",rol:"personel",isBaslama:TODAY(),grup:(pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id||""});setPHata("");setPEkle(true);}},"+ Yeni Personel Ekle"),
+    btn({className:"epb",onClick:()=>{setYeniP({ad:"",pin:"",rol:"personel",isBaslama:TODAY(),...(()=>{ const gid=(pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id; return {grup:gid||"",gruplar:gid?[gid]:[]}; })()});setPHata("");setPEkle(true);}},"+ Yeni Personel Ekle"),
 
     h(PersonelLinkKarti,{showToast}),
 
@@ -27773,7 +27914,7 @@ if(DB) dbUpsertAyar("tema",tema);
 
     // Gruplarına göre personel listesi
     pGruplar.map(g=>{
-    const gruptakiler = personeller.filter(p=>p.aktif&&p.grup===g.id);
+    const gruptakiler = personeller.filter(p=>p.aktif&&pGrupta(p,g.id));
     return div({key:g.id,style:{marginBottom:16}},
     gruptakiler.length>0&&div(null,
     div({style:{fontSize:12,color:"#9a7a3a",letterSpacing:2,textTransform:"uppercase",
@@ -27801,10 +27942,10 @@ if(DB) dbUpsertAyar("tema",tema);
     }),
 
     // Grubu olmayan aktif personel
-    personeller.filter(p=>p.aktif&&(!p.grup||!pGruplar.find(g=>g.id===p.grup))).length>0&&div({style:{marginBottom:16}},
+    personeller.filter(p=>p.aktif&&!pGrupIds(p).some(id=>pGruplar.find(g=>String(g.id)===id))).length>0&&div({style:{marginBottom:16}},
     div({style:{fontSize:12,color:"var(--di)",letterSpacing:2,textTransform:"uppercase",
     marginBottom:8,paddingBottom:6,borderBottom:"1px solid var(--br)"}},"Grup Atanmamis"),
-    personeller.filter(p=>p.aktif&&(!p.grup||!pGruplar.find(g=>g.id===p.grup))).map(p=>{
+    personeller.filter(p=>p.aktif&&!pGrupIds(p).some(id=>pGruplar.find(g=>String(g.id)===id))).map(p=>{
     const pk=tumK.filter(r=>r.staffId===p.id);
     const bugunC=pk.filter(r=>r.tarih===TODAY()).reduce((a,r)=>a+r.toplam,0);
     const topC=pk.reduce((a,r)=>a+r.toplam,0);
@@ -28486,7 +28627,7 @@ if(DB) dbUpsertAyar("tema",tema);
             // Hizmet Satışları — personel seç
             muhSek==="hizmetMuhasebe"&&muhAlt==="hizmetSatislari"&&(()=>{
               const gelirGrupId=(pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id;
-              const gelirP=personeller.filter(p=>p.aktif&&p.rol==="personel"&&(!gelirGrupId||p.grup===gelirGrupId));
+              const gelirP=personeller.filter(p=>p.aktif&&p.rol==="personel"&&(!gelirGrupId||pGrupta(p,gelirGrupId)));
               return div(null,
                 div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,paddingTop:8,gap:8,flexWrap:"wrap"}},
                   div({style:{fontSize:12,color:"var(--mu)",letterSpacing:2,textTransform:"uppercase"}},"Personel Seçin"),
@@ -28850,7 +28991,7 @@ if(DB) dbUpsertAyar("tema",tema);
 
               // ── Personel performansı (bu ay) ──
               const gelirGrupId = (pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id;
-              const aktifPersoneller = (personeller||[]).filter(p=>p.aktif && p.rol==="personel" && (!gelirGrupId || p.grup===gelirGrupId));
+              const aktifPersoneller = (personeller||[]).filter(p=>p.aktif && p.rol==="personel" && (!gelirGrupId || pGrupta(p,gelirGrupId)));
               const perPerf = aktifPersoneller.map(p=>{
                 const perK = kayitlarBA.filter(r=>r.personelId===p.id||r.personel===p.id||r.staffId===p.id);
                 const hizmetCiro = perK.reduce((s,r)=>s+toN(r.hizKK||0)+toN(r.hizIB||0)+toN(r.hizNK||0),0);
@@ -29156,7 +29297,7 @@ if(DB) dbUpsertAyar("tema",tema);
                 (()=>{
                   const gelirGrupId = (pGruplar||[]).find(g=>(g.ad||"").toLowerCase().includes("gelire"))?.id;
                   return personeller
-                    .filter(p=>p.aktif && p.rol==="personel" && (!gelirGrupId || p.grup===gelirGrupId))
+                    .filter(p=>p.aktif && p.rol==="personel" && (!gelirGrupId || pGrupta(p,gelirGrupId)))
                     .map(p=>opt(p.id,p.ad));
                 })()
               )
@@ -30784,7 +30925,8 @@ if(DB) dbUpsertAyar("tema",tema);
         onChange:e=>setPGruplar(p=>p.map(x=>x.id===g.id?{...x,ad:e.target.value}:x))}),
       pGruplar.length>1&&btn({style:{background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",
         borderRadius:7,color:"#c05050",fontSize:13,padding:"6px 12px",cursor:"pointer"},
-        onClick:()=>setPGruplar(p=>p.filter(x=>x.id!==g.id))},"Sil")
+        onClick:()=>{ setPGruplar(p=>p.filter(x=>x.id!==g.id));
+          setPersoneller(pp=>pp.map(x=>{ if(!pGrupta(x,g.id)) return x; const y=pGrupIds(x).filter(i=>i!==String(g.id)); return {...x,gruplar:y,grup:y[0]||""}; })); }},"Sil")
     )
     ),
     btn({style:{width:"100%",padding:"10px",borderRadius:9,border:"1px dashed #1e4244",
