@@ -20684,7 +20684,8 @@ if(DB) dbUpsertAyar("tema",tema);
     yukle();
     const odak=()=>{ if(!document.hidden) yukle(); };
     document.addEventListener("visibilitychange",odak);
-    return ()=>{ bitti=true; document.removeEventListener("visibilitychange",odak); };
+    const iv=setInterval(()=>{ if(!document.hidden) yukle(); },15000);
+    return ()=>{ bitti=true; clearInterval(iv); document.removeEventListener("visibilitychange",odak); };
   },[kul&&kul.id]);
   // 2) Buluta yaz (yalnızca bu personelin randevuları)
   useEffect(()=>{
@@ -20755,8 +20756,21 @@ if(DB) dbUpsertAyar("tema",tema);
     }catch(e){}
   };
   const sekRvOf = (sid) => { const c=sekRvHavuz[String(sid)]; const yerel=(randevular||[]).filter(r=>r&&String(r.staffId)===String(sid)); if(!c) return yerel; const m={}; yerel.concat(c).forEach(r=>{ const k=String(r.id),e=m[k]; if(!e||(r.guncelleme||0)>=(e.guncelleme||0)) m[k]=r; }); return Object.values(m); };
-  const sekRvAta = (p,f) => {
+  const sekRvAta = async (p,f) => {
     const t=Date.now();
+    // Kaydetmeden hemen önce personelin bulutta GÜNCEL randevularına bak: aynı saate (süre çakışması dahil) yeni randevu girilmiş olabilir.
+    if(DB){
+      try{
+        const {data}=await DB.from("ayarlar").select("deger").eq("id","randevu_"+p.id).maybeSingle();
+        const taze=(data&&data.deger&&Array.isArray(data.deger.liste))?data.deger.liste:null;
+        if(taze){
+          setSekRvHavuz(hv=>({...hv,[p.id]:taze}));
+          const bas=rvDk(f.saat), bit=bas+(f.sureDk||RV_VARSAYILAN_SURE);
+          const cakisan=taze.find(r=>r && r.id!==f.uzerineYaz && r.tarih===f.tarih && (r.durum==="bekliyor"||r.durum==="geldi") && r.saat && (()=>{ const rb=rvDk(r.saat), re=rb+(r.sureDk||RV_VARSAYILAN_SURE); return bas<re && rb<bit; })());
+          if(cakisan){ showToast(p.ad+" bu saatte dolu ("+cakisan.saat+" · "+cakisan.musteriAd+"). Liste yenilendi, başka saat/personel seçin.","uy"); return; }
+        }
+      }catch(e){}
+    }
     if(f.uzerineYaz){
       const eski=sekRvOf(p.id).find(x=>x && x.id===f.uzerineYaz);
       if(eski){
@@ -20779,7 +20793,7 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{
     if(!kul || ekran!=="sekreter") return;
     sekRvYukle();
-    const iv=setInterval(()=>{ if(!document.hidden) sekRvYukle(); },20000);
+    const iv=setInterval(()=>{ if(!document.hidden) sekRvYukle(); },8000);
     const od=()=>{ if(!document.hidden) sekRvYukle(); };
     document.addEventListener("visibilitychange",od);
     return ()=>{ clearInterval(iv); document.removeEventListener("visibilitychange",od); };
