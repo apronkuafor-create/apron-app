@@ -18968,6 +18968,7 @@ function App() {
   const [detay, setDetay]             = useState(null);
   const [silOnay, setSilOnay]         = useState(null);
   const [gsOnay, setGsOnay]           = useState(false);
+  const [gsTarihler, setGsTarihler]     = useState([]); // gün sonunda gönderilmek üzere seçilen tarihler
   const [hatBildirimGoster, setHatBildirimGoster] = useState(false); // gün açılışında bekleyen hatırlatma uyarısı
   const [gunSonuIncele, setGunSonuIncele] = useState(null); // {bildirimId, staffAd, kayitlar}
   const [toast, setToast]             = useState({g:false,m:"",t:"ba"});
@@ -21230,7 +21231,7 @@ if(DB) dbUpsertAyar("tema",tema);
     },120);
   };
 
-  const cikis = async () => { setCikisSecenek(false); setSekreterAslinda(null); setPanelTercihi(null); setKul(null); setEkran("login"); setKayitForm(null); setDetay(null); try{ localStorage.removeItem("apron_session"); }catch(e){} /* Not: Supabase oturumu BİLEREK kapatılmıyor — paylaşılan salon cihazı, isletme_id bağlantısı PIN değişiminden bağımsız canlı kalmalı. */ };
+  const cikis = async () => { if(yoneticiAslinda){ setCikisSecenek(false); yoneticiyeDon(); return; } /* yönetici başkası adına girmişse "Çıkış" oturumu kapatmaz, yöneticiye döndürür */ setCikisSecenek(false); setSekreterAslinda(null); setPanelTercihi(null); setKul(null); setEkran("login"); setKayitForm(null); setDetay(null); try{ localStorage.removeItem("apron_session"); }catch(e){} /* Not: Supabase oturumu BİLEREK kapatılmıyor — paylaşılan salon cihazı, isletme_id bağlantısı PIN değişiminden bağımsız canlı kalmalı. */ };
 
   // Yönetici → personel paneline şifresiz geçiş (yalnızca yönetici yapabilir)
   const personelGecisYap = (p) => {
@@ -21335,8 +21336,8 @@ if(DB) dbUpsertAyar("tema",tema);
         div({style:{flex:1,minWidth:0}},
           div({style:{fontSize:11,color:"var(--di)",letterSpacing:1.5,textTransform:"uppercase",fontWeight:700}},"Sekreter"),
           div({style:{fontSize:13,color:"var(--mu)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},kul.ad)),
-        cokPanelli&&btn({className:"gsbtn",style:{flexShrink:0,marginRight:6},onClick:panelDegistir},"⇄ Panel"),
-        btn({className:"gsbtn",style:{flexShrink:0},onClick:cikis},"Çıkış")),
+        !yoneticiAslinda&&cokPanelli&&btn({className:"gsbtn",style:{flexShrink:0,marginRight:6},onClick:panelDegistir},"⇄ Panel"),
+        !yoneticiAslinda&&btn({className:"gsbtn",style:{flexShrink:0},onClick:cikis},"Çıkış")),
       // Tek sekme: Personeller. Sayfanın en üstünde yatay boş-saat şeridi.
       div({className:"atabs"},div({className:"atab a"},"Personeller")),
       h(RvGenelTakvim,{serit:true,personeller:tum,rvOf:sekRvOf,devDB,onAta:sekRvAta,onYenile:sekRvYukle}),
@@ -21827,11 +21828,14 @@ if(DB) dbUpsertAyar("tema",tema);
   };
 
   const gunSonu = () => {
+    // Sadece işaretlenen tarihlerin dolu kayıtları gönderilir; diğer tarihler ve boş randevu kartları bekleyenlerde kalır.
+    const gonderList = myBekleyenGonder.filter(r=>gsTarihler.includes(r.tarih||""));
+    if(gonderList.length===0){ showToast("Gönderilecek tarih seçin","uy"); return; }
     // Müşteri havuzuna kayıt sadece gün sonu yöneticiye gönderme anında yapılır.
-    myBekleyenGonder.forEach(musteriHavuzunaEkle);
-    const ids=myBekleyenGonder.map(r=>r.id);
+    gonderList.forEach(musteriHavuzunaEkle);
+    const ids=gonderList.map(r=>r.id);
     // Stok düşümü + hareket kaydı - satılan ürünler için FIFO
-    myBekleyenGonder.forEach(kayit => {
+    gonderList.forEach(kayit => {
       if(stokOncesiKayit(kayit)) return; // stok başlangıç tarihinden önceki satış: stok sayımında zaten düşülmüş
       (kayit.urunler||[]).forEach(u => {
         if(!u.b || !toN(u.qty)) return;
@@ -21850,13 +21854,13 @@ if(DB) dbUpsertAyar("tema",tema);
         }));
       });
     });
-    setGecmis(p=>[...myBekleyenGonder.map(r=>({...r,gonderildi:true})),...p]);
-    setRecords(p=>[...myBekleyenGonder.map(r=>({...r,gonderildi:true})),...p]);
-    setBekleyen(p=>p.filter(r=>r.staffId!==kul.id));
-    // Bu personelin "çalıştı" işaretlerini temizle (bildirimler kaybolsun)
-    setCalistiGunler(p=>p.filter(anahtar=>!anahtar.endsWith("_"+kul.id)));
+    setGecmis(p=>[...gonderList.map(r=>({...r,gonderildi:true})),...p]);
+    setRecords(p=>[...gonderList.map(r=>({...r,gonderildi:true})),...p]);
+    { const gidSet=new Set(ids.map(String)); setBekleyen(p=>p.filter(r=>!(r.staffId===kul.id && gidSet.has(String(r.id))))); }
+    // Gönderilen günlerin "çalıştı" işaretlerini temizle (bildirimler kaybolsun)
+    setCalistiGunler(p=>p.filter(anahtar=>!(anahtar.endsWith("_"+kul.id) && gsTarihler.includes(String(anahtar).split("_")[0]))));
     // Gün sonu gönderilen günleri devDB'ye "çalıştı" olarak yaz (eksik gün kartından kaybolsunlar)
-    const gonderilenTarihler = [...new Set(myBekleyenGonder.map(r=>r.tarih))];
+    const gonderilenTarihler = [...new Set(gonderList.map(r=>r.tarih))];
     if(gonderilenTarihler.length>0){
       setDevDB(p=>{
         const yeni={...p};
@@ -21872,12 +21876,13 @@ if(DB) dbUpsertAyar("tema",tema);
     // ── Randevu defteri: boş otomatik formları temizle, bugünün defterini randevu geçmişine al ──
     (()=>{
       const bg=TODAY();
-      bekleyen.filter(r=>r.staffId===kul.id && rvBosOto(r)).forEach(r=>{ mezarEkle([r.id]); dbSil("kayitlar",r.id); });
+      // Boş randevu kartları SİLİNMEZ (personel doldurana kadar bekleyenlerde kalır).
+      // Sadece gönderilen tarihte, kaydı doldurulup gönderilmiş randevular arşive alınır.
+      const gidSet2=new Set(ids.map(String));
       setRandevular(p=>(p||[]).map(rv=>{
         if(!rv || String(rv.staffId)!==String(kul.id) || rv.arsiv || rv.tarih>bg) return rv;
-        let durum=rv.durum;
-        if(durum==="bekliyor"){ const rc=rvKayitBul(rv.kayitId); durum=(rc&&rvKayitDolu(rc))?"geldi":"gelmedi"; }
-        return {...rv,durum,arsiv:true,arsivTarih:bg,guncelleme:Date.now()};
+        if(!rv.kayitId || !gidSet2.has(String(rv.kayitId))) return rv;
+        return {...rv,durum:rv.durum==="bekliyor"?"geldi":rv.durum,arsiv:true,arsivTarih:bg,guncelleme:Date.now()};
       }));
     })();
     setGsOnay(false);
@@ -23696,7 +23701,7 @@ if(DB) dbUpsertAyar("tema",tema);
       div({className:"gs-k"},
         img({src:AKTIF_LOGO,className:"logo-form"}),
         div({style:{fontSize:18,color:"#1A7A34",fontWeight:700,marginBottom:8,textAlign:"center",letterSpacing:-.3}},"Gün Sonu Gönder"),
-        div({style:{fontSize:13,color:"var(--di)",marginBottom:14,lineHeight:1.7,textAlign:"center"}},"Tüm veriler Yönetici Paneline gönderilecek ve bekleyen kayıtlarınız silinecektir."),
+        div({style:{fontSize:13,color:"var(--di)",marginBottom:14,lineHeight:1.7,textAlign:"center"}},"İşaretlediğiniz günlerin kayıtları Yönetici Paneline gönderilir. İşaretlemediğiniz günler ve içi boş randevu kartları bekleyenlerde kalır."),
         div({style:{background:"rgba(52,199,89,.07)",border:"1px solid rgba(52,199,89,.2)",borderRadius:14,padding:14,marginBottom:18,textAlign:"left"}},
           div({style:{fontSize:11,color:"#2A8A44",marginBottom:8,letterSpacing:1.5,textTransform:"uppercase",fontWeight:600}},"Gönderilecek Kayıtlar"),
           (()=>{
@@ -23704,21 +23709,22 @@ if(DB) dbUpsertAyar("tema",tema);
             myBekleyenGonder.forEach(r=>{ const t=r.tarih||""; (grup[t]=grup[t]||[]).push(r); });
             const tarihler=Object.keys(grup).sort((a,b)=>(b||"").localeCompare(a||""));
             return div(null, tarihler.map(t=>{
-              const liste=grup[t], tutar=liste.reduce((s,r)=>s+toN(r.toplam),0);
-              return div({key:t,style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid rgba(52,199,89,.15)"}},
-                div({style:{display:"flex",alignItems:"center",gap:5,fontSize:13.5,color:"#1A7A34",fontWeight:600}},h("span",null,"📅"),fmtT(t)),
+              const liste=grup[t], tutar=liste.reduce((s,r)=>s+toN(r.toplam),0), sec=gsTarihler.includes(t);
+              return div({key:t,onClick:()=>setGsTarihler(p=>p.includes(t)?p.filter(x=>x!==t):[...p,t]),style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"9px 0",borderBottom:"1px solid rgba(52,199,89,.15)",cursor:"pointer",opacity:sec?1:.5}},
+                div({style:{display:"flex",alignItems:"center",gap:8,fontSize:13.5,color:"#1A7A34",fontWeight:600}},
+                  h("span",{style:{width:20,height:20,borderRadius:6,border:"2px solid #34C759",background:sec?"#34C759":"transparent",color:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,flexShrink:0}},sec?"✓":""),h("span",null,"📅"),fmtT(t)),
                 div({style:{fontSize:13,color:"#1A7A34",fontWeight:600,whiteSpace:"nowrap"}},liste.length+" kayıt · "+fmt(tutar))
               );
             }));
           })(),
           div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,paddingTop:10,marginTop:2}},
             div({style:{fontSize:11,color:"#2A8A44",letterSpacing:1.5,textTransform:"uppercase",fontWeight:700}},"Toplam"),
-            div({style:{fontSize:18,color:"#1A7A34",fontWeight:800,whiteSpace:"nowrap"}},myBekleyenGonder.length+" kayıt · "+fmt(myBekleyenGonder.reduce((s,r)=>s+toN(r.toplam),0)))
+            (()=>{ const sl=myBekleyenGonder.filter(r=>gsTarihler.includes(r.tarih||"")); return div({style:{fontSize:18,color:"#1A7A34",fontWeight:800,whiteSpace:"nowrap"}},sl.length+" kayıt · "+fmt(sl.reduce((s,r)=>s+toN(r.toplam),0))); })()
           )
         ),
         div({className:"btn-r"},
           btn({className:"btn-i",onClick:()=>setGsOnay(false)},"Hayır"),
-          btn({className:"btn-k",style:{background:"#34C759",color:"#fff"},onClick:gunSonu},"Evet, Gönder")
+          btn({className:"btn-k",style:{background:gsTarihler.length?"#34C759":"#9bb8a3",color:"#fff"},onClick:gunSonu},"Seçilenleri Gönder")
         )
       )
     ),
@@ -24696,13 +24702,13 @@ if(DB) dbUpsertAyar("tema",tema);
         btn({onClick:sekreterListeyeDon,style:{flexShrink:0,background:"#fff",color:"#0b2f66",border:"none",borderRadius:999,padding:"6px 12px",fontSize:12.5,fontWeight:800,cursor:"pointer"}},"← Personeller")),
       div({className:"tbar",style:sekreterAslinda?{paddingTop:10,minHeight:0}:undefined},
         btn({style:{background:"#FFFFFF",isolation:"isolate",border:"none",padding:"6px 10px",cursor:"pointer",display:"flex",alignItems:"center",height:isletme.logoHeight||80,flexShrink:0,borderRadius:10,boxShadow:"0 1px 3px rgba(0,0,0,.12)"},
-          onClick:()=>{ if(psek==="bugun") setCikisSecenek(true); else setPsek("bugun"); },
+          onClick:()=>{ if(psek==="bugun"){ if(!yoneticiAslinda) setCikisSecenek(true); } else setPsek("bugun"); },
           title:"Logo"},
           img({src:AKTIF_LOGO,className:"logo-header"})
         ),
         div({style:{flex:1,fontSize:13,color:"var(--mu)"}},kul.ad),
-        cokPanelli&&btn({className:"gsbtn",style:{flexShrink:0,marginRight:6},onClick:panelDegistir},"⇄ Panel"),
-        myBekleyen.length>0&&!sekKisit("gunSonuGonder")&&btn({className:"gsbtn",style:{flexShrink:0},onClick:()=>setGsOnay(true)},(myBekleyenGonder.length>0?"📤 Gönder ("+myBekleyenGonder.length+")":"📤 Gün Sonu"))
+        !yoneticiAslinda&&cokPanelli&&btn({className:"gsbtn",style:{flexShrink:0,marginRight:6},onClick:panelDegistir},"⇄ Panel"),
+        myBekleyen.length>0&&!sekKisit("gunSonuGonder")&&btn({className:"gsbtn",style:{flexShrink:0},onClick:()=>(setGsTarihler([...new Set(myBekleyenGonder.map(r=>r.tarih||""))]),setGsOnay(true))},(myBekleyenGonder.length>0?"📤 Gönder ("+myBekleyenGonder.length+")":"📤 Gün Sonu"))
       ),
       div({className:"atabs"},
         (()=>{
@@ -25865,7 +25871,7 @@ if(DB) dbUpsertAyar("tema",tema);
                 div({style:{fontSize:14,color:"#1A7A34",fontWeight:600}},myBekleyenGonder.length>0?"⏳ "+myBekleyenGonder.length+" kayıt gönderilmeyi bekliyor":"⏳ Doldurulmamış randevu formları var"),
                 div({style:{fontSize:12.5,color:"#1A7A34",marginTop:3,fontWeight:600,lineHeight:1.5}},"Lütfen tüm işlemleri gözden geçirip doğruluğundan emin olduktan sonra gönderiniz.")
               ),
-              !sekKisit("gunSonuGonder")&&btn({className:"gsbtn",onClick:()=>setGsOnay(true)},"Gönder")
+              !sekKisit("gunSonuGonder")&&btn({className:"gsbtn",onClick:()=>(setGsTarihler([...new Set(myBekleyenGonder.map(r=>r.tarih||""))]),setGsOnay(true))},"Gönder")
             ),
             div({className:"sek"},"Kayıtlarım"),
             myBekleyen.length===0
