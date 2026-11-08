@@ -18659,6 +18659,7 @@ function RvFormModal({mod, rv, varsayilan, baslikEk, mevcutlar, musteriDB, kulId
   const [sureDk,setSureDk] = React.useState((rv&&rv.sureDk)||(varsayilan&&varsayilan.sureDk)||30);
   const [neden,setNeden] = React.useState("");
   const [hata,setHata]   = React.useState("");
+  const [eskiOnay,setEskiOnay] = React.useState(null); // aynı müşteriye aynı gün yazılmış randevu bulunursa uyarı
   const kendi = (musteriDB||[]).filter(m=>m && m.ad && (!m.sahipId || String(m.sahipId)===String(kulId)));
   const adDegis = (v) => {
     setAd(v);
@@ -18676,7 +18677,19 @@ function RvFormModal({mod, rv, varsayilan, baslikEk, mevcutlar, musteriDB, kulId
     if(!/^\d{2}:\d{2}$/.test(saat||"")){ setHata("Geçerli bir saat seçin"); return; }
     if(!tarih){ setHata("Tarih seçin"); return; }
     if(mod==="ertele" && rv && tarih===rv.tarih && saat===rv.saat){ setHata("Yeni bir tarih veya saat seçin"); return; }
-    onKaydet({musteriAd:ad.trim(), tel:tel.trim(), tarih, saat, sureDk, not:notlar.trim(), neden:neden.trim()});
+    const f0={musteriAd:ad.trim(), tel:tel.trim(), tarih, saat, sureDk, not:notlar.trim(), neden:neden.trim()};
+    if(mod==="yeni" && !eskiOnay){
+      // Aynı müşteri (ad veya telefon) + aynı gün + iptal olmamış randevu var mı?
+      const rakam=v=>String(v||"").replace(/\D/g,"");
+      const t0=rakam(tel);
+      const adaylar=(mevcutlar||[]).filter(x=>x && x.tarih===tarih && x.durum!=="iptal" &&
+        ((x.musteriAd && normText(x.musteriAd)===normText(ad)) || (t0.length>=7 && rakam(x.tel)===t0)));
+      if(adaylar.length>0){
+        adaylar.sort((a,b)=>(b.saat===saat)-(a.saat===saat) || (b.durum==="bekliyor")-(a.durum==="bekliyor"));
+        setEskiOnay({eski:adaylar[0],f:f0}); return;
+      }
+    }
+    onKaydet(f0);
   };
   const baslik = mod==="yeni" ? ("Yeni Randevu"+(baslikEk?" · "+baslikEk:"")) : mod==="duzenle" ? "Randevuyu Düzenle" : mod==="ertele" ? "Randevuyu Ertele" : "Randevuyu İptal Et";
   const NEDENLER = ["Müşteri iptal etti","Müşteri gelmedi","Ben iptal ettim"];
@@ -18723,7 +18736,15 @@ function RvFormModal({mod, rv, varsayilan, baslikEk, mevcutlar, musteriDB, kulId
               : div(null,div({style:etiket},"Not (isteğe bağlı)"),h("input",{className:"fi",placeholder:"Örn. saç + sakal",value:notlar,onChange:e=>setNotlar(e.target.value)}))
           ),
       hata && div({style:{color:"#FF3B30",fontSize:13,fontWeight:600,marginTop:10,textAlign:"center"}},hata),
-      div({className:"btn-r",style:{marginTop:16}},
+      eskiOnay && div({style:{marginTop:14,padding:"12px 13px",borderRadius:12,background:"rgba(255,159,10,.12)",border:"1px solid rgba(255,159,10,.4)"}},
+        div({style:{fontSize:13.5,fontWeight:700,color:"#B45309",marginBottom:6}},"⚠ Bu müşteriye aynı gün randevu zaten yazılmış"),
+        div({style:{fontSize:13,color:"var(--tx)",lineHeight:1.55,marginBottom:12}},
+          eskiOnay.eski.musteriAd+" · "+fmtT(eskiOnay.eski.tarih)+" · "+eskiOnay.eski.saat+" ("+((RV_DURUM[eskiOnay.eski.durum]||{}).ad||eskiOnay.eski.durum)+"). Eskisinin üzerine mi yazılsın, yoksa ayrı bir randevu mu eklensin?"),
+        div({style:{display:"flex",flexDirection:"column",gap:7}},
+          btn({className:"btn-k",onClick:()=>onKaydet({...eskiOnay.f,uzerineYaz:eskiOnay.eski.id})},"Üzerine yaz (eskisi kalkar)"),
+          btn({className:"btn-i",onClick:()=>onKaydet(eskiOnay.f)},"Ayrı randevu ekle"),
+          btn({className:"btn-i",onClick:()=>setEskiOnay(null)},"Vazgeç, geri dön"))),
+      !eskiOnay && div({className:"btn-r",style:{marginTop:16}},
         btn({className:"btn-i",onClick:onKapat},mod==="iptal"?"Vazgeç":"Kapat"),
         btn({className:"btn-k",style:mod==="iptal"?{background:"#FF3B30",color:"#fff"}:null,onClick:kaydet},
           mod==="iptal"?"Evet, İptal Et":mod==="ertele"?"Ertele":"Kaydet"))
@@ -18837,7 +18858,7 @@ function RvGenelTakvim({personeller, rvOf, devDB, onAta, onYenile, serit}){
 }
 
 // ── Randevu geçmişi (gün sonu gönderilen günlerin defteri) ──────────────────
-function RvGecmis({liste}){
+function RvGecmis({liste,onGeriAl}){
   const [ara,setAra] = React.useState("");
   const q = normText(ara);
   const f = liste.filter(r=>!q || normText(r.musteriAd).includes(q));
@@ -18864,7 +18885,8 @@ function RvGecmis({liste}){
                     div({style:{fontSize:13.5,fontWeight:600,color:"var(--tx)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},r.musteriAd),
                     ((r.ertelemeler||[]).length>0 || r.iptalNedeni || r.not) && div({style:{fontSize:11,color:"var(--di)",marginTop:2}},
                       [(r.ertelemeler||[]).length>0?"↪ "+r.ertelemeler.length+" kez ertelendi":"", r.iptalNedeni||"", r.not||""].filter(Boolean).join(" · "))),
-                  span({style:{fontSize:10.5,fontWeight:700,color:d.renk,background:d.bg,borderRadius:20,padding:"3px 9px",whiteSpace:"nowrap"}},d.ad));
+                  span({style:{fontSize:10.5,fontWeight:700,color:d.renk,background:d.bg,borderRadius:20,padding:"3px 9px",whiteSpace:"nowrap"}},d.ad),
+                  onGeriAl && (r.durum==="gelmedi"||r.durum==="iptal") && btn({onClick:()=>onGeriAl(r),title:"Randevuyu Defter'e geri al",style:{flexShrink:0,border:"1px solid rgba(0,113,227,.35)",background:"rgba(0,113,227,.08)",color:"#0071E3",borderRadius:10,padding:"5px 9px",fontSize:11,fontWeight:700,cursor:"pointer"}},"↩ Geri al"));
               })));
         })
   );
@@ -20596,6 +20618,16 @@ if(DB) dbUpsertAyar("tema",tema);
     return patch;
   };
   const rvEkle = (f) => {
+    if(f.uzerineYaz){
+      const eski=(randevular||[]).find(x=>x && x.id===f.uzerineYaz);
+      if(eski){
+        rvUretilenRef.current.delete(eski.id);
+        rvGuncelle(eski.id,{musteriAd:f.musteriAd,tel:f.tel||eski.tel||"",saat:f.saat,sureDk:f.sureDk||eski.sureDk||30,not:f.not||eski.not||"",
+          durum:"bekliyor",iptalNedeni:"",arsiv:false,arsivTarih:"",kayitId:rvKayitBul(eski.kayitId)?eski.kayitId:""});
+        setRvModal(null); setRvTarih(eski.tarih); setRvGorunum("defter");
+        showToast("Mevcut randevunun üzerine yazıldı"); return;
+      }
+    }
     const t=Date.now();
     const rv={id:"rv"+uid(),staffId:kul.id,staffAd:kul.ad,kaynak:"personel",musteriId:"",musteriAd:f.musteriAd,tel:f.tel||"",
       tarih:f.tarih,saat:f.saat,sureDk:f.sureDk||30,hizmetler:[],not:f.not||"",durum:"bekliyor",kayitId:"",
@@ -20629,6 +20661,8 @@ if(DB) dbUpsertAyar("tema",tema);
     setRvModal(null); showToast(not,"uy");
   };
   const rvTekrarAc = (rv) => { rvUretilenRef.current.delete(rv.id); rvGuncelle(rv.id,{durum:"bekliyor",iptalNedeni:"",kayitId:rvKayitBul(rv.kayitId)?rv.kayitId:""}); showToast("Randevu yeniden açıldı"); };
+  // Geçmişe düşmüş (gelmedi/iptal) randevuyu tekrar Defter'e, "bekliyor" olarak alır.
+  const rvGeriAl = (rv) => { rvUretilenRef.current.delete(rv.id); rvGuncelle(rv.id,{durum:"bekliyor",iptalNedeni:"",arsiv:false,arsivTarih:"",kayitId:rvKayitBul(rv.kayitId)?rv.kayitId:""}); setRvTarih(rv.tarih); setRvGorunum("defter"); showToast("Randevu Defter'e geri alındı"); };
   const rvFormOlustur = (rv) => { rvUretilenRef.current.add(rv.id); const kid=rvKayitOlustur(rv); rvGuncelle(rv.id,{kayitId:kid}); showToast("Kayıt formu oluşturuldu"); };
 
   // 1) Buluttan yükle (her personel kendi kaydı: ayarlar → "randevu_<personelId>") ve odaklanınca yenile
@@ -20723,6 +20757,18 @@ if(DB) dbUpsertAyar("tema",tema);
   const sekRvOf = (sid) => { const c=sekRvHavuz[String(sid)]; const yerel=(randevular||[]).filter(r=>r&&String(r.staffId)===String(sid)); if(!c) return yerel; const m={}; yerel.concat(c).forEach(r=>{ const k=String(r.id),e=m[k]; if(!e||(r.guncelleme||0)>=(e.guncelleme||0)) m[k]=r; }); return Object.values(m); };
   const sekRvAta = (p,f) => {
     const t=Date.now();
+    if(f.uzerineYaz){
+      const eski=sekRvOf(p.id).find(x=>x && x.id===f.uzerineYaz);
+      if(eski){
+        const yeni={...eski,musteriAd:f.musteriAd,tel:f.tel||eski.tel||"",saat:f.saat,sureDk:f.sureDk||eski.sureDk||30,not:f.not||eski.not||"",
+          durum:"bekliyor",iptalNedeni:"",arsiv:false,arsivTarih:"",guncelleme:t};
+        setSekRvHavuz(hv=>({...hv,[p.id]:[...(hv[p.id]||[]).filter(x=>x.id!==eski.id),yeni]}));
+        setRandevular(pr=>(pr||[]).map(x=>x&&x.id===eski.id?yeni:x));
+        rvBirlestirYaz(p.id,[yeni],false);
+        showToast(p.ad+" için mevcut randevunun üzerine yazıldı · "+f.saat,"ba");
+        return;
+      }
+    }
     const rv={id:"rv"+uid(),staffId:p.id,staffAd:p.ad,kaynak:"sekreter",olusturan:{id:kul.id,ad:kul.ad},musteriId:"",musteriAd:f.musteriAd,tel:f.tel||"",
       tarih:f.tarih,saat:f.saat,sureDk:f.sureDk||30,hizmetler:[],not:f.not||"",durum:"bekliyor",kayitId:"",ertelemeler:[],iptalNedeni:"",arsiv:false,olusturma:t,guncelleme:t};
     setSekRvHavuz(hv=>({...hv,[p.id]:[...(hv[p.id]||[]),rv]}));
@@ -20786,7 +20832,7 @@ if(DB) dbUpsertAyar("tema",tema);
         [["defter","📒 Defter"],["gecmis","🗂️ Geçmiş"]].map(([k,l])=>btn({key:k,onClick:()=>setRvGorunum(k),style:{flex:1,padding:"8px 0",borderRadius:9,border:"none",fontSize:12.5,fontWeight:700,cursor:"pointer",
           background:rvGorunum===k?"#fff":"transparent",color:rvGorunum===k?"#1D1D1F":"#86868B",boxShadow:rvGorunum===k?"0 1px 4px rgba(0,0,0,.1)":"none"}},l))),
       (rvGorunum==="gecmis"&&!rvGecKisit)
-        ? h(RvGecmis,{liste:rvBenim.filter(r=>r.arsiv||r.tarih<bg)})
+        ? h(RvGecmis,{liste:rvBenim.filter(r=>r.arsiv||r.tarih<bg),onGeriAl:rvGeriAl})
         : div(null,
             div({style:{display:"flex",gap:8,alignItems:"center",marginBottom:6}},
               btn({style:{...ikSt,opacity:(rvGecKisit&&rvT<=bg)?.35:1},disabled:rvGecKisit&&rvT<=bg,onClick:()=>setRvTarih(rvGunKaydir(rvT,-1))},"‹"),
