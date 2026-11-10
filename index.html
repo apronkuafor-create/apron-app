@@ -1281,6 +1281,9 @@ const logoSeridiBulutUrl = async (kaynak) => {
   if(url){ try{ localStorage.setItem(anahtar,url); }catch(e){} }
   return url || null;
 };
+// Hatırlatma mesajının sonuna eklenen APRON logosu: WhatsApp'ın bağlantı önizlemesi için hazırlanmış 1200×630 JPEG (logo-serit.jpg),
+// uygulamanın GitHub Pages deposunda durur. Dosya yoksa eski yönteme (bulut logo bağlantısı) geri dönülür.
+const HAT_ONIZLEME_URL = "https://apronkuafor-create.github.io/apron-app/logo-serit.jpg";
 // Logo zaten görselde olduğu için metnin sonundaki "APRON" imzası tekrar etmesin
 const hatImzasiz = (m) => String(m||"").replace(/\n\n\*[^*\n]+\*\s*$/,"").replace(/\n\n(apron)\s*$/i,"");
 // Paylaşım menüsüyle fotoğrafı DOSYA olarak (tam kalite) + mesajla gönderir. true: gönderildi, null: vazgeçildi, false: desteklenmiyor
@@ -19221,6 +19224,9 @@ function App() {
   const [donusKonum, setDonusKonum] = useState(null); // personel paneline geçince geldiğimiz yer (dönüşte buraya döneriz)
   const [hatYonetAcik, setHatYonetAcik] = useState(false); // "Hatırlatmalarım" yönet panelini aç/kapat
   const [hatDuzenle, setHatDuzenle] = useState(null); // düzenlenen hatırlatma {id,gonderiTarih,mesaj}
+  const [hatFiltre, setHatFiltre] = useState(null); // Hatırlatmalarım: null | toplam | vade | yaklasan | gonderilen (sayaca tıklayınca o grubun listesi açılır)
+  const [hatAra, setHatAra] = useState("");           // Hatırlatmalarım listesi araması (ad / telefon / e-posta)
+  const [hatLimit, setHatLimit] = useState(40);       // listede gösterilen kayıt sayısı (uzun listelerde donmasın)
   const [stokSek, setStokSek]         = useState("liste"); // liste|giris|hareketler
   const [pDetay, setPDetay]           = useState(null);
   const [ikDetayPersonel, setIkDetayPersonel] = useState(null); // İK > Özlük Dosyası: seçili personel id
@@ -20063,6 +20069,8 @@ if(DB) dbUpsertAyar("tema",tema);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("izinKayitlari",izinKayitlari); },[izinKayitlari]);
   // Logolu gönderim için şeridi önceden hazırla (paylaşım menüsü dokunuştan hemen sonra açılabilsin)
   const [logoBulutUrl, setLogoBulutUrl] = useState(null);
+  const [hatOnizlemeVar, setHatOnizlemeVar] = useState(false); // önizleme sayfası yayında mı (yoksa müşteriye açılmayan bağlantı gitmesin)
+  useEffect(()=>{ let iptal=false; try{ fetch(HAT_ONIZLEME_URL,{cache:"no-store"}).then(r=>{ if(!iptal && r.ok) setHatOnizlemeVar(true); }).catch(()=>{}); }catch(e){} return ()=>{ iptal=true; }; },[]);
   useEffect(()=>{ if(yukleniyor||!DB) return; let iptal=false; logoSeridiBulutUrl((isletme&&isletme.logo)||LOGO).then(u=>{ if(!iptal&&u) setLogoBulutUrl(u); }).catch(()=>{}); return ()=>{ iptal=true; }; },[yukleniyor,isletme&&isletme.logo]);
   useEffect(()=>{ try{ logoSeridiHazirla((isletme&&isletme.logo)||LOGO).then(u=>u&&paylasimDosyasi(u,"apron")); }catch(e){} },[isletme&&isletme.logo]);
   useEffect(()=>{ if(yukleniyor||!DB) return; dbUpsertAyar("cikisIslemleri",cikisIslemleri); },[cikisIslemleri]);
@@ -25086,37 +25094,58 @@ if(DB) dbUpsertAyar("tema",tema);
             const tGonderildi=myHat.filter(h=>h.gonderildi).length;
             const tVade=myHat.filter(h=>!h.gonderildi&&h.gonderiTarih<=bugunHat).length;
             const tYaklasan=myHat.filter(h=>!h.gonderildi&&h.gonderiTarih>bugunHat).length;
-            const yaklasanlar=myHat.filter(h=>!h.gonderildi&&h.gonderiTarih>bugunHat).sort((a,b)=>(a.gonderiTarih||"").localeCompare(b.gonderiTarih||""));
+            // Sayaç grupları: her hatırlatma tam olarak bir gruba girer (vade / yaklaşan / gönderilen); "toplam" hepsi
+            const hatGrup = h => h.gonderildi ? "gonderilen" : ((h.gonderiTarih||"")<=bugunHat ? "vade" : "yaklasan");
+            const hatBaslik = {toplam:"Tüm hatırlatmalar",vade:"Vadesi gelenler",yaklasan:"Yaklaşanlar",gonderilen:"Gönderilenler"};
+            const hatBos = {toplam:"Hatırlatma yok.",vade:"Vadesi gelen hatırlatma yok.",yaklasan:"Yaklaşan hatırlatma yok.",gonderilen:"Henüz gönderilmiş hatırlatma yok."};
+            const hatSayi = {toplam:myHat.length,vade:tVade,yaklasan:tYaklasan,gonderilen:tGonderildi};
+            const musterilerHat = musteriDB||[];
+            // Arama: kayıttaki ad/telefon + (varsa) müşteri kartındaki e-posta ve ek telefonlar
+            const hatAramaEslesir = (ht, q) => {
+              if(!String(q||"").trim()) return true;
+              const dk = _aramaTel(ht.tel);
+              const mk = musterilerHat.find(m=>(m.id&&ht.musteriId&&String(m.id)===String(ht.musteriId)) || (dk.length>=7 && [m.tel,...(Array.isArray(m.telefonlar)?m.telefonlar.map(t=>t&&t.numara):[])].some(n=>_aramaTel(n)===dk)) || (normText(m.ad)===normText(ht.musteriAd||"") && normText(ht.musteriAd||"")!==""));
+              return musteriAramaEslesir({...(mk||{}), ad:ht.musteriAd||(mk&&mk.ad)||"", tel:ht.tel||(mk&&mk.tel)||""}, q);
+            };
+            let hatListe = [];
+            if(hatFiltre){
+              hatListe = myHat.filter(h=>(hatFiltre==="toplam"||hatGrup(h)===hatFiltre) && hatAramaEslesir(h,hatAra));
+              if(hatFiltre==="gonderilen") hatListe.sort((a,b)=>String(b.gonderildiTarih||b.gonderiTarih||"").localeCompare(String(a.gonderildiTarih||a.gonderiTarih||"")));
+              else if(hatFiltre==="toplam") hatListe.sort((a,b)=>((a.gonderildi?1:0)-(b.gonderildi?1:0))||((a.gonderiTarih||"").localeCompare(b.gonderiTarih||"")));
+              else hatListe.sort((a,b)=>(a.gonderiTarih||"").localeCompare(b.gonderiTarih||""));
+            }
+            const hatSec = k => { setHatDuzenle(null); setHatAra(""); setHatLimit(40); setHatFiltre(f=>f===k?null:k); };
             return div({style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"13px 14px 11px",marginBottom:14,boxShadow:"0 1px 6px rgba(0,0,0,.05)"}},
               div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
                 div({style:{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"#86868B",fontWeight:600}},"🔔 Hatırlatmalarım"),
-                btn({style:{background:hatYonetAcik?"rgba(0,113,227,.12)":"transparent",border:"1px solid rgba(0,113,227,.3)",borderRadius:8,color:"#0071E3",fontSize:11.5,fontWeight:600,padding:"4px 10px",cursor:"pointer",whiteSpace:"nowrap"},
-                  onClick:()=>{ setHatYonetAcik(v=>!v); setHatDuzenle(null); }}, hatYonetAcik?"✕ Kapat":"⚙️ Yönet")
+                btn({style:{background:hatFiltre?"rgba(0,113,227,.12)":"transparent",border:"1px solid rgba(0,113,227,.3)",borderRadius:8,color:"#0071E3",fontSize:11.5,fontWeight:600,padding:"4px 10px",cursor:"pointer",whiteSpace:"nowrap"},
+                  onClick:()=>{ setHatDuzenle(null); setHatAra(""); setHatLimit(40); setHatFiltre(f=>f?null:"toplam"); }}, hatFiltre?"✕ Kapat":"⚙️ Yönet")
               ),
               div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4}},
-                [["Toplam",myHat.length,"#1D1D1F",false],["Vadesi Gelen",tVade,"#FF3B30",false],["Yaklaşan",tYaklasan,"#0071E3",true],["Gönderilen",tGonderildi,"#34A853",false]].map(([lb,v,c,tikla],i)=>{
-                  const acilir = tikla && tYaklasan>0;
-                  return div({key:i,onClick:acilir?()=>setHatYaklasanAcik(p=>!p):undefined,style:{textAlign:"center",padding:"4px 0",borderLeft:i>0?"1px solid rgba(0,0,0,.08)":"none",cursor:acilir?"pointer":"default",borderRadius:acilir?7:0,background:(acilir&&hatYaklasanAcik)?"rgba(0,113,227,.07)":"transparent"}},
-                    div({style:{fontSize:22,fontWeight:700,color:c,lineHeight:1,fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},String(v)),
-                    div({style:{fontSize:10,color:acilir?"#0071E3":"#86868B",marginTop:4,letterSpacing:.2,fontWeight:acilir?600:400}},lb+(acilir?(hatYaklasanAcik?" ▲":" ▼"):""))
+                [["toplam","Toplam","#1D1D1F"],["vade","Vadesi Gelen","#FF3B30"],["yaklasan","Yaklaşan","#0071E3"],["gonderilen","Gönderilen","#34A853"]].map(([k,lb,c],i)=>{
+                  const sec = hatFiltre===k;
+                  return btn({key:k,type:"button","aria-pressed":sec,onClick:()=>hatSec(k),style:{textAlign:"center",padding:"6px 0",border:"none",borderLeft:i>0?"1px solid rgba(0,0,0,.08)":"none",cursor:"pointer",borderRadius:sec?8:0,background:sec?"rgba(0,113,227,.09)":"transparent",fontFamily:"inherit",minHeight:48}},
+                    div({style:{fontSize:22,fontWeight:700,color:c,lineHeight:1,fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},String(hatSayi[k])),
+                    div({style:{fontSize:10,color:sec?"#0071E3":"#86868B",marginTop:4,letterSpacing:.2,fontWeight:sec?700:500}},lb+(sec?" ▲":" ▼"))
                   );
                 })
               ),
-              hatYaklasanAcik&&yaklasanlar.length>0&&div({style:{marginTop:12,borderTop:"1px solid rgba(0,0,0,.08)",paddingTop:6}},
-                yaklasanlar.map(h=>
-                  div({key:h.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid rgba(0,0,0,.05)"}},
-                    div({style:{minWidth:0}},
-                      div({style:{fontSize:14,color:"#1D1D1F",fontWeight:500}},"💇 "+h.musteriAd),
-                      h.tel&&div({style:{fontSize:12,color:"#86868B",marginTop:1}},"📞 "+h.tel)
-                    ),
-                    div({style:{fontSize:12,color:"#0071E3",fontWeight:700,whiteSpace:"nowrap"}},fmtT(h.gonderiTarih))
-                  )
-                )
-              ),
               // ── Hatırlatma Yönetimi (düzenle / sil) ──
-              hatYonetAcik&&div({style:{marginTop:12,borderTop:"1px solid rgba(0,0,0,.08)",paddingTop:8,maxHeight:360,overflowY:"auto"}},
-                myHat.length===0&&div({style:{fontSize:12.5,color:"#86868B",padding:"6px 0"}},"Hatırlatma yok."),
-                myHat.slice().sort((a,b)=>((a.gonderildi?1:0)-(b.gonderildi?1:0))||((a.gonderiTarih||"").localeCompare(b.gonderiTarih||""))).map(ht=>{
+              hatFiltre&&div({style:{marginTop:12,borderTop:"1px solid rgba(0,0,0,.08)",paddingTop:8}},
+                div({style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8}},
+                  div({style:{fontSize:13,fontWeight:700,color:"#1D1D1F"}},hatBaslik[hatFiltre]),
+                  div({style:{fontSize:11.5,color:"#86868B"}},(hatAra.trim()?hatListe.length+" / ":"")+hatSayi[hatFiltre]+" kayıt")
+                ),
+                div({style:{position:"relative",marginBottom:8}},
+                  h("span",{"aria-hidden":true,style:{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",fontSize:14,opacity:.55,pointerEvents:"none"}},"🔍"),
+                  h("input",{type:"search",className:"fi",value:hatAra,placeholder:"Ad, telefon veya e-posta ile ara","aria-label":"Hatırlatma ara",autoComplete:"off",
+                    style:{paddingLeft:34,paddingRight:hatAra?36:12,width:"100%",boxSizing:"border-box"},
+                    onChange:e=>{ setHatAra(e.target.value); setHatLimit(40); },
+                    onKeyDown:e=>{ if(e.key==="Escape") setHatAra(""); }}),
+                  hatAra&&btn({type:"button","aria-label":"Aramayı temizle",onClick:()=>setHatAra(""),style:{position:"absolute",right:4,top:"50%",transform:"translateY(-50%)",background:"transparent",border:"none",fontSize:16,color:"#86868B",cursor:"pointer",width:32,height:32}},"✕")
+                ),
+                hatListe.length===0&&div({style:{fontSize:12.5,color:"#86868B",padding:"10px 0",textAlign:"center"}},hatAra.trim()?"Aramaya uygun kayıt yok.":hatBos[hatFiltre]),
+                hatListe.slice(0,hatLimit).map(ht=>{
                   const duzenleniyor = hatDuzenle && hatDuzenle.id===ht.id;
                   const durum = ht.gonderildi ? ["Gönderildi","#34A853"] : (ht.gonderiTarih<=bugunHat ? ["Vadesi geldi","#FF3B30"] : ["Yaklaşan","#0071E3"]);
                   return div({key:ht.id,style:{padding:"9px 0",borderBottom:"1px solid rgba(0,0,0,.05)"}},
@@ -25167,7 +25196,8 @@ if(DB) dbUpsertAyar("tema",tema);
                       )
                     )
                   );
-                })
+                }),
+                hatListe.length>hatLimit&&btn({type:"button",onClick:()=>setHatLimit(n=>n+40),style:{width:"100%",marginTop:8,padding:"9px",borderRadius:8,border:"1px solid rgba(0,113,227,.3)",background:"rgba(0,113,227,.06)",color:"#0071E3",fontSize:13,fontWeight:600,cursor:"pointer"}},"Daha fazla göster ("+(hatListe.length-hatLimit)+" kayıt daha)")
               )
             );
           })(),
@@ -25260,7 +25290,8 @@ if(DB) dbUpsertAyar("tema",tema);
                           }
                           // Müşterinin numarası seçili sohbet açılır. Fotoğraf eklendiyse fotoğraf bağlantısı, yoksa APRON logosu bağlantı önizlemesi olarak gider.
                           const metin = linkliFoto ? fotoSatiriEkle(mesajMetni, HAT_FOTO_SATIRI+"\n"+sonFoto.url)
-                            : (logoBulutUrl ? hatImzasiz(mesajMetni)+"\n\n"+logoBulutUrl : mesajMetni);
+                            : (hatOnizlemeVar ? hatImzasiz(mesajMetni)+"\n\n"+HAT_ONIZLEME_URL
+                              : (logoBulutUrl ? hatImzasiz(mesajMetni)+"\n\n"+logoBulutUrl : mesajMetni));
                           window.open("https://wa.me/"+telFmt()+"?text="+encodeURIComponent(metin),"_blank");
                           gonderildiKaydet();
                           gonderildiIsaretle();
