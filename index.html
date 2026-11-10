@@ -1393,6 +1393,15 @@ const waBulutUygula = (id, deger) => {
 };
 const waAyar = () => _wa[WA_AYAR_ID];
 const waGunluk = () => _wa[WA_GUNLUK_ID] || {};
+// Kullanıcı "gönderildi"yi GERİ ALIRSA bunu günlükte işaretle: yoksa aşağıdaki otomatik eşleme hatırlatmayı tekrar "gönderildi" yapar
+// (kayıt bulutta "gönderilmedi" iken ekranda "gönderildi" görünür; cihazdan cihaza farklı davranıyormuş gibi olur).
+const waGunlukGeriAl = (id) => {
+  const g = {...waGunluk()}; const k = String(id);
+  if(!g[k]) return;
+  g[k] = {...g[k], geriAlindi:new Date().toISOString()};
+  _wa = {..._wa, [WA_GUNLUK_ID]: g}; _waBildir(WA_GUNLUK_ID);
+  try{ dbUpsertAyar(WA_GUNLUK_ID, g); }catch(e){}
+};
 const waAyarKaydet = (degisiklik) => {
   _wa = {..._wa, [WA_AYAR_ID]: {...waAyar(), ...degisiklik}}; _waBildir(WA_AYAR_ID);
   _ayarYazimImza(WA_AYAR_ID, _ayarImza(_wa[WA_AYAR_ID]));
@@ -1644,7 +1653,7 @@ const hatNorm = (h) => {
   return out;
 };
 // İki kopyayı alan kaybetmeden birleştir (b, a'nın üstüne yazar ama boş alanlarla silmez)
-const hatBirlestir = (a, b) => { const x=hatNorm(a)||{}, y=hatNorm(b)||{}; const r={...x}; Object.keys(y).forEach(k=>{ if(y[k]!==undefined&&y[k]!==null&&y[k]!=="") r[k]=y[k]; }); return r; };
+const hatBirlestir = (a, b) => { const x=hatNorm(a)||{}, y=hatNorm(b)||{}; const r={...x}; Object.keys(y).forEach(k=>{ if(y[k]!==undefined&&y[k]!==null&&y[k]!=="") r[k]=y[k]; }); if(y.gonderildi===false) delete r.gonderildiTarih; return r; };
 const dbSil  = (t,id) => {
   // Silinen ziyaret kaydının öncesi/sonrası fotoğrafları da kaldırılır (bulutta yer kaplamasın)
   if(t==="kayitlar" && id!=null){ try{ if(ziyaretFotoAl(id)) ziyaretFotoKaydet(id, null); }catch(e){} }
@@ -19186,7 +19195,7 @@ function App() {
       let degisti = false;
       const n = (p||[]).map(x=>{
         const e = x && g[String(x.id)];
-        if(x && !x.gonderildi && e && e.durum==="gonderildi"){ degisti = true; return {...x, gonderildi:true, gonderildiTarih:String(e.zaman||"").slice(0,10)||TODAY()}; }
+        if(x && !x.gonderildi && e && e.durum==="gonderildi" && !(e.geriAlindi && String(e.geriAlindi) >= String(e.zaman||""))){ degisti = true; return {...x, gonderildi:true, gonderildiTarih:String(e.zaman||"").slice(0,10)||TODAY()}; }
         return x;
       });
       return degisti ? n : p;
@@ -19224,7 +19233,7 @@ function App() {
   const [donusKonum, setDonusKonum] = useState(null); // personel paneline geçince geldiğimiz yer (dönüşte buraya döneriz)
   const [hatYonetAcik, setHatYonetAcik] = useState(false); // "Hatırlatmalarım" yönet panelini aç/kapat
   const [hatDuzenle, setHatDuzenle] = useState(null); // düzenlenen hatırlatma {id,gonderiTarih,mesaj}
-  const [hatFiltre, setHatFiltre] = useState("toplam"); // Hatırlatmalarım: her zaman bir başlık açıktır: toplam | vade | yaklasan | gonderilen
+  const [hatFiltre, setHatFiltre] = useState("vade"); // Hatırlatmalarım: her zaman bir başlık açıktır (varsayılan: Vadesi Gelen = gönderime hazır olanlar): toplam | vade | yaklasan | gonderilen
   const [hatEkle, setHatEkle] = useState(null);       // elle hatırlatma ekleme formu (null = kapalı)
   const [hatAra, setHatAra] = useState("");           // Hatırlatmalarım listesi araması (ad / telefon / e-posta)
   const [hatLimit, setHatLimit] = useState(40);       // listede gösterilen kayıt sayısı (uzun listelerde donmasın)
@@ -24935,6 +24944,108 @@ if(DB) dbUpsertAyar("tema",tema);
         // ── Hatırlatma bildirimleri ──
         const bugunHat = TODAY();
         const bekleyenHat = (hatirlatmalar||[]).filter(h=>String(h.staffId)===String(kul.id)&&!h.gonderildi&&h.gonderiTarih<=bugunHat);
+        // Gönderime hazır (vadesi gelen) hatırlatma kartları — "Hatırlatmalarım > Vadesi Gelen" sekmesinde gösterilir
+        const hatGonderKartlari = (liste) => (liste||[]).map(h2=>{
+              // Gönderim anında gerçek geçen günü hesapla ve mesajı güncelle.
+              // Referans, hatırlatmanın OLUŞTURULDUĞU tarih değil, mesaj içinde geçen SAÇ KESİM
+              // tarihidir (h2.hizmetTarihi varsa o, yoksa mesaj metninden geri okunur) — aksi halde
+              // yanlış (genelde daha kısa) bir süre hesaplanır. Ayrıca "Üzerinden" büyük Ü ile
+              // yazıldığı için regex büyük/küçük harf duyarsız olmalı, yoksa eşleşme hiç olmaz.
+              const tarihEslesme = String(h2.mesaj||"").match(/(\d{2})\.(\d{2})\.(\d{4}) tarihinde yapmıştık/);
+              const hizmetTarihiStr = h2.hizmetTarihi || (tarihEslesme ? tarihEslesme[3]+"-"+tarihEslesme[2]+"-"+tarihEslesme[1] : null);
+              const gunGuncelMesaj = () => {
+                let m = h2.mesaj||"";
+                if(hizmetTarihiStr){
+                  const bas = new Date(hizmetTarihiStr+"T12:00:00");
+                  const bugunD = new Date(TODAY()+"T12:00:00");
+                  const gercekGun = Math.max(1, Math.round((bugunD-bas)/(1000*60*60*24)));
+                  m = m.replace(/üzerinden \d+ gün/i,"Üzerinden "+gercekGun+" gün");
+                }
+                return m;
+              };
+              // Son ziyaretin "sonrası" fotoğrafı (yoksa öncesi) — hatırlatmaya eklenir
+              const sonFoto = musteriSonZiyaretFoto({tel:h2.tel, ad:h2.musteriAd, tarih:hizmetTarihiStr});
+              // Varsayılan: yalnızca ziyarette "müşteriye gönderilsin" onayı verildiyse eklenir. Fotoğraf yoksa mesaj aynen gider.
+              const _secim = hatFotoSecim[h2.id]!==undefined ? hatFotoSecim[h2.id] : waFotoSecimAl(h2.id);
+              const fotoEkli = !!(sonFoto && sonFoto.url) && (_secim!==undefined ? !!_secim : !!sonFoto.g);
+              const otoDurum = waHatDurum(h2);
+              const sablonNo = hatSablonSecim[h2.id]!==undefined ? hatSablonSecim[h2.id] : hatVarsayilanSablon(h2);
+              const _uretilen = hatMesajUret(h2, sablonNo, {hizmetTarihi:hizmetTarihiStr, isletmeAd:isletme?.ad, ustaAd:h2.staffAd});
+              const mesajMetni = _uretilen || gunGuncelMesaj();
+              // Fotoğraf satırını imzadan hemen önceye ekler
+              const fotoSatiriEkle = (m, ek) => { const i=m.lastIndexOf("\n\n"); return i>0 ? m.slice(0,i)+"\n\n"+ek+m.slice(i) : m+"\n\n"+ek; };
+              const gonderildiKaydet = () => { if(_uretilen) hatSonSablonKaydet(h2, sablonNo); };
+              const linkliFoto = fotoEkli && _fotoBulutUrlMi(sonFoto.url);
+              const gonderildiIsaretle = () => {
+                setHatirlatmalar(p=>p.map(x=>x.id===h2.id?{...x,gonderildi:true,gonderildiTarih:TODAY()}:x));
+                dbUpsert("hatirlatmalar",{...h2,gonderildi:true,gonderildiTarih:TODAY()},"isletme_id,id");
+              };
+              const telFmt = () => { const raw=String(h2.tel||"").replace(/[^0-9]/g,""); return raw.startsWith("90")?raw:raw.startsWith("0")?"90"+raw.slice(1):"90"+raw; };
+              // Paylaşım menüsü: onaylı fotoğraf varsa fotoğrafla, yoksa APRON logosuyla birlikte gönderir
+              const paylasimDestekli = typeof navigator!=="undefined" && !!navigator.share && !!navigator.canShare;
+              if(paylasimDestekli && fotoEkli) sonFoto.hepsi.forEach((x,i)=>paylasimDosyasi(x.u, "son-sac-kesimi-"+(i+1)));
+              return div({key:h2.id,style:{background:"var(--bg3)",borderRadius:9,padding:"10px 12px",marginBottom:8}},
+                div({style:{fontSize:15,color:"var(--tx)",fontWeight:500,marginBottom:4}},"💇 "+h2.musteriAd),
+                h2.tel&&div({style:{fontSize:13,color:"#5a7a9a",marginBottom:4}},"📞 "+h2.tel),
+                div({style:{fontSize:12,color:"var(--mu)",marginBottom:6}},"Hatırlatma: "+fmtT(h2.gonderiTarih)),
+                otoDurum&&div({style:{fontSize:12,fontWeight:600,color:otoDurum.renk,marginBottom:6,lineHeight:1.4}},otoDurum.metin),
+                div({style:{fontSize:13,color:"#7a9aba",background:"rgba(37,99,168,.05)",
+                  borderRadius:7,padding:"7px 9px",marginBottom:8,lineHeight:1.5,whiteSpace:"pre-line"}},
+                  fotoEkli ? fotoSatiriEkle(mesajMetni, HAT_FOTO_SATIRI) : mesajMetni
+                ),
+                _uretilen&&div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:-3,marginBottom:9}},
+                  div({style:{fontSize:11.5,color:"var(--mu)"}},"Mesaj "+(((sablonNo%HAT_SABLONLARI.length)+HAT_SABLONLARI.length)%HAT_SABLONLARI.length+1)+" / "+HAT_SABLONLARI.length),
+                  btn({type:"button",style:{padding:"5px 10px",borderRadius:8,border:"1px solid rgba(37,99,168,.3)",background:"rgba(37,99,168,.06)",color:"#2563a8",fontSize:12,fontWeight:600,cursor:"pointer"},
+                    onClick:()=>setHatSablonSecim(p=>({...p,[h2.id]:hatSonrakiSablon(h2, sablonNo)}))},"🔄 Başka metin")
+                ),
+                sonFoto&&sonFoto.url&&div({style:{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"8px 9px",borderRadius:8,
+                  background:fotoEkli?"rgba(37,99,168,.06)":"transparent",border:"1px solid "+(fotoEkli?"rgba(37,99,168,.2)":"var(--br)")}},
+                  h(FotoKutusu,{etiket:sonFoto.sonrasi?"Sonrası":"Öncesi",deger:{u:sonFoto.url,k:sonFoto.kucuk},duzenle:false,gen:54,onDegis:()=>{}}),
+                  div({style:{flex:1,minWidth:0}},
+                    div({style:{fontSize:12.5,fontWeight:600,color:"var(--tx)"}},"Son kesim"+(sonFoto.sonrasi?" (sonrası)":" (öncesi)")+" · "+sonFoto.hepsi.length+" fotoğraf"+(sonFoto.tarih?" · "+fmtT(sonFoto.tarih):"")),
+                    div({style:{fontSize:11.5,color:"var(--mu)",marginTop:2,lineHeight:1.4}},
+                      fotoEkli
+                        ? (linkliFoto ? "Mesaja fotoğraf bağlantısıyla eklenecek" : "Bu fotoğraf yalnızca bu cihazda — paylaşım menüsüyle gönderin")
+                        : (sonFoto.g ? "Mesaja eklenmeyecek" : "Müşteri onayı işaretlenmemiş — fotoğrafsız gönderilecek"))
+                  ),
+                  h("label",{style:{display:"flex",alignItems:"center",gap:5,fontSize:12,color:"var(--tx)",cursor:"pointer",flexShrink:0}},
+                    h("input",{type:"checkbox",checked:fotoEkli,onChange:e=>{ const kapali=!e.target.checked; setHatFotoSecim(p=>({...p,[h2.id]:!kapali})); waFotoSecimKaydet(h2.id, !kapali); }}),
+                    "Ekle")
+                ),
+                div({style:{display:"flex",gap:8,flexWrap:"wrap"}},
+                  h2.tel
+                    ?btn({style:{flex:1,minWidth:130,padding:"9px 0",borderRadius:8,
+                        background:"rgba(37,211,102,.12)",border:"1px solid rgba(37,211,102,.3)",
+                        color:"#25d366",fontSize:14,cursor:"pointer",
+                        display:"flex",alignItems:"center",justifyContent:"center",gap:6},
+                        onClick:async()=>{
+                          // Fotoğraf yalnızca bu cihazdaysa (bağlantısı yoksa) ancak paylaşım menüsüyle gönderilebilir
+                          if(fotoEkli && !linkliFoto && paylasimDestekli){
+                            const ok = await fotoIleMesajPaylas(sonFoto.hepsi.map(x=>x.u), fotoSatiriEkle(mesajMetni, HAT_FOTO_SATIRI));
+                            if(ok===true){ gonderildiKaydet(); gonderildiIsaretle(); showToast("Gönderildi olarak işaretlendi","ba"); }
+                            else if(ok===false) showToast("Bu cihaz fotoğraf paylaşımını desteklemiyor","uy");
+                            return;
+                          }
+                          // Müşterinin numarası seçili sohbet açılır. Fotoğraf eklendiyse fotoğraf bağlantısı, yoksa APRON logosu bağlantı önizlemesi olarak gider.
+                          const metin = linkliFoto ? fotoSatiriEkle(mesajMetni, HAT_FOTO_SATIRI+"\n"+sonFoto.url)
+                            : (hatOnizlemeVar ? hatImzasiz(mesajMetni)+"\n\n"+HAT_ONIZLEME_URL
+                              : (logoBulutUrl ? hatImzasiz(mesajMetni)+"\n\n"+logoBulutUrl : mesajMetni));
+                          window.open("https://wa.me/"+telFmt()+"?text="+encodeURIComponent(metin),"_blank");
+                          gonderildiKaydet();
+                          gonderildiIsaretle();
+                        }},
+                        "WhatsApp Mesajı Gönder")
+                    :div({style:{flex:1,padding:"9px 0",borderRadius:8,
+                        background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",
+                        color:"#c05050",fontSize:13,textAlign:"center"}},"Telefon numarası yok"),
+                  btn({style:{padding:"9px 12px",borderRadius:8,
+                    background:"transparent",border:"1px solid var(--br)",
+                    color:"var(--di)",fontSize:13,cursor:"pointer"},
+                    onClick:gonderildiIsaretle},
+                    "Atla")
+                )
+              );
+});
         return div({className:"pg"},
           // ── Devir Bildirimleri Banner ──
           benimDevirBildirimlerim.length>0&&div({style:{
@@ -25131,7 +25242,7 @@ if(DB) dbUpsertAyar("tema",tema);
               if(String(f.mesaj||"").trim().length<5) return setHatEkle({...f,hata:"Mesaj boş olamaz."});
               const id = uid();
               const yeni = {id, musteriAd:ad, tel:String(f.tel).trim(), staffId:kul.id, staffAd:kul.ad||"", olusturmaTarihi:TODAY(), hizmetTarihi:f.hizT,
-                gonderiTarih:f.gonT, gonderildi:false, tip:"sacKesimi", mesaj:f.mesaj, elle:true, olusturma:Date.now()};
+                gonderiTarih:f.gonT, gonderildi:false, tip:"sacKesimi", mesaj:f.mesaj, olusturma:Date.now()};
               const eskiVar = (hatirlatmalar||[]).some(x=>String(x.staffId)===String(kul.id) && normText(x.musteriAd)===normText(ad) && !x.gonderildi);
               setHatirlatmalar(p=>{
                 (p||[]).filter(x=>String(x.staffId)===String(kul.id) && normText(x.musteriAd)===normText(ad) && !x.gonderildi).forEach(x=>dbSil("hatirlatmalar",x.id));
@@ -25204,7 +25315,7 @@ if(DB) dbUpsertAyar("tema",tema);
                   hatAra&&btn({type:"button","aria-label":"Aramayı temizle",onClick:()=>setHatAra(""),style:{position:"absolute",right:4,top:"50%",transform:"translateY(-50%)",background:"transparent",border:"none",fontSize:16,color:"#86868B",cursor:"pointer",width:32,height:32}},"✕")
                 ),
                 hatListe.length===0&&div({style:{fontSize:12.5,color:"#86868B",padding:"10px 0",textAlign:"center"}},hatAra.trim()?"Aramaya uygun kayıt yok.":hatBos[hatFiltre]),
-                hatListe.slice(0,hatLimit).map(ht=>{
+                (hatFiltre==="vade" ? hatGonderKartlari(hatListe.slice(0,hatLimit)) : hatListe.slice(0,hatLimit).map(ht=>{
                   const duzenleniyor = hatDuzenle && hatDuzenle.id===ht.id;
                   const durum = ht.gonderildi ? ["Gönderildi","#34A853"] : (ht.gonderiTarih<=bugunHat ? ["Vadesi geldi","#FF3B30"] : ["Yaklaşan","#0071E3"]);
                   return div({key:ht.id,style:{padding:"9px 0",borderBottom:"1px solid rgba(0,0,0,.05)"}},
@@ -25246,128 +25357,23 @@ if(DB) dbUpsertAyar("tema",tema);
                           onClick:()=>{
                             const g=hatDuzenle;
                             const gt = g.gonderildi ? (ht.gonderildiTarih||TODAY()) : null;
+                            if(!g.gonderildi && ht.gonderildi) waGunlukGeriAl(ht.id);
                             setHatirlatmalar(p=>p.map(x=>x.id===g.id?{...x,gonderiTarih:g.gonderiTarih,mesaj:g.mesaj,gonderildi:!!g.gonderildi,gonderildiTarih:gt}:x));
                             dbUpsert("hatirlatmalar",{...ht,gonderiTarih:g.gonderiTarih,mesaj:g.mesaj,gonderildi:!!g.gonderildi,gonderildiTarih:gt},"isletme_id,id");
-                            setHatDuzenle(null); showToast("Hatırlatma güncellendi ✓");
+                            setHatDuzenle(null);
+                            if(ht.gonderildi && !g.gonderildi){ setHatAra(""); setHatLimit(40); setHatFiltre((g.gonderiTarih||"")<=bugunHat?"vade":"yaklasan"); showToast("Geri alındı: "+((g.gonderiTarih||"")<=bugunHat?"Vadesi Gelen'e":"Yaklaşan'a")+" taşındı ✓"); }
+                            else showToast("Hatırlatma güncellendi ✓");
                           }},"Kaydet"),
                         btn({style:{background:"transparent",border:"1px solid var(--br)",borderRadius:8,color:"#86868B",fontSize:13,padding:"9px 14px",cursor:"pointer"},
                           onClick:()=>setHatDuzenle(null)},"İptal")
                       )
                     )
                   );
-                }),
+                })),
                 hatListe.length>hatLimit&&btn({type:"button",onClick:()=>setHatLimit(n=>n+40),style:{width:"100%",marginTop:8,padding:"9px",borderRadius:8,border:"1px solid rgba(0,113,227,.3)",background:"rgba(0,113,227,.06)",color:"#0071E3",fontSize:13,fontWeight:600,cursor:"pointer"}},"Daha fazla göster ("+(hatListe.length-hatLimit)+" kayıt daha)")
               )
             );
           })(),
-          // ── Hatırlatma Bildirimleri Banner ──
-          bekleyenHat.length>0&&div({style:{
-            background:"rgba(255,59,48,.06)",border:"1.5px solid rgba(255,59,48,.3)",
-            borderRadius:12,padding:14,marginBottom:14}},
-            div({style:{fontSize:12,color:"#FF3B30",letterSpacing:2,textTransform:"uppercase",marginBottom:10,fontWeight:700}},
-              "🔴 WhatsApp Hatırlatma ("+bekleyenHat.length+")"),
-            bekleyenHat.map(h2=>{
-              // Gönderim anında gerçek geçen günü hesapla ve mesajı güncelle.
-              // Referans, hatırlatmanın OLUŞTURULDUĞU tarih değil, mesaj içinde geçen SAÇ KESİM
-              // tarihidir (h2.hizmetTarihi varsa o, yoksa mesaj metninden geri okunur) — aksi halde
-              // yanlış (genelde daha kısa) bir süre hesaplanır. Ayrıca "Üzerinden" büyük Ü ile
-              // yazıldığı için regex büyük/küçük harf duyarsız olmalı, yoksa eşleşme hiç olmaz.
-              const tarihEslesme = String(h2.mesaj||"").match(/(\d{2})\.(\d{2})\.(\d{4}) tarihinde yapmıştık/);
-              const hizmetTarihiStr = h2.hizmetTarihi || (tarihEslesme ? tarihEslesme[3]+"-"+tarihEslesme[2]+"-"+tarihEslesme[1] : null);
-              const gunGuncelMesaj = () => {
-                let m = h2.mesaj||"";
-                if(hizmetTarihiStr){
-                  const bas = new Date(hizmetTarihiStr+"T12:00:00");
-                  const bugunD = new Date(TODAY()+"T12:00:00");
-                  const gercekGun = Math.max(1, Math.round((bugunD-bas)/(1000*60*60*24)));
-                  m = m.replace(/üzerinden \d+ gün/i,"Üzerinden "+gercekGun+" gün");
-                }
-                return m;
-              };
-              // Son ziyaretin "sonrası" fotoğrafı (yoksa öncesi) — hatırlatmaya eklenir
-              const sonFoto = musteriSonZiyaretFoto({tel:h2.tel, ad:h2.musteriAd, tarih:hizmetTarihiStr});
-              // Varsayılan: yalnızca ziyarette "müşteriye gönderilsin" onayı verildiyse eklenir. Fotoğraf yoksa mesaj aynen gider.
-              const _secim = hatFotoSecim[h2.id]!==undefined ? hatFotoSecim[h2.id] : waFotoSecimAl(h2.id);
-              const fotoEkli = !!(sonFoto && sonFoto.url) && (_secim!==undefined ? !!_secim : !!sonFoto.g);
-              const otoDurum = waHatDurum(h2);
-              const sablonNo = hatSablonSecim[h2.id]!==undefined ? hatSablonSecim[h2.id] : hatVarsayilanSablon(h2);
-              const _uretilen = hatMesajUret(h2, sablonNo, {hizmetTarihi:hizmetTarihiStr, isletmeAd:isletme?.ad, ustaAd:h2.staffAd});
-              const mesajMetni = _uretilen || gunGuncelMesaj();
-              // Fotoğraf satırını imzadan hemen önceye ekler
-              const fotoSatiriEkle = (m, ek) => { const i=m.lastIndexOf("\n\n"); return i>0 ? m.slice(0,i)+"\n\n"+ek+m.slice(i) : m+"\n\n"+ek; };
-              const gonderildiKaydet = () => { if(_uretilen) hatSonSablonKaydet(h2, sablonNo); };
-              const linkliFoto = fotoEkli && _fotoBulutUrlMi(sonFoto.url);
-              const gonderildiIsaretle = () => {
-                setHatirlatmalar(p=>p.map(x=>x.id===h2.id?{...x,gonderildi:true,gonderildiTarih:TODAY()}:x));
-                dbUpsert("hatirlatmalar",{...h2,gonderildi:true,gonderildiTarih:TODAY()},"isletme_id,id");
-              };
-              const telFmt = () => { const raw=String(h2.tel||"").replace(/[^0-9]/g,""); return raw.startsWith("90")?raw:raw.startsWith("0")?"90"+raw.slice(1):"90"+raw; };
-              // Paylaşım menüsü: onaylı fotoğraf varsa fotoğrafla, yoksa APRON logosuyla birlikte gönderir
-              const paylasimDestekli = typeof navigator!=="undefined" && !!navigator.share && !!navigator.canShare;
-              if(paylasimDestekli && fotoEkli) sonFoto.hepsi.forEach((x,i)=>paylasimDosyasi(x.u, "son-sac-kesimi-"+(i+1)));
-              return div({key:h2.id,style:{background:"var(--bg3)",borderRadius:9,padding:"10px 12px",marginBottom:8}},
-                div({style:{fontSize:15,color:"var(--tx)",fontWeight:500,marginBottom:4}},"💇 "+h2.musteriAd),
-                h2.tel&&div({style:{fontSize:13,color:"#5a7a9a",marginBottom:4}},"📞 "+h2.tel),
-                div({style:{fontSize:12,color:"var(--mu)",marginBottom:6}},"Hatırlatma: "+fmtT(h2.gonderiTarih)),
-                otoDurum&&div({style:{fontSize:12,fontWeight:600,color:otoDurum.renk,marginBottom:6,lineHeight:1.4}},otoDurum.metin),
-                div({style:{fontSize:13,color:"#7a9aba",background:"rgba(37,99,168,.05)",
-                  borderRadius:7,padding:"7px 9px",marginBottom:8,lineHeight:1.5,whiteSpace:"pre-line"}},
-                  fotoEkli ? fotoSatiriEkle(mesajMetni, HAT_FOTO_SATIRI) : mesajMetni
-                ),
-                _uretilen&&div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:-3,marginBottom:9}},
-                  div({style:{fontSize:11.5,color:"var(--mu)"}},"Mesaj "+(((sablonNo%HAT_SABLONLARI.length)+HAT_SABLONLARI.length)%HAT_SABLONLARI.length+1)+" / "+HAT_SABLONLARI.length),
-                  btn({type:"button",style:{padding:"5px 10px",borderRadius:8,border:"1px solid rgba(37,99,168,.3)",background:"rgba(37,99,168,.06)",color:"#2563a8",fontSize:12,fontWeight:600,cursor:"pointer"},
-                    onClick:()=>setHatSablonSecim(p=>({...p,[h2.id]:hatSonrakiSablon(h2, sablonNo)}))},"🔄 Başka metin")
-                ),
-                sonFoto&&sonFoto.url&&div({style:{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"8px 9px",borderRadius:8,
-                  background:fotoEkli?"rgba(37,99,168,.06)":"transparent",border:"1px solid "+(fotoEkli?"rgba(37,99,168,.2)":"var(--br)")}},
-                  h(FotoKutusu,{etiket:sonFoto.sonrasi?"Sonrası":"Öncesi",deger:{u:sonFoto.url,k:sonFoto.kucuk},duzenle:false,gen:54,onDegis:()=>{}}),
-                  div({style:{flex:1,minWidth:0}},
-                    div({style:{fontSize:12.5,fontWeight:600,color:"var(--tx)"}},"Son kesim"+(sonFoto.sonrasi?" (sonrası)":" (öncesi)")+" · "+sonFoto.hepsi.length+" fotoğraf"+(sonFoto.tarih?" · "+fmtT(sonFoto.tarih):"")),
-                    div({style:{fontSize:11.5,color:"var(--mu)",marginTop:2,lineHeight:1.4}},
-                      fotoEkli
-                        ? (linkliFoto ? "Mesaja fotoğraf bağlantısıyla eklenecek" : "Bu fotoğraf yalnızca bu cihazda — paylaşım menüsüyle gönderin")
-                        : (sonFoto.g ? "Mesaja eklenmeyecek" : "Müşteri onayı işaretlenmemiş — fotoğrafsız gönderilecek"))
-                  ),
-                  h("label",{style:{display:"flex",alignItems:"center",gap:5,fontSize:12,color:"var(--tx)",cursor:"pointer",flexShrink:0}},
-                    h("input",{type:"checkbox",checked:fotoEkli,onChange:e=>{ const kapali=!e.target.checked; setHatFotoSecim(p=>({...p,[h2.id]:!kapali})); waFotoSecimKaydet(h2.id, !kapali); }}),
-                    "Ekle")
-                ),
-                div({style:{display:"flex",gap:8,flexWrap:"wrap"}},
-                  h2.tel
-                    ?btn({style:{flex:1,minWidth:130,padding:"9px 0",borderRadius:8,
-                        background:"rgba(37,211,102,.12)",border:"1px solid rgba(37,211,102,.3)",
-                        color:"#25d366",fontSize:14,cursor:"pointer",
-                        display:"flex",alignItems:"center",justifyContent:"center",gap:6},
-                        onClick:async()=>{
-                          // Fotoğraf yalnızca bu cihazdaysa (bağlantısı yoksa) ancak paylaşım menüsüyle gönderilebilir
-                          if(fotoEkli && !linkliFoto && paylasimDestekli){
-                            const ok = await fotoIleMesajPaylas(sonFoto.hepsi.map(x=>x.u), fotoSatiriEkle(mesajMetni, HAT_FOTO_SATIRI));
-                            if(ok===true){ gonderildiKaydet(); gonderildiIsaretle(); showToast("Gönderildi olarak işaretlendi","ba"); }
-                            else if(ok===false) showToast("Bu cihaz fotoğraf paylaşımını desteklemiyor","uy");
-                            return;
-                          }
-                          // Müşterinin numarası seçili sohbet açılır. Fotoğraf eklendiyse fotoğraf bağlantısı, yoksa APRON logosu bağlantı önizlemesi olarak gider.
-                          const metin = linkliFoto ? fotoSatiriEkle(mesajMetni, HAT_FOTO_SATIRI+"\n"+sonFoto.url)
-                            : (hatOnizlemeVar ? hatImzasiz(mesajMetni)+"\n\n"+HAT_ONIZLEME_URL
-                              : (logoBulutUrl ? hatImzasiz(mesajMetni)+"\n\n"+logoBulutUrl : mesajMetni));
-                          window.open("https://wa.me/"+telFmt()+"?text="+encodeURIComponent(metin),"_blank");
-                          gonderildiKaydet();
-                          gonderildiIsaretle();
-                        }},
-                        "WhatsApp Mesajı Gönder")
-                    :div({style:{flex:1,padding:"9px 0",borderRadius:8,
-                        background:"rgba(160,40,40,.1)",border:"1px solid #1e3a3a",
-                        color:"#c05050",fontSize:13,textAlign:"center"}},"Telefon numarası yok"),
-                  btn({style:{padding:"9px 12px",borderRadius:8,
-                    background:"transparent",border:"1px solid var(--br)",
-                    color:"var(--di)",fontSize:13,cursor:"pointer"},
-                    onClick:gonderildiIsaretle},
-                    "Atla")
-                )
-              );
-            })
-          ),
           div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,gap:10}},
             div({style:{fontSize:15,fontWeight:700,color:"var(--tx)",letterSpacing:"-.2px"}},
               myMusterilerTum.length+" müşteri"),
