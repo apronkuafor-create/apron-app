@@ -1288,6 +1288,19 @@ const logoSeridiBulutUrl = async (kaynak) => {
 // Dosyalar uygulamanın GitHub Pages deposunda durur; hangisi yayındaysa o kullanılır (müşteriye açılmayan bağlantı gitmesin).
 const HAT_ONIZLEME_ADAYLAR = ["https://apronkuafor-create.github.io/apron-app/l.html","https://apronkuafor-create.github.io/apron-app/logo-serit.jpg"];
 // Logo zaten görselde olduğu için metnin sonundaki "APRON" imzası tekrar etmesin
+// WhatsApp'ı doğrudan uygulama bağlantısıyla açar (wa.me web sayfası PWA'da boş beyaz ekranda takılıyordu).
+// Uygulama açılmazsa (yüklü değil/masaüstü) kısa süre sonra wa.me'ye düşer.
+const waSohbetAc = (tel, metin) => {
+  const q = encodeURIComponent(metin), web = "https://wa.me/"+tel+"?text="+q;
+  const mobil = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent||"");
+  if(!mobil){ window.open(web,"_blank"); return; }
+  let gitti = false;
+  const iz = () => { if(document.hidden) gitti = true; };
+  document.addEventListener("visibilitychange", iz);
+  const a = document.createElement("a"); a.href = "whatsapp://send?phone="+tel+"&text="+q; a.style.display="none";
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ try{a.remove();}catch(e){} },500);
+  setTimeout(()=>{ document.removeEventListener("visibilitychange", iz); if(!gitti && !document.hidden) window.open(web,"_blank"); }, 1800);
+};
 const hatImzasiz = (m) => String(m||"").replace(/\n\n\*[^*\n]+\*\s*$/,"").replace(/\n\n(apron)\s*$/i,"");
 // Paylaşım menüsüyle fotoğrafı DOSYA olarak (tam kalite) + mesajla gönderir. true: gönderildi, null: vazgeçildi, false: desteklenmiyor
 // Paylaşılacak görselleri önceden dosyaya çevirip saklar: paylaşım menüsü telefonlarda yalnızca dokunuştan hemen
@@ -25031,7 +25044,7 @@ if(DB) dbUpsertAyar("tema",tema);
                           }
                           // Müşterinin numarası seçili sohbet açılır. Fotoğraf eklendiyse fotoğraf bağlantısı, yoksa APRON logosu bağlantı önizlemesi olarak gider.
                           const metin = linkliFoto ? fotoSatiriEkle(mesajMetni, HAT_FOTO_SATIRI+"\n"+sonFoto.url) : mesajMetni;
-                          window.open("https://wa.me/"+telFmt()+"?text="+encodeURIComponent(metin),"_blank");
+                          waSohbetAc(telFmt(), metin);
                           gonderildiKaydet();
                           gonderildiIsaretle();
                         }},
