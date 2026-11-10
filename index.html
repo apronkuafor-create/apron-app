@@ -19224,7 +19224,8 @@ function App() {
   const [donusKonum, setDonusKonum] = useState(null); // personel paneline geçince geldiğimiz yer (dönüşte buraya döneriz)
   const [hatYonetAcik, setHatYonetAcik] = useState(false); // "Hatırlatmalarım" yönet panelini aç/kapat
   const [hatDuzenle, setHatDuzenle] = useState(null); // düzenlenen hatırlatma {id,gonderiTarih,mesaj}
-  const [hatFiltre, setHatFiltre] = useState(null); // Hatırlatmalarım: null | toplam | vade | yaklasan | gonderilen (sayaca tıklayınca o grubun listesi açılır)
+  const [hatFiltre, setHatFiltre] = useState("toplam"); // Hatırlatmalarım: her zaman bir başlık açıktır: toplam | vade | yaklasan | gonderilen
+  const [hatEkle, setHatEkle] = useState(null);       // elle hatırlatma ekleme formu (null = kapalı)
   const [hatAra, setHatAra] = useState("");           // Hatırlatmalarım listesi araması (ad / telefon / e-posta)
   const [hatLimit, setHatLimit] = useState(40);       // listede gösterilen kayıt sayısı (uzun listelerde donmasın)
   const [stokSek, setStokSek]         = useState("liste"); // liste|giris|hareketler
@@ -25090,7 +25091,6 @@ if(DB) dbUpsertAyar("tema",tema);
           // ── Hatırlatma Özeti (bu personel için) ──
           (()=>{
             const myHat=(hatirlatmalar||[]).filter(h=>String(h.staffId)===String(kul.id));
-            if(myHat.length===0) return null;
             const tGonderildi=myHat.filter(h=>h.gonderildi).length;
             const tVade=myHat.filter(h=>!h.gonderildi&&h.gonderiTarih<=bugunHat).length;
             const tYaklasan=myHat.filter(h=>!h.gonderildi&&h.gonderiTarih>bugunHat).length;
@@ -25114,19 +25114,78 @@ if(DB) dbUpsertAyar("tema",tema);
               else if(hatFiltre==="toplam") hatListe.sort((a,b)=>((a.gonderildi?1:0)-(b.gonderildi?1:0))||((a.gonderiTarih||"").localeCompare(b.gonderiTarih||"")));
               else hatListe.sort((a,b)=>(a.gonderiTarih||"").localeCompare(b.gonderiTarih||""));
             }
-            const hatSec = k => { setHatDuzenle(null); setHatAra(""); setHatLimit(40); setHatFiltre(f=>f===k?null:k); };
+            const hatSec = k => { if(k===hatFiltre) return; setHatDuzenle(null); setHatAra(""); setHatLimit(40); setHatFiltre(k); };
+            // ── Elle hatırlatma ekleme ──
+            const hatMesajUret = (ad, hizT, gonT) => {
+              const gun = Math.max(1, Math.round((new Date((gonT||TODAY())+"T12:00:00") - new Date((hizT||TODAY())+"T12:00:00"))/86400000));
+              return "Merhaba Sayın "+(String(ad||"").trim()||"…")+", son saç kesiminizi "+fmtT(hizT||TODAY())+" tarihinde yapmıştık. Üzerinden "+gun+" gün geçti. Saç kesimi zamanınızın geldiğini hatırlatmak isteriz.\n\n*APRON*";
+            };
+            const hatEkleAc = () => { setHatDuzenle(null); const t=TODAY(); setHatEkle({ad:"",tel:"",hizT:t,gonT:t,mesaj:hatMesajUret("",t,t),mesajElle:false,ara:"",hata:""}); };
+            const hatEkleGuncelle = (yama) => setHatEkle(f=>{ if(!f) return f; const n={...f,...yama,hata:""}; if(!n.mesajElle) n.mesaj=hatMesajUret(n.ad,n.hizT,n.gonT); return n; });
+            const hatEkleKaydet = () => {
+              const f=hatEkle; if(!f) return;
+              const ad=String(f.ad||"").trim(), telR=String(f.tel||"").replace(/\D/g,"");
+              if(ad.length<2) return setHatEkle({...f,hata:"Müşteri adını yazın."});
+              if(telR.length<10) return setHatEkle({...f,hata:"Geçerli bir telefon numarası yazın (WhatsApp için gerekli)."});
+              if(!f.hizT||!f.gonT) return setHatEkle({...f,hata:"Tarihleri seçin."});
+              if(String(f.mesaj||"").trim().length<5) return setHatEkle({...f,hata:"Mesaj boş olamaz."});
+              const id = uid();
+              const yeni = {id, musteriAd:ad, tel:String(f.tel).trim(), staffId:kul.id, staffAd:kul.ad||"", olusturmaTarihi:TODAY(), hizmetTarihi:f.hizT,
+                gonderiTarih:f.gonT, gonderildi:false, tip:"sacKesimi", mesaj:f.mesaj, elle:true, olusturma:Date.now()};
+              const eskiVar = (hatirlatmalar||[]).some(x=>String(x.staffId)===String(kul.id) && normText(x.musteriAd)===normText(ad) && !x.gonderildi);
+              setHatirlatmalar(p=>{
+                (p||[]).filter(x=>String(x.staffId)===String(kul.id) && normText(x.musteriAd)===normText(ad) && !x.gonderildi).forEach(x=>dbSil("hatirlatmalar",x.id));
+                return [...(p||[]).filter(x=>!(String(x.staffId)===String(kul.id) && normText(x.musteriAd)===normText(ad) && !x.gonderildi)), yeni];
+              });
+              dbUpsert("hatirlatmalar", yeni, "isletme_id,id");
+              setHatEkle(null); setHatAra(""); setHatLimit(40); setHatFiltre(f.gonT<=bugunHat?"vade":"yaklasan");
+              showToast(eskiVar?"Hatırlatma eklendi (müşterinin önceki bekleyen hatırlatması yenisiyle değiştirildi)":"Hatırlatma eklendi ✓");
+            };
+            const hatEkleFormu = () => {
+              const f=hatEkle;
+              const oneriler = (f.ara||"").trim().length>=2 ? myMusterilerTum.filter(m=>musteriAramaEslesir(m,f.ara)).slice(0,5) : [];
+              const girdi = {className:"fi",style:{width:"100%",boxSizing:"border-box"}};
+              const etiket = t => div({style:{fontSize:12,color:"#86868B",fontWeight:600,margin:"10px 0 4px"}},t);
+              return div({style:{background:"#fff",border:"1px solid rgba(0,0,0,.1)",borderRadius:10,padding:12,marginBottom:12}},
+                div({style:{fontSize:13,fontWeight:700,color:"#1D1D1F",marginBottom:2}},"Yeni hatırlatma"),
+                etiket("Müşterilerimden seç (ad veya telefon)"),
+                h("input",{...girdi,type:"search",value:f.ara,placeholder:"Müşteri ara…",autoComplete:"off","aria-label":"Hatırlatma için müşteri seç",onChange:e=>setHatEkle({...f,ara:e.target.value})}),
+                oneriler.length>0&&div({style:{border:"1px solid rgba(0,0,0,.1)",borderRadius:8,marginTop:6,overflow:"hidden"}},
+                  oneriler.map(m=>{ const mt=musteriTam(m); const tl=mt.tel||((mt.telefonlar||[]).find(t=>t&&t.numara)||{}).numara||"";
+                    return btn({key:m.id,type:"button",onClick:()=>hatEkleGuncelle({ad:mt.ad||"",tel:tl,ara:""}),style:{display:"flex",width:"100%",justifyContent:"space-between",gap:8,padding:"9px 10px",background:"#fff",border:"none",borderBottom:"1px solid rgba(0,0,0,.06)",cursor:"pointer",textAlign:"left",fontSize:13.5,color:"#1D1D1F"}},
+                      h("span",null,mt.ad), h("span",{style:{color:"#86868B"}},tl)); })
+                ),
+                etiket("Müşteri adı"),
+                h("input",{...girdi,value:f.ad,placeholder:"Ad Soyad",autoComplete:"off",onChange:e=>hatEkleGuncelle({ad:e.target.value})}),
+                etiket("Telefon (WhatsApp)"),
+                h("input",{...girdi,type:"tel",inputMode:"tel",value:f.tel,placeholder:"05xx xxx xx xx",autoComplete:"off",onChange:e=>hatEkleGuncelle({tel:e.target.value})}),
+                div({style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
+                  div(null,etiket("Son saç kesimi tarihi"),h("input",{...girdi,type:"date",value:f.hizT,max:TODAY(),onChange:e=>hatEkleGuncelle({hizT:e.target.value})})),
+                  div(null,etiket("Gönderilecek tarih"),h("input",{...girdi,type:"date",value:f.gonT,onChange:e=>hatEkleGuncelle({gonT:e.target.value})}))
+                ),
+                etiket("Mesaj"),
+                h("textarea",{...girdi,rows:5,value:f.mesaj,style:{...girdi.style,resize:"vertical",fontFamily:"inherit",fontSize:13},onChange:e=>setHatEkle({...f,mesaj:e.target.value,mesajElle:true,hata:""})}),
+                f.mesajElle&&btn({type:"button",onClick:()=>hatEkleGuncelle({mesajElle:false}),style:{background:"none",border:"none",color:"#0071E3",fontSize:12,padding:"6px 0",cursor:"pointer",textDecoration:"underline"}},"Standart metni yeniden yaz"),
+                f.hata&&div({style:{marginTop:8,padding:"8px 10px",borderRadius:8,background:"rgba(255,59,48,.08)",border:"1px solid rgba(255,59,48,.3)",color:"#c0392b",fontSize:13}},f.hata),
+                div({style:{display:"flex",gap:8,marginTop:12}},
+                  btn({type:"button",onClick:hatEkleKaydet,style:{flex:1,background:"#0071E3",border:"none",borderRadius:8,color:"#fff",fontSize:14,fontWeight:600,padding:"10px",cursor:"pointer"}},"Kaydet"),
+                  btn({type:"button",onClick:()=>setHatEkle(null),style:{background:"transparent",border:"1px solid var(--br)",borderRadius:8,color:"#86868B",fontSize:14,padding:"10px 16px",cursor:"pointer"}},"Vazgeç")
+                )
+              );
+            };
             return div({style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.07)",borderRadius:14,padding:"13px 14px 11px",marginBottom:14,boxShadow:"0 1px 6px rgba(0,0,0,.05)"}},
               div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
                 div({style:{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"#86868B",fontWeight:600}},"🔔 Hatırlatmalarım"),
-                btn({style:{background:hatFiltre?"rgba(0,113,227,.12)":"transparent",border:"1px solid rgba(0,113,227,.3)",borderRadius:8,color:"#0071E3",fontSize:11.5,fontWeight:600,padding:"4px 10px",cursor:"pointer",whiteSpace:"nowrap"},
-                  onClick:()=>{ setHatDuzenle(null); setHatAra(""); setHatLimit(40); setHatFiltre(f=>f?null:"toplam"); }}, hatFiltre?"✕ Kapat":"⚙️ Yönet")
+                btn({type:"button",style:{background:hatEkle?"rgba(0,113,227,.12)":"transparent",border:"1px solid rgba(0,113,227,.3)",borderRadius:8,color:"#0071E3",fontSize:11.5,fontWeight:600,padding:"6px 10px",cursor:"pointer",whiteSpace:"nowrap",minHeight:32},
+                  onClick:()=>{ hatEkle?setHatEkle(null):hatEkleAc(); }}, hatEkle?"✕ Vazgeç":"＋ Hatırlatma Ekle")
               ),
+              hatEkle&&hatEkleFormu(),
               div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4}},
                 [["toplam","Toplam","#1D1D1F"],["vade","Vadesi Gelen","#FF3B30"],["yaklasan","Yaklaşan","#0071E3"],["gonderilen","Gönderilen","#34A853"]].map(([k,lb,c],i)=>{
                   const sec = hatFiltre===k;
                   return btn({key:k,type:"button","aria-pressed":sec,onClick:()=>hatSec(k),style:{textAlign:"center",padding:"6px 0",border:"none",borderLeft:i>0?"1px solid rgba(0,0,0,.08)":"none",cursor:"pointer",borderRadius:sec?8:0,background:sec?"rgba(0,113,227,.09)":"transparent",fontFamily:"inherit",minHeight:48}},
                     div({style:{fontSize:22,fontWeight:700,color:c,lineHeight:1,fontFamily:"Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif"}},String(hatSayi[k])),
-                    div({style:{fontSize:10,color:sec?"#0071E3":"#86868B",marginTop:4,letterSpacing:.2,fontWeight:sec?700:500}},lb+(sec?" ▲":" ▼"))
+                    div({style:{fontSize:10,color:sec?"#0071E3":"#86868B",marginTop:4,letterSpacing:.2,fontWeight:sec?700:500}},lb)
                   );
                 })
               ),
