@@ -15902,7 +15902,8 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
 }
 
 
-function KayitKarti({r, rvSaat, rvBos, onDetay, onDuzenle, onSil}) {
+function KayitKarti({r, rvSaat, rvBos, onDetay, onDuzenle, onSil, onBilgi, saltOkunur}) {
+  const bilgiBtn=(tip,var_)=>onBilgi&&var_&&h("span",{role:"button","aria-label":tip==="urun"?"Ürün detayı":"Hizmet detayı",onClick:e=>{e.stopPropagation();onBilgi(r,tip);},style:{display:"inline-flex",alignItems:"center",justifyContent:"center",width:15,height:15,marginLeft:4,borderRadius:"50%",border:"1.5px solid #0071E3",color:"#0071E3",fontSize:10,fontWeight:800,fontStyle:"italic",fontFamily:"Georgia,serif",lineHeight:1,cursor:"pointer",verticalAlign:"middle",background:"rgba(0,113,227,.08)"}},"i");
   const kk=(r.hizKK||0)+(r.uKK||0), ib=(r.hizIB||0)+(r.uIB||0), nk=(r.hizNK||0)+(r.uNK||0);
 
   const yoneticiTalepAktif = (kayitId) => yonBildirim.find(b =>
@@ -15999,12 +16000,12 @@ function KayitKarti({r, rvSaat, rvBos, onDetay, onDuzenle, onSil}) {
           div({style:dg},r.tarih?r.tarih.split("-").reverse().join("."):"—")
         ),
         div({style:{textAlign:"center"}},
-          div({style:{...et,whiteSpace:"nowrap"}},"Hiz.Tutarı"),
+          div({style:{...et,whiteSpace:"nowrap"}},"Hiz.Tutarı",bilgiBtn("hizmet",(r.hizler||[]).length>0)),
           div({style:dg},hizTop2>0?fmt(hizTop2):"—"),
           odemeTip(r.hizKK,r.hizIB,r.hizNK)
         ),
         div({style:{textAlign:"center"}},
-          div({style:{...et,whiteSpace:"nowrap"}},"Ürün Tutarı"),
+          div({style:{...et,whiteSpace:"nowrap"}},"Ürün Tutarı",bilgiBtn("urun",(r.urunler||[]).length>0)),
           div({style:dg},urunTop2>0?fmt(urunTop2):"—"),
           odemeTip(r.uKK,r.uIB,r.uNK)
         ),
@@ -16017,8 +16018,8 @@ function KayitKarti({r, rvSaat, rvBos, onDetay, onDuzenle, onSil}) {
     ),
     div({className:"kka"},
       btn({className:"kab",style:{color:"#0071E3",fontWeight:700},onClick:()=>onDetay(r)},"📋 Detay"),
-      btn({className:"kab",style:{color:"#1A7A34",fontWeight:700,borderLeft:"1px solid rgba(0,0,0,.05)",borderRight:"1px solid rgba(0,0,0,.05)"},onClick:()=>onDuzenle(r)},"✏️ Düzenle"),
-      btn({className:"kab",style:{color:"#FF3B30",fontWeight:700},onClick:()=>onSil(r.id)},"🗑️ Sil")
+      !saltOkunur&&btn({className:"kab",style:{color:"#1A7A34",fontWeight:700,borderLeft:"1px solid rgba(0,0,0,.05)",borderRight:"1px solid rgba(0,0,0,.05)"},onClick:()=>onDuzenle(r)},"✏️ Düzenle"),
+      !saltOkunur&&btn({className:"kab",style:{color:"#FF3B30",fontWeight:700},onClick:()=>onSil(r.id)},"🗑️ Sil")
     )
   );
 }
@@ -19002,6 +19003,8 @@ function App() {
   const [bugunAltSek, setBugunAltSek] = useState("kayit");
   // Hakediş modal state'leri
   const [hakedisAcik, setHakedisAcik]       = useState(false);  // ana detay modal
+  const [ozetTarih, setOzetTarih]             = useState("");     // Günlük Özetim takvimi: seçili gün ("" = bugünkü bekleyenler)
+  const [bilgiPen, setBilgiPen]               = useState(null);   // kart üzerindeki (i) → {r, tip:"urun"|"hizmet"}
   const [hakedisAltDetay, setHakedisAltDetay] = useState(null); // {tip:"brut"|"ibanHizmet"|"ibanUrun"|"avans"}
   const [hakedisPeriyot, setHakedisPeriyot] = useState("ay");   // "ay" | "yil"
   const [hakedisYil, setHakedisYil]         = useState(new Date().getFullYear());
@@ -23819,6 +23822,23 @@ if(DB) dbUpsertAyar("tema",tema);
     })(),
 
     // Detay modal
+    bilgiPen&&(()=>{
+      const r=bilgiPen.r, urun=bilgiPen.tip==="urun";
+      const liste=urun?(r.urunler||[]):(r.hizler||[]);
+      const tut=x=>urun?toN(x.sf||x.sp||0)*toN(x.qty||1):toN(x.f||0);
+      const top=urun?((r.uKK||0)+(r.uIB||0)+(r.uNK||0)):((r.hizKK||0)+(r.hizIB||0)+(r.hizNK||0));
+      return div({style:{position:"fixed",inset:0,zIndex:640,background:"rgba(0,0,0,.4)",display:"flex",alignItems:"flex-end",justifyContent:"center"},onClick:()=>setBilgiPen(null)},
+        div({onClick:e=>e.stopPropagation(),style:{background:"#fff",width:"100%",maxWidth:520,borderRadius:"20px 20px 0 0",boxShadow:"0 -8px 30px rgba(0,0,0,.2)",padding:"14px 16px max(18px, env(safe-area-inset-bottom))",maxHeight:"75vh",overflowY:"auto"}},
+          div({style:{fontSize:15,fontWeight:800,color:"var(--tx)"}},(r.musteri||"—")+" · "+(urun?"Satılan ürünler":"Yapılan hizmetler")),
+          div({style:{fontSize:12,color:"var(--di)",margin:"2px 0 8px"}},fmtT(r.tarih)+" · "+liste.length+" kalem"),
+          liste.map((x,i)=>div({key:i,style:{display:"grid",gridTemplateColumns:"1fr auto",gap:"2px 10px",padding:"9px 0",borderTop:"1px solid rgba(0,0,0,.07)"}},
+            div({style:{fontWeight:700,fontSize:13.5,color:"var(--tx)"}},urun?x.a:(x.n||x)),
+            tut(x)>0&&div({style:{textAlign:"right",fontWeight:800,color:"#1a56a8",fontSize:13.5}},fmt(tut(x))),
+            urun&&div({style:{fontFamily:"ui-monospace,monospace",fontSize:11,color:"#6b7280"}},"Barkod: "+(x.b||"—")+(x.m?" · "+x.m:"")),
+            urun&&div({style:{textAlign:"right",fontSize:11,color:"var(--di)"}},(x.qty||1)+" adet"))),
+          div({style:{display:"flex",justifyContent:"space-between",borderTop:"2px solid rgba(0,0,0,.1)",paddingTop:9,fontWeight:800,color:"var(--tx)"}},span(null,urun?"Ürün toplamı":"Hizmet toplamı"),span({style:{color:"#1a56a8"}},fmt(top))),
+          btn({onClick:()=>setBilgiPen(null),style:{marginTop:12,width:"100%",border:"none",background:"#EFEFEA",borderRadius:12,padding:10,fontWeight:700,fontSize:14,cursor:"pointer",color:"var(--tx)"}},"Kapat")));
+    })(),
     detay&&div({className:"ov",style:{zIndex:600}},
       div({className:"mod"},
         div({className:"mhd"},
@@ -25849,7 +25869,10 @@ if(DB) dbUpsertAyar("tema",tema);
           // gönderilmemiş ekstralar). Böylece geçmiş tarihli kayıt girilince de toplamı buraya yansır.
           const myRecords=records.filter(r=>r.staffId===kul.id&&!r.gonderildi);
           const seenIds=new Set(myBekleyen.map(r=>r.id));
-          const todayK=[...myBekleyen,...myRecords.filter(r=>!seenIds.has(r.id))].filter(r=>!rvBosOto(r));
+          const todayK0=[...myBekleyen,...myRecords.filter(r=>!seenIds.has(r.id))].filter(r=>!rvBosOto(r));
+          // Takvimden gün seçildiyse: o güne ait TÜM kayıtlar (gönderilmiş + bekleyen)
+          const secK = ozetTarih ? (()=>{ const m=new Map(); [...myBekleyen,...records.filter(r=>r.staffId===kul.id)].filter(r=>r.tarih===ozetTarih && !rvBosOto(r)).forEach(r=>{ if(!m.has(String(r.id))) m.set(String(r.id),r); }); return [...m.values()].sort((a,b)=>String(b.saat||"").localeCompare(String(a.saat||""))); })() : [];
+          const todayK = ozetTarih ? secK : todayK0;
           // K.K / IBAN / Nakit mini kırılım satırı — "Yeni Kayıt" alanındaki SVG ikonlarla
           const fmtP=v=>Number(v||0).toLocaleString("tr-TR");
           const svgKK=()=>h("svg",{width:13,height:13,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"},
@@ -25900,7 +25923,14 @@ if(DB) dbUpsertAyar("tema",tema);
           const ozetTarihler=Object.keys(ozetGrup).sort((a,b)=>(b||"").localeCompare(a||""));
           const cokTarih=ozetTarihler.length>1;
           return div({className:"gozetim"},
-            div({className:"gozetim-baslik"},"Günlük Özetim"),
+            div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:ozetTarih?4:0}},
+              div({className:"gozetim-baslik",style:{marginBottom:10}},"Günlük Özetim"),
+              div({style:{position:"relative",display:"flex",alignItems:"center",gap:5,background:ozetTarih?"#EAF3FF":"#fff",border:"1px solid "+(ozetTarih?"#0071E3":"rgba(0,0,0,.12)"),borderRadius:12,padding:"5px 10px",marginBottom:10,fontSize:12.5,fontWeight:700,color:"#1a56a8",boxShadow:"0 1px 3px rgba(0,0,0,.06)",whiteSpace:"nowrap"}},
+                h("span",{style:{fontSize:14}},"📅"),ozetTarih?fmtT(ozetTarih):"Takvim",
+                h("input",{className:"sekdate",type:"date",value:ozetTarih||TODAY(),max:TODAY(),"aria-label":"Tarih seç",onChange:e=>setOzetTarih(e.target.value===TODAY()?"":e.target.value),style:{position:"absolute",inset:0,width:"100%",height:"100%",opacity:0,cursor:"pointer"}}))),
+            ozetTarih&&div({style:{display:"flex",alignItems:"center",gap:8,margin:"0 0 10px",fontSize:12,color:"#5a5a5f"}},
+              span({style:{background:"rgba(0,113,227,.1)",color:"#0058B0",borderRadius:20,padding:"3px 10px",fontWeight:700}},secK.length+" işlem"),
+              btn({onClick:()=>setOzetTarih(""),style:{marginLeft:"auto",border:"none",background:"transparent",color:"#0071E3",fontWeight:700,fontSize:12,cursor:"pointer"}},"Bugüne dön")),
             (ozetTarihler.length===0
               ? ozetKart([])
               : ozetTarihler.map((t,ti)=>div({key:t,style:{marginBottom: ti<ozetTarihler.length-1?14:0}},
@@ -25934,10 +25964,14 @@ if(DB) dbUpsertAyar("tema",tema);
               ),
               !sekKisit("gunSonuGonder")&&btn({className:"gsbtn",onClick:()=>(setGsTarihler([...new Set(myBekleyenGonder.map(r=>r.tarih||""))]),setGsOnay(true))},"Gönder")
             ),
-            div({className:"sek"},"Kayıtlarım"),
-            myBekleyen.length===0
+            div({className:"sek"},ozetTarih?fmtT(ozetTarih)+" Kayıtları":"Kayıtlarım"),
+            ozetTarih
+              ? (secK.length===0
+                  ?div({className:"bos"},div({style:{fontSize:42,marginBottom:9}},"📋"),div({style:{fontSize:12,letterSpacing:2,marginTop:4}},"BU GÜN İÇİN KAYIT YOK"))
+                  :secK.map(r=>h(KayitKarti,{r,key:r.id,rvSaat:"",rvBos:false,saltOkunur:!!r.gonderildi,onBilgi:(rr,tip)=>setBilgiPen({r:rr,tip}),onDetay:rr=>setDetay(rr.gonderildi?{...rr,_saltOkunur:true}:rr),onDuzenle:rr=>setKayitForm(rr),onSil:setSilOnay})))
+              : myBekleyen.length===0
               ?div({className:"bos"},div({style:{fontSize:42,marginBottom:9}},"📋"),div({style:{fontSize:12,letterSpacing:2,marginTop:4}},"HENÜZ KAYIT YOK"))
-              :myBekleyen.map(r=>{ const _rv=rvBenim.find(x=>String(x.kayitId)===String(r.id)); return h(KayitKarti,{r,key:r.id,rvSaat:_rv?_rv.saat:"",rvBos:rvBosOto(r),onDetay:setDetay,onDuzenle:r=>setKayitForm(r),onSil:setSilOnay}); })
+              :myBekleyen.map(r=>{ const _rv=rvBenim.find(x=>String(x.kayitId)===String(r.id)); return h(KayitKarti,{r,key:r.id,rvSaat:_rv?_rv.saat:"",rvBos:rvBosOto(r),onBilgi:(rr,tip)=>setBilgiPen({r:rr,tip}),onDetay:setDetay,onDuzenle:r=>setKayitForm(r),onSil:setSilOnay}); })
           );
         })(),
 
