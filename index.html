@@ -265,6 +265,45 @@ async function urunResmiYukle(barkod, file) {
   const { data: urlData } = DB.storage.from("urun-resimleri").getPublicUrl(dosyaAdi);
   return urlData?.publicUrl || "";
 }
+// ── Marka sitesinden ürün görseli + açıklaması çekme ──
+// Morgan's için hazır paket (morganspomade.com.tr, barkod → görseller/açıklama); diğer markalar için
+// Supabase'e yayınlanan "urun-bilgi-cek" fonksiyonu kullanılır (tarayıcı başka siteleri doğrudan okuyamaz).
+const BILGI_CEK_URL = "https://txbvqwcwarpkwvvhxdoo.supabase.co/functions/v1/urun-bilgi-cek";
+const MARKA_SITE_VARSAYILAN = {"Morgan's":"https://morganspomade.com.tr"};
+const HAZIR_PAKET = {"5012521541813":{"g":["https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/7d830533-88bd-416d-967e-7881c5b085d7/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/d204695d-853b-4386-974b-5570be8f359a/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/a02f7759-8b90-49cf-974e-4023fd68834f/image_3840.webp"],"t":"- Bay Rum kokusunu klasik berber bakımıyla birleştiren canlandırıcı saç toniği\n- Saç derisini ferahlatır, saçı yatıştırıp düzen kazandırır\n- Hafif şekillendirme etkisi; günlük kullanıma uygun\n- Tüm saç tipleri için, vegan formül\n- Hayvanlar üzerinde test edilmemiştir; İngiltere'de üretilir (marka 1873'ten beri)","k":"https://morganspomade.com.tr/canlandirici-sac-bakim-tonigi-250-ml"},"5012521541943":{"g":["https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/52b9af61-a31f-4bd9-939c-bcd378551fbd/1080/buyuk-4-glazing-hair-tonic.jpg"],"t":"- Saça parlaklık ve yumuşaklık kazandırır\n- Hafif şekillendirme etkisi, doğal görünüm\n- Baharatlı, sıcak ve vintage karakterli koku\n- Tüm saç tiplerine uygun, günlük kullanım\n- Hayvanlar üzerinde test edilmemiştir; İngiltere'de üretilir","k":"https://morganspomade.com.tr/parlatici-ve-yumusatici-sac-tonigi-250-ml"},"5012521541820":{"g":["https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/1870d075-8fdb-42c2-8266-ece6cad623e9/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/626b4eed-c1a9-4d06-a358-6e12f0402045/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/e9345253-45d9-400b-8ad0-8de21d449734/image_3840.webp"],"t":"- Mentol ile saç derisinde ferahlatıcı, serinletici his\n- Saç köklerini canlandırmaya yardımcı olur\n- Saça düzen kazandırır, şekillendirmeyi kolaylaştırır\n- Bitkisel özler içerir; mentol ve okaliptüs kokulu\n- Vegan formül; hayvanlar üzerinde test edilmemiştir","k":"https://morganspomade.com.tr/menthol-cooling-hair-tonic-mentollu-ferahlatici-sac-tonigi-250-ml"},"5012521540106":{"g":["https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/9cda06a1-e003-4508-a2b9-3387b75c0c87/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/8425e4f7-8b61-49cd-be95-56b871feb2bb/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/705a6485-8f6a-44ad-930d-a79a2ddbed8c/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/83ebdc66-739c-429a-b0ab-2b88fbc4a707/image_3840.webp"],"t":"- Tahriş olmuş, kuru ve kaşıntılı saç derisi için durulama gerektirmeyen krem\n- Serinletici ve yatıştırıcı etki\n- E vitamini bakımından zengin; saç derisini nemlendirir ve besler\n- Ferahlatıcı koku; geri dönüştürülebilir cam kavanoz\n- Hayvanlar üzerinde test edilmemiştir; İngiltere'de üretilir","k":"https://morganspomade.com.tr/cooling-scalp-egzama-kepek-karsiti-bas-derisi-tedavisi-100-gr"},"5012521541868":{"g":["https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/0cd40ca7-2595-41a4-a507-f4c4bb71a7e9/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/af0ae9f3-bd58-46a0-9acf-7365163e4918/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/52a031c5-56d4-4f3b-9fad-70d281eb848e/image_3840.webp"],"t":"- Sert tutuş (4 üzerinden 3), tamamen mat bitiş\n- Kremsi yapı; dağınık, doğal görünümlü stiller için\n- Doğal balmumu içerir; saça doku verir ve yumuşatır\n- Kalıntı bırakmaz, tek yıkamada temizlenir\n- Tüm saç tiplerine uygun; koku: bergamot, yasemin, sandal ağacı, paçuli\n- Hayvanlar üzerinde test edilmemiştir; İngiltere'de üretilir","k":"https://morganspomade.com.tr/matt-clay-guclu-tutus-saglayan-sekillendirici-kil-120-ml"},"5012521541998":{"g":["https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/d2438a03-503d-42cb-8178-1d408c19baa9/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/0f621e65-537f-4f0a-83ff-2bae29b2dbfb/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/b545161f-4fd9-482e-9e2f-81db85838c25/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/6c287e0b-7eb4-47e0-8224-f1d11480962c/image_3840.webp"],"t":"- Kuru saça doku veren, ekstra sert tutuşlu (4/4) şekillendirici kil\n- Mat bitiş, parlama yok\n- Özellikle kalın ve inatçı saçlara doku ve hacim verir\n- Şekillendirirken saçı bakımlar\n- Koku: bergamot, yasemin, sandal ağacı, paçuli\n- İngiltere'de üretilir; hayvanlar üzerinde test edilmemiştir","k":"https://morganspomade.com.tr/texture-clay---kuru-saca-doku-veren-mat-bitisli-sekillendirici-kil-120-ml"},"5012521542353":{"g":["https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/0ca41be5-a49b-424a-8ce1-6b45ea1388b9/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/cf298183-0166-40ed-9b68-9aab88913996/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/23d4480c-e16d-47cd-a0cc-79d9b68fb7d4/image_3840.webp"],"t":"- Kremsi, mat şekillendirici; doğal ve hareketli görünüm\n- Orta tutuş (4 üzerinden 2)\n- Şekillendirirken saçı nemlendirir ve yumuşatır\n- Parlamayan, sağlıklı görünümlü mat bitiş\n- Ferahlatıcı narenciye kokusu; orta boy saçlara uygun\n- İngiltere'de üretilir; hayvanlar üzerinde test edilmemiştir","k":"https://morganspomade.com.tr/matt-paste-brazilian-orange-mat-orta-tutuslu-sac-sekillendirme-kremi-120-ml"},"5012521541851":{"g":["https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/118b291a-d43d-40bd-b17b-17502a5afa78/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/e4eff655-11c2-4d60-8372-4240f4ebc05f/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/73034944-c295-41bc-8e41-93511784eb5c/image_3840.webp"],"t":"- Orta tutuşlu (4 üzerinden 2) şekillendirici krem\n- Parlamayan, doğal mat görünüm\n- Doğal balmumu sayesinde saçı yumuşatır ve nemlendirir\n- Kremsi dokusu kolay uygulanır; hacim ve doğal stiller oluşturur\n- Orta boy saçlar için; Morgan's imza kokusu (bergamot, yasemin, sandal ağacı, paçuli)","k":"https://morganspomade.com.tr/matt-paste-styling-cream-mat-bitis-sekillendirici-krem-120-ml"},"5012521541882":{"g":["https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/1a897fb9-99f1-49b9-9b0f-be904d8c7b90/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/47ecd473-ec71-45c7-aa05-796b15ec736d/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/40695fc7-8e6a-4415-a603-3af00e358f4b/image_3840.webp"],"t":"- Plajdan çıkmış gibi doğal, dalgalı görünüm\n- Hafif-orta tutuş (2/4), mat ve doğal bitiş\n- Saça ağırlık vermeden doku ve hacim kazandırır\n- UV filtresi içerir\n- Tüm saç tiplerine uygun; vegan formül\n- Tek başına veya fön öncesi ön şekillendirici olarak kullanılır","k":"https://morganspomade.com.tr/sea-salt-spray-deniz-tuzu-spreyi-100-ml"},"5012521541875":{"g":["https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/955af090-8d21-40ae-b53c-4c8f08eaec2e/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/ae05da0f-1d9d-4a9a-b972-c7c2967e4a19/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/2a961b32-74f5-485a-9862-f289747879b3/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/4ad582c4-264e-4cd3-bd67-e28813c93472/image_3840.webp"],"t":"- Su bazlı pomat; sert tutuş (4 üzerinden 3)\n- Mat, düşük parlaklıkta doğal görünüm\n- Lanolin ve hint yağı saçı yumuşatır, nemlendirir\n- Taze narenciye (Brezilya portakalı) kokusu\n- Vegan formül; tek yıkamada kolay temizlenir\n- İngiltere'de üretilir (1873'ten beri); hayvanlar üzerinde test edilmemiştir","k":"https://morganspomade.com.tr/mat-sac-sekillendirici-pomad-green-label-100-gr"},"5012521539216":{"g":["https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/f606e0f4-74f4-4cf7-8bbe-f1a2a2557f63/3840/image-10804.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/5bb6e342-359d-45d1-86a6-debb81d33c11/image_3840.webp"],"t":"- Sert tutuş (3/4), düşük parlaklıkta mat görünüm\n- Şekillendirirken saça bakım yapar; lanolin yumuşatıp nemlendirir, Bay Rum özü saç derisini canlandırır\n- Bay Rum kokusu (Jamaika romu, defne yaprağı, Karayip baharatları)\n- Su bazlı; tek yıkamada kolay temizlenir\n- İngiltere'de üretilir; hayvanlar üzerinde test edilmez","k":"https://morganspomade.com.tr/sert-tutuslu-mat-pomad-black-new-label-100-gr"},"5012521541349":{"g":["https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/efb9bee4-701c-4eb7-9b07-7c503be510a4/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/b70ddf04-095f-43cc-94d9-32b4cf14fb5d/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/ffb979f1-7985-4c61-b0c9-d0b6f3c0dbf7/3840/fghjklsm.webp"],"t":"- Kısa ve orta uzunluktaki saçlar için orta tutuşlu, su bazlı pomat\n- Orta parlaklık ve doğal, abartısız bitiş\n- Tek yıkamada temizlenir, yağlı kalıntı bırakmaz\n- Lanolin ve hint yağı saçı yumuşatır ve nemlendirir\n- İmza kokusu: bergamot, yasemin, sandal ağacı, paçuli\n- Vegan; hayvanlar üzerinde test edilmemiştir","k":"https://morganspomade.com.tr/parlaklik-veren-sekillendirici-pomad-red-label-100-gr"},"5012521543213":{"g":["https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/567b0648-9505-4005-a788-9662cb54b258/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/3b121ce8-84e3-42dc-b553-13e10beb3337/image_3840.webp","https://cdn.myikas.com/images/8fef9e85-0b9e-4174-a4f1-4703bef91aa6/2f57f0bc-3e2d-47f3-9fee-3e76500f01af/image_3840.webp"],"t":"- Kalıcı sert tutuş (3/4), doğal parlak görünüm\n- Su bazlı formül; tek yıkamada kolay temizlenir\n- Keratin, amino asit ve argan yağı ile şekillendirirken bakım yapar\n- Sıcak, odunsu Oudh ve kehribar kokusu\n- Vegan; İngiltere'de üretilir; hayvanlar üzerinde test edilmez","k":"https://morganspomade.com.tr/sekillendirici-pomad-gold-label-100-gr"}};
+const _mkAnahtar = (m) => String(m||"").toLowerCase().replace(/[^a-z0-9ğüşıöç]/g,"");
+const markaSiteAl = (marka) => ((_wa[LISTE_SIRA_ID]||{}).markaSiteleri||{})[marka] || Object.entries(MARKA_SITE_VARSAYILAN).find(([k])=>_mkAnahtar(k)===_mkAnahtar(marka))?.[1] || "";
+const markaSiteKaydet = (marka, adres) => {
+  const m = {...((_wa[LISTE_SIRA_ID]||{}).markaSiteleri||{})};
+  if(adres) m[marka]=adres; else delete m[marka];
+  menuSiraKaydet("markaSiteleri", m);
+};
+async function dbToken(){ const { data } = await DB.auth.getSession(); return data?.session?.access_token || ""; }
+async function urunBilgiCek(u, sayfa) {
+  const hz = !sayfa && HAZIR_PAKET[u.b];
+  if (hz) return { sayfa:hz.k, gorseller:hz.g.slice(), aciklama:hz.t, hazir:true };
+  const token = await dbToken();
+  if (!token) return { hata:"Oturum bulunamadı, lütfen tekrar giriş yapın." };
+  try {
+    const r = await fetch(BILGI_CEK_URL, { method:"POST", headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
+      body: JSON.stringify({ site:markaSiteAl(u.m), ad:u.a, barkod:u.b, marka:u.m, sayfa:sayfa||undefined }) });
+    if (r.status===404) return { hata:"Bilgi çekme fonksiyonu henüz yayınlanmamış (urun-bilgi-cek). Kurulum adımlarına bakın." };
+    const v = await r.json().catch(()=>null);
+    return v || { hata:"Sunucudan geçersiz cevap geldi" };
+  } catch(e) { return { hata:"Bağlantı hatası" }; }
+}
+// Seçilen görseli depoya kaydeder (önce doğrudan, olmazsa fonksiyon üzerinden); olmazsa adresin kendisini kullanır.
+async function uzakResmiYukle(barkod, url) {
+  const blobDene = async (blob) => urunResmiYukle(barkod, new File([blob], "u.jpg", {type:blob.type||"image/jpeg"}));
+  try { const r = await fetch(url); if(r.ok) return await blobDene(await r.blob()); } catch(e) {}
+  try {
+    const token = await dbToken();
+    const r = await fetch(BILGI_CEK_URL, { method:"POST", headers:{"Content-Type":"application/json","Authorization":"Bearer "+token}, body:JSON.stringify({gorselIndir:url}) });
+    const v = await r.json();
+    if(v && v.base64){ const bin=atob(v.base64); const a=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) a[i]=bin.charCodeAt(i); return await blobDene(new Blob([a],{type:v.tip||"image/jpeg"})); }
+  } catch(e) {}
+  return url;
+}
 // Ürünün resmini gösterir; resim yoksa küçük bir simge kutusu gösterir.
 // Resme tıklanınca orjinal boyutlu büyük önizleme modalı açılır (uygulama genelinde tutarlı — tek yerden yönetilir).
 function UrunResmi({barkod, boyut=40, radius=8}) {
@@ -19330,6 +19369,7 @@ function App() {
   const [yeniHizFiyat, setYeniHizFiyat] = useState("");
   const [urunDuzId, setUrunDuzId]     = useState(null);
   const [urunResimYukleniyor, setUrunResimYukleniyor] = useState(false);
+  const [bilgiM, setBilgiM] = useState(null); // Marka sitesinden çek penceresi
   const [urunDuzData, setUrunDuzData] = useState(null);
   const [adOneriGizli, setAdOneriGizli] = useState(false); // Ürün Adı öneri kutusu manuel kapatıldı mı
   const [ekMarkalar, setEkMarkalar]   = useState([]);
@@ -30366,6 +30406,7 @@ if(DB) dbUpsertAyar("tema",tema);
       if(mevcut && !window.confirm("\""+mevcut+"\" markası zaten var. \""+eski+"\" markasındaki "+n+" ürün bu markaya taşınacak (iki marka birleşir). Devam edilsin mi?")) return;
       URUN_DB.forEach(u=>{ if(u.m===eski) u.m=hedef; });
       MARKALAR.length=0; MARKALAR.push(...new Set(URUN_DB.map(u=>u.m)));
+      { const ms=(_wa[LISTE_SIRA_ID]||{}).markaSiteleri||{}; if(ms[eski] && !ms[hedef]) markaSiteKaydet(hedef, ms[eski]); if(ms[eski]) markaSiteKaydet(eski, ""); }
       setEkMarkalar(p=>[...new Set(p.map(m=>m===eski?hedef:m))]);
       const sira = (_wa[LISTE_SIRA_ID]||{}).urunMarkalari;
       if(Array.isArray(sira) && sira.includes(eski)) menuSiraKaydet("urunMarkalari", [...new Set(sira.map(m=>m===eski?hedef:m))]);
@@ -30377,11 +30418,108 @@ if(DB) dbUpsertAyar("tema",tema);
     const markaAdBtn = (marka) => btn({style:{fontSize:11,padding:"3px 9px",borderRadius:6,border:"1px solid var(--br)",
       background:"transparent",color:"var(--mu)",cursor:"pointer",fontWeight:600},
       onClick:e=>{e.stopPropagation();markaAdiDegistir(marka);}},"✏️ Adı Değiştir");
+    // ── Marka sitesinden görsel + açıklama çekme ──
+    const bilgiAc = async (u, form, kuyruk, sayfa) => {
+      setBilgiM({u, form, kuyruk:kuyruk||[], durum:"yukleniyor", gorseller:[], aciklama:"", sec:-1, adr:sayfa||"", aciklamaUygula:true});
+      const r = await urunBilgiCek(u, sayfa);
+      setBilgiM(p=> (p && p.u.b===u.b) ? (r.hata
+        ? {...p, durum:"hata", hata:r.hata}
+        : {...p, durum:"hazir", hata:"", gorseller:r.gorseller||[], aciklama:r.aciklama||"", sayfa:r.sayfa||"", sec:(r.gorseller&&r.gorseller.length)?0:-1}) : p);
+    };
+    const bilgiSonraki = (kuyruk) => {
+      const k = (kuyruk||[]).slice(); let u=null;
+      while(k.length && !u){ const b=k.shift(); u=URUN_DB.find(x=>x.b===b)||null; }
+      if(!u){ setBilgiM(null); showToast("Sıradaki ürün kalmadı"); return; }
+      bilgiAc(u,false,k);
+    };
+    const bilgiUygula = async () => {
+      const m = bilgiM; if(!m) return;
+      setBilgiM({...m, durum:"kaydediyor"});
+      let url = null;
+      try{ if(m.sec>=0) url = await uzakResmiYukle(m.u.b||"urun", m.gorseller[m.sec]); }catch(e){ url=null; }
+      const alan = {};
+      if(url) alan.img = url;
+      if(m.aciklamaUygula && (m.aciklama||"").trim()) alan.aciklama = m.aciklama.trim();
+      if(m.form) setUrunDuzData(p=>({...p,...alan}));
+      else { const i=URUN_DB.findIndex(x=>x.b===m.u.b); if(i>=0){ URUN_DB[i]={...URUN_DB[i],...alan}; triggerUrunRender(); } }
+      showToast(m.form ? "Forma eklendi — Kaydet'e basmayı unutmayın" : "Ürüne eklendi");
+      if(m.kuyruk.length) bilgiSonraki(m.kuyruk); else setBilgiM(null);
+    };
+    const bilgiPencere = () => {
+      const m = bilgiM; if(!m) return null;
+      const yuk = m.durum==="yukleniyor" || m.durum==="kaydediyor";
+      return ReactDOM.createPortal(
+        div({style:{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:100000,display:"flex",alignItems:"center",justifyContent:"center",padding:12},
+          onClick:e=>{ if(e.target===e.currentTarget && !yuk) setBilgiM(null); }},
+          div({style:{background:"var(--bg2)",border:"1px solid var(--br)",borderRadius:16,width:"100%",maxWidth:520,maxHeight:"92vh",overflowY:"auto",padding:16}},
+            div({style:{fontSize:15,fontWeight:700,color:"var(--tx)",marginBottom:2}},"🌐 Marka sitesinden çek"),
+            div({style:{fontSize:12,color:"var(--mu)",marginBottom:12}},(m.u.a||"")+(m.kuyruk.length?" · sırada "+m.kuyruk.length+" ürün daha":"")),
+            m.durum==="yukleniyor" && div({style:{padding:"26px 0",textAlign:"center",color:"var(--mu)",fontSize:13}},"⏳ Marka sitesinde aranıyor..."),
+            m.durum==="kaydediyor" && div({style:{padding:"26px 0",textAlign:"center",color:"var(--mu)",fontSize:13}},"⏳ Görsel kaydediliyor..."),
+            m.durum==="hata" && div({style:{padding:"10px 12px",background:"rgba(255,59,48,.08)",border:"1px solid rgba(255,59,48,.25)",borderRadius:10,color:"#FF3B30",fontSize:12.5,lineHeight:1.5,marginBottom:10}},m.hata),
+            m.durum==="hazir" && div(null,
+              m.gorseller.length>0
+                ? div(null,
+                    div({style:{fontSize:11,color:"var(--mu)",marginBottom:6}},"Ürün görseli olarak kullanılacak olanı seçin ("+m.gorseller.length+" görsel bulundu):"),
+                    div({style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(96px,1fr))",gap:8,marginBottom:8}},
+                      m.gorseller.map((g,gi)=>div({key:gi,onClick:()=>setBilgiM(p=>({...p,sec:gi})),
+                        style:{position:"relative",borderRadius:10,overflow:"hidden",cursor:"pointer",aspectRatio:"1/1",background:"var(--bg3)",
+                          border:m.sec===gi?"3px solid #34C759":"1px solid var(--br)"}},
+                        img({src:g,loading:"lazy",referrerPolicy:"no-referrer",style:{width:"100%",height:"100%",objectFit:"cover",display:"block"},
+                          onError:e=>{e.currentTarget.style.opacity=.15;}}),
+                        m.sec===gi && div({style:{position:"absolute",top:4,right:4,background:"#34C759",color:"#fff",borderRadius:99,width:20,height:20,fontSize:12,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}},"✓")
+                      ))
+                    ),
+                    div({style:{marginBottom:12}}, btn({style:{fontSize:11.5,padding:"4px 10px",borderRadius:8,border:"1px solid var(--br)",background:m.sec===-1?"rgba(37,99,168,.12)":"transparent",color:"var(--mu)",cursor:"pointer"},
+                      onClick:()=>setBilgiM(p=>({...p,sec:-1}))},"Görseli değiştirme"))
+                  )
+                : div({style:{fontSize:12.5,color:"var(--mu)",marginBottom:10}},"Bu sayfada görsel bulunamadı."),
+              div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}},
+                lbl({className:"fl",style:{margin:0}},"Açıklama"),
+                h("label",{style:{fontSize:11.5,color:"var(--mu)",display:"flex",alignItems:"center",gap:5,cursor:"pointer"}},
+                  h("input",{type:"checkbox",checked:!!m.aciklamaUygula,onChange:e=>setBilgiM(p=>({...p,aciklamaUygula:e.target.checked}))}),"Uygula")),
+              h("textarea",{className:"fi",rows:6,value:m.aciklama,style:{resize:"vertical",marginBottom:6,fontSize:13},
+                onChange:e=>setBilgiM(p=>({...p,aciklama:e.target.value}))}),
+              m.sayfa && div({style:{fontSize:11,color:"var(--mu)",marginBottom:10,wordBreak:"break-all"}},"Kaynak: ",
+                h("a",{href:m.sayfa,target:"_blank",rel:"noopener noreferrer",style:{color:"var(--g)"}},m.sayfa))
+            ),
+            (m.durum==="hata"||m.durum==="hazir") && div({style:{marginBottom:12}},
+              div({style:{fontSize:11,color:"var(--mu)",marginBottom:4}},"Yanlış ürün çıktıysa markanın ürün sayfası adresini yapıştırıp tekrar deneyin:"),
+              div({style:{display:"flex",gap:6}},
+                inp({className:"fi",placeholder:"https://...",value:m.adr||"",style:{flex:1,fontSize:13},onChange:e=>setBilgiM(p=>({...p,adr:e.target.value}))}),
+                btn({style:{padding:"0 12px",borderRadius:9,border:"1px solid rgba(37,99,168,.3)",background:"rgba(37,99,168,.08)",color:"var(--g)",fontWeight:600,fontSize:12.5,cursor:"pointer"},
+                  disabled:!(m.adr||"").trim().startsWith("http"),
+                  onClick:()=>bilgiAc(m.u,m.form,m.kuyruk,(m.adr||"").trim())},"Dene"))
+            ),
+            div({className:"btn-r"},
+              btn({className:"btn-i",disabled:yuk,onClick:()=>setBilgiM(null)},"Kapat"),
+              m.kuyruk.length>0 && btn({className:"btn-i",disabled:yuk,onClick:()=>bilgiSonraki(m.kuyruk)},"Atla →"),
+              m.durum==="hazir" && btn({className:"btn-k",onClick:bilgiUygula},m.kuyruk.length?"Uygula ve sonraki":"Uygula")
+            )
+          )
+        ), document.body);
+    };
+    const markaWebSatiri = (marka, mUrunler) => {
+      const adres = markaSiteAl(marka);
+      const eksik = mUrunler.filter(u=>!u.img || !u.aciklama).map(u=>u.b);
+      return div({style:{display:"flex",alignItems:"center",flexWrap:"wrap",gap:6,marginBottom:8,fontSize:11.5,color:"var(--mu)"}},
+        div({style:{flex:"1 1 160px",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},"🌐 "+(adres||"Web sitesi girilmedi")),
+        btn({style:{fontSize:11,padding:"3px 9px",borderRadius:6,border:"1px solid var(--br)",background:"transparent",color:"var(--mu)",cursor:"pointer",fontWeight:600},
+          onClick:e=>{e.stopPropagation(); const v=window.prompt("\""+marka+"\" markasının web sitesi adresi:",adres||"https://"); if(v===null) return;
+            const t=v.trim().replace(/\/+$/,""); if(t && !/^https?:\/\//i.test(t)){ showToast("Adres http:// veya https:// ile başlamalı","uy"); return; }
+            markaSiteKaydet(marka, t==="https://"?"":t); triggerUrunRender();}},adres?"✏️ Site":"➕ Site Ekle"),
+        btn({style:{fontSize:11,padding:"3px 9px",borderRadius:6,border:"1px solid rgba(37,99,168,.3)",background:"rgba(37,99,168,.08)",color:"var(--g)",cursor:eksik.length?"pointer":"default",fontWeight:600,opacity:eksik.length?1:.5},
+          disabled:!eksik.length,
+          onClick:e=>{e.stopPropagation(); if(!adres && !mUrunler.some(u=>HAZIR_PAKET[u.b])){ showToast("Önce markanın web sitesi adresini ekleyin","uy"); return; } bilgiSonraki(eksik);}},
+          eksik.length?"📥 Bilgileri çek ("+eksik.length+" ürün)":"✓ Hepsinde görsel+açıklama var")
+      );
+    };
     const _uQ = (urunListeArama||"").trim();
     const _uOneri = _uQ.length>=2
       ? URUN_DB.filter(u=>{ const q=normText(_uQ); return normText(u.a).includes(q)||u.b.includes(_uQ); }).slice(0,8)
       : [];
     return div(null,
+    bilgiPencere(),
     // Arama kutusu
     div({style:{position:"relative",marginBottom:12,marginTop:6}},
       div({style:{position:"relative"}},
@@ -30505,6 +30643,10 @@ if(DB) dbUpsertAyar("tema",tema);
                   )
                 )
               ),
+              btn({style:{width:"100%",marginBottom:14,padding:"10px 12px",borderRadius:10,border:"1px solid rgba(37,99,168,.3)",background:"rgba(37,99,168,.08)",color:"var(--g)",fontWeight:600,fontSize:13,cursor:"pointer"},
+                disabled:!(urunDuzData.a||"").trim(),
+                onClick:()=>bilgiAc({b:(urunDuzData.b||"").trim(),a:(urunDuzData.a||"").trim(),m:urunDuzData.m||""},true,[])},
+                "🌐 Marka sitesinden çek (görsel + açıklama)"),
               div({style:{marginBottom:10,position:"relative"}},
                 lbl({className:"fl"},"Barkod No *"),
                 inp({className:"fi",placeholder:"EAN-13 barkod...",
@@ -30581,6 +30723,11 @@ if(DB) dbUpsertAyar("tema",tema);
                 onChange:e=>setUrunDuzData(p=>({...p,sp:e.target.value}))})
             )
           ),
+          div({style:{marginBottom:12}},
+            lbl({className:"fl"},"Açıklama"),
+            h("textarea",{className:"fi",rows:3,placeholder:"Ürün açıklaması (isteğe bağlı)...",value:urunDuzData.aciklama||"",style:{resize:"vertical",fontSize:13},
+              onChange:e=>setUrunDuzData(p=>({...p,aciklama:e.target.value}))})
+          ),
           div({className:"btn-r"},
             btn({className:"btn-i",onClick:()=>{setUrunDuzId(null);setUrunDuzData(null);}},"İptal"),
             urunDuzId!=="yeni"&&btn({style:{
@@ -30611,7 +30758,8 @@ if(DB) dbUpsertAyar("tema",tema);
                     ap:parseFloat(urunDuzData.bp||urunDuzData.ap)||0,
                     sp:parseFloat(urunDuzData.sp)||0,
                     tip:urunDuzData.tip==="sarf"?"sarf":"satilabilen",
-                    img:urunDuzData.img||""
+                    img:urunDuzData.img||"",
+                    aciklama:(urunDuzData.aciklama||"").trim()
                   });
                 } else {
                   const idx2=URUN_DB.findIndex(u=>u.b===urunDuzId);
@@ -30691,6 +30839,7 @@ if(DB) dbUpsertAyar("tema",tema);
               onClick:()=>{setMarkaTopluModal(marka);setMarkaTopluCarpan("2");}},"💰 Toplu Fiyat")
           )
         ),
+        markaWebSatiri(marka, mUrunler),
         mUrunler.map((u,ui)=>
           div({key:u.b,id:"ul-"+u.b,style:{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",
             marginBottom:4,borderRadius:9,cursor:"pointer",
