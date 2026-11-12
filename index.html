@@ -1347,16 +1347,29 @@ const HAT_ACILISLAR = [
   "Yorgun düşünceleri ve günün ağırlığını geride bırakmak için bazen tek ihtiyacınız tazelenmektir.",
   "Zamanın hızla aktığı bu şehirde, durup kendinizi dinlemek en değerli ritüeldir.",
 ];
+// Saate göre selam (Türkiye saati): 05-11 Günaydın, 12-17 İyi günler, 18-04 İyi akşamlar
+const hatSelam = (d) => {
+  let s; try{ s = parseInt(new Intl.DateTimeFormat("en-GB",{hour:"2-digit",hour12:false,timeZone:"Europe/Istanbul"}).format(d||new Date()),10); }catch(e){ s = (d||new Date()).getHours(); }
+  if(!(s>=0)) s = (d||new Date()).getHours();
+  return (s>=5 && s<12) ? "Günaydın" : (s>=12 && s<18) ? "İyi günler" : "İyi akşamlar";
+};
+const hatSelamBaslik = (ad, d) => "Değerli "+String(ad||"").trim()+", "+hatSelam(d)+" dileklerimizle,";
+// Herhangi bir hatırlatma metninin başına (eski "Sayın X," / "Merhaba Sayın X," girişini ve eski selam başlığını temizleyerek) güncel selamı koyar
+const hatSelamUygula = (m, ad) => {
+  let t = String(m||"").replace(/^\s*Değerli [^\n]*? dileklerimizle,?\s*\n+/i,"").replace(/^\s*Merhaba Sayın [^,\n]+,\s*/i,"").replace(/^\s*(Sayın|Değerli) [^,\n]+,\s*\n+/i,"");
+  if(t) t = t.charAt(0).toLocaleUpperCase("tr-TR")+t.slice(1);
+  return hatSelamBaslik(ad)+"\n\n"+t;
+};
 const HAT_GOVDELER = [
-  v => `Sayın ${v.ad},\n\n✂️ Son saç kesiminizin üzerinden ${v.gun} gün geçti (${v.tarih}).\n💈 Yeni kesim zamanınızın geldiğini hatırlatmak isteriz.`,
-  v => `Değerli ${v.ad},\n\n✂️ ${v.tarih} tarihindeki saç kesiminizden bu yana ${v.gun} gün geçti.\n💈 Saç kesimi zamanınızın yaklaştığını hatırlatmak isteriz.`,
-  v => `Sayın ${v.ad},\n\n🧔 Saçlarınıza en son ${v.tarih} tarihinde dokunduk; aradan ${v.gun} gün geçti.\n✨ Bu, yeni kesim zamanınızın geldiğine dair küçük bir hatırlatmadır.`,
-  v => `Değerli ${v.ad},\n\n🗓️ Son ziyaretinizin üzerinden ${v.gun} gün geçti (${v.tarih}).\n💇‍♂️ Saçlarınızın tazelenme zamanının geldiğini hatırlatmak isteriz.`,
+  v => `✂️ Son saç kesiminizin üzerinden ${v.gun} gün geçti (${v.tarih}).\n💈 Yeni kesim zamanınızın geldiğini hatırlatmak isteriz.`,
+  v => `✂️ ${v.tarih} tarihindeki saç kesiminizden bu yana ${v.gun} gün geçti.\n💈 Saç kesimi zamanınızın yaklaştığını hatırlatmak isteriz.`,
+  v => `🧔 Saçlarınıza en son ${v.tarih} tarihinde dokunduk; aradan ${v.gun} gün geçti.\n✨ Bu, yeni kesim zamanınızın geldiğine dair küçük bir hatırlatmadır.`,
+  v => `🗓️ Son ziyaretinizin üzerinden ${v.gun} gün geçti (${v.tarih}).\n💇‍♂️ Saçlarınızın tazelenme zamanının geldiğini hatırlatmak isteriz.`,
 ];
 const _hatImza = (isletmeAd) => "*" + String(isletmeAd||"APRON BUSINESS").toLocaleUpperCase("tr-TR") + "*";
 // Eski kullanım uyumu: tam metni üreten fonksiyonlar listesi (sayı ve sıra için)
 const HAT_SABLONLARI = HAT_ACILISLAR.map((acilis, i) => v =>
-  `_${acilis}_\n\n${HAT_GOVDELER[i % HAT_GOVDELER.length](v)}\n\n${_hatImza(v.isletme)}`);
+  `${hatSelamBaslik(v.ad)}\n\n_${acilis}_\n\n${HAT_GOVDELER[i % HAT_GOVDELER.length](v)}\n\n${_hatImza(v.isletme)}`);
 const HAT_FOTO_SATIRI = "📸 Son saç kesiminiz";
 // "AYŞE YILMAZ" / "ayşe yılmaz" → "Ayşe Yılmaz"
 const adBicim = s => String(s||"").trim().replace(/\s+/g," ").split(" ").map(p=>p ? p.charAt(0).toLocaleUpperCase("tr-TR")+p.slice(1).toLocaleLowerCase("tr-TR") : p).join(" ");
@@ -14611,7 +14624,7 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
         gonderiTarih:gonTarih.getFullYear()+"-"+String(gonTarih.getMonth()+1).padStart(2,"0")+"-"+String(gonTarih.getDate()).padStart(2,"0"),
         gonderildi:false,
         tip:"sacKesimi",
-        mesaj:"Merhaba Sayın "+musteri+", son saç kesiminizi "+fmtT(formTarih||TODAY())+" tarihinde yapmıştık. Üzerinden "+mesajGunSayisi+" gün geçti. Saç kesimi zamanınızın geldiğini hatırlatmak isteriz.\n\n*APRON BUSINESS*",
+        mesaj:hatSelamBaslik(musteri)+"\n\nSon saç kesiminizi "+fmtT(formTarih||TODAY())+" tarihinde yapmıştık. Üzerinden "+mesajGunSayisi+" gün geçti. Saç kesimi zamanınızın geldiğini hatırlatmak isteriz.\n\n*APRON BUSINESS*",
         olusturma:Date.now()
       };
       setHatirlatmalar(p=>{
@@ -24987,7 +25000,7 @@ if(DB) dbUpsertAyar("tema",tema);
               const otoDurum = waHatDurum(h2);
               const sablonNo = hatSablonSecim[h2.id]!==undefined ? hatSablonSecim[h2.id] : hatVarsayilanSablon(h2);
               const _uretilen = hatMesajUret(h2, sablonNo, {hizmetTarihi:hizmetTarihiStr, isletmeAd:isletme?.ad, ustaAd:h2.staffAd});
-              const mesajMetni = _uretilen || gunGuncelMesaj();
+              const mesajMetni = _uretilen || hatSelamUygula(gunGuncelMesaj(), adBicim(h2.musteriAd)||"Misafirimiz");
               // Fotoğraf satırını imzadan hemen önceye ekler
               const fotoSatiriEkle = (m, ek) => { const i=m.lastIndexOf("\n\n"); return i>0 ? m.slice(0,i)+"\n\n"+ek+m.slice(i) : m+"\n\n"+ek; };
               const gonderildiKaydet = () => { if(_uretilen) hatSonSablonKaydet(h2, sablonNo); };
@@ -25243,7 +25256,7 @@ if(DB) dbUpsertAyar("tema",tema);
             // ── Elle hatırlatma ekleme ──
             const hatMesajUret = (ad, hizT, gonT) => {
               const gun = Math.max(1, Math.round((new Date((gonT||TODAY())+"T12:00:00") - new Date((hizT||TODAY())+"T12:00:00"))/86400000));
-              return "Merhaba Sayın "+(String(ad||"").trim()||"…")+", son saç kesiminizi "+fmtT(hizT||TODAY())+" tarihinde yapmıştık. Üzerinden "+gun+" gün geçti. Saç kesimi zamanınızın geldiğini hatırlatmak isteriz.\n\n*APRON BUSINESS*";
+              return hatSelamBaslik(String(ad||"").trim()||"…")+"\n\nSon saç kesiminizi "+fmtT(hizT||TODAY())+" tarihinde yapmıştık. Üzerinden "+gun+" gün geçti. Saç kesimi zamanınızın geldiğini hatırlatmak isteriz.\n\n*APRON BUSINESS*";
             };
             const hatEkleAc = () => { setHatDuzenle(null); const t=TODAY(); setHatEkle({ad:"",tel:"",hizT:t,gonT:t,mesaj:hatMesajUret("",t,t),mesajElle:false,ara:"",hata:""}); };
             const hatEkleGuncelle = (yama) => setHatEkle(f=>{ if(!f) return f; const n={...f,...yama,hata:""}; if(!n.mesajElle) n.mesaj=hatMesajUret(n.ad,n.hizT,n.gonT); return n; });
@@ -30343,6 +30356,27 @@ if(DB) dbUpsertAyar("tema",tema);
      aySek==="listeler"&&ayListeSek==="ürün"&&(()=>{
     // Dinamik marka listesi - URUN_DB'den + eklenmiş markalar
     const markaListesi = menuSirala("urunMarkalari", [...new Set([...URUN_DB.filter(u=>u.tip!=="sarf").map(u=>u.m), ...ekMarkalar])].filter(m=>m&&m!=="__SARF__").sort(), x=>x);
+    // Marka adını değiştir: o markadaki tüm ürünler, marka listesi, sıralama ve tedarikçi–marka eşleşmeleri birlikte güncellenir (aynı ada çevrilirse iki marka birleşir)
+    const markaAdiDegistir = (eski) => {
+      const yeni = String(window.prompt("\""+eski+"\" markasının yeni adı:", eski)||"").trim().replace(/\s+/g," ");
+      if(!yeni || yeni===eski) return;
+      const mevcut = markaListesi.find(m=>m!==eski && normText(m)===normText(yeni));
+      const hedef = mevcut || yeni;
+      const n = URUN_DB.filter(u=>u.m===eski).length;
+      if(mevcut && !window.confirm("\""+mevcut+"\" markası zaten var. \""+eski+"\" markasındaki "+n+" ürün bu markaya taşınacak (iki marka birleşir). Devam edilsin mi?")) return;
+      URUN_DB.forEach(u=>{ if(u.m===eski) u.m=hedef; });
+      MARKALAR.length=0; MARKALAR.push(...new Set(URUN_DB.map(u=>u.m)));
+      setEkMarkalar(p=>[...new Set(p.map(m=>m===eski?hedef:m))]);
+      const sira = (_wa[LISTE_SIRA_ID]||{}).urunMarkalari;
+      if(Array.isArray(sira) && sira.includes(eski)) menuSiraKaydet("urunMarkalari", [...new Set(sira.map(m=>m===eski?hedef:m))]);
+      if((tedarikciler||[]).some(t=>typeof t!=="string" && (t.markalar||[]).includes(eski)))
+        setTedarikciler(p=>p.map(t=>(typeof t!=="string" && (t.markalar||[]).includes(eski)) ? {...t, markalar:[...new Set(t.markalar.map(m=>m===eski?hedef:m))]} : t));
+      triggerUrunRender();
+      showToast(mevcut ? "Markalar birleştirildi: "+hedef : "Marka adı değiştirildi: "+hedef);
+    };
+    const markaAdBtn = (marka) => btn({style:{fontSize:11,padding:"3px 9px",borderRadius:6,border:"1px solid var(--br)",
+      background:"transparent",color:"var(--mu)",cursor:"pointer",fontWeight:600},
+      onClick:e=>{e.stopPropagation();markaAdiDegistir(marka);}},"✏️ Adı Değiştir");
     const _uQ = (urunListeArama||"").trim();
     const _uOneri = _uQ.length>=2
       ? URUN_DB.filter(u=>{ const q=normText(_uQ); return normText(u.a).includes(q)||u.b.includes(_uQ); }).slice(0,8)
@@ -30639,6 +30673,7 @@ if(DB) dbUpsertAyar("tema",tema);
           div({style:{display:"flex",alignItems:"center",gap:8}}, markaOklari,
             div({style:{fontSize:13,color:"#9a7a3a",letterSpacing:2,textTransform:"uppercase"}},marka)),
           div({style:{fontSize:12,color:"var(--di)"}},"Ürün yok"),
+          markaAdBtn(marka),
           btn({style:{background:"transparent",border:"none",color:"#c05050",fontSize:13,cursor:"pointer"},
             onClick:()=>setEkMarkalar(p=>p.filter(m=>m!==marka))},"✕")
         )
@@ -30650,6 +30685,7 @@ if(DB) dbUpsertAyar("tema",tema);
             div({style:{fontSize:12,color:"#9a7a3a",letterSpacing:2,textTransform:"uppercase"}},marka)),
           div({style:{display:"flex",alignItems:"center",gap:8}},
             div({style:{fontSize:12,color:"var(--di)"}},mUrunler.length+" ürün"),
+            markaAdBtn(marka),
             btn({style:{fontSize:11,padding:"3px 9px",borderRadius:6,border:"1px solid rgba(37,99,168,.3)",
               background:"rgba(37,99,168,.08)",color:"var(--g)",cursor:"pointer",fontWeight:600},
               onClick:()=>{setMarkaTopluModal(marka);setMarkaTopluCarpan("2");}},"💰 Toplu Fiyat")
