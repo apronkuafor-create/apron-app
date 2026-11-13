@@ -18741,6 +18741,27 @@ const rvKayitDolu = r => !!r && ((Number(r.toplam)||0)>0 || (r.hizler||[]).lengt
 const rvGunAd = (t) => { try{ const d=new Date(t+"T12:00:00"); return d.toLocaleDateString("tr-TR",{weekday:"long"}); }catch(e){ return ""; } };
 const rvGunKaydir = (t,n) => { const d=new Date(t+"T12:00:00"); d.setDate(d.getDate()+n); return isoTarih(d); };
 
+// Telefonu karşılaştırılabilir hale getir: son 10 hane (0532…, +90532…, 532… aynı sayılır)
+const rvTel10 = v => String(v||"").replace(/\D/g,"").slice(-10);
+// Yeni yazılan (ad, tel) ile mevcut randevu x aynı kişi mi?
+//  • Adlar aynıysa → aynı kişi; ancak iki tarafta da farklı telefon varsa farklı kişi (aynı adlı iki müşteri).
+//  • Adlar farklıysa → yalnızca telefon aynı VE ilk adlar aynı VE biri diğerinin eksik yazılmışı ise aynı kişi
+//    (ör. "Rakım" ↔ "Rakım Tuncer"). İlk adı farklı olanlar (Rakım Tuncer ↔ Teoman Tuncer) farklı kişidir,
+//    telefonları aynı olsa bile (aile üyeleri aynı numarayı paylaşabilir).
+const rvAyniKisi = (ad, tel, x) => {
+  if(!x) return false;
+  const a1=normText(ad), a2=normText(x.musteriAd);
+  const t1=rvTel10(tel), t2=rvTel10(x.tel);
+  const ikisiTelli = t1.length===10 && t2.length===10;
+  if(a1 && a2 && a1===a2) return !(ikisiTelli && t1!==t2);
+  if(!ikisiTelli || t1!==t2) return false;
+  if(!a1 || !a2) return true; // bir tarafta ad yok, telefon aynı
+  const k1=a1.split(" "), k2=a2.split(" ");
+  if(k1[0]!==k2[0]) return false;
+  const [kisa,uzun] = k1.length<=k2.length ? [k1,k2] : [k2,k1];
+  return kisa.every(p=>uzun.includes(p));
+};
+
 // ── Randevu ekleme / düzenleme / erteleme / iptal penceresi ────────────────
 function RvFormModal({mod, rv, varsayilan, baslikEk, mevcutlar, musteriDB, kulId, onKaydet, onIptalOnay, onKapat}){
   const bas = rv || varsayilan || {};
@@ -18764,6 +18785,15 @@ function RvFormModal({mod, rv, varsayilan, baslikEk, mevcutlar, musteriDB, kulId
   };
   const cakisma = (mod==="yeni"||mod==="duzenle"||mod==="ertele") && saat && tarih
     ? (mevcutlar||[]).filter(x=>x.durum==="bekliyor" && x.tarih===tarih && x.saat===saat && (!rv || x.id!==rv.id)) : [];
+  // Aynı gün, iptal olmamış diğer randevular
+  const ayniGun = mod==="yeni" && tarih ? (mevcutlar||[]).filter(x=>x && x.tarih===tarih && x.durum!=="iptal") : [];
+  // Aynı telefonu kullanan ama farklı kişi olan (ör. baba-oğul) randevular: yalnızca bilgi notu, engellemez
+  const ayniTelFarkli = ad.trim() ? ayniGun.filter(x=>{
+    const a=rvTel10(tel), b=rvTel10(x.tel);
+    return a.length===10 && a===b && !rvAyniKisi(ad,tel,x);
+  }) : [];
+  // Form değişirse önceki "aynı gün" uyarısı geçersiz olur (eski verilerle kaydetmesin)
+  React.useEffect(()=>{ setEskiOnay(null); },[ad,tel,tarih,saat,sureDk,notlar]);
   const etiket = {fontSize:11,color:"var(--di)",marginBottom:4,marginTop:12,textTransform:"uppercase",letterSpacing:.5,fontWeight:600};
   const kaydet = () => {
     if(mod==="iptal"){ onIptalOnay(neden); return; }
@@ -18773,11 +18803,8 @@ function RvFormModal({mod, rv, varsayilan, baslikEk, mevcutlar, musteriDB, kulId
     if(mod==="ertele" && rv && tarih===rv.tarih && saat===rv.saat){ setHata("Yeni bir tarih veya saat seçin"); return; }
     const f0={musteriAd:ad.trim(), tel:tel.trim(), tarih, saat, sureDk, not:notlar.trim(), neden:neden.trim()};
     if(mod==="yeni" && !eskiOnay){
-      // Aynı müşteri (ad veya telefon) + aynı gün + iptal olmamış randevu var mı?
-      const rakam=v=>String(v||"").replace(/\D/g,"");
-      const t0=rakam(tel);
-      const adaylar=(mevcutlar||[]).filter(x=>x && x.tarih===tarih && x.durum!=="iptal" &&
-        ((x.musteriAd && normText(x.musteriAd)===normText(ad)) || (t0.length>=7 && rakam(x.tel)===t0)));
+      // Aynı KİŞİ + aynı gün + iptal olmamış randevu var mı? (aile üyeleri aynı telefonu paylaşabilir → telefon tek başına yetmez)
+      const adaylar=ayniGun.filter(x=>rvAyniKisi(ad,tel,x));
       if(adaylar.length>0){
         adaylar.sort((a,b)=>(b.saat===saat)-(a.saat===saat) || (b.durum==="bekliyor")-(a.durum==="bekliyor"));
         setEskiOnay({eski:adaylar[0],f:f0}); return;
@@ -18808,7 +18835,9 @@ function RvFormModal({mod, rv, varsayilan, baslikEk, mevcutlar, musteriDB, kulId
               h("input",{className:"fi",list:"rv-musteriler",placeholder:"Ad Soyad",value:ad,onChange:e=>adDegis(e.target.value),autoFocus:mod==="yeni"}),
               h("datalist",{id:"rv-musteriler"},kendi.slice(0,400).map(m=>h("option",{key:m.id||m.ad,value:m.ad}))),
               div({style:etiket},"Telefon (isteğe bağlı)"),
-              h("input",{className:"fi",type:"tel",inputMode:"tel",placeholder:"05xx xxx xx xx",value:tel,onChange:e=>setTel(e.target.value)})
+              h("input",{className:"fi",type:"tel",inputMode:"tel",placeholder:"05xx xxx xx xx",value:tel,onChange:e=>setTel(e.target.value)}),
+              ayniTelFarkli.length>0 && div({style:{marginTop:8,padding:"8px 11px",borderRadius:10,background:"rgba(10,132,255,.08)",border:"1px solid rgba(10,132,255,.25)",fontSize:12.5,color:"var(--tx)",lineHeight:1.45}},
+                "ℹ Bu telefonla aynı gün başka kişinin randevusu da var: "+ayniTelFarkli.map(x=>x.musteriAd+" "+x.saat).join(", ")+". Ayrı randevu olarak eklenecek.")
             ),
             div({style:etiket},mod==="ertele"?"Yeni tarih":"Tarih"),
             h("input",{className:"fi",type:"date",value:tarih,onChange:e=>setTarih(e.target.value)}),
