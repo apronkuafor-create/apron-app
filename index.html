@@ -18776,8 +18776,30 @@ function RvFormModal({mod, rv, varsayilan, baslikEk, mevcutlar, musteriDB, kulId
   const [hata,setHata]   = React.useState("");
   const [eskiOnay,setEskiOnay] = React.useState(null); // aynı müşteriye aynı gün yazılmış randevu bulunursa uyarı
   const kendi = (musteriDB||[]).filter(m=>m && m.ad && (!m.sahipId || String(m.sahipId)===String(kulId)));
+  // Kendi öneri listemiz: tarayıcının <datalist>'i mobilde (özellikle iOS) silme sonrası yeniden açılmıyordu
+  const [oneriAcik,setOneriAcik] = React.useState(false);
+  const adOneriler = (()=>{
+    const q = normText(ad);
+    if(!oneriAcik || !q) return [];
+    const gorulen = new Set(), bas = [], ic = [];
+    for(const m of kendi){
+      const n = normText(m.ad);
+      if(n===q || !n.includes(q)) continue;
+      const k = n+"|"+rvTel10(m.tel);
+      if(gorulen.has(k)) continue; gorulen.add(k);
+      (n.startsWith(q) || n.split(" ").some(p=>p.startsWith(q)) ? bas : ic).push(m);
+      if(bas.length>=8) break;
+    }
+    return bas.concat(ic).slice(0,8);
+  })();
+  const oneriSec = (m) => {
+    setAd(m.ad);
+    if(m.tel) setTel(m.tel);
+    setOneriAcik(false);
+  };
   const adDegis = (v) => {
     setAd(v);
+    setOneriAcik(true);
     if(mod==="yeni" && !tel){
       const m = kendi.find(x=>normText(x.ad)===normText(v));
       if(m && m.tel) setTel(m.tel);
@@ -18832,8 +18854,18 @@ function RvFormModal({mod, rv, varsayilan, baslikEk, mevcutlar, musteriDB, kulId
         : div(null,
             mod!=="ertele" && div(null,
               div({style:etiket},"Müşteri adı"),
-              h("input",{className:"fi",list:"rv-musteriler",placeholder:"Ad Soyad",value:ad,onChange:e=>adDegis(e.target.value),autoFocus:mod==="yeni"}),
-              h("datalist",{id:"rv-musteriler"},kendi.slice(0,400).map(m=>h("option",{key:m.id||m.ad,value:m.ad}))),
+              div({style:{position:"relative"}},
+                h("input",{className:"fi",placeholder:"Ad Soyad",value:ad,autoComplete:"off",autoCorrect:"off",spellCheck:false,
+                  onChange:e=>adDegis(e.target.value),
+                  onFocus:()=>setOneriAcik(true),
+                  onBlur:()=>setTimeout(()=>setOneriAcik(false),200),
+                  onKeyDown:e=>{ if(e.key==="Escape") setOneriAcik(false); },
+                  autoFocus:mod==="yeni"}),
+                adOneriler.length>0 && div({className:"mus-on",style:{maxHeight:260,overflowY:"auto"}},
+                  adOneriler.map(m=>div({key:(m.id||m.ad)+"|"+(m.tel||""),className:"mus-oi",
+                    onMouseDown:e=>{ e.preventDefault(); oneriSec(m); }},
+                    div({style:{fontSize:15,color:"var(--tx)"}},m.ad),
+                    m.tel && div({style:{fontSize:12,color:"var(--mu)"}},"📞 "+m.tel))))),
               div({style:etiket},"Telefon (isteğe bağlı)"),
               h("input",{className:"fi",type:"tel",inputMode:"tel",placeholder:"05xx xxx xx xx",value:tel,onChange:e=>setTel(e.target.value)}),
               ayniTelFarkli.length>0 && div({style:{marginTop:8,padding:"8px 11px",borderRadius:10,background:"rgba(10,132,255,.08)",border:"1px solid rgba(10,132,255,.25)",fontSize:12.5,color:"var(--tx)",lineHeight:1.45}},
