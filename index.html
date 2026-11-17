@@ -30564,7 +30564,9 @@ if(DB) dbUpsertAyar("tema",tema);
           if((m.kullanim||"").trim()) alan.kullanim = m.kullanim.trim();
           if((m.icerik||"").trim())   alan.icerik   = m.icerik.trim();
         }
-        if(m.sayfa) alan.kaynak = m.sayfa;
+        const adr = (m.adr||"").trim();
+        if(adr==="") alan.kaynak = "";
+        else if(/^https?:\/\//i.test(adr)) alan.kaynak = adr;
         return {...eski, ...alan};
       };
       if(m.form){ setUrunDuzData(p=>p?uygula(p):p); if(yeniler.length && m.kapakYap) setUrunGoz(0); }
@@ -30628,16 +30630,26 @@ if(DB) dbUpsertAyar("tema",tema);
               div({style:{fontSize:11,color:"var(--mu)",margin:"6px 0 3px"}},"İçerik / bileşenler"),
               h("textarea",{className:"fi",rows:2,value:m.icerik,placeholder:"Siteden gelmediyse elle yazabilirsiniz",style:{resize:"vertical",marginBottom:6,fontSize:13,height:"auto",minHeight:56},
                 onChange:e=>setBilgiM(p=>({...p,icerik:e.target.value}))}),
-              m.sayfa && div({style:{fontSize:11,color:"var(--mu)",marginBottom:10,wordBreak:"break-all"}},"Kaynak: ",
-                h("a",{href:m.sayfa,target:"_blank",rel:"noopener noreferrer",style:{color:"var(--g)"}},m.sayfa))
             ),
             (m.durum==="hata"||m.durum==="hazir") && div({style:{marginBottom:12}},
-              div({style:{fontSize:11,color:"var(--mu)",marginBottom:4}},"Yanlış ürün çıktıysa ya da daha fazla görsel istiyorsanız ürünün başka bir sayfasının adresini yapıştırıp deneyin (eklenmiş görseller tekrar eklenmez):"),
+              div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}},
+                lbl({className:"fl",style:{margin:0}},"Kaynak sayfa"),
+                /^https?:\/\//i.test((m.adr||"").trim()) && h("a",{href:(m.adr||"").trim(),target:"_blank",rel:"noopener noreferrer",
+                  style:{fontSize:11.5,color:"var(--g)",fontWeight:600,textDecoration:"none"}},"Sayfayı aç ↗")),
               div({style:{display:"flex",gap:6}},
-                inp({className:"fi",placeholder:"https://...",value:m.adr||"",style:{flex:1,fontSize:13},onChange:e=>setBilgiM(p=>({...p,adr:e.target.value}))}),
+                div({style:{position:"relative",flex:1}},
+                  inp({className:"fi",placeholder:"https://...",value:m.adr||"",inputMode:"url",style:{width:"100%",fontSize:13,paddingRight:34,boxSizing:"border-box"},
+                    onChange:e=>setBilgiM(p=>({...p,adr:e.target.value}))}),
+                  (m.adr||"") && btn({type:"button","aria-label":"Adresi sil",title:"Adresi sil",onClick:()=>setBilgiM(p=>({...p,adr:""})),
+                    style:{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",width:24,height:24,borderRadius:99,border:"none",
+                      background:"rgba(120,120,128,.22)",color:"var(--tx)",fontSize:12,lineHeight:"24px",padding:0,cursor:"pointer"}},"✕")),
                 btn({style:{padding:"0 12px",borderRadius:9,border:"1px solid rgba(37,99,168,.3)",background:"rgba(37,99,168,.08)",color:"var(--g)",fontWeight:600,fontSize:12.5,cursor:"pointer"},
                   disabled:!(m.adr||"").trim().startsWith("http"),
-                  onClick:()=>bilgiAc(m.u,m.form,m.kuyruk,(m.adr||"").trim())},"Dene"))
+                  onClick:()=>bilgiAc(m.u,m.form,m.kuyruk,(m.adr||"").trim())},"Dene")),
+              div({style:{fontSize:11,color:"var(--mu)",marginTop:5,lineHeight:1.45}},
+                m.durum==="hazir"
+                  ? "Adresi silip yenisini yazabilirsiniz. \"Dene\" o sayfadan tekrar çeker (eklenmiş görseller tekrar eklenmez); \"Uygula\" bu adresi ürünün kaynak sayfası olarak kaydeder. Boş bırakırsanız kaynak silinir."
+                  : "Ürünün doğru sayfasının adresini yapıştırıp \"Dene\"ye basın.")
             ),
             div({className:"btn-r"},
               btn({className:"btn-i",disabled:yuk,onClick:()=>setBilgiM(null)},"Kapat"),
