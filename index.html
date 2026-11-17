@@ -1782,6 +1782,13 @@ const URUN_ALAN_LISTESI = ["a","m","ml","bp","ap","sp","tip","img"];
 // Ürün kartındaki ek bilgiler: galeri (gorseller, kapak dahil tüm görseller), siteden alınan görsellerin
 // kaynak adresleri (tekrar çekince aynı görsel iki kez eklenmesin), açıklama, kullanım, içerik, kaynak sayfa.
 const URUN_EK_ALANLAR = ["gorseller","kaynakGorseller","aciklama","kullanim","icerik","kaynak"];
+// Kaynak sayfa adresini düzenler: boşlukları kırpar, "https://" yoksa ekler; geçersizse "" döner.
+const kaynakNormal = (v) => {
+  let t = String(v||"").trim();
+  if(!t) return "";
+  if(!/^https?:\/\//i.test(t)) t = "https://" + t.replace(/^\/+/,"");
+  try{ const u = new URL(t); return (u.hostname && u.hostname.includes(".")) ? u.href : ""; }catch(e){ return ""; }
+};
 // Ürünün tüm görselleri (ilk sıradaki kapak = u.img). Eski kayıtlarda yalnızca img vardır.
 const urunGaleri = (u) => {
   const s = new Set(), r = [];
@@ -30534,7 +30541,7 @@ if(DB) dbUpsertAyar("tema",tema);
       const k = (kuyruk||[]).slice(); let u=null;
       while(k.length && !u){ const b=k.shift(); u=URUN_DB.find(x=>x.b===b)||null; }
       if(!u){ setBilgiM(null); showToast("Sıradaki ürün kalmadı"); return; }
-      bilgiAc(u,false,k);
+      bilgiAc(u,false,k,kaynakNormal(u.kaynak)||undefined);
     };
     const bilgiSecDegis = (gi) => setBilgiM(p=>({...p, secler: p.secler.includes(gi) ? p.secler.filter(x=>x!==gi) : [...p.secler, gi]}));
     const bilgiUygula = async () => {
@@ -30566,7 +30573,7 @@ if(DB) dbUpsertAyar("tema",tema);
         }
         const adr = (m.adr||"").trim();
         if(adr==="") alan.kaynak = "";
-        else if(/^https?:\/\//i.test(adr)) alan.kaynak = adr;
+        else if(kaynakNormal(adr)) alan.kaynak = kaynakNormal(adr);
         return {...eski, ...alan};
       };
       if(m.form){ setUrunDuzData(p=>p?uygula(p):p); if(yeniler.length && m.kapakYap) setUrunGoz(0); }
@@ -30644,8 +30651,8 @@ if(DB) dbUpsertAyar("tema",tema);
                     style:{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",width:24,height:24,borderRadius:99,border:"none",
                       background:"rgba(120,120,128,.22)",color:"var(--tx)",fontSize:12,lineHeight:"24px",padding:0,cursor:"pointer"}},"✕")),
                 btn({style:{padding:"0 12px",borderRadius:9,border:"1px solid rgba(37,99,168,.3)",background:"rgba(37,99,168,.08)",color:"var(--g)",fontWeight:600,fontSize:12.5,cursor:"pointer"},
-                  disabled:!(m.adr||"").trim().startsWith("http"),
-                  onClick:()=>bilgiAc(m.u,m.form,m.kuyruk,(m.adr||"").trim())},"Dene")),
+                  disabled:!kaynakNormal(m.adr),
+                  onClick:()=>bilgiAc(m.u,m.form,m.kuyruk,kaynakNormal(m.adr))},"Dene")),
               div({style:{fontSize:11,color:"var(--mu)",marginTop:5,lineHeight:1.45}},
                 m.durum==="hazir"
                   ? "Adresi silip yenisini yazabilirsiniz. \"Dene\" o sayfadan tekrar çeker (eklenmiş görseller tekrar eklenmez); \"Uygula\" bu adresi ürünün kaynak sayfası olarak kaydeder. Boş bırakırsanız kaynak silinir."
@@ -30810,7 +30817,7 @@ if(DB) dbUpsertAyar("tema",tema);
         img:g[0]||"", gorseller:g,
         kaynakGorseller:Array.isArray(d.kaynakGorseller)?d.kaynakGorseller:[],
         aciklama:(d.aciklama||"").trim(), kullanim:(d.kullanim||"").trim(),
-        icerik:(d.icerik||"").trim(), kaynak:(d.kaynak||"").trim()
+        icerik:(d.icerik||"").trim(), kaynak:kaynakNormal(d.kaynak)
       };
       if(yeni){
         if(!d.b?.trim()){ showToast("Barkod zorunlu","uy"); return; }
@@ -30877,7 +30884,8 @@ if(DB) dbUpsertAyar("tema",tema);
                   onChange:e=>{ const f=e.target.files; const kopya=f?Array.from(f):[]; e.target.value=""; gorselYukle(kopya); }})),
               kucukBtn("🌐 Marka sitesinden çek", ()=>{
                   if(!aVal){ showToast("Önce ürün adını yazın","uy"); return; }
-                  bilgiAc({b:bVal,a:aVal,m:d.m||"",img:d.img||"",kaynakGorseller:d.kaynakGorseller||[],kaynak:(d.kaynak||"").trim()},true,[]);
+                  const kyn = kaynakNormal(d.kaynak);
+                  bilgiAc({b:bVal,a:aVal,m:d.m||"",img:d.img||"",kaynakGorseller:d.kaynakGorseller||[],kaynak:kyn},true,[],kyn||undefined);
                 },{border:"1px solid rgba(0,113,227,.3)",background:"rgba(0,113,227,.08)",color:"var(--g)"}),
               galeri.length>0 && goz>0 && kucukBtn("★ Kapak yap", ()=>kapakYap(goz)),
               galeri.length>0 && kucukBtn("🗑 Bu görseli kaldır", ()=>gorselSil(goz),{color:"#FF3B30",border:"1px solid rgba(255,59,48,.25)",background:"rgba(255,59,48,.06)"})
@@ -30963,12 +30971,50 @@ if(DB) dbUpsertAyar("tema",tema);
               metinKutusu(d.kullanim,"Örn. Nemli saça az miktarda uygulayın…",3,e=>setUrunDuzData(p=>({...p,kullanim:e.target.value})))),
             alan("İçerik / bileşenler",
               metinKutusu(d.icerik,"İçindekiler, saç tipi, koku vb.",3,e=>setUrunDuzData(p=>({...p,icerik:e.target.value})))),
-            alan("Ürün sayfası (kaynak)",
-              div({style:{display:"flex",gap:6}},
-                inp({className:"fi",placeholder:"https://...",value:d.kaynak||"",style:{flex:1,fontSize:13},inputMode:"url",
-                  onChange:e=>setUrunDuzData(p=>({...p,kaynak:e.target.value}))}),
-                /^https?:\/\//i.test(d.kaynak||"") && h("a",{href:d.kaynak,target:"_blank",rel:"noopener noreferrer",
-                  style:{display:"flex",alignItems:"center",padding:"0 12px",borderRadius:10,border:"1px solid var(--br)",background:"var(--bg3)",color:"var(--g)",fontSize:12.5,fontWeight:600,textDecoration:"none",whiteSpace:"nowrap"}},"Aç ↗")))
+            (()=>{
+              // Kaynak sayfa: buraya kaydedilen adres "Marka sitesinden çek"te doğrudan kullanılır
+              const yazilan = (d.kaynak||"").trim();
+              const normal = kaynakNormal(yazilan);
+              const gecerli = !!normal;
+              const kayitli = yeni ? "" : ((URUN_DB.find(u=>u.b===urunDuzId)||{}).kaynak||"");
+              const ayni = normal===kayitli || (!yazilan && !kayitli);
+              const kaldir = !yazilan && !!kayitli;
+              const ekle = () => {
+                if(yazilan && !gecerli){ showToast("Geçerli bir sayfa adresi yazın (örn. https://...)","uy"); return; }
+                setUrunDuzData(p=>({...p,kaynak:normal}));
+                if(!yeni){
+                  const i=URUN_DB.findIndex(u=>u.b===urunDuzId);
+                  if(i>=0){ URUN_DB[i]={...URUN_DB[i],kaynak:normal}; triggerUrunRender(); }
+                  showToast(normal ? "Kaynak sayfa kaydedildi" : "Kaynak sayfa kaldırıldı");
+                } else showToast("Kaynak sayfa eklendi — ürünü Kaydet ile kaydedin");
+              };
+              const dugme = (aktif, renk) => ({flex:1,padding:"10px 8px",borderRadius:10,fontSize:13,fontWeight:600,cursor:aktif?"pointer":"default",opacity:aktif?1:.5,
+                border:"1px solid "+renk.k, background:renk.z, color:renk.y, display:"flex",alignItems:"center",justifyContent:"center",gap:5,textDecoration:"none",boxSizing:"border-box"});
+              return alan("Kaynak sayfa",
+                div(null,
+                  div({style:{position:"relative"}},
+                    inp({className:"fi",placeholder:"Ürünün marka sitesindeki sayfa adresini yapıştırın",value:d.kaynak||"",inputMode:"url",
+                      style:{width:"100%",fontSize:13,paddingRight:36,boxSizing:"border-box"},
+                      onChange:e=>setUrunDuzData(p=>({...p,kaynak:e.target.value})),
+                      onKeyDown:e=>{ if(e.key==="Enter"){ e.preventDefault(); if(!ayni) ekle(); } }}),
+                    yazilan && btn({type:"button","aria-label":"Adresi sil",title:"Adresi sil",onClick:()=>setUrunDuzData(p=>({...p,kaynak:""})),
+                      style:{position:"absolute",right:7,top:"50%",transform:"translateY(-50%)",width:24,height:24,borderRadius:99,border:"none",
+                        background:"rgba(120,120,128,.22)",color:"var(--tx)",fontSize:12,lineHeight:"24px",padding:0,cursor:"pointer"}},"✕")),
+                  div({style:{fontSize:11.5,marginTop:6,color:kayitli&&ayni?"#15803D":"var(--mu)",lineHeight:1.45}},
+                    kayitli&&ayni ? "✓ Kayıtlı. \"Marka sitesinden çek\" bilgileri bu sayfadan alır."
+                    : kaldir ? "Adres silindi. Kaldırmak için \"Kaynak Sayfayı Kaldır\"a basın."
+                    : yazilan ? "Kaydetmek için \"Kaynak Sayfa Ekle\"ye basın."
+                    : "Kaynak sayfa eklenirse \"Marka sitesinden çek\" aramayı doğrudan bu sayfadan yapar."),
+                  div({style:{display:"flex",gap:8,marginTop:9}},
+                    btn({type:"button",disabled:ayni||(!!yazilan&&!gecerli),onClick:ekle,
+                      style:dugme(!ayni&&(!yazilan||gecerli), kaldir?{k:"rgba(255,59,48,.3)",z:"rgba(255,59,48,.07)",y:"#FF3B30"}:{k:"rgba(0,113,227,.35)",z:"rgba(0,113,227,.09)",y:"var(--g)"})},
+                      kaldir ? "🗑 Kaynak Sayfayı Kaldır" : "＋ Kaynak Sayfa Ekle"),
+                    gecerli
+                      ? h("a",{href:normal,target:"_blank",rel:"noopener noreferrer",style:dugme(true,{k:"var(--br)",z:"var(--bg3)",y:"var(--tx)"})},"Kaynak Sayfaya Git ↗")
+                      : btn({type:"button",disabled:true,style:dugme(false,{k:"var(--br)",z:"var(--bg3)",y:"var(--tx)"})},"Kaynak Sayfaya Git ↗")
+                  )
+                ));
+            })()
           ),
 
           // ── Silme (yalnızca kayıtlı ürün) ──
