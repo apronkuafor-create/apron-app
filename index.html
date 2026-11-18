@@ -3755,6 +3755,7 @@ function HizmetMuhasebe({tumK, personeller, muhAlt, setMuhAlt, pGruplar, devDB, 
                 )
               )
             ),
+            borcTahsilRozet(r, true),
             h("div",{style:{fontSize:11,color:"var(--g)",letterSpacing:1,
               textTransform:"uppercase",marginBottom:6,fontWeight:600}},"💳 Alınan Ödeme"),
             h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}},
@@ -15587,9 +15588,9 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
             span({style:{fontSize:14.5,fontWeight:700,color:odemeYapilmadi?"#B5531A":"#1D1D1F"}},"Ödeme Yapılmadı")),
           odemeYapilmadi && div({style:{marginTop:7,padding:"9px 12px",background:"#FFF6F0",borderRadius:11,fontSize:12.5,color:"#8a3b12",lineHeight:1.5}},
             "Hizmet ve ürünlerin tutarını tek \"Tutar\" kutusuna girin; ödeme şekli seçilmez. Bu kayıt ",span({style:{fontWeight:700}},"hiçbir hesaba dahil edilmez"),
-            " (ciro, kasa, hakediş, stok vb.) ve Bugün ekranındaki ",span({style:{fontWeight:700}},"Borçlar"),
+            " (ciro, kasa, hakediş, stok vb.) ve ",span({style:{fontWeight:700}},"Muhasebe → Tahsilat Bekleyen Alacaklar"),
             " alanında bekler. Ödeme alındığında oradan \"Ödeme Alındı\" deyip müşterinin ödediği şekli (K.K / Iban / Nakit) seçersiniz; kayıt ödeme gününe yazılır.",
-            ilk?.id ? div({style:{marginTop:5,fontWeight:700}},"Bu kayıt Kayıtlarım'dan kaldırılıp Borçlar'a taşınacak.") : null)
+            ilk?.id ? div({style:{marginTop:5,fontWeight:700}},"Bu kayıt Kayıtlarım'dan kaldırılıp Muhasebe → Tahsilat Bekleyen Alacaklar'a taşınacak.") : null)
         ),
         !!borcIzinli && !borcTahsilat && !!borcKilit && div({style:{marginTop:14,padding:"10px 13px",borderRadius:14,background:"rgba(0,0,0,.035)",border:"1.5px dashed rgba(0,0,0,.15)",fontSize:12.5,color:"#6E6E73",lineHeight:1.5}},
           span({style:{fontWeight:700,color:"#4a4a4f"}},"Ödeme Yapılmadı seçilemiyor: "), borcKilit),
@@ -16123,6 +16124,35 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
 }
 
 
+// ── Borçtan tahsil edilen kayıt: hizmet tarihi / ödeme tarihi / arada geçen gün ──
+// Kayıt ÖDEME gününe yazılır (tüm hesaplar bu tarihi kullanır). Hizmetin yapıldığı gün yalnızca BİLGİ olarak
+// hizmet/ürün satırlarında (_borcHizmetTarihi) saklanır → buluta da gider, hiçbir hesabı etkilemez.
+function borcTahsilBilgi(r){
+  if(!r) return null;
+  const satir=[...(Array.isArray(r.hizler)?r.hizler:[]), ...(Array.isArray(r.urunler)?r.urunler:[])].find(x=>x && x._borcHizmetTarihi);
+  if(!satir) return null;
+  const hz=String(satir._borcHizmetTarihi).slice(0,10);
+  const od=String(r.tarih||satir._borcOdemeTarihi||"").slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(hz) || !/^\d{4}-\d{2}-\d{2}$/.test(od)) return null;
+  const gun=Math.round((new Date(od+"T12:00:00")-new Date(hz+"T12:00:00"))/86400000);
+  return {hizmet:hz, odeme:od, gun:isNaN(gun)?0:gun};
+}
+function borcTahsilRozet(r, kompakt){
+  const b=borcTahsilBilgi(r);
+  if(!b) return null;
+  const tr=t=>t.split("-").reverse().join(".");
+  const farkYazi = b.gun>0 ? "Hizmet ile ödeme arasında "+b.gun+" gün var" : b.gun===0 ? "Hizmet ile aynı gün ödendi" : "Ödeme tarihi hizmetten önce görünüyor ("+Math.abs(b.gun)+" gün)";
+  const kutu=(et,v)=>div({style:{flex:1,minWidth:0,background:"#fff",borderRadius:9,padding:kompakt?"5px 6px":"7px 8px",textAlign:"center"}},
+    div({style:{fontSize:kompakt?9.5:10,color:"#8a5a3c",textTransform:"uppercase",letterSpacing:.6,fontWeight:700,marginBottom:2}},et),
+    div({style:{fontSize:kompakt?13:14,color:"#1D1D1F",fontWeight:800}},tr(v)));
+  return div({style:{background:"#FFF1E6",border:"1.5px solid #F0A060",borderRadius:12,padding:kompakt?"7px 8px":"9px 10px",margin:kompakt?"0 0 10px":"0 0 12px"}},
+    div({style:{fontSize:kompakt?11:12,fontWeight:800,color:"#B5531A",marginBottom:6,letterSpacing:.3}},"💳 BORÇTAN TAHSİL EDİLDİ"),
+    div({style:{display:"flex",alignItems:"center",gap:6}},
+      kutu("Hizmet Tarihi",b.hizmet),
+      div({style:{fontSize:15,color:"#B5531A",fontWeight:800,flexShrink:0}},"→"),
+      kutu("Ödeme Tarihi",b.odeme)),
+    div({style:{marginTop:6,textAlign:"center",fontSize:kompakt?12:13,fontWeight:800,color:b.gun>=7?"#c0392b":"#B5531A"}},"⏱ "+farkYazi));
+}
 function KayitKarti({r, rvSaat, rvBos, onDetay, onDuzenle, onSil, onBilgi, saltOkunur}) {
   const bilgiBtn=(tip,var_)=>onBilgi&&var_&&h("span",{role:"button","aria-label":tip==="urun"?"Ürün detayı":"Hizmet detayı",onClick:e=>{e.stopPropagation();onBilgi(r,tip);},style:{display:"inline-flex",alignItems:"center",justifyContent:"center",width:15,height:15,marginLeft:4,borderRadius:"50%",border:"1.5px solid #0071E3",color:"#0071E3",fontSize:10,fontWeight:800,fontStyle:"italic",fontFamily:"Georgia,serif",lineHeight:1,cursor:"pointer",verticalAlign:"middle",background:"rgba(0,113,227,.08)"}},"i");
   const kk=(r.hizKK||0)+(r.uKK||0), ib=(r.hizIB||0)+(r.uIB||0), nk=(r.hizNK||0)+(r.uNK||0);
@@ -16215,9 +16245,10 @@ function KayitKarti({r, rvSaat, rvBos, onDetay, onDuzenle, onSil, onBilgi, saltO
           rvSaat&&div(null,span({style:{fontSize:9,color:"#0058B0",padding:"2px 6px",background:"rgba(0,113,227,.1)",borderRadius:20,fontWeight:700,display:"inline-block",marginTop:3}},"📅 Randevu "+rvSaat+(rvBos?" · form boş":"")))
         )
       ),
+      borcTahsilRozet(r, true),
       div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4}},
         div({style:{textAlign:"center"}},
-          div({style:{...et,whiteSpace:"nowrap"}},"Tarih"),
+          div({style:{...et,whiteSpace:"nowrap"}},borcTahsilBilgi(r)?"Ödeme Tar.":"Tarih"),
           div({style:dg},r.tarih?r.tarih.split("-").reverse().join("."):"—")
         ),
         div({style:{textAlign:"center"}},
@@ -21202,7 +21233,7 @@ if(DB) dbUpsertAyar("tema",tema);
     setBorcDurum(p=>p.sid===String(kul.id) ? {...p, liste:[...(p.liste||[]), b]} : {sid:String(kul.id), liste:[...borcLsOku(String(kul.id)), b]});
     if(meta.kaynakKayitId) ziyaretFotoTasi(meta.kaynakKayitId, id, f.ziyaretFoto, {tel:b.tel, ad:b.musteri, tarih:b.islemTarihi});
     else ziyaretFotoGuncelle(id, f.ziyaretFoto, {tel:b.tel, ad:b.musteri, tarih:b.islemTarihi});
-    showToast("Borç olarak kaydedildi — hiçbir hesaba dahil edilmedi","uy");
+    showToast("Tahsilat bekleyen alacak olarak kaydedildi — hiçbir hesaba dahil edilmedi","uy");
     return id;
   };
   // Mevcut kaydın öncesi/sonrası fotoğraflarını yeni kimliğe TAŞIR. (dbSil/ziyaretFotoKaydet(id,null) görselleri
@@ -21313,7 +21344,7 @@ if(DB) dbUpsertAyar("tema",tema);
       if(r.durum==="bekliyor"||r.durum==="geldi"){
         if(rec) aksiyonlar.push(btn({key:"a",style:{...mini,color:"#0071E3"},onClick:()=>setKayitForm(rec)},"📋 Kayıt"));
         else if(r.borcId && (()=>{ const _b=borcBul(r.borcId); return _b && _b.durum==="acik"; })())
-          aksiyonlar.push(btn({key:"a",style:{...mini,color:"#B5531A"},onClick:()=>{ setPsek("bugun"); setBugunAltSek("kayit"); showToast("Borç, Bugün → Borçlar alanında"); }},"💳 Borçta"));
+          aksiyonlar.push(btn({key:"a",style:{...mini,color:"#B5531A"},onClick:()=>setPsek("muhasebe")},"💳 Tahsilat Bekliyor"));
         else if(r.durum==="bekliyor" && r.tarih<=bg) aksiyonlar.push(btn({key:"a",style:{...mini,color:"#0071E3"},onClick:()=>rvFormOlustur(r)},"📋 Form Aç"));
       }
       if(r.durum==="bekliyor"){
@@ -22293,8 +22324,11 @@ if(DB) dbUpsertAyar("tema",tema);
         showToast("Kayıt güncellendi");
       }
     } else {
+      // Borç tahsilatı: hizmetin yapıldığı gün satırlara BİLGİ olarak yazılır (kayıt tarihi = ödeme günü; hesaplar değişmez)
+      const _bt = f._borcId ? borcBul(f._borcId) : null;
+      const _bEtiket = x => (_bt && x) ? {...x, _borcHizmetTarihi:String(_bt.islemTarihi||"").slice(0,10), _borcOdemeTarihi:String(f.tarih||TODAY()).slice(0,10)} : x;
       const y={id:f._borcId?String(f._borcId):uid(),staffId:kul.id,staffAd:kul.ad,musteri:f.musteri.trim(),tel:(f.tel||"").trim(),
-        hizler:f.hizler||[],hizKK:hKK,hizIB:hIB,hizNK:hNK,urunler:f.urunler||[],uKK,uIB,uNK,
+        hizler:(f.hizler||[]).map(_bEtiket),hizKK:hKK,hizIB:hIB,hizNK:hNK,urunler:(f.urunler||[]).map(_bEtiket),uKK,uIB,uNK,
         toplam:top,tarih:f.tarih||TODAY(),saat:SAAT(),hizmetSaati:f.hizmetSaati||"",gonderildi:false,
         musteriKaydet: !!f.musteriKaydet,
         anaPersonelId:f.anaPersonelId||"",
@@ -24400,6 +24434,7 @@ if(DB) dbUpsertAyar("tema",tema);
           btn({className:"xbtn",onClick:()=>setDetay(null)},"✕")
         ),
         div({className:"mbdy"},
+          borcTahsilRozet(detay, false),
 
           // Müşteri ve tarih bilgisi
           div({style:{background:"#FAF9F6",border:"1px solid rgba(0,0,0,.07)",borderRadius:16,padding:14,marginBottom:12}},
@@ -25402,6 +25437,12 @@ if(DB) dbUpsertAyar("tema",tema);
         !sekKisit("gecmisim")&&div({className:`atab${psek==="gecmis"?" a":""}`,onClick:()=>setPsek("gecmis")},
           "Geçmişim"
         ),
+        (()=>{ const say=borcAcikListe().length+bagliBorclar.length;
+          return div({className:`atab${psek==="muhasebe"?" a":""}`,onClick:()=>setPsek("muhasebe"),
+            style:{display:"inline-flex",alignItems:"center",gap:6,position:"relative"}},
+            "Muhasebe",
+            say>0&&span({style:{background:"#E8742C",color:"#FFFFFF",borderRadius:10,padding:"1px 7px",fontSize:11,fontWeight:700,minWidth:18,textAlign:"center",
+              boxShadow:"0 1px 3px rgba(232,116,44,.4)",letterSpacing:"-.2px"}},String(say))); })(),
         !sekKisit("ayarlar")&&div({className:`atab${psek==="ayarlar"?" a":""}`,onClick:()=>{setPsek("ayarlar");setSifreAdim(0);setSifreHata("");}},"Ayarlar")
       ),
       // Müşterilerim
@@ -26586,59 +26627,14 @@ if(DB) dbUpsertAyar("tema",tema);
               ),
               !sekKisit("gunSonuGonder")&&btn({className:"gsbtn",onClick:()=>(setGsTarihler([...new Set(myBekleyenGonder.map(r=>r.tarih||""))]),setGsOnay(true))},"Gönder")
             ),
-            // ── BORÇLAR: ödeme yapılmayan kayıtlar (hiçbir hesaba dahil değil) ──
-            (()=>{
-              const acik=borcAcikListe();
-              if(!acik.length) return null;
-              const toplam=acik.reduce((t,b)=>t+toN(b.tutar),0);
-              const gunFark=(t)=>{ try{ return Math.max(0,Math.round((new Date(TODAY()+"T12:00:00")-new Date(String(t||TODAY()).slice(0,10)+"T12:00:00"))/86400000)); }catch(e){ return 0; } };
-              return div({style:{background:"#FFF6F0",border:"1.5px solid #F4B183",borderRadius:16,padding:"12px 12px 4px",margin:"14px 0 6px"}},
-                div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:4}},
-                  div({style:{fontSize:15,fontWeight:800,color:"#B5531A"}},"💳 Borçlar ("+acik.length+")"),
-                  div({style:{fontSize:15,fontWeight:800,color:"#B5531A"}},fmt(toplam))),
-                div({style:{fontSize:11.5,color:"#8a5a3c",lineHeight:1.45,marginBottom:10}},
-                  "Ödemesi alınmamış işlemler. Hiçbir hesaba dahil değildir. Müşteri ödediğinde \"Ödeme Alındı\"ya basın; kayıt ödeme gününe yazılır."),
-                acik.map(b=>{
-                  const k=b.kayit||{};
-                  const kalemler=[...(k.hizler||[]).map(x=>x&&(x.n||x.ad)).filter(Boolean), ...(k.urunler||[]).map(u=>u&&(u.a||u.urunAd)).filter(Boolean)];
-                  const g=gunFark(b.islemTarihi);
-                  return div({key:b.id,style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"10px 11px",marginBottom:8}},
-                    div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}},
-                      div({style:{minWidth:0}},
-                        div({style:{fontSize:14.5,fontWeight:700,color:"#1D1D1F",overflow:"hidden",textOverflow:"ellipsis"}},b.musteri||"(isimsiz)"),
-                        b.tel&&div({style:{fontSize:12,color:"#6E6E73",marginTop:1}},b.tel)),
-                      div({style:{textAlign:"right",flexShrink:0}},
-                        div({style:{fontSize:16,fontWeight:800,color:"#B5531A"}},fmt(b.tutar||0)),
-                        div({style:{fontSize:11,color:g>=7?"#c0392b":"#8a5a3c",fontWeight:g>=7?700:500,marginTop:1}},"📅 "+fmtT(b.islemTarihi)+(g>0?" · "+g+" gün":" · bugün")))),
-                    kalemler.length>0&&div({style:{fontSize:12,color:"#4a4a4f",marginTop:6,lineHeight:1.4}},kalemler.join(", ")),
-                    k.anaPersonelId && String(k.anaPersonelId)!==String(kul.id) && div({style:{fontSize:11.5,color:"#6E6E73",marginTop:4}},
-                      "👤 Müşteri sahibi: "+(k.anaPersonelAd||(personeller||[]).find(p=>String(p.id)===String(k.anaPersonelId))?.ad||"—")+" (o da görüyor)"),
-                    div({style:{display:"flex",gap:8,marginTop:9}},
-                      btn({onClick:()=>borcSil(b),style:{flex:1,padding:"9px 0",borderRadius:10,border:"1px solid rgba(255,59,48,.25)",background:"rgba(255,59,48,.06)",color:"#d0302a",fontSize:12.5,fontWeight:600,cursor:"pointer"}},"Sil"),
-                      btn({onClick:()=>borcTahsilatAc(b),style:{flex:2.4,padding:"9px 0",borderRadius:10,border:"none",background:"linear-gradient(135deg,#34C759,#1f9d43)",color:"#fff",fontSize:13.5,fontWeight:700,cursor:"pointer"}},"✓ Ödeme Alındı")));
-                }));
-            })(),
-            // ── Müşterime ait, başka personelin girdiği ödeme alınmamış işlemler (yalnızca bilgi) ──
-            bagliBorclar.length>0 && div({style:{background:"#F7F7F9",border:"1.5px solid #D6D6DC",borderRadius:16,padding:"12px 12px 4px",margin:"14px 0 6px"}},
-              div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:4}},
-                div({style:{fontSize:14.5,fontWeight:800,color:"#4a4a4f"}},"⏳ Müşterilerimde Ödeme Alınmadı ("+bagliBorclar.length+")"),
-                div({style:{fontSize:14.5,fontWeight:800,color:"#4a4a4f"}},fmt(bagliBorclar.reduce((t,b)=>t+toN(b.tutar),0)))),
-              div({style:{fontSize:11.5,color:"#6E6E73",lineHeight:1.45,marginBottom:10}},
-                "Bilgi amaçlıdır. Ödemeyi işlemi yapan personel alacak; ödeme alınınca buradan kalkar. Hiçbir hesaba dahil değildir."),
-              bagliBorclar.map(b=>{
-                const k=b.kayit||{};
-                const kalemler=[...(k.hizler||[]).map(x=>x&&(x.n||x.ad)).filter(Boolean), ...(k.urunler||[]).map(u=>u&&(u.a||u.urunAd)).filter(Boolean)];
-                return div({key:"bb"+b.staffId+"_"+b.id,style:{background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:12,padding:"10px 11px",marginBottom:8}},
-                  div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}},
-                    div({style:{minWidth:0}},
-                      div({style:{fontSize:14.5,fontWeight:700,color:"#1D1D1F",overflow:"hidden",textOverflow:"ellipsis"}},b.musteri||"(isimsiz)"),
-                      div({style:{fontSize:12,color:"#6E6E73",marginTop:1}},"İşlemi yapan: "+(b.staffAd||"—"))),
-                    div({style:{textAlign:"right",flexShrink:0}},
-                      div({style:{fontSize:15.5,fontWeight:800,color:"#4a4a4f"}},fmt(b.tutar||0)),
-                      div({style:{fontSize:11,color:"#6E6E73",marginTop:1}},"📅 "+fmtT(b.islemTarihi)))),
-                  kalemler.length>0&&div({style:{fontSize:12,color:"#4a4a4f",marginTop:6,lineHeight:1.4}},kalemler.join(", ")),
-                  div({style:{marginTop:7,fontSize:11.5,fontWeight:700,color:"#B5531A"}},"● Ödeme alınmadı"));
-              })),
+            // ── Borç hatırlatma satırı (ayrıntılar "Borçlar" sekmesinde) ──
+            (()=>{ const n=borcAcikListe().length, nb=bagliBorclar.length; if(!n && !nb) return null;
+              const top=borcAcikListe().reduce((t,b)=>t+toN(b.tutar),0);
+              return btn({onClick:()=>setPsek("muhasebe"),style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,margin:"12px 0 4px",padding:"11px 13px",borderRadius:13,cursor:"pointer",textAlign:"left",
+                background:n?"#FFF6F0":"#F7F7F9",border:"1.5px solid "+(n?"#F4B183":"#D6D6DC")}},
+                span({style:{fontSize:13.5,fontWeight:700,color:n?"#B5531A":"#4a4a4f"}},
+                  n ? "💳 "+n+" tahsilat bekleyen alacak · "+fmt(top) : "⏳ Müşterilerinizde "+nb+" ödeme alınmamış işlem"),
+                span({style:{fontSize:13,fontWeight:700,color:"#0071E3",whiteSpace:"nowrap"}},"Muhasebe →")); })(),
             div({className:"sek"},ozetTarih?fmtT(ozetTarih)+" Kayıtları":"Kayıtlarım"),
             ozetTarih
               ? (secK.length===0
@@ -27636,6 +27632,96 @@ if(DB) dbUpsertAyar("tema",tema);
           })()
         );
       })(),
+
+      // ── MUHASEBE sekmesi (personelin muhasebe alanı) ──
+      // Şimdilik yalnızca: Tahsilat Bekleyen Alacaklar (Ödeme Yapılmadı işaretlenen işlemler). İleride başka bölümler eklenecek.
+      psek==="muhasebe"&&div({className:"pg"},
+        (()=>{
+          const acik=borcAcikListe();
+          const toplam=acik.reduce((t,b)=>t+toN(b.tutar),0)+bagliBorclar.reduce((t,b)=>t+toN(b.tutar),0);
+          return div({style:{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:10,margin:"4px 2px 12px",paddingBottom:10,borderBottom:"1px solid rgba(0,0,0,.08)"}},
+            div(null,
+              div({style:{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"#86868B",fontWeight:700}},"Muhasebe"),
+              div({style:{fontSize:18,fontWeight:800,color:"#1D1D1F",marginTop:2}},"Tahsilat Bekleyen Alacaklar")),
+            (acik.length+bagliBorclar.length)>0 && div({style:{textAlign:"right"}},
+              div({style:{fontSize:10.5,letterSpacing:1,textTransform:"uppercase",color:"#86868B",fontWeight:700}},"Toplam"),
+              div({style:{fontSize:18,fontWeight:800,color:"#B5531A"}},fmt(toplam))));
+        })(),
+            // ── BORÇLAR: ödeme yapılmayan kayıtlar (hiçbir hesaba dahil değil) ──
+            (()=>{
+              const acik=borcAcikListe();
+              if(!acik.length) return null;
+              const toplam=acik.reduce((t,b)=>t+toN(b.tutar),0);
+              const gunFark=(t)=>{ try{ return Math.max(0,Math.round((new Date(TODAY()+"T12:00:00")-new Date(String(t||TODAY()).slice(0,10)+"T12:00:00"))/86400000)); }catch(e){ return 0; } };
+              return div({style:{background:"#FFF6F0",border:"1.5px solid #F4B183",borderRadius:16,padding:"12px 12px 4px",margin:"0 0 6px"}},
+                div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:4}},
+                  div({style:{fontSize:15,fontWeight:800,color:"#B5531A"}},"💳 Benim İşlemlerim ("+acik.length+")"),
+                  div({style:{fontSize:15,fontWeight:800,color:"#B5531A"}},fmt(toplam))),
+                div({style:{fontSize:11.5,color:"#8a5a3c",lineHeight:1.45,marginBottom:10}},
+                  "Ödemesi alınmamış işlemleriniz. Hiçbir hesaba dahil değildir. Müşteri ödediğinde \"Ödeme Alındı\"ya basın; kayıt ödeme gününe yazılır."),
+                acik.map(b=>{
+                  const k=b.kayit||{};
+                  const kalemler=[...(k.hizler||[]).map(x=>x&&(x.n||x.ad)).filter(Boolean), ...(k.urunler||[]).map(u=>u&&(u.a||u.urunAd)).filter(Boolean)];
+                  const g=gunFark(b.islemTarihi);
+                  return div({key:b.id,style:{background:"#fff",border:"1px solid rgba(0,0,0,.08)",borderRadius:12,padding:"10px 11px",marginBottom:8}},
+                    div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}},
+                      div({style:{minWidth:0}},
+                        div({style:{fontSize:14.5,fontWeight:700,color:"#1D1D1F",overflow:"hidden",textOverflow:"ellipsis"}},b.musteri||"(isimsiz)"),
+                        b.tel&&div({style:{fontSize:12,color:"#6E6E73",marginTop:1}},b.tel)),
+                      div({style:{textAlign:"right",flexShrink:0}},
+                        div({style:{fontSize:16,fontWeight:800,color:"#B5531A"}},fmt(b.tutar||0)),
+                        div({style:{fontSize:11,color:g>=7?"#c0392b":"#8a5a3c",fontWeight:g>=7?700:500,marginTop:1}},"📅 "+fmtT(b.islemTarihi)+(g>0?" · "+g+" gün":" · bugün")))),
+                    kalemler.length>0&&div({style:{fontSize:12,color:"#4a4a4f",marginTop:6,lineHeight:1.4}},kalemler.join(", ")),
+                    k.anaPersonelId && String(k.anaPersonelId)!==String(kul.id) && div({style:{fontSize:11.5,color:"#6E6E73",marginTop:4}},
+                      "👤 Müşteri sahibi: "+(k.anaPersonelAd||(personeller||[]).find(p=>String(p.id)===String(k.anaPersonelId))?.ad||"—")+" (o da görüyor)"),
+                    div({style:{display:"flex",gap:8,marginTop:9}},
+                      btn({onClick:()=>borcSil(b),style:{flex:1,padding:"9px 0",borderRadius:10,border:"1px solid rgba(255,59,48,.25)",background:"rgba(255,59,48,.06)",color:"#d0302a",fontSize:12.5,fontWeight:600,cursor:"pointer"}},"Sil"),
+                      btn({onClick:()=>borcTahsilatAc(b),style:{flex:2.4,padding:"9px 0",borderRadius:10,border:"none",background:"linear-gradient(135deg,#34C759,#1f9d43)",color:"#fff",fontSize:13.5,fontWeight:700,cursor:"pointer"}},"✓ Ödeme Alındı")));
+                }));
+            })(),
+            // ── Müşterime ait, başka personelin girdiği ödeme alınmamış işlemler (yalnızca bilgi) ──
+            bagliBorclar.length>0 && div({style:{background:"#F7F7F9",border:"1.5px solid #D6D6DC",borderRadius:16,padding:"12px 12px 4px",margin:"14px 0 6px"}},
+              div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:4}},
+                div({style:{fontSize:14.5,fontWeight:800,color:"#4a4a4f"}},"⏳ Müşterilerimde · Diğer Personel ("+bagliBorclar.length+")"),
+                div({style:{fontSize:14.5,fontWeight:800,color:"#4a4a4f"}},fmt(bagliBorclar.reduce((t,b)=>t+toN(b.tutar),0)))),
+              div({style:{fontSize:11.5,color:"#6E6E73",lineHeight:1.45,marginBottom:10}},
+                "Bilgi amaçlıdır. Ödemeyi işlemi yapan personel alacak; ödeme alınınca buradan kalkar. Hiçbir hesaba dahil değildir."),
+              bagliBorclar.map(b=>{
+                const k=b.kayit||{};
+                const kalemler=[...(k.hizler||[]).map(x=>x&&(x.n||x.ad)).filter(Boolean), ...(k.urunler||[]).map(u=>u&&(u.a||u.urunAd)).filter(Boolean)];
+                return div({key:"bb"+b.staffId+"_"+b.id,style:{background:"#fff",border:"1px solid rgba(0,0,0,.07)",borderRadius:12,padding:"10px 11px",marginBottom:8}},
+                  div({style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}},
+                    div({style:{minWidth:0}},
+                      div({style:{fontSize:14.5,fontWeight:700,color:"#1D1D1F",overflow:"hidden",textOverflow:"ellipsis"}},b.musteri||"(isimsiz)"),
+                      div({style:{fontSize:12,color:"#6E6E73",marginTop:1}},"İşlemi yapan: "+(b.staffAd||"—"))),
+                    div({style:{textAlign:"right",flexShrink:0}},
+                      div({style:{fontSize:15.5,fontWeight:800,color:"#4a4a4f"}},fmt(b.tutar||0)),
+                      div({style:{fontSize:11,color:"#6E6E73",marginTop:1}},"📅 "+fmtT(b.islemTarihi)))),
+                  kalemler.length>0&&div({style:{fontSize:12,color:"#4a4a4f",marginTop:6,lineHeight:1.4}},kalemler.join(", ")),
+                  div({style:{marginTop:7,fontSize:11.5,fontWeight:700,color:"#B5531A"}},"● Ödeme alınmadı"));
+              })),
+            (borcAcikListe().length===0 && bagliBorclar.length===0) && div({className:"bos"},
+              div({style:{fontSize:42,marginBottom:9}},"💳"),
+              div({style:{fontSize:12,letterSpacing:2,marginTop:4}},"TAHSİLAT BEKLEYEN ALACAK YOK"),
+              div({style:{fontSize:12,color:"#86868B",marginTop:8,lineHeight:1.5,letterSpacing:0}},"Yeni Kayıt formunda \"Ödeme Yapılmadı\" işaretlenen işlemler burada görünür.")),
+              // Bilgi: son kapanan borçlar (ödendi) — denetim için, salt okunur
+              (()=>{
+                if(!kul || borcDurum.sid!==String(kul.id)) return null;
+                const l=(borcDurum.liste||[]).filter(b=>b && b.durum==="odendi" && String(b.staffId)===String(kul.id))
+                  .sort((a,b)=>String(b.odemeTarihi||"").localeCompare(String(a.odemeTarihi||""))).slice(0,15);
+                if(!l.length) return null;
+                return div({style:{margin:"18px 0 6px"}},
+                  div({className:"sek"},"Son Tahsil Edilen Alacaklar"),
+                  l.map(b=>{ const g=Math.round((new Date(String(b.odemeTarihi||TODAY())+"T12:00:00")-new Date(String(b.islemTarihi||TODAY())+"T12:00:00"))/86400000);
+                    return div({key:"ok"+b.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"9px 11px",background:"#FAF9F6",border:"1px solid rgba(0,0,0,.07)",borderRadius:11,marginBottom:6}},
+                      div({style:{minWidth:0}},
+                        div({style:{fontSize:13.5,fontWeight:700,color:"#1D1D1F",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},b.musteri||"—"),
+                        div({style:{fontSize:11.5,color:"#6E6E73",marginTop:1}},"Hizmet "+fmtT(b.islemTarihi)+" → Ödeme "+fmtT(b.odemeTarihi)+(g>0?" · "+g+" gün":" · aynı gün"))),
+                      div({style:{fontSize:14,fontWeight:800,color:"#1A7A34",whiteSpace:"nowrap"}},"✓ "+fmt(b.odenenTutar!=null?b.odenenTutar:b.tutar)));
+                  }));
+              })(),
+        
+      ),
 
       // Ayarlar sekmesi
       psek==="ayarlar"&&div({className:"pg"},
