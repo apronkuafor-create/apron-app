@@ -14537,6 +14537,8 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
   });
 
   const hSet = (id,alan,val) => setHizler(p=>{
+    // Borç modunda yalnızca "Tutar" (fnk) kutusu var: K.K/Iban'a yazılmak istenen her değer (otomatik doldurma dahil) Tutar'a gider.
+    if(borcModu && (alan==="fkk"||alan==="fib")) alan="fnk";
     if(alan==="n" && val) {
       const odemesiz = p.find(x=>x.id!==id && x.n && hizSatirToplam(x)<=0);
       if(odemesiz) {
@@ -14570,6 +14572,7 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
   // hizmet ya da müşteri değişince, satır silinip yeniden eklenince veya panel yeniden açılınca tekrar doldurur;
   // kullanıcı kutuyu elle silerse aynı hizmet+müşteri için bir daha zorla doldurmaz.
   React.useEffect(()=>{
+    if(borcTahsilat) return; // tahsilatta ödeme şekli otomatik seçilmez; satırda "Borç: X" yazar, personel seçer
     const ad = normText((musteri||"").trim());
     if(!ad) return;
     (hizler||[]).forEach(h=>{
@@ -14584,6 +14587,17 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
     });
   },[hizler, musteriHizOrt, musteri]);
 
+  // Güvenlik ağı: borç modunda K.K/Iban (gizli) kutularında herhangi bir yoldan (sesle doldur, eski veri vb.)
+  // değer kalırsa satır toplamı tek "Tutar" kutusunda birleştirilir → görünen tutar = toplama giren tutar.
+  React.useEffect(()=>{
+    if(!borcModu) return;
+    const gizliVar = x => x && (toN(x.fkk)>0 || toN(x.fib)>0 || x.fkk || x.fib);
+    if((hizler||[]).some(gizliVar)) setHizler(p=>{ const n=p.map(x=>{ if(!gizliVar(x)) return x; const t=toN(x.fkk)+toN(x.fib)+toN(x.fnk);
+      return {...x,fkk:"",fib:"",fnk:t>0?String(t):"",f:t>0?String(t):""}; }); hizmetOdemeToplamlariniYaz(n); return n; });
+    if((urunler||[]).some(gizliVar)) setUrunler(p=>{ const n=p.map(x=>{ if(!gizliVar(x)) return x; const t=toN(x.fkk)+toN(x.fib)+toN(x.fnk);
+      return {...x,fkk:"",fib:"",fnk:t>0?String(t):""}; }); urunOdemeToplamlariniYaz(n); return n; });
+  },[hizler, urunler, borcModu]);
+
   const uSil = id => setUrunler(p=>{
     const next = p.filter(x=>x.id!==id);
     urunOdemeToplamlariniYaz(next);
@@ -14591,6 +14605,7 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
   });
 
   const uSet = (id, alan, val) => setUrunler(p=>{
+    if(borcModu && (alan==="fkk"||alan==="fib")) alan="fnk";
     let next = p.map(x=> x.id===id ? {...x,[alan]:val} : x);
     if(["fkk","fib","fnk"].includes(alan)) urunOdemeToplamlariniYaz(next);
     if(["fkk","fib","fnk"].includes(alan) && toN(val)>0) setUrunOdemeUyariId(cur=>cur===id?"":cur);
