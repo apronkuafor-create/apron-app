@@ -14148,7 +14148,10 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
   // yeniGibi: randevudan otomatik açılan BOŞ form — teknik olarak mevcut kayıttır ama kullanıcı için yeni kayıttır.
   const borcSecilebilir = !!borcIzinli && !borcTahsilat && !borcKilit;
   const duzenlemeMi = !!ilk?.id && !yeniGibi;
+  // borcModu: ödeme yapılmadı → satırlarda ödeme şekli YOK, tek "Tutar" kutusu (içeride fnk alanında tutulur,
+  // kaydederken App ödeme şeklini tamamen siler). Tahsilatta kutular boş gelir, satırda "Borç: X" gösterilir.
   const [odemeYapilmadi, setOdemeYapilmadi] = useState(false);
+  const borcModu = !!borcIzinli && !ilk?._borcId && !borcKilit && odemeYapilmadi;
   const [fotoAlanAcik, setFotoAlanAcik] = useState(false); // fotoğraf alanı varsayılan kapalı; başlığa dokununca açılır
   const [ziyaretFoto, setZiyaretFoto] = useState(()=> (ilk?.id && ziyaretFotoAl(ilk.id)) || (ilk?._borcId && !ilk?.id && ziyaretFotoAl(ilk._borcId)) || {o:{},s:{},g:false});
   const [mevcutHatirlatma, setMevcutHatirlatma] = useState(null);
@@ -14594,6 +14597,23 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
     return next;
   });
 
+  // "Ödeme Yapılmadı" aç/kapat: AÇ → her satırın tutarı tek "Tutar" kutusuna toplanır (ödeme şekli kalkar).
+  // KAPAT → kutular boşaltılır (yanlışlıkla "Nakit" sayılmasın); tutar _borcTutar'da saklanır, etikete dokununca geri dolar.
+  const borcModDegistir = (yeni) => {
+    setOdemeYapilmadi(yeni);
+    setHizler(p=>{
+      const n=p.map(x=>{ if(!x.n) return x; const t=toN(x.fkk)+toN(x.fib)+toN(x.fnk);
+        return yeni ? {...x,fkk:"",fib:"",fnk:t>0?String(t):"",f:t>0?String(t):""}
+                    : {...x,fkk:"",fib:"",fnk:"",f:"",_borcTutar:t>0?String(t):(x._borcTutar||"")}; });
+      hizmetOdemeToplamlariniYaz(n); return n; });
+    setUrunler(p=>{
+      const n=p.map(x=>{ if(!x.a) return x; const t=toN(x.fkk)+toN(x.fib)+toN(x.fnk);
+        return yeni ? {...x,fkk:"",fib:"",fnk:t>0?String(t):""}
+                    : {...x,fkk:"",fib:"",fnk:"",_borcTutar:t>0?String(t):(x._borcTutar||"")}; });
+      urunOdemeToplamlariniYaz(n); return n; });
+    setHIbanSec(""); setHIbanSebep(""); setUIbanSec("");
+    if(!yeni && showToast) showToast("Ödeme şeklini seçin — K.K / Iban / Nakit etiketine dokununca tutar dolar","uy");
+  };
   // otoDus: ürün müşteriye şimdi verildi; eksik adet stok girişi (mal kabul) yapılınca kendiliğinden düşer
   const urunEkleUygula = (u, onSiparis=false, otoDus=false) => {
     setUrunler(p=>{
@@ -14668,6 +14688,11 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
     if(formTarih && formTarih>TODAY()){
       showToast("İleri bir tarih seçemezsiniz — Kayıt Tarihi'ni bugün veya geçmiş bir tarihe düzeltin","uy");
       return;
+    }
+    // Borç tahsilatı: alınan tutar borçtan farklıysa onay iste (indirim/eksik ödeme bilinçli olsun).
+    if(borcTahsilat && toN(ilk?._borcTutar)>0){
+      const alinan = toN(hKK)+toN(hIB)+toN(hNK)+toN(uKK)+toN(uIB)+toN(uNK);
+      if(Math.abs(alinan-toN(ilk._borcTutar))>=0.5 && !window.confirm("Borç tutarı "+fmt(toN(ilk._borcTutar))+", girdiğiniz ödeme "+fmt(alinan)+".\n\nBu tutarla kaydedilsin mi?")) return;
     }
     // Borç tahsilatı: ödeme tarihi, işlemin yapıldığı tarihten önce olamaz.
     if(borcTahsilat && ilk?._borcIslemTarihi && formTarih && formTarih<ilk._borcIslemTarihi){
@@ -15538,6 +15563,21 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
           )
           ), document.body
         ),
+        borcSecilebilir && div({style:{margin:"0 0 14px"}},
+          btn({type:"button",onClick:()=>borcModDegistir(!odemeYapilmadi),
+            style:{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,cursor:"pointer",textAlign:"left",
+              background:odemeYapilmadi?"#FFF1E8":"#fff",border:"1.5px solid "+(odemeYapilmadi?"#E8742C":"rgba(0,0,0,.12)"),transition:".15s"}},
+            span({style:{flexShrink:0,width:22,height:22,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",
+              border:"2px solid "+(odemeYapilmadi?"#E8742C":"#b0b0b5"),background:odemeYapilmadi?"#E8742C":"transparent",color:"#fff",fontSize:14,fontWeight:900}},odemeYapilmadi?"✓":""),
+            span({style:{fontSize:14.5,fontWeight:700,color:odemeYapilmadi?"#B5531A":"#1D1D1F"}},"Ödeme Yapılmadı")),
+          odemeYapilmadi && div({style:{marginTop:7,padding:"9px 12px",background:"#FFF6F0",borderRadius:11,fontSize:12.5,color:"#8a3b12",lineHeight:1.5}},
+            "Hizmet ve ürünlerin tutarını tek \"Tutar\" kutusuna girin; ödeme şekli seçilmez. Bu kayıt ",span({style:{fontWeight:700}},"hiçbir hesaba dahil edilmez"),
+            " (ciro, kasa, hakediş, stok vb.) ve Bugün ekranındaki ",span({style:{fontWeight:700}},"Borçlar"),
+            " alanında bekler. Ödeme alındığında oradan \"Ödeme Alındı\" deyip müşterinin ödediği şekli (K.K / Iban / Nakit) seçersiniz; kayıt ödeme gününe yazılır.",
+            ilk?.id ? div({style:{marginTop:5,fontWeight:700}},"Bu kayıt Kayıtlarım'dan kaldırılıp Borçlar'a taşınacak.") : null)
+        ),
+        !!borcIzinli && !borcTahsilat && !!borcKilit && div({style:{marginTop:14,padding:"10px 13px",borderRadius:14,background:"rgba(0,0,0,.035)",border:"1.5px dashed rgba(0,0,0,.15)",fontSize:12.5,color:"#6E6E73",lineHeight:1.5}},
+          span({style:{fontWeight:700,color:"#4a4a4f"}},"Ödeme Yapılmadı seçilemiyor: "), borcKilit),
         // Hizmetler
         div({className:"sc sc-h theme-section",ref:hizmetBolumRef,style:{
           ...bolumThemeVars(hizmetBolumStili,hizmetFont),
@@ -15645,14 +15685,14 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
                   )
                 ),
                 h.n&&div({style:{display:"flex",flexDirection:"column",gap:5,padding:hizmetOdemeUyariId===h.id?3:0,border:hizmetOdemeUyariId===h.id?"2px solid #e02020":"2px solid transparent",borderRadius:10,boxShadow:hizmetOdemeUyariId===h.id?"0 0 0 4px rgba(224,32,32,.12)":"none",transition:".18s"}},
-                  [["kk","K.K"],["ib","Iban"],["nk","Nakit"]].map(([kod,ad])=>{
+                  (borcModu?[["nk","Tutar"]]:[["kk","K.K"],["ib","Iban"],["nk","Nakit"]]).map(([kod,ad])=>{
                     const alan = "f"+kod;
                     const deger = h[alan];
                     return div({key:kod,style:{display:"flex",alignItems:"center",gap:4}},
                       btn({type:"button",title:ad+" — kalan tutarı doldur",
                         onClick:()=>{
                           // Etikete dokununca: liste fiyatına göre kalan tutarı bu ödeme türüne yazar (tek yöntemle ödemede hız için).
-                          const hedef = musteriHizOrt[h.n] ? musteriHizOrt[h.n].ort : toN(h.listef); // önce müşterinin 3 aylık ortalaması
+                          const hedef = toN(h._borcTutar) || (musteriHizOrt[h.n] ? musteriHizOrt[h.n].ort : toN(h.listef)); // borç tutarı → müşterinin 3 aylık ortalaması → liste
                           if(hedef<=0) return;
                           const digerler = (kod!=="kk"?toN(h.fkk):0)+(kod!=="ib"?toN(h.fib):0)+(kod!=="nk"?toN(h.fnk):0);
                           const kalan = Math.max(0, hedef - digerler);
@@ -15669,7 +15709,8 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
                       )
                     );
                   }),
-                  hizmetOdemeUyariId===h.id&&div({style:{fontSize:9.5,lineHeight:1.15,color:hizmetBolumStili.serviceWarningColor||"#e02020",fontWeight:800,textAlign:"center"}},"Ödeme tutarı gir"),
+                  hizmetOdemeUyariId===h.id&&div({style:{fontSize:9.5,lineHeight:1.15,color:hizmetBolumStili.serviceWarningColor||"#e02020",fontWeight:800,textAlign:"center"}},borcModu?"Tutar gir":"Ödeme tutarı gir"),
+                  !borcModu && toN(h._borcTutar)>0 && div({style:{fontSize:10.5,lineHeight:1.2,color:"#B5531A",fontWeight:800,textAlign:"center"}},"Borç: "+fmt(toN(h._borcTutar))),
                   btn({style:{background:hizmetBolumStili.serviceBoxBackground||"var(--bg3)",border:"1px solid "+(hizmetBolumStili.serviceBoxBorderColor||"var(--br)"),borderRadius:7,color:hizmetBolumStili.textColor||"var(--mu)",fontSize:12,padding:"5px 4px",cursor:"pointer",marginTop:1},onClick:()=>hSil(h.id)},"Sil")
                 )
               )
@@ -15757,7 +15798,7 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
             span({style:{fontSize:12,color:"#6b7280",letterSpacing:2,textTransform:"uppercase"}},"Hizmet Toplamı"),
             span({className:"theme-number",style:{fontSize:20,fontWeight:700,fontFamily:hizmetFont}},fmt(hizTop))
           ),
-          h(OdemeGir,{renk:"var(--g)",label:"Ödeme Toplamı",kk:hKK,ib:hIB,nk:hNK,
+          !borcModu && h(OdemeGir,{renk:"var(--g)",label:"Ödeme Toplamı",kk:hKK,ib:hIB,nk:hNK,
             beklenen:hizTop, onSil:true,
             ibanPersoneller:aktifP.filter(p=>p.id!==aktifKullanici?.id),
             ibanSecili:_isManikurist ? (hIbanSec||anaPersonelId) : hIbanSec,
@@ -15900,14 +15941,14 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
               btn({style:{background:"transparent",border:"1px solid #3a2010",borderRadius:7,color:genelToplamBolumStili.textColor||"var(--mu)",fontSize:12,padding:"5px 4px",cursor:"pointer"},onClick:()=>uSil(u.id)},"Sil")
             ),
             div({style:{display:"flex",flexDirection:"column",gap:4,padding:urunOdemeUyariId===u.id?3:0,border:urunOdemeUyariId===u.id?"2px solid #e02020":"2px solid transparent",borderRadius:10,boxShadow:urunOdemeUyariId===u.id?"0 0 0 4px rgba(224,32,32,.12)":"none",transition:".18s"}},
-              [["kk","K.K"],["ib","Iban"],["nk","Nakit"]].map(([kod,ad])=>{
+              (borcModu?[["nk","Tutar"]]:[["kk","K.K"],["ib","Iban"],["nk","Nakit"]]).map(([kod,ad])=>{
                 const alan = "f"+kod;
                 const deger = u[alan];
                 return div({key:kod,style:{display:"flex",alignItems:"center",gap:4}},
                   btn({type:"button",title:ad+" — kalan tutarı doldur",
                     onClick:()=>{
-                      // Etikete dokununca: birim fiyat × adet üzerinden kalan tutarı bu ödeme türüne yazar.
-                      const hedef = toN(u.sf)*toN(u.qty||1);
+                      // Etikete dokununca: (borç tutarı ya da) birim fiyat × adet üzerinden kalan tutarı bu ödeme türüne yazar.
+                      const hedef = toN(u._borcTutar) || toN(u.sf)*toN(u.qty||1);
                       if(hedef<=0) return;
                       const digerler = (kod!=="kk"?toN(u.fkk):0)+(kod!=="ib"?toN(u.fib):0)+(kod!=="nk"?toN(u.fnk):0);
                       const kalan = Math.max(0, hedef - digerler);
@@ -15934,7 +15975,8 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
                 return div({style:{fontSize:9.5,fontWeight:800,textAlign:"center",color:"#e0641e",lineHeight:1.15}},
                   (fark<0?"Eksik ":"Fazla ")+fmt(Math.abs(fark)));
               })(),
-              urunOdemeUyariId===u.id&&div({style:{fontSize:9.5,lineHeight:1.15,color:"#e02020",fontWeight:800,textAlign:"center"}},"Ödeme tutarı gir")
+              urunOdemeUyariId===u.id&&div({style:{fontSize:9.5,lineHeight:1.15,color:"#e02020",fontWeight:800,textAlign:"center"}},borcModu?"Tutar gir":"Ödeme tutarı gir"),
+              !borcModu && toN(u._borcTutar)>0 && div({style:{fontSize:10.5,lineHeight:1.2,color:"#B5531A",fontWeight:800,textAlign:"center"}},"Borç: "+fmt(toN(u._borcTutar)))
             )
           )),
           urunTop>0 && div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",
@@ -15942,7 +15984,7 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
             span({style:{fontSize:12,color:"#6b7280",letterSpacing:2,textTransform:"uppercase"}},"Ürün Toplamı"),
             span({className:"theme-number",style:{fontFamily:urunFont,fontSize:20,color:"#1a56a8",fontWeight:700}},fmt(urunTop))
           ),
-          h(OdemeGir,{renk:"var(--g)",label:"Ödeme Toplamı",kk:uKK,ib:uIB,nk:uNK,
+          !borcModu && h(OdemeGir,{renk:"var(--g)",label:"Ödeme Toplamı",kk:uKK,ib:uIB,nk:uNK,
             beklenen:urunTop, onSil:true,
             ibanPersoneller:aktifP.filter(p=>p.id!==aktifKullanici?.id),
             ibanSecili:uIbanSec,
@@ -15990,6 +16032,8 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
             ),
             div({className:"sc-t",style:{color:"#1a56a8"}},"Genel Toplam")
           ),
+          borcModu ? div({style:{background:"#FFF6F0",borderRadius:11,padding:"12px 10px",textAlign:"center",marginBottom:11,color:"#B5531A",fontSize:13,fontWeight:700}},
+              "Ödeme alınmadı — ödeme şekli, ödeme alınırken seçilecek") :
           div({style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:11}},
             [["kk","K.Kartı",toN(hKK)+toN(uKK)],["ib","IBAN",toN(hIB)+toN(uIB)],["nk","Nakit",toN(hNK)+toN(uNK)]].map(([k,lb,v])=>
               div({key:lb,style:{background:"rgba(0,0,0,.03)",border:"none",borderRadius:11,padding:"10px 6px",textAlign:"center"}},
@@ -16030,28 +16074,13 @@ function KayitForm({stokBaslangic, gecmisKayitlar, ilk, musteriDB, personeller, 
           })(),
           div({style:{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:11,borderTop:"1px solid rgba(0,0,0,.07)"}},
             span({style:{fontSize:13,color:"#6b7280",letterSpacing:3,textTransform:"uppercase"}},
-              (toN(hKK)+toN(hIB)+toN(hNK)+toN(uKK)+toN(uIB)+toN(uNK))>0 ? "ALINAN ÜCRET" : "TOPLAM"
+              borcModu ? "BORÇ TUTARI" : (toN(hKK)+toN(hIB)+toN(hNK)+toN(uKK)+toN(uIB)+toN(uNK))>0 ? "ALINAN ÜCRET" : "TOPLAM"
             ),
             span({className:"theme-number",style:{fontFamily:"'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif",fontSize:42,color:"#1a56a8",fontWeight:700}},
               fmt(toN(hKK)+toN(hIB)+toN(hNK)+toN(uKK)+toN(uIB)+toN(uNK)||hizTop+urunTop)
             )
           )
         ),
-        borcSecilebilir && div({style:{marginTop:14}},
-          btn({type:"button",onClick:()=>setOdemeYapilmadi(v=>!v),
-            style:{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,cursor:"pointer",textAlign:"left",
-              background:odemeYapilmadi?"#FFF1E8":"#fff",border:"1.5px solid "+(odemeYapilmadi?"#E8742C":"rgba(0,0,0,.12)"),transition:".15s"}},
-            span({style:{flexShrink:0,width:22,height:22,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",
-              border:"2px solid "+(odemeYapilmadi?"#E8742C":"#b0b0b5"),background:odemeYapilmadi?"#E8742C":"transparent",color:"#fff",fontSize:14,fontWeight:900}},odemeYapilmadi?"✓":""),
-            span({style:{fontSize:14.5,fontWeight:700,color:odemeYapilmadi?"#B5531A":"#1D1D1F"}},"Ödeme Yapılmadı")),
-          odemeYapilmadi && div({style:{marginTop:7,padding:"9px 12px",background:"#FFF6F0",borderRadius:11,fontSize:12.5,color:"#8a3b12",lineHeight:1.5}},
-            "Tutarları her zamanki gibi girin. Bu kayıt ",span({style:{fontWeight:700}},"hiçbir hesaba dahil edilmez"),
-            " (ciro, kasa, hakediş, stok vb.) ve Bugün ekranındaki ",span({style:{fontWeight:700}},"Borçlar"),
-            " alanında bekler. Ödeme alındığında oradan \"Ödeme Alındı\" deyip ödeme şeklini düzeltirsiniz; kayıt ödeme gününe yazılır.",
-            ilk?.id ? div({style:{marginTop:5,fontWeight:700}},"Bu kayıt Kayıtlarım'dan kaldırılıp Borçlar'a taşınacak.") : null)
-        ),
-        !!borcIzinli && !borcTahsilat && !!borcKilit && div({style:{marginTop:14,padding:"10px 13px",borderRadius:14,background:"rgba(0,0,0,.035)",border:"1.5px dashed rgba(0,0,0,.15)",fontSize:12.5,color:"#6E6E73",lineHeight:1.5}},
-          span({style:{fontWeight:700,color:"#4a4a4f"}},"Ödeme Yapılmadı seçilemiyor: "), borcKilit),
         div({style:{display:"flex",gap:10,marginTop:14,paddingTop:4}},
           btn({style:{
             flex:1,padding:"15px 0",
@@ -21132,11 +21161,23 @@ if(DB) dbUpsertAyar("tema",tema);
   };
   const borcGuncelle = (id, patch) => setBorcDurum(p=>({...p, liste:(p.liste||[]).map(b=>b && String(b.id)===String(id) ? {...b, ...patch, guncelleme:Math.max(Date.now(),(b.guncelleme||0)+1)} : b)}));
   // Ödemesiz kayıt → Borçlar (stok, IBAN bildirimi, ön sipariş, müşteri havuzu: HİÇBİRİ çalışmaz)
+  // Borç kaydından ÖDEME ŞEKLİNİ tamamen kaldırır: her satırın tutarı _borcTutar'da durur, K.K/Iban/Nakit boş,
+  // toplamlar 0, IBAN seçimi yok. (Eski sürümle girilmiş, ödeme şekli dolu borçlar da tahsilatta böyle temizlenir.)
+  const borcYontemsiz = (k) => {
+    const hz=(k.hizler||[]).map(x=>{ if(!x) return x; const t=toN(x._borcTutar)||(toN(x.fkk)+toN(x.fib)+toN(x.fnk))||toN(x.f);
+      return {...x,_borcTutar:t>0?String(t):"",f:t>0?String(t):"",fkk:"",fib:"",fnk:"",odeme:""}; });
+    const ur=(k.urunler||[]).map(x=>{ if(!x) return x; const t=toN(x._borcTutar)||(toN(x.fkk)+toN(x.fib)+toN(x.fnk))||toN(x.sf)*(toN(x.qty)||1);
+      return {...x,_borcTutar:t>0?String(t):"",fkk:"",fib:"",fnk:"",odeme:""}; });
+    const tutar=hz.reduce((a,x)=>a+toN(x&&x._borcTutar),0)+ur.reduce((a,x)=>a+toN(x&&x._borcTutar),0);
+    return {kayit:{...k,hizler:hz,urunler:ur,hizKK:0,hizIB:0,hizNK:0,uKK:0,uIB:0,uNK:0,
+      hizIbanId:"",hizIbanAd:"",hizIbanSebep:"",urunIbanId:"",urunIbanAd:""}, tutar};
+  };
   const borcOlustur = (f, meta={}) => {
     if(!kul) return "";
-    const top = toN(f.hizKK)+toN(f.hizIB)+toN(f.hizNK)+toN(f.uKK)+toN(f.uIB)+toN(f.uNK);
     const id = uid();
-    const kayit = {...f};
+    const _y = borcYontemsiz({...f});
+    const kayit = _y.kayit;
+    const top = _y.tutar;
     ["id","ziyaretFoto","odemeYapilmadi","_borcId","gonderildi","saat","_yonBildirimId","_yonBildirimNeden","_yonOncekiKayit","_talepOnayId","_yonDirektDuzenle"].forEach(k=>{ delete kayit[k]; });
     const b = {id, durum:"acik", staffId:String(kul.id), staffAd:kul.ad||"",
       musteri:(f.musteri||"").trim(), tel:(f.tel||"").trim(),
@@ -21181,7 +21222,8 @@ if(DB) dbUpsertAyar("tema",tema);
   };
   const borcTahsilatAc = (b) => {
     if(!b || b.durum!=="acik" || borcKayitVarMi(b.id)){ showToast("Bu borç zaten kapatılmış","uy"); return; }
-    setKayitForm({...(b.kayit||{}), musteri:b.musteri, tel:b.tel, tarih:TODAY(), _borcId:String(b.id), _borcIslemTarihi:b.islemTarihi||""});
+    const _y = borcYontemsiz(b.kayit||{});
+    setKayitForm({..._y.kayit, musteri:b.musteri, tel:b.tel, tarih:TODAY(), _borcId:String(b.id), _borcIslemTarihi:b.islemTarihi||"", _borcTutar:toN(b.tutar)||_y.tutar});
   };
   const borcSil = (b) => {
     if(!b || b.durum!=="acik") return;
