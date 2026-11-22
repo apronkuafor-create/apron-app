@@ -21288,6 +21288,14 @@ if(DB) dbUpsertAyar("tema",tema);
   const [alacakEkle, setAlacakEkle] = useState(null);
   const [alacakEkleHata, setAlacakEkleHata] = useState("");
   const [alacakOdemeSor, setAlacakOdemeSor] = useState(null);
+  const [alacakOneri, setAlacakOneri] = useState([]); // Alacak Ekle → müşteri adı önerileri (yalnızca personelin KENDİ müşterileri)
+  const alacakOneriHesapla = (val) => {
+    const q=normText(val||"");
+    if(!kul || q.length<2) return [];
+    const telQ=String(val||"").replace(/\D/g,"");
+    return (musteriDB||[]).filter(m=>m && m.ad && String(m.sahipId||"")===String(kul.id) &&
+      (normText(m.ad).includes(q) || (telQ.length>=3 && String(m.tel||"").replace(/\D/g,"").includes(telQ)))).slice(0,6);
+  };
   const borcElleEkle = (fm) => {
     if(!kul) return;
     const musteri=String(fm.musteri||"").trim(), tutar=toN(fm.tutar), tarih=String(fm.tarih||TODAY()).slice(0,10);
@@ -24646,16 +24654,23 @@ if(DB) dbUpsertAyar("tema",tema);
         div({className:"mhd"},
           div({style:{flex:1}},span({className:"mtl"},"Alacak Ekle"),
             div({style:{fontSize:12,color:"#86868B",marginTop:2}},"Hiçbir hesaba dahil edilmez")),
-          btn({className:"xbtn",onClick:()=>{setAlacakEkle(null);setAlacakEkleHata("");}},"✕")),
+          btn({className:"xbtn",onClick:()=>{setAlacakEkle(null);setAlacakEkleHata("");setAlacakOneri([]);}},"✕")),
         div({className:"mbdy"},
           [["musteri","Müşteri Adı *","text","Ali Yılmaz"],["tel","Telefon","tel","05xx xxx xx xx"],["tutar","Tutar (₺) *","number","0"],["tarih","Alacağın Oluştuğu Tarih *","date",""],["aciklama","Açıklama","text","Ör. eski dönemden kalan borç"]].map(([k,et,tip,ph])=>
-            div({key:k,style:{marginBottom:12}},
+            div({key:k,style:{marginBottom:12,position:"relative"}},
               div({className:"fl"},et),
               h("input",{className:"fi",type:tip,inputMode:tip==="number"?"decimal":undefined,placeholder:ph,value:alacakEkle[k]||"",max:tip==="date"?TODAY():undefined,
-                onChange:e=>{ const v=e.target.value; setAlacakEkle(p=>({...p,[k]:v})); setAlacakEkleHata(""); }}))),
+                autoComplete:k==="musteri"?"off":undefined,
+                onChange:e=>{ const v=e.target.value; setAlacakEkle(p=>({...p,[k]:v})); setAlacakEkleHata(""); if(k==="musteri") setAlacakOneri(alacakOneriHesapla(v)); },
+                onBlur:k==="musteri"?()=>setTimeout(()=>setAlacakOneri([]),200):undefined}),
+              k==="musteri" && alacakOneri.length>0 && div({className:"mus-on"},
+                alacakOneri.map(m=>div({key:m.id,className:"mus-oi",
+                  onMouseDown:e=>{ e.preventDefault(); setAlacakEkle(p=>({...p,musteri:m.ad,tel:m.tel||p.tel||""})); setAlacakOneri([]); setAlacakEkleHata(""); }},
+                  div({style:{fontSize:15,color:"var(--tx)"}},m.ad),
+                  m.tel&&div({style:{fontSize:12,color:"var(--mu)"}},"📞 "+m.tel)))))),
           alacakEkleHata&&div({style:{color:"#d0302a",fontSize:13,fontWeight:700,marginBottom:10}},alacakEkleHata),
           div({style:{display:"flex",gap:10,marginTop:6}},
-            btn({style:{flex:1,padding:"14px 0",borderRadius:14,border:"1.5px solid rgba(0,0,0,.1)",background:"rgba(0,0,0,.04)",fontSize:15,fontWeight:600,cursor:"pointer"},onClick:()=>{setAlacakEkle(null);setAlacakEkleHata("");}},"İptal"),
+            btn({style:{flex:1,padding:"14px 0",borderRadius:14,border:"1.5px solid rgba(0,0,0,.1)",background:"rgba(0,0,0,.04)",fontSize:15,fontWeight:600,cursor:"pointer"},onClick:()=>{setAlacakEkle(null);setAlacakEkleHata("");setAlacakOneri([]);}},"İptal"),
             btn({style:{flex:2,padding:"14px 0",borderRadius:14,border:"none",background:"linear-gradient(135deg,#E8742C,#C95A16)",color:"#fff",fontSize:15,fontWeight:800,cursor:"pointer"},onClick:()=>borcElleEkle(alacakEkle)},"Alacağı Kaydet"))))),
     // ── Elle eklenen alacak: ödeme alındı → kayıt açılsın mı? ──
     alacakOdemeSor&&div({className:"ov",style:{zIndex:620}},
