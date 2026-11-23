@@ -292,17 +292,26 @@ async function urunBilgiCek(u, sayfa) {
     return v || { hata:"Sunucudan geçersiz cevap geldi" };
   } catch(e) { return { hata:"Bağlantı hatası" }; }
 }
-// Seçilen görseli depoya kaydeder (önce doğrudan, olmazsa fonksiyon üzerinden); olmazsa adresin kendisini kullanır.
-async function uzakResmiYukle(barkod, url) {
-  const blobDene = async (blob) => urunResmiYukle(barkod, new File([blob], "u.jpg", {type:blob.type||"image/jpeg"}));
-  try { const r = await fetch(url); if(r.ok) return await blobDene(await r.blob()); } catch(e) {}
+// Uzak görseli sunucu fonksiyonu üzerinden indirir (tarayıcının erişemediği / başka sitede gösterilmeyen görseller için).
+async function uzakGorselBlob(url) {
   try {
     const token = await dbToken();
     const r = await fetch(BILGI_CEK_URL, { method:"POST", headers:{"Content-Type":"application/json","Authorization":"Bearer "+token}, body:JSON.stringify({gorselIndir:url}) });
     const v = await r.json();
-    if(v && v.base64){ const bin=atob(v.base64); const a=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) a[i]=bin.charCodeAt(i); return await blobDene(new Blob([a],{type:v.tip||"image/jpeg"})); }
+    if(v && v.base64){ const bin=atob(v.base64); const a=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) a[i]=bin.charCodeAt(i); return new Blob([a],{type:v.tip||"image/jpeg"}); }
   } catch(e) {}
-  return url;
+  return null;
+}
+// Bir görsel adresi bu uygulamada gösterilebiliyor mu? (marka sitesi başka sitelerde göstermeyi engelliyorsa false)
+const gorselGosterilir = (url) => new Promise(res => { try{ const i=new Image(); let bitti=false; const son=v=>{ if(!bitti){ bitti=true; res(v); } };
+  i.referrerPolicy="no-referrer"; i.onload=()=>son(i.naturalWidth>0); i.onerror=()=>son(false); setTimeout(()=>son(false),10000); i.src=url; }catch(e){ res(false); } });
+// Seçilen görseli depoya kaydeder (önce doğrudan, olmazsa fonksiyon üzerinden).
+// İkisi de olmazsa adresin kendisi YALNIZCA uygulamada gerçekten görünüyorsa kullanılır; görünmüyorsa kaydedilmez (kırık görsel eklenmez).
+async function uzakResmiYukle(barkod, url) {
+  const blobDene = async (blob) => urunResmiYukle(barkod, new File([blob], "u.jpg", {type:blob.type||"image/jpeg"}));
+  try { const r = await fetch(url); if(r.ok) return await blobDene(await r.blob()); } catch(e) {}
+  try { const b = await uzakGorselBlob(url); if(b) return await blobDene(b); } catch(e) {}
+  return (await gorselGosterilir(url)) ? url : null;
 }
 // Ürünün resmini gösterir; resim yoksa küçük bir simge kutusu gösterir.
 // Resme tıklanınca orjinal boyutlu büyük önizleme modalı açılır (uygulama genelinde tutarlı — tek yerden yönetilir).
@@ -31246,7 +31255,9 @@ if(DB) dbUpsertAyar("tema",tema);
                           style:{position:"relative",borderRadius:10,overflow:"hidden",cursor:"pointer",aspectRatio:"1/1",background:"#fff",
                             border:sira>=0?"3px solid #34C759":"1px solid var(--br)",opacity:sira>=0?1:.75}},
                           img({src:g,loading:"lazy",referrerPolicy:"no-referrer",style:{width:"100%",height:"100%",objectFit:"contain",display:"block"},
-                            onError:e=>{e.currentTarget.style.opacity=.15;}}),
+                            // Marka sitesi başka sitede göstermeye izin vermiyorsa önizleme fonksiyon üzerinden (bir kez) yüklenir
+                            onError:e=>{ const el=e.currentTarget; if(el.dataset.vekil){ el.style.opacity=.15; return; } el.dataset.vekil="1";
+                              uzakGorselBlob(g).then(b=>{ if(b){ el.src=URL.createObjectURL(b); el.style.opacity=1; } else el.style.opacity=.15; }); }}),
                           sira>=0 && div({style:{position:"absolute",top:4,right:4,background:"#34C759",color:"#fff",borderRadius:99,minWidth:20,height:20,padding:"0 5px",fontSize:11.5,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,boxSizing:"border-box"}},String(sira+1)),
                           eklendi && div({style:{position:"absolute",left:0,right:0,bottom:0,background:"rgba(0,0,0,.55)",color:"#fff",fontSize:10,fontWeight:600,textAlign:"center",padding:"2px 0"}},"Zaten eklendi")
                         );
