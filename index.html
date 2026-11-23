@@ -31163,8 +31163,11 @@ if(DB) dbUpsertAyar("tema",tema);
         // Daha önce eklenmemiş tüm görseller varsayılan olarak seçili gelir
         const secler = gorseller.map((g,i)=>onceki.has(g)?-1:i).filter(i=>i>=0);
         const metin = v => Array.isArray(v) ? v.filter(Boolean).map(x=>"- "+String(x).trim()).join("\n") : String(v||"").trim();
+        // Kaynak sayfaya sitenin GENEL adresi yazılmış ve ürün sayfası bulunmuşsa: markanın sitesi yoksa bu adresi marka sitesi olarak hatırla
+        if(r.bulundu && sayfa && u.m && !markaSiteAl(u.m)){ try{ const g=kaynakNormal(sayfa); if(g) markaSiteKaydet(u.m, g); }catch(e){} }
         return {...p, durum:"hazir", hata:"", adr:r.sayfa||p.adr||"", gorseller, secler, kapakYap:!u.img && secler.length>0,
-          aciklama:metin(r.aciklama), kullanim:metin(r.kullanim), icerik:metin(r.icerik||r.icindekiler), sayfa:r.sayfa||""};
+          aciklama:metin(r.aciklama), kullanim:metin(r.kullanim), icerik:metin(r.icerik||r.icindekiler), sayfa:r.sayfa||"",
+          bulundu:!!r.bulundu, eslesme:r.eslesme||0, emin:r.emin!==false, cevrildi:!!r.cevrildi, kaynakDil:r.kaynakDil||"", ceviriNot:r.ceviriNot||""};
       });
     };
     const bilgiSonraki = (kuyruk) => {
@@ -31254,6 +31257,13 @@ if(DB) dbUpsertAyar("tema",tema);
                       "1 numaralı görsel kapak görseli olsun"+(m.u.img?" (mevcut kapak galeride kalır)":""))
                   )
                 : div({style:{fontSize:12.5,color:"var(--mu)",marginBottom:10}},"Bu sayfada görsel bulunamadı."),
+              m.bulundu && div({style:{padding:"8px 11px",borderRadius:10,marginBottom:10,fontSize:12,lineHeight:1.45,
+                  background:m.emin?"rgba(52,199,89,.09)":"rgba(255,149,0,.10)",border:"1px solid "+(m.emin?"rgba(52,199,89,.3)":"rgba(255,149,0,.35)"),color:m.emin?"#1A7A34":"#A35A00"}},
+                m.emin ? "🔎 Ürün sayfası otomatik bulundu (eşleşme %"+m.eslesme+"). Aşağıdaki Kaynak sayfa adresine kaydedilecek."
+                       : "⚠️ Ürün sayfası otomatik bulundu ama eşleşme zayıf (%"+m.eslesme+"). Uygulamadan önce \"Sayfayı aç\" ile doğru ürün olduğunu kontrol edin."),
+              (m.cevrildi || m.ceviriNot) && div({style:{padding:"7px 11px",borderRadius:10,marginBottom:10,fontSize:12,lineHeight:1.45,background:"rgba(0,113,227,.07)",border:"1px solid rgba(0,113,227,.22)",color:"var(--tx)"}},
+                m.cevrildi ? "🇹🇷 Açıklama ve kullanım "+((({DE:"Almanca",EN:"İngilizce","EN-GB":"İngilizce","EN-US":"İngilizce",IT:"İtalyanca",FR:"Fransızca",ES:"İspanyolca",NL:"Felemenkçe",PL:"Lehçe",PT:"Portekizce",RU:"Rusça"})[String(m.kaynakDil||"").toUpperCase()])||"yabancı dilden")+" Türkçeye çevrildi. İçerik listesi (INCI) bilerek çevrilmedi."
+                           : "ℹ️ Metinler çevrilmedi: "+m.ceviriNot),
               div({style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}},
                 lbl({className:"fl",style:{margin:0}},"Ürün bilgileri"),
                 h("label",{style:{fontSize:11.5,color:"var(--mu)",display:"flex",alignItems:"center",gap:5,cursor:"pointer"}},
