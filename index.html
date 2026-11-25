@@ -19017,7 +19017,8 @@ function RvFormModal({mod, rv, varsayilan, baslikEk, mevcutlar, musteriDB, kulId
     onKaydet(f0);
   };
   const baslik = mod==="yeni" ? ("Yeni Randevu"+(baslikEk?" · "+baslikEk:"")) : mod==="duzenle" ? "Randevuyu Düzenle" : mod==="ertele" ? "Randevuyu Ertele" : "Randevuyu İptal Et";
-  const NEDENLER = ["Müşteri iptal etti","Müşteri gelmedi","Ben iptal ettim"];
+  const NEDENLER = ["Müşteri iptal etti","Müşteri gelmedi","Ben iptal ettim",RV_SEHVEN];
+  const sehven = mod==="iptal" && neden===RV_SEHVEN;
   return div({className:"conf-ov",style:{alignItems:"center",padding:"0 14px",zIndex:99990}},
     div({className:"gs-k",style:{maxHeight:"88vh",overflowY:"auto",textAlign:"left"}},
       div({style:{fontSize:18,fontWeight:700,color:"var(--tx)",textAlign:"center",marginBottom:4}},baslik),
@@ -19031,7 +19032,10 @@ function RvFormModal({mod, rv, varsayilan, baslikEk, mevcutlar, musteriDB, kulId
                 style:{padding:"8px 12px",borderRadius:20,border:"1px solid "+(neden===n?"#FF3B30":"var(--br)"),
                   background:neden===n?"rgba(255,59,48,.1)":"var(--bg3)",color:neden===n?"#C0392B":"var(--tx)",fontSize:13,fontWeight:600,cursor:"pointer"}},n))),
             h("input",{className:"fi",placeholder:"Başka bir neden yazın…",value:NEDENLER.includes(neden)?"":neden,onChange:e=>setNeden(e.target.value)}),
-            div({style:{fontSize:12,color:"var(--di)",marginTop:10,lineHeight:1.5}},"Randevu iptal edilir. Bu randevu için açılmış boş kayıt formu varsa otomatik silinir; doldurulmuş bir kayıt silinmez.")
+            sehven
+              ? div({style:{fontSize:12.5,color:"#C0392B",marginTop:10,lineHeight:1.5,background:"rgba(255,59,48,.07)",border:"1px solid rgba(255,59,48,.25)",borderRadius:10,padding:"9px 11px"}},
+                  span({style:{fontWeight:700}},"Randevu tamamen silinir: "),"iptal sayılmaz; geçmişte, iptal/gelmedi sayılarında ve takvimde görünmez. Bu randevu için açılmış boş kayıt formu da silinir; doldurulmuş bir kayıt silinmez.")
+              : div({style:{fontSize:12,color:"var(--di)",marginTop:10,lineHeight:1.5}},"Randevu iptal edilir. Bu randevu için açılmış boş kayıt formu varsa otomatik silinir; doldurulmuş bir kayıt silinmez.")
           )
         : div(null,
             mod!=="ertele" && div(null,
@@ -19084,12 +19088,14 @@ function RvFormModal({mod, rv, varsayilan, baslikEk, mevcutlar, musteriDB, kulId
       !eskiOnay && div({className:"btn-r",style:{marginTop:16}},
         btn({className:"btn-i",onClick:onKapat},mod==="iptal"?"Vazgeç":"Kapat"),
         btn({className:"btn-k",style:mod==="iptal"?{background:"#FF3B30",color:"#fff"}:null,onClick:kaydet},
-          mod==="iptal"?"Evet, İptal Et":mod==="ertele"?"Ertele":"Kaydet"))
+          mod==="iptal"?(sehven?"Evet, Randevuyu Sil":"Evet, İptal Et"):mod==="ertele"?"Ertele":"Kaydet"))
     )
   );
 }
 
 // ── Genel boş saat takvimi (sekreter): hangi saatte hangi personel boş, müşteriyi birine ata ──
+const RV_SEHVEN = "Sehven oluşturuldu"; // bu nedenle "iptal" edilen randevu iptal sayılmaz, silinir (durum:"silindi")
+const rvGorunur = r => !!r && r.durum!=="silindi"; // silinmiş randevu: eşitleme için listede kalır (silme kaydı), hiçbir ekranda/sayımda görünmez
 const RV_VARSAYILAN_SURE = 30; // süresi girilmemiş randevular bu kadar dakika dolu sayılır
 const rvDk = t => { const a=String(t||"0:0").split(":"); return (+a[0]||0)*60+(+a[1]||0); };
 function RvGenelTakvim({personeller, rvOf, devDB, onAta, onYenile, serit}){
@@ -20928,7 +20934,7 @@ if(DB) dbUpsertAyar("tema",tema);
   // ══ RANDEVU DEFTERİ (personel) ═══════════════════════════════════════════
   // Veri modeli (müşteri randevu alanı için de genişletilebilir): kaynak:"personel"|"musteri", musteriId, hizmetler[], sureDk
   // Kayıt formu bağı: randevu.kayitId → kayıt formu silinse bile randevu silinmez.
-  const rvBenim = kul ? (randevular||[]).filter(r=>r && String(r.staffId)===String(kul.id)) : [];
+  const rvBenim = kul ? (randevular||[]).filter(r=>rvGorunur(r) && String(r.staffId)===String(kul.id)) : [];
   const rvOtoIds = new Set((randevular||[]).map(r=>r&&r.kayitId).filter(Boolean).map(String));
   const rvBosOto = r => !!r && rvOtoIds.has(String(r.id)) && !rvKayitDolu(r);
   const myBekleyenGonder = myBekleyen.filter(r=>!rvBosOto(r));
@@ -21002,6 +21008,18 @@ if(DB) dbUpsertAyar("tema",tema);
     showToast("Randevu ertelendi: "+(f.tarih===TODAY()?"bugün":fmtT(f.tarih))+" "+f.saat);
   };
   const rvIptal = (rv,neden) => {
+    if(neden===RV_SEHVEN){
+      // Sehven oluşturulan randevu: iptal değil SİLME. Listeden çıkarılmaz (başka cihazdan geri gelmesin diye), "silindi" olarak işaretlenir.
+      const rec=rvKayitBul(rv.kayitId);
+      let not="Randevu silindi";
+      if(rec){
+        if(rvKayitDolu(rec)) not="Randevu silindi · kayıt formu doldurulmuş olduğu için kayıt silinmedi";
+        else { rvKayitSessizSil(rec.id); not="Randevu silindi · boş kayıt formu da silindi"; }
+      }
+      rvGuncelle(rv.id,{durum:"silindi",iptalNedeni:RV_SEHVEN,silinmeZaman:Date.now(),kayitId:""});
+      setRvModal(null); showToast(not,"uy");
+      return;
+    }
     const rec=rvKayitBul(rv.kayitId);
     let not="Randevu iptal edildi";
     if(rec){
@@ -21368,7 +21386,7 @@ if(DB) dbUpsertAyar("tema",tema);
     try{ if(ziyaretFotoAl(b.id)) ziyaretFotoKaydet(b.id, null); }catch(e){}
     showToast("Borç kaydı silindi","uy");
   };
-  const sekRvOf = (sid) => { const c=sekRvHavuz[String(sid)]; const yerel=(randevular||[]).filter(r=>r&&String(r.staffId)===String(sid)); if(!c) return yerel; const m={}; yerel.concat(c).forEach(r=>{ const k=String(r.id),e=m[k]; if(!e||(r.guncelleme||0)>=(e.guncelleme||0)) m[k]=r; }); return Object.values(m); };
+  const sekRvOf = (sid) => { const c=sekRvHavuz[String(sid)]; const yerel=(randevular||[]).filter(r=>r&&String(r.staffId)===String(sid)); if(!c) return yerel.filter(rvGorunur); const m={}; yerel.concat(c).forEach(r=>{ const k=String(r.id),e=m[k]; if(!e||(r.guncelleme||0)>=(e.guncelleme||0)) m[k]=r; }); return Object.values(m).filter(rvGorunur); };
   const sekRvAta = async (p,f) => {
     const t=Date.now();
     // Kaydetmeden hemen önce personelin bulutta GÜNCEL randevularına bak: aynı saate (süre çakışması dahil) yeni randevu girilmiş olabilir.
